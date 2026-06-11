@@ -1,0 +1,4389 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="dark">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>📚 小说章节清理工具 Pro</title>
+  <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  <style>
+    /* 保持原有的样式不变，为了节省篇幅，这里引用之前定义的所有CSS变量和样式 */
+    :root {
+      --light-bg-primary: #ffffff;
+      --light-bg-secondary: #f8f9fa;
+      --light-bg-tertiary: #f1f3f4;
+      --light-bg-elevated: #ffffff;
+      --light-border: #e0e0e0;
+      --light-border-subtle: #f1f3f4;
+      --light-text-primary: #1f1f1f;
+      --light-text-secondary: #5f6368;
+      --light-text-tertiary: #80868b;
+      --light-accent: #1a73e8;
+      --light-accent-hover: #1557b0;
+      --light-accent-light: #e8f0fe;
+      --light-success: #1e8e3e;
+      --light-success-bg: #e6f4ea;
+      --light-error: #d93025;
+      --light-error-bg: #fce8e6;
+      --light-warning: #f9ab00;
+      --light-warning-bg: #fef7e0;
+
+      --dark-bg-primary: #1e1e1e;
+      --dark-bg-secondary: #252525;
+      --dark-bg-tertiary: #2d2d2d;
+      --dark-bg-elevated: #333333;
+      --dark-border: #404040;
+      --dark-border-subtle: #333333;
+      --dark-text-primary: #e3e3e3;
+      --dark-text-secondary: #9aa0a6;
+      --dark-text-tertiary: #6e6e6e;
+      --dark-accent: #8ab4f8;
+      --dark-accent-hover: #aecbfa;
+      --dark-accent-light: #394457;
+      --dark-success: #81c995;
+      --dark-success-bg: #1e3a29;
+      --dark-error: #f28b82;
+      --dark-error-bg: #3c2a2a;
+      --dark-warning: #fdd663;
+      --dark-warning-bg: #3d3523;
+    }
+
+    [data-theme="light"] {
+      --bg-primary: var(--light-bg-primary);
+      --bg-secondary: var(--light-bg-secondary);
+      --bg-tertiary: var(--light-bg-tertiary);
+      --bg-elevated: var(--light-bg-elevated);
+      --border: var(--light-border);
+      --border-subtle: var(--light-border-subtle);
+      --text-primary: var(--light-text-primary);
+      --text-secondary: var(--light-text-secondary);
+      --text-tertiary: var(--light-text-tertiary);
+      --accent: var(--light-accent);
+      --accent-hover: var(--light-accent-hover);
+      --accent-light: var(--light-accent-light);
+      --success: var(--light-success);
+      --success-bg: var(--light-success-bg);
+      --error: var(--light-error);
+      --error-bg: var(--light-error-bg);
+      --warning: var(--light-warning);
+      --warning-bg: var(--light-warning-bg);
+    }
+
+    [data-theme="dark"] {
+      --bg-primary: var(--dark-bg-primary);
+      --bg-secondary: var(--dark-bg-secondary);
+      --bg-tertiary: var(--dark-bg-tertiary);
+      --bg-elevated: var(--dark-bg-elevated);
+      --border: var(--dark-border);
+      --border-subtle: var(--dark-border-subtle);
+      --text-primary: var(--dark-text-primary);
+      --text-secondary: var(--dark-text-secondary);
+      --text-tertiary: var(--dark-text-tertiary);
+      --accent: var(--dark-accent);
+      --accent-hover: var(--dark-accent-hover);
+      --accent-light: var(--dark-accent-light);
+      --success: var(--dark-success);
+      --success-bg: var(--dark-success-bg);
+      --error: var(--dark-error);
+      --error-bg: var(--dark-error-bg);
+      --warning: var(--dark-warning);
+      --warning-bg: var(--dark-warning-bg);
+    }
+
+    body {
+      background-color: var(--bg-primary);
+      color: var(--text-primary);
+      transition:
+        background-color 0.3s,
+        color 0.3s;
+    }
+
+    ::-webkit-scrollbar {
+      width: 8px;
+      height: 8px;
+    }
+
+    ::-webkit-scrollbar-track {
+      background: var(--bg-tertiary);
+      border-radius: 4px;
+    }
+
+    ::-webkit-scrollbar-thumb {
+      background: var(--text-tertiary);
+      border-radius: 4px;
+    }
+
+    ::-webkit-scrollbar-thumb:hover {
+      background: var(--text-secondary);
+    }
+
+    .diff-added {
+      background-color: var(--success-bg);
+      border-left: 3px solid var(--success);
+    }
+
+    .diff-removed {
+      background-color: var(--error-bg);
+      border-left: 3px solid var(--error);
+    }
+
+    .diff-modified {
+      background-color: var(--warning-bg);
+      border-left: 3px solid var(--warning);
+    }
+
+    .diff-context {
+      background-color: transparent;
+      border-left: 3px solid var(--border);
+      opacity: 0.8;
+    }
+
+    .diff-line {
+      transition: opacity 0.2s;
+    }
+
+    .diff-line:hover {
+      opacity: 1 !important;
+    }
+
+    .diff-line.active {
+      outline: 2px solid var(--accent);
+      outline-offset: -2px;
+    }
+
+    .deleted-char {
+      background-color: var(--error-bg);
+      color: var(--error);
+      text-decoration: line-through;
+      padding: 0 1px;
+      border-radius: 2px;
+    }
+
+    @keyframes pulse-border {
+
+      0%,
+      100% {
+        border-color: var(--accent);
+      }
+
+      50% {
+        border-color: var(--accent-hover);
+      }
+    }
+
+    .processing {
+      animation: pulse-border 1.5s ease-in-out infinite;
+    }
+
+    .step-active {
+      background: linear-gradient(135deg, var(--accent), #a855f7);
+    }
+
+    .step-completed {
+      background: var(--success);
+    }
+
+    .step-pending {
+      background: var(--bg-tertiary);
+    }
+
+    select option {
+      background: var(--bg-secondary);
+      color: var(--text-primary);
+    }
+
+    .content-preview {
+      font-family:
+        "Noto Serif SC", "Source Han Serif CN", serif, system-ui;
+      line-height: 1.8;
+    }
+
+    .spinner {
+      border: 3px solid var(--bg-tertiary);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin {
+      to {
+        transform: rotate(360deg);
+      }
+    }
+
+    .btn-pending {
+      position: relative;
+      pointer-events: none;
+    }
+
+    .btn-pending::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.3);
+      border-radius: inherit;
+    }
+
+    .speed-slider {
+      -webkit-appearance: none;
+      background: linear-gradient(to right,
+          var(--error) 0%,
+          var(--bg-tertiary) 45%,
+          var(--bg-tertiary) 55%,
+          var(--success) 100%);
+      border-radius: 4px;
+      height: 8px;
+      cursor: pointer;
+    }
+
+    .speed-slider::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 18px;
+      height: 18px;
+      background: var(--accent);
+      border-radius: 50%;
+      cursor: grab;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+    }
+
+    .speed-slider::-webkit-slider-thumb:active {
+      cursor: grabbing;
+      transform: scale(1.1);
+    }
+
+    input[type="range"] {
+      -webkit-appearance: none;
+      background: var(--bg-tertiary);
+      border-radius: 4px;
+      height: 6px;
+    }
+
+    input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 16px;
+      height: 16px;
+      background: var(--accent);
+      border-radius: 50%;
+      cursor: pointer;
+    }
+
+    .themed-bg-primary {
+      background-color: var(--bg-primary);
+    }
+
+    .themed-bg-secondary {
+      background-color: var(--bg-secondary);
+    }
+
+    .themed-bg-tertiary {
+      background-color: var(--bg-tertiary);
+    }
+
+    .themed-bg-elevated {
+      background-color: var(--bg-elevated);
+    }
+
+    .themed-border {
+      border-color: var(--border);
+    }
+
+    .themed-input {
+      background-color: var(--bg-tertiary);
+      border-color: var(--border);
+      color: var(--text-primary);
+    }
+
+    .themed-input:focus {
+      border-color: var(--accent);
+      outline: none;
+      box-shadow: 0 0 0 2px var(--accent-light);
+    }
+
+    .btn-primary {
+      background-color: var(--accent);
+      color: white;
+    }
+
+    .btn-primary:hover {
+      background-color: var(--accent-hover);
+    }
+
+    .btn-secondary {
+      background-color: var(--bg-tertiary);
+      color: var(--text-primary);
+    }
+
+    .btn-secondary:hover {
+      background-color: var(--bg-elevated);
+    }
+
+    .chapter-item {
+      background-color: transparent;
+      transition: background-color 0.2s;
+    }
+
+    .chapter-item:hover {
+      background-color: var(--bg-tertiary);
+    }
+
+    .chapter-item.active {
+      background-color: var(--accent-light);
+      border: 1px solid var(--accent);
+    }
+
+    .theme-toggle,
+    .reset-btn {
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background-color: var(--bg-tertiary);
+      cursor: pointer;
+      transition: background-color 0.2s;
+    }
+
+    .theme-toggle:hover,
+    .reset-btn:hover {
+      background-color: var(--bg-elevated);
+    }
+
+    .line-actions {
+      display: none;
+      gap: 2px;
+    }
+
+    .diff-line-wrapper:hover .line-actions {
+      display: flex;
+    }
+
+    .line-action-btn {
+      width: 22px;
+      height: 22px;
+      border-radius: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      cursor: pointer;
+      transition: all 0.2s;
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border);
+    }
+
+    .line-action-btn:hover {
+      background: var(--bg-elevated);
+    }
+
+    .line-action-btn.active-accept {
+      background: var(--success-bg);
+      border-color: var(--success);
+      color: var(--success);
+    }
+
+    .line-action-btn.active-reject {
+      background: var(--error-bg);
+      border-color: var(--error);
+      color: var(--error);
+    }
+
+    .line-edit-input {
+      width: 100%;
+      background: var(--bg-primary);
+      border: 2px solid var(--accent);
+      border-radius: 4px;
+      padding: 4px 8px;
+      color: var(--text-primary);
+      font-size: 14px;
+    }
+
+    .line-edit-input:focus {
+      outline: none;
+      box-shadow: 0 0 0 2px var(--accent-light);
+    }
+
+    .rejected-line {
+      text-decoration: line-through;
+      opacity: 0.6;
+    }
+
+    .edited-badge {
+      font-size: 10px;
+      padding: 1px 4px;
+      background: var(--accent-light);
+      color: var(--accent);
+      border-radius: 3px;
+      margin-left: 4px;
+    }
+
+    .range-input {
+      width: 60px;
+      text-align: center;
+      background: transparent;
+      border: none;
+      font-size: 1.125rem;
+      font-weight: bold;
+      color: var(--accent);
+      cursor: pointer;
+    }
+
+    .range-input:focus {
+      outline: 2px solid var(--accent);
+      border-radius: 4px;
+      background: var(--bg-tertiary);
+    }
+
+    .number-input-sm {
+      width: 100%;
+      text-align: center;
+      background: var(--bg-primary);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      font-size: 0.875rem;
+      padding: 2px 0;
+      color: var(--text-primary);
+    }
+
+    .debug-textarea {
+      font-family: monospace;
+      font-size: 12px;
+      line-height: 1.4;
+      white-space: pre-wrap;
+      background-color: #1e1e1e;
+      color: #d4d4d4;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+    }
+
+    .model-tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 4px 10px;
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      font-size: 12px;
+      cursor: pointer;
+      transition: all 0.2s;
+      text-decoration: none;
+      color: var(--text-primary);
+    }
+
+    .model-tag:hover {
+      background: var(--accent-light);
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+
+    #sidebar.collapsed {
+      width: 0 !important;
+      border-right: none;
+      overflow: hidden;
+    }
+
+    #rightSidebar.collapsed {
+      width: 0 !important;
+      border-left: none;
+      overflow: hidden;
+    }
+
+    .collapsed-text {
+      text-decoration: line-through;
+    }
+  </style>
+</head>
+
+<body class="min-h-screen">
+  <div id="app" class="flex flex-col h-screen">
+    <!-- Header -->
+    <header class="themed-bg-secondary themed-border border-b px-6 py-4 flex items-center justify-between shrink-0">
+      <div class="flex items-center gap-3">
+        <img id="customLogo"
+          src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48' width='48' height='48'%3E%3Ctext x='50%25' y='50%25' dominant-baseline='central' text-anchor='middle' font-size='36'%3E📚%3C/text%3E%3C/svg%3E"
+          alt="Logo" class="h-8 w-auto object-contain flex-shrink-0" style="max-height: 40px; min-width: 32px" />
+        <h1 class="text-xl font-bold bg-gradient-to-r from-blue-500 to-purple-500 bg-clip-text text-transparent">
+          小说章节清理工具 Pro
+        </h1>
+      </div>
+      <div class="flex items-center gap-3">
+        <button onclick="toggleLeftSidebar()" class="px-3 py-2 btn-secondary rounded-lg transition-colors"
+          title="切换左侧边栏">
+          <span id="leftSidebarText">左</span>
+        </button>
+        <button onclick="toggleRightSidebar()" class="px-3 py-2 btn-secondary rounded-lg transition-colors"
+          title="切换右侧边栏">
+          <span id="rightSidebarText">右</span>
+        </button>
+        <span id="tokenEstimate" class="text-sm themed-text-secondary hidden">预估:
+          <span class="themed-accent font-mono">0</span>
+          tokens</span>
+        <button onclick="resetApp()" class="reset-btn" title="重置">
+          <span>🔄</span>
+        </button>
+        <button onclick="toggleTheme()" class="theme-toggle" title="切换主题">
+          <span id="themeIcon">🌙</span>
+        </button>
+        <button onclick="openSettings()"
+          class="flex items-center gap-2 px-4 py-2 btn-secondary rounded-lg transition-colors">
+          <span>⚙️</span><span>设置</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- Step Indicator -->
+    <div class="themed-bg-secondary themed-border border-b px-6 py-4 shrink-0" style="
+                    background-color: color-mix(
+                        in srgb,
+                        var(--bg-secondary) 50%,
+                        transparent
+                    );
+                ">
+      <div class="flex items-center justify-center gap-4 max-w-4xl mx-auto">
+        <div class="flex items-center gap-2">
+          <div id="step1-indicator"
+            class="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold step-active text-white">
+            1
+          </div>
+          <span class="text-sm font-medium">导入文件</span>
+        </div>
+        <div class="h-0.5 w-16 themed-bg-tertiary"></div>
+        <div class="flex items-center gap-2">
+          <div id="step2-indicator"
+            class="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold step-pending">
+            2
+          </div>
+          <span class="text-sm themed-text-secondary">章节分割</span>
+        </div>
+        <div class="h-0.5 w-16 themed-bg-tertiary"></div>
+        <div class="flex items-center gap-2">
+          <div id="step3-indicator"
+            class="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold step-pending">
+            3
+          </div>
+          <span class="text-sm themed-text-secondary">AI 清理</span>
+        </div>
+        <div class="h-0.5 w-16 themed-bg-tertiary"></div>
+        <div class="flex items-center gap-2">
+          <div id="step4-indicator"
+            class="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold step-pending">
+            4
+          </div>
+          <span class="text-sm themed-text-secondary">导出文件</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Main Content -->
+    <main class="flex-1 flex overflow-hidden">
+      <!-- Sidebar -->
+      <aside id="sidebar"
+        class="w-80 themed-bg-secondary themed-border border-r flex flex-col shrink-0 overflow-y-auto">
+        <div class="p-4 themed-border border-b">
+          <div class="mb-3">
+            <button onclick="importFile()"
+              class="w-full flex items-center justify-center gap-2 px-4 py-2.5 btn-primary rounded-lg transition-colors">
+              <span>📄</span><span>导入文件</span>
+            </button>
+          </div>
+          <div class="mb-3">
+            <div class="flex items-center gap-2">
+              <label class="text-xs themed-text-secondary">编码:</label>
+              <select id="encodingSelect" onchange="onEncodingChange()"
+                class="flex-1 themed-input rounded px-2 py-1 text-xs border">
+                <option value="auto">🔍 自动检测</option>
+                <option value="utf-8">UTF-8</option>
+                <option value="gbk">GBK (简体中文)</option>
+                <option value="gb18030">
+                  GB18030 (简体中文扩展)
+                </option>
+                <option value="big5">
+                  Big5 (繁体中文)
+                </option>
+              </select>
+              <span id="detectedEncoding" class="text-xs hidden" style="color: var(--success)"></span>
+            </div>
+          </div>
+          <div id="fileInfo" class="text-sm themed-text-secondary hidden">
+            <div class="flex items-center gap-2">
+              <span>📊</span><span id="fileCount">0 个文件</span><span class="themed-text-tertiary">|</span><span
+                id="totalChars">0 字符</span>
+            </div>
+          </div>
+        </div>
+
+        <div id="processingRangeSection" class="p-4 themed-border border-t hidden">
+          <div class="flex items-center justify-between mb-3">
+            <label class="text-sm font-medium">处理范围</label><button onclick="resetRange()"
+              class="text-xs themed-accent hover:underline">
+              全部
+            </button>
+          </div>
+          <div class="grid grid-cols-2 gap-4">
+            <div>
+              <label class="block text-xs themed-text-secondary mb-1 text-center">起点</label><input type="range"
+                id="startSpeedSlider" class="speed-slider w-full" min="0" max="100" value="50" />
+              <div class="text-center mt-1">
+                <input type="text" id="rangeStartDisplay" class="range-input" value="1" onclick="this.select()"
+                  onblur="validateRangeInput('start')" onkeydown="
+                                            if (event.key === 'Enter') {
+                                                this.blur();
+                                            }
+                                        " />
+              </div>
+            </div>
+            <div>
+              <label class="block text-xs themed-text-secondary mb-1 text-center">终点</label><input type="range"
+                id="endSpeedSlider" class="speed-slider w-full" min="0" max="100" value="50" />
+              <div class="text-center mt-1">
+                <input type="text" id="rangeEndDisplay" class="range-input" value="1" onclick="this.select()"
+                  onblur="validateRangeInput('end')" onkeydown="
+                                            if (event.key === 'Enter') {
+                                                this.blur();
+                                            }
+                                        " />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Global Settings (hidden when Multi-API mode is on) -->
+        <div id="advancedSettingsSection" class="p-4 themed-border border-t hidden">
+          <label class="text-sm font-medium mb-3 block">并发与限制</label>
+          <div id="globalSettingsContainer" class="grid grid-cols-3 gap-2">
+            <div>
+              <label class="block text-xs themed-text-secondary mb-1 text-center" title="单次发送给AI的章节数">单次章节</label><input
+                type="number" id="batchSizeInput" class="number-input-sm" value="1" min="1"
+                onchange="validateAdvancedInputs()" />
+            </div>
+            <div>
+              <label class="block text-xs themed-text-secondary mb-1 text-center" title="同时发送的请求数量">并发数</label><input
+                type="number" id="concurrencyInput" class="number-input-sm" value="1" min="1"
+                onchange="validateAdvancedInputs()" />
+            </div>
+            <div>
+              <label class="block text-xs themed-text-secondary mb-1 text-center" title="每分钟最大请求数">RPM限制</label><input
+                type="number" id="rpmInput" class="number-input-sm" value="60" min="1" max="1000"
+                onchange="validateAdvancedInputs()" />
+            </div>
+          </div>
+
+          <!-- Per-API Node Settings (shown when Multi-API mode is on) -->
+          <div id="multiApiNodesContainer" class="hidden space-y-3">
+            <div class="flex items-center justify-between mb-2">
+              <span class="text-xs themed-text-secondary">🌐 多API模式已启用</span>
+              <button onclick="openSettings()" class="text-xs themed-accent hover:underline">管理节点</button>
+            </div>
+            <div id="sidebarApiNodesList" class="space-y-2 max-h-48 overflow-y-auto">
+              <!-- API nodes will be rendered here -->
+            </div>
+          </div>
+        </div>
+
+        <div id="intervalSection" class="p-4 themed-border border-t hidden">
+          <label class="block text-sm font-medium mb-2">全局请求间隔 (秒)</label>
+          <input id="intervalSlider" type="number" min="0" step="0.1" value="0"
+            class="w-full themed-input border rounded-lg px-4 py-2.5" />
+          <p class="text-xs themed-text-tertiary mt-1">
+            所有API请求之间的最小间隔，防止同时提交触发429错误
+          </p>
+        </div>
+
+        <div class="p-4 themed-border border-t space-y-2">
+          <div id="processingControls">
+            <button id="btnProcess" onclick="startProcessing()" disabled
+              class="w-full flex items-center justify-center gap-2 px-4 py-3 bg-green-600 hover:bg-green-500 disabled:themed-bg-tertiary disabled:themed-text-tertiary disabled:cursor-not-allowed rounded-lg transition-colors font-medium text-white">
+              <span>🤖</span><span>开始 AI 清理</span>
+            </button>
+          </div>
+          <div id="runningControls" class="hidden">
+            <div class="flex gap-2 mb-2">
+              <button id="btnPause" onclick="togglePause()"
+                class="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-yellow-600 hover:bg-yellow-500 text-white rounded-lg transition-colors font-medium">
+                <span id="pauseIcon">⏸</span><span id="pauseText">暂停</span>
+              </button>
+              <button id="btnStop" onclick="stopProcessing()"
+                class="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-red-600 hover:bg-red-500 text-white rounded-lg transition-colors font-medium">
+                <span>⏹</span><span>停止</span>
+              </button>
+            </div>
+            <div id="pendingNotice" class="hidden text-xs text-center px-2 py-1.5 rounded" style="
+                                    background-color: var(--warning-bg);
+                                    color: var(--warning);
+                                ">
+              ⏳ 正在等待当前任务完成...
+            </div>
+            <div class="themed-bg-tertiary rounded-lg p-3 mt-2">
+              <div class="flex justify-between text-xs themed-text-secondary mb-1">
+                <span>进度:
+                  <span id="processProgress">0</span>/<span id="processTotal">0</span>
+                  (章)</span><span id="processSpeed"></span>
+              </div>
+              <div class="h-2 themed-bg-primary rounded-full overflow-hidden">
+                <div id="progressBar"
+                  class="h-full bg-gradient-to-r from-blue-500 to-purple-500 transition-all duration-300"
+                  style="width: 0%"></div>
+              </div>
+              <div id="concurrencyStatus" class="text-xs themed-text-tertiary mt-1 text-right">
+                活跃请求: 0
+              </div>
+            </div>
+          </div>
+          <div class="flex gap-2">
+            <button id="btnExportMerged" onclick="exportMerged()" disabled
+              class="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 btn-secondary disabled:themed-bg-tertiary disabled:themed-text-tertiary disabled:cursor-not-allowed rounded-lg transition-colors text-sm">
+              <span>📄</span><span>合并导出</span>
+            </button>
+            <button id="btnExportZip" onclick="exportZip()" disabled
+              class="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 btn-secondary disabled:themed-bg-tertiary disabled:themed-text-tertiary disabled:cursor-not-allowed rounded-lg transition-colors text-sm">
+              <span>📦</span><span>ZIP导出</span>
+            </button>
+          </div>
+        </div>
+      </aside>
+
+      <!-- Content Area -->
+      <div class="flex-1 flex flex-col overflow-hidden">
+        <div id="contentToolbar"
+          class="themed-bg-secondary themed-border border-b px-4 py-2 flex items-center justify-between shrink-0 hidden"
+          style="
+                            background-color: color-mix(
+                                in srgb,
+                                var(--bg-secondary) 50%,
+                                transparent
+                            );
+                        ">
+          <div class="flex items-center gap-4">
+            <span id="currentChapterTitle" class="font-medium"></span><span id="chapterStatus"
+              class="text-xs px-2 py-1 rounded-full themed-bg-tertiary"></span>
+          </div>
+          <div class="flex items-center gap-2">
+            <button id="btnPrevChapter" onclick="prevChapter()" class="p-2 btn-secondary rounded transition-colors"
+              title="上一章">
+              ◀
+            </button>
+            <button id="btnNextChapter" onclick="nextChapter()" class="p-2 btn-secondary rounded transition-colors"
+              title="下一章">
+              ▶
+            </button>
+            <div class="h-4 w-px themed-bg-tertiary mx-2"></div>
+            <button id="btnViewOriginal" onclick="setViewMode('original')"
+              class="px-3 py-1.5 btn-primary rounded-l transition-colors text-sm">
+              原文
+            </button>
+            <button id="btnViewCleaned" onclick="setViewMode('cleaned')"
+              class="px-3 py-1.5 btn-secondary transition-colors text-sm">
+              清理后
+            </button>
+            <button id="btnViewDiff" onclick="setViewMode('diff')"
+              class="px-3 py-1.5 btn-secondary rounded-r transition-colors text-sm">
+              对比
+            </button>
+          </div>
+        </div>
+
+        <div id="contentDisplay" class="flex-1 overflow-hidden flex">
+          <div id="welcomeScreen" class="flex-1 flex items-center justify-center">
+            <div class="text-center max-w-md">
+              <div class="text-6xl mb-6">📚</div>
+              <h2 class="text-2xl font-bold mb-4">
+                欢迎使用小说章节清理工具 Pro
+              </h2>
+              <p class="themed-text-secondary mb-6">
+                自动分割、并发处理、AI 清理。
+              </p>
+              <div class="space-y-3 text-left themed-bg-secondary rounded-lg p-4">
+                <div class="flex items-start gap-3">
+                  <span style="color: var(--success)">✓</span><span class="text-sm">支持批量、并发、RPM 限制</span>
+                </div>
+                <div class="flex items-start gap-3">
+                  <span style="color: var(--success)">✓</span><span class="text-sm">修复编码自动检测，一键导入</span>
+                </div>
+                <div class="flex items-start gap-3">
+                  <span style="color: var(--success)">✓</span><span class="text-sm">实时查看最新请求的 AI
+                    生成过程</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div id="originalView" class="flex-1 overflow-y-auto p-6 hidden">
+            <div class="max-w-3xl mx-auto">
+              <div class="flex items-center justify-between mb-3">
+                <span class="text-sm themed-text-secondary">原文内容</span><button id="btnEditOriginal"
+                  onclick="toggleEditOriginal()" class="text-sm themed-accent hover:underline flex items-center gap-1">
+                  <span>✎</span><span>编辑</span>
+                </button>
+              </div>
+              <div id="originalContent" class="content-preview whitespace-pre-wrap"></div>
+              <textarea id="originalEditArea"
+                class="hidden w-full h-[70vh] themed-input border rounded-lg px-4 py-3 resize-none content-preview"></textarea>
+              <div id="originalEditActions" class="hidden flex justify-end gap-2 mt-3">
+                <button onclick="cancelEditOriginal()"
+                  class="px-4 py-2 btn-secondary rounded-lg transition-colors text-sm">
+                  取消</button><button onclick="saveEditOriginal()"
+                  class="px-4 py-2 bg-green-600 hover:bg-green-500 text-white rounded-lg transition-colors text-sm">
+                  保存
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div id="cleanedView" class="flex-1 overflow-y-auto p-6 hidden">
+            <div class="max-w-3xl mx-auto">
+              <div class="flex items-center justify-between mb-3">
+                <span class="text-sm themed-text-secondary">清理后内容</span><button id="btnEditCleaned"
+                  onclick="toggleEditCleaned()" class="text-sm themed-accent hover:underline flex items-center gap-1">
+                  <span>✎</span><span>编辑</span>
+                </button>
+              </div>
+              <div id="cleanedContent" class="content-preview whitespace-pre-wrap"></div>
+              <textarea id="cleanedEditArea"
+                class="hidden w-full h-[70vh] themed-input border rounded-lg px-4 py-3 resize-none content-preview"></textarea>
+              <div id="cleanedEditActions" class="hidden flex justify-end gap-2 mt-3">
+                <button onclick="cancelEditCleaned()"
+                  class="px-4 py-2 btn-secondary rounded-lg transition-colors text-sm">
+                  取消</button><button onclick="saveEditCleaned()"
+                  class="px-4 py-2 bg-green-600 hover:bg-green-500 text-white rounded-lg transition-colors text-sm">
+                  保存
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div id="diffView" class="flex-1 overflow-hidden hidden">
+            <div class="h-full flex">
+              <div id="diffLeftPanel" class="flex-1 overflow-y-auto p-4 themed-border border-r">
+                <div class="text-sm font-medium mb-3 sticky top-0 themed-bg-primary py-2" style="color: var(--error)">
+                  ❌ 原文（修改前）
+                </div>
+                <div id="diffOriginal" class="content-preview text-sm space-y-0"></div>
+              </div>
+              <div id="diffRightPanel" class="flex-1 overflow-y-auto p-4">
+                <div class="text-sm font-medium mb-3 sticky top-0 themed-bg-primary py-2" style="color: var(--success)">
+                  ✅ 清理后（修改后）
+                </div>
+                <div id="diffCleaned" class="content-preview text-sm space-y-0"></div>
+              </div>
+            </div>
+          </div>
+
+          <div id="processingView" class="flex-1 overflow-y-auto p-6 hidden">
+            <div class="max-w-3xl mx-auto">
+              <div class="themed-bg-secondary rounded-lg p-6 mb-4">
+                <div class="flex items-center gap-3 mb-4">
+                  <div class="spinner w-6 h-6"></div>
+                  <span id="processingStatus" class="font-medium">正在处理...</span>
+                </div>
+                <div class="text-xs themed-text-tertiary">
+                  在批量并发模式下，此处实时显示最新发起的请求返回流。即使有多个请求在后台运行，您也可以通过此窗口确认
+                  AI 正在工作。
+                </div>
+              </div>
+
+              <!-- Active Tasks List -->
+              <div class="themed-bg-secondary rounded-lg p-4 mb-4">
+                <h3 class="text-sm font-semibold mb-2 themed-text-secondary">
+                  并发任务监控
+                </h3>
+                <div id="activeTasksList" class="space-y-2 max-h-40 overflow-y-auto custom-scrollbar p-1">
+                  <!-- Tasks will be injected here -->
+                  <div class="text-xs text-center themed-text-tertiary">
+                    无活跃任务
+                  </div>
+                </div>
+              </div>
+
+              <div class="themed-bg-secondary rounded-lg p-4">
+                <div class="flex justify-between items-center mb-2">
+                  <div class="text-sm themed-text-secondary">
+                    实时输出流监控:
+                  </div>
+                  <span id="streamingChapterTitle" class="text-xs font-medium px-2 py-0.5"
+                    style="color: var(--accent)">...</span>
+                </div>
+                <div class="grid grid-cols-2 gap-4 h-[60vh]">
+                  <!-- Left: Original -->
+                  <div class="flex flex-col">
+                    <div class="text-xs font-medium mb-1 themed-text-tertiary">
+                      发送的原文
+                    </div>
+                    <div id="streamOriginal"
+                      class="flex-1 content-preview text-sm whitespace-pre-wrap overflow-y-auto themed-bg-tertiary rounded p-4 font-mono">
+                    </div>
+                  </div>
+                  <!-- Right: Stream -->
+                  <div class="flex flex-col">
+                    <div class="text-xs font-medium mb-1 themed-text-tertiary">
+                      AI 生成中...
+                    </div>
+                    <div id="streamOutput"
+                      class="flex-1 content-preview text-sm whitespace-pre-wrap overflow-y-auto themed-bg-tertiary rounded p-4 font-mono">
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div id="chapterActionBar" class="themed-bg-secondary themed-border border-t px-4 py-3 hidden shrink-0">
+          <div class="flex items-center justify-between max-w-3xl mx-auto">
+            <div class="flex items-center gap-4 text-sm themed-text-secondary">
+              <span id="diffStats"></span><span id="charStats"></span><span id="charWarning"
+                class="hidden px-2 py-1 rounded text-xs" style="
+                                        background-color: var(--warning-bg);
+                                        color: var(--warning);
+                                    ">⚠️ 字符减少过多，建议检查</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <button onclick="markForReprocess()"
+                class="px-4 py-2 bg-orange-600 hover:bg-orange-500 text-white rounded-lg transition-colors text-sm"
+                title="标记此章节需要重新处理。下次点击'开始AI清理'时，将优先处理所有被标记的章节。">
+                🔄 标记重新处理
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <aside id="rightSidebar"
+        class="w-64 themed-bg-secondary themed-border border-l flex flex-col shrink-0 transition-all duration-300">
+        <div class="flex-1 overflow-hidden flex flex-col">
+          <div class="p-4 themed-border border-b flex items-center justify-between">
+            <h3 class="font-semibold flex items-center gap-2">
+              <span>📑</span><span>章节列表</span><span id="chapterCount"
+                class="text-xs themed-bg-tertiary px-2 py-0.5 rounded-full">0</span>
+            </h3>
+            <button onclick="openChapterSettings()" class="text-sm themed-accent hover:underline">
+              分割设置
+            </button>
+          </div>
+          <div id="chapterList" class="flex-1 overflow-y-auto p-2 space-y-1">
+            <div class="text-center themed-text-tertiary py-8">
+              <p class="text-4xl mb-2">📖</p>
+              <p>请先导入文件</p>
+            </div>
+          </div>
+        </div>
+      </aside>
+    </main>
+  </div>
+
+  <!-- Settings & Modals -->
+  <div id="settingsModal" class="fixed inset-0 bg-black/70 flex items-center justify-center z-50 hidden">
+    <div class="themed-bg-secondary rounded-xl w-full max-w-3xl max-h-[90vh] overflow-hidden flex flex-col">
+      <div class="px-6 py-4 themed-border border-b flex items-center justify-between shrink-0">
+        <h2 class="text-lg font-bold">⚙️ 设置</h2>
+        <button onclick="closeSettings()" class="themed-text-secondary hover:themed-text-primary text-2xl">
+          &times;
+        </button>
+      </div>
+      <div class="flex-1 overflow-y-auto p-6 space-y-6">
+        <div>
+          <label class="block text-sm font-medium mb-2">主题模式</label><select id="themeSelect"
+            onchange="setTheme(this.value)" class="w-full themed-input border rounded-lg px-4 py-2.5">
+            <option value="auto">🌓 自动（根据时间）</option>
+            <option value="light">☀️ 浅色</option>
+            <option value="dark">🌙 深色</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-sm font-medium mb-2">API 提供商</label><select id="apiProvider"
+            onchange="onProviderChange()" class="w-full themed-input border rounded-lg px-4 py-2.5">
+            <option value="lmstudio">LM Studio (本地)</option>
+            <option value="ollama">Ollama (本地)</option>
+            <option value="openai">OpenAI</option>
+            <option value="custom">
+              自定义 OpenAI 兼容接口
+            </option>
+          </select>
+        </div>
+        <!-- Issue #12: Multi-API Toggle and Config -->
+        <div class="p-4 themed-bg-tertiary rounded-lg border themed-border mb-4">
+          <div class="flex items-center justify-between mb-2">
+            <span class="font-medium text-sm flex items-center gap-2">🌐 多源并发模式 (Multi-API)</span>
+            <input id="multiApiSwitch" type="checkbox" onchange="toggleMultiApiMode(this.checked)"
+              class="w-4 h-4 rounded themed-bg-secondary themed-border" />
+          </div>
+          <p class="text-xs themed-text-tertiary mb-2">
+            开启后，任务将自动分配到多个 API
+            节点，实现更高并发。
+          </p>
+
+          <div id="multiApiConfig" class="hidden mt-3 space-y-3">
+            <div id="apiEndpointsList" class="space-y-2 max-h-48 overflow-y-auto">
+              <!-- Endpoints rendered here -->
+            </div>
+            <div class="flex gap-2">
+              <button onclick="addEndpoint()"
+                class="flex-1 py-2 border-2 border-dashed themed-border rounded-lg text-xs themed-text-secondary hover:themed-bg-secondary transition-colors">
+                + 添加 API 节点
+              </button>
+              <button id="btnTestAllApis" onclick="testAllEndpoints()"
+                class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs transition-colors">
+                🧪 批量测试
+              </button>
+            </div>
+            <div id="batchTestStatus" class="text-xs themed-text-secondary hidden"></div>
+          </div>
+        </div>
+
+        <div id="singleApiConfig">
+          <div>
+            <label class="block text-sm font-medium mb-2">API 地址
+              <span title="点击右侧按钮选择历史记录" class="cursor-help text-xs themed-text-tertiary">ℹ️</span></label>
+            <div class="flex gap-2">
+              <input id="apiUrl" type="text" placeholder="http://localhost:1234/v1/chat/completions"
+                list="apiHistoryList" class="w-full themed-input border rounded-lg px-4 py-2.5"
+                oninput="onApiUrlInput(this)" />
+              <select id="apiHistorySelect" onchange="applyApiHistory(this.value)"
+                class="w-12 themed-input border rounded-lg px-1 text-center" title="选择历史记录">
+                <option value="">🕒</option>
+              </select>
+              <button onclick="deleteCurrentHistory()"
+                class="themed-input border rounded-lg px-2 text-red-500 hover:text-red-700 hover:bg-red-100"
+                title="删除当前 API 地址记录">
+                🗑️
+              </button>
+            </div>
+            <datalist id="apiHistoryList"></datalist>
+          </div>
+          <div id="apiKeySection">
+            <label class="block text-sm font-medium mb-2">API Key</label><input id="apiKey" type="text"
+              placeholder="留空如不需要" class="w-full themed-input border rounded-lg px-4 py-2.5" />
+          </div>
+        </div>
+        <!-- End of singleApiConfig -->
+        <p class="text-xs themed-text-tertiary mt-1 mb-2">
+          ⚠️ 如遇 CORS 连接错误 (Network Error)，说明该 API
+          不支持网页直接调用。请更换 API 或使用本地代理转发。
+        </p>
+        <div>
+          <label class="block text-sm font-medium mb-2">模型</label>
+          <div class="flex gap-2">
+            <select id="modelSelect" class="flex-1 themed-input border rounded-lg px-4 py-2.5">
+              <option value="">
+                -- 选择或输入模型 --
+              </option>
+            </select><input id="modelCustom" type="text" placeholder="或手动输入模型名"
+              class="flex-1 themed-input border rounded-lg px-4 py-2.5" />
+          </div>
+        </div>
+        <div>
+          <label class="block text-sm font-medium mb-2">Max Tokens (输出长度限制)</label><input id="maxTokens" type="number"
+            min="1" max="128000" step="1" value="4096" class="w-full themed-input border rounded-lg px-4 py-2.5" />
+        </div>
+        <div id="localModelRecommendations" class="hidden">
+          <label class="block text-sm font-medium mb-2">📌 推荐本地模型</label>
+          <div class="flex flex-wrap gap-2">
+            <span class="model-tag">Qwen2.5-7B</span><span class="model-tag">Llama3-8B</span>
+          </div>
+        </div>
+        <div class="flex items-center gap-3">
+          <input id="streamOutput" type="checkbox" checked class="w-4 h-4 rounded themed-bg-tertiary themed-border" />
+          <label for="streamOutput" class="text-sm font-medium">开启流式输出 (Stream)</label>
+        </div>
+        <div>
+          <label class="block text-sm font-medium mb-2">Temperature: <span id="tempValue">0.1</span></label><input
+            id="temperature" type="range" min="0" max="2" step="0.1" value="0.1" oninput="
+                                document.getElementById(
+                                    'tempValue',
+                                ).textContent = this.value
+                            " class="w-full" />
+        </div>
+        <div>
+          <label class="block text-sm font-medium mb-2">系统提示词</label><textarea id="systemPrompt" rows="6"
+            class="w-full themed-input border rounded-lg px-4 py-2.5 resize-none text-sm">
+你是一位专业的小说文本编辑，负责清理和修正小说章节内容。
+
+## 核心任务
+
+### 1. 广告内容清理
+需要移除的内容类型：
+- 网址、链接、二维码提示
+- 公众号、微信号、QQ群等推广信息
+- "求收藏"、"求推荐票"、"求月票"等拉票文字
+- 盗版网站声明、版权声明（非作者原意的）
+- 应用下载提示、阅读软件推广
+- 任何与故事情节无关的营销内容
+
+### 2. 乱码清理
+- 移除句子中间穿插的无意义字符、数字、符号
+- 这些通常是广告被拆分后穿插在正文中的残留
+- 仔细判断，避免误删作者原意的内容（如省略号、破折号等）
+
+### 3. 格式规范化
+- 移除多余的空行（保留段落间的合理间隔）
+- 不改变原文的段落结构
+
+## 重要原则
+- 最大程度保留原文，宁可少删也不要错删
+- 不改变原文的用词、风格、语气
+- 不添加任何新内容
+- 如有疑问，保留原文
+- 直接输出清理后的文本，不添加任何解释
+
+重要：如果遇到格式为 图片:"...",位置:"..." 的内容（其中...为任意文本），请直接整段删除。</textarea>
+        </div>
+        <div class="p-4 themed-bg-tertiary rounded-lg border themed-border">
+          <h3 class="font-medium mb-3">🛠️ 连接测试 & 调试</h3>
+          <div class="flex items-center gap-4 mb-3">
+            <button onclick="testConnection()" class="px-4 py-2 btn-primary rounded-lg transition-colors">
+              🔌 发送测试请求</button><span id="connectionStatus" class="text-sm"></span>
+          </div>
+          <div class="grid grid-cols-2 gap-2">
+            <div>
+              <label class="text-xs themed-text-secondary">发送 Payload (JSON)</label><textarea id="debugPayload" readonly
+                class="w-full h-32 debug-textarea p-2 mt-1"></textarea>
+            </div>
+            <div>
+              <label class="text-xs themed-text-secondary">返回 Response</label><textarea id="debugResponse" readonly
+                class="w-full h-32 debug-textarea p-2 mt-1"></textarea>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="px-6 py-4 themed-border border-t flex justify-between shrink-0">
+        <button onclick="clearLocalStorage()" class="px-4 py-2 text-sm rounded-lg transition-colors" style="
+                            background-color: var(--error-bg);
+                            color: var(--error);
+                        ">
+          🗑️ 清除本地设置
+        </button>
+        <div class="flex gap-3">
+          <button onclick="closeSettings()" class="px-4 py-2 btn-secondary rounded-lg transition-colors">
+            取消</button><button onclick="saveSettings()" class="px-4 py-2 btn-primary rounded-lg transition-colors">
+            保存设置
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="chapterSettingsModal" class="fixed inset-0 bg-black/70 flex items-center justify-center z-50 hidden">
+    <div class="themed-bg-secondary rounded-xl w-full max-w-lg max-h-[90vh] overflow-hidden flex flex-col">
+      <div class="px-6 py-4 themed-border border-b flex items-center justify-between shrink-0">
+        <h2 class="text-lg font-bold">📑 章节分割设置</h2>
+        <button onclick="closeChapterSettings()" class="themed-text-secondary hover:themed-text-primary text-2xl">
+          &times;
+        </button>
+      </div>
+      <div class="flex-1 overflow-y-auto p-6 space-y-6">
+        <div>
+          <label class="block text-sm font-medium mb-2">章节识别模式</label><select id="chapterPattern"
+            onchange="onPatternChange()" class="w-full themed-input border rounded-lg px-4 py-2.5">
+            <option value="chinese_chapter">
+              第X章 (中文数字/阿拉伯数字)
+            </option>
+            <option value="chinese_hui">第X回</option>
+            <option value="chinese_juan">第X卷</option>
+            <option value="number_chapter">
+              数字章节 (001章, 01 章)
+            </option>
+            <option value="custom">自定义正则表达式</option>
+          </select>
+        </div>
+        <div id="customPatternSection" class="hidden">
+          <label class="block text-sm font-medium mb-2">自定义正则表达式</label><input id="customPattern" type="text"
+            placeholder="^(第\d+章.*)" class="w-full themed-input border rounded-lg px-4 py-2.5 font-mono text-sm" />
+        </div>
+        <div class="flex items-center gap-3">
+          <input id="includePrologue" type="checkbox" checked
+            class="w-4 h-4 rounded themed-bg-tertiary themed-border" /><label for="includePrologue"
+            class="text-sm">保留第一章之前的内容（序章/楔子）</label>
+        </div>
+        <div>
+          <div class="flex items-center justify-between mb-2">
+            <label class="text-sm font-medium">预览检测结果</label><button onclick="previewChapters()"
+              class="text-sm themed-accent hover:underline">
+              🔍 重新检测
+            </button>
+          </div>
+          <div id="chapterPreview" class="themed-bg-tertiary rounded-lg p-4 max-h-48 overflow-y-auto text-sm">
+            <p class="themed-text-tertiary">
+              点击"重新检测"预览章节
+            </p>
+          </div>
+        </div>
+      </div>
+      <div class="px-6 py-4 themed-border border-t flex justify-end gap-3 shrink-0">
+        <button onclick="closeChapterSettings()" class="px-4 py-2 btn-secondary rounded-lg transition-colors">
+          取消</button><button onclick="applyChapterSettings()"
+          class="px-4 py-2 btn-primary rounded-lg transition-colors">
+          应用分割
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const state = {
+      files: [],
+      chapters: [],
+      currentChapterIndex: -1,
+      viewMode: "original",
+      isProcessing: false,
+      isPaused: false,
+      shouldStopProcessing: false,
+      completedCount: 0,
+      activeRequests: 0,
+      runningRequests: new Map(), // requestId -> { titles, status, content }
+      viewingRequestId: null,
+      rangeStart: 1,
+      rangeEnd: 1,
+      theme: "auto",
+      settings: {
+        apiProvider: "lmstudio",
+        apiUrl: "http://localhost:1234/v1/chat/completions",
+        apiKey: "",
+        model: "",
+        temperature: 0.1,
+        charThreshold: 90,
+        systemPrompt: document.getElementById("systemPrompt").value,
+        chapterPattern: "chinese_chapter",
+        customPattern: "^(第\\d+章.*)",
+        customPattern: "^(第\\d+章.*)",
+        includePrologue: true,
+        maxTokens: 4096,
+        multiApiMode: false, // Issue #12
+        apiEndpoints: [], // Issue #12
+        apiHistory: [],
+      },
+      isRequestLocked: false, // For staggered request (Issue #6)
+    };
+
+    const providerConfigs = {
+      lmstudio: {
+        url: "http://localhost:1234/v1/chat/completions",
+        models: ["local-model"],
+        needsKey: false,
+      },
+      ollama: {
+        url: "http://localhost:11434/v1/chat/completions",
+        models: ["llama3", "qwen2", "gemma2"],
+        needsKey: false,
+      },
+      openai: {
+        url: "https://api.openai.com/v1/chat/completions",
+        models: ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo"],
+        needsKey: true,
+      },
+      custom: { url: "", models: [], needsKey: true },
+    };
+
+    const chapterPatterns = {
+      chinese_chapter: /^(第[0-9零一二三四五六七八九十百千万]+章.*)/m,
+      chinese_hui: /^(第[0-9零一二三四五六七八九十百千万]+回.*)/m,
+      chinese_juan: /^(第[0-9零一二三四五六七八九十百千万]+卷.*)/m,
+      number_chapter: /^(\d{1,4}\s*章.*)/m,
+    };
+
+    const requestTimestamps = [];
+
+    // ============ Encoding Logic (RESTORED) ============
+    const BOM_SIGNATURES = {
+      "utf-8": [0xef, 0xbb, 0xbf],
+      "utf-16le": [0xff, 0xfe],
+      "utf-16be": [0xfe, 0xff],
+    };
+    function detectEncoding(buffer) {
+      const bytes = new Uint8Array(buffer);
+      for (const [encoding, bom] of Object.entries(BOM_SIGNATURES)) {
+        if (bytes.length >= bom.length) {
+          let match = true;
+          for (let i = 0; i < bom.length; i++) {
+            if (bytes[i] !== bom[i]) {
+              match = false;
+              break;
+            }
+          }
+          if (match) return encoding;
+        }
+      }
+      let utf8Score = 0,
+        gbkScore = 0,
+        i = 0;
+      while (i < Math.min(bytes.length, 10000)) {
+        const b = bytes[i];
+        if (b < 0x80) {
+          i++;
+          continue;
+        }
+        if (
+          (b & 0xe0) === 0xc0 &&
+          i + 1 < bytes.length &&
+          (bytes[i + 1] & 0xc0) === 0x80
+        ) {
+          utf8Score += 2;
+          i += 2;
+          continue;
+        }
+        if (
+          (b & 0xf0) === 0xe0 &&
+          i + 2 < bytes.length &&
+          (bytes[i + 1] & 0xc0) === 0x80 &&
+          (bytes[i + 2] & 0xc0) === 0x80
+        ) {
+          utf8Score += 3;
+          i += 3;
+          continue;
+        }
+        if (b >= 0x81 && b <= 0xfe && i + 1 < bytes.length) {
+          const b2 = bytes[i + 1];
+          if (
+            (b2 >= 0x40 && b2 <= 0x7e) ||
+            (b2 >= 0x80 && b2 <= 0xfe)
+          ) {
+            gbkScore += 2;
+            i += 2;
+            continue;
+          }
+        }
+        i++;
+      }
+      return utf8Score > gbkScore * 1.5
+        ? "utf-8"
+        : gbkScore > utf8Score * 1.5
+          ? "gbk"
+          : "utf-8";
+    }
+    async function smartDecode(buffer, preferredEncoding = "auto") {
+      const encodingsToTry =
+        preferredEncoding === "auto"
+          ? ["utf-8", "gbk", "gb18030", "big5"]
+          : [preferredEncoding, "utf-8", "gbk"];
+      let detected =
+        preferredEncoding === "auto"
+          ? detectEncoding(buffer)
+          : preferredEncoding;
+      for (const enc of [detected, ...encodingsToTry]) {
+        try {
+          const decoder = new TextDecoder(enc, { fatal: true });
+          const text = decoder.decode(buffer);
+          if (
+            (text.match(/\uFFFD/g) || []).length / text.length <
+            0.01
+          )
+            return { text, encoding: enc, success: true };
+        } catch (e) {
+          continue;
+        }
+      }
+      return {
+        text: new TextDecoder("utf-8").decode(buffer),
+        encoding: "utf-8",
+        success: false,
+      };
+    }
+
+    // ============ File Operations ============
+    let rawFileBuffers = [];
+    async function importFile() {
+      try {
+        const [fileHandle] = await window.showOpenFilePicker({
+          types: [
+            {
+              description: "Text Files",
+              accept: { "text/plain": [".txt"] },
+            },
+          ],
+          multiple: false,
+        });
+        const file = await fileHandle.getFile();
+        const buffer = await file.arrayBuffer();
+        rawFileBuffers = [{ name: file.name, buffer }];
+
+        // Use RESTORED smartDecode
+        const result = await smartDecode(
+          buffer,
+          document.getElementById("encodingSelect").value,
+        );
+        state.files = [{ name: file.name, content: result.text }];
+
+        document.getElementById("detectedEncoding").textContent =
+          `检测: ${result.encoding.toUpperCase()}`;
+        document
+          .getElementById("detectedEncoding")
+          .classList.remove("hidden");
+
+        processImportedContent();
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    async function onEncodingChange() {
+      if (rawFileBuffers.length === 0) return;
+      const result = await smartDecode(
+        rawFileBuffers[0].buffer,
+        document.getElementById("encodingSelect").value,
+      );
+      state.files = [
+        { name: rawFileBuffers[0].name, content: result.text },
+      ];
+      document.getElementById("detectedEncoding").textContent =
+        `应用: ${result.encoding.toUpperCase()}`;
+      processImportedContent();
+    }
+
+    function processImportedContent() {
+      if (state.files.length === 0) return;
+      splitIntoChapters(state.files[0].content);
+      state.rangeStart = 1;
+      state.rangeEnd = state.chapters.length;
+      updateUI();
+      updateStep(2);
+      if (state.chapters.length > 0) selectChapter(0);
+    }
+
+    function splitIntoChapters(content) {
+      const patternKey = state.settings.chapterPattern;
+      let pattern;
+      try {
+        pattern =
+          patternKey === "custom"
+            ? new RegExp(state.settings.customPattern, "gm")
+            : new RegExp(
+              chapterPatterns[patternKey].source,
+              "gm",
+            );
+      } catch (e) {
+        alert("正则错误");
+        return;
+      }
+
+      const matches = [...content.matchAll(pattern)];
+      if (matches.length === 0) {
+        state.chapters = [
+          {
+            id: 0,
+            title: "全文",
+            originalContent: content,
+            cleanedContent: null,
+            status: "pending",
+            lineDecisions: {},
+            needsReprocess: false,
+          },
+        ];
+        return;
+      }
+
+      state.chapters = [];
+      if (state.settings.includePrologue && matches[0].index > 0) {
+        state.chapters.push({
+          id: 0,
+          title: "序章",
+          originalContent: content
+            .substring(0, matches[0].index)
+            .trim(),
+          cleanedContent: null,
+          status: "pending",
+          lineDecisions: {},
+          needsReprocess: false,
+        });
+      }
+      matches.forEach((match, i) => {
+        const start = match.index,
+          end =
+            i < matches.length - 1
+              ? matches[i + 1].index
+              : content.length;
+        state.chapters.push({
+          id: state.chapters.length,
+          title: match[1].trim().substring(0, 50),
+          originalContent: content.substring(start, end).trim(),
+          cleanedContent: null,
+          status: "pending",
+          lineDecisions: {},
+          needsReprocess: false,
+        });
+      });
+    }
+
+    // ============ UI Logic ============
+    function updateUI() {
+      if (state.chapters.length > 0) {
+        document
+          .getElementById("fileInfo")
+          .classList.remove("hidden");
+        document.getElementById("fileCount").textContent =
+          `${state.files.length} 个文件`;
+        document.getElementById("totalChars").textContent =
+          `${state.chapters.reduce((sum, ch) => sum + ch.originalContent.length, 0).toLocaleString()} 字符`;
+        document.getElementById("chapterCount").textContent =
+          state.chapters.length;
+        document
+          .getElementById("processingRangeSection")
+          .classList.remove("hidden");
+        document
+          .getElementById("advancedSettingsSection")
+          .classList.remove("hidden");
+        document
+          .getElementById("intervalSection")
+          .classList.remove("hidden");
+        document.getElementById("rangeStartDisplay").value =
+          state.rangeStart;
+        document.getElementById("rangeEndDisplay").value =
+          state.rangeEnd;
+      }
+      renderChapterList();
+      document.getElementById("btnProcess").disabled =
+        state.chapters.length === 0 || state.isProcessing;
+      const hasProcessed = state.chapters.some(
+        (ch) =>
+          ch.status === "accepted" || ch.status === "completed",
+      );
+      document.getElementById("btnExportMerged").disabled =
+        !hasProcessed;
+      document.getElementById("btnExportZip").disabled =
+        !hasProcessed;
+      document
+        .getElementById("contentToolbar")
+        .classList.toggle("hidden", state.chapters.length === 0);
+      document
+        .getElementById("welcomeScreen")
+        .classList.toggle("hidden", state.chapters.length > 0);
+    }
+
+    function renderChapterList() {
+      const list = document.getElementById("chapterList");
+      if (state.chapters.length === 0) {
+        list.innerHTML = `<div class="text-center themed-text-tertiary py-8"><p class="text-4xl mb-2">📖</p><p>请先导入文件</p></div>`;
+        return;
+      }
+      list.innerHTML = state.chapters
+        .map((chapter, index) => {
+          const isActive = index === state.currentChapterIndex;
+          const statusMap = {
+            pending: "⏳",
+            processing: "🔄",
+            completed: "✅",
+            accepted: "✓",
+            rejected: "✗",
+          };
+          const colorMap = {
+            pending: "var(--text-tertiary)",
+            processing: "var(--accent)",
+            completed: "var(--success)",
+            accepted: "var(--success)",
+            rejected: "var(--error)",
+          };
+          let icon = statusMap[chapter.status],
+            color = colorMap[chapter.status];
+          if (chapter.needsReprocess) {
+            icon = "🔄";
+            color = "var(--warning)";
+          }
+          return `<div class="chapter-item flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer ${isActive ? "active" : ""}" onclick="selectChapter(${index})" style="${chapter.needsReprocess ? "background-color: var(--warning-bg);" : ""}">
+                    <span style="color: ${color}">${icon}</span>
+                    <span class="flex-1 truncate text-sm">${chapter.title}</span>
+                    <div class="flex gap-1">
+                        <button onclick="event.stopPropagation(); splitChapterWithAI(${index})" class="p-1 btn-secondary rounded text-xs" title="AI 智能拆分 (处理合并章节)">✨</button>
+                        <button onclick="event.stopPropagation(); editOriginalChapter(${index})" class="p-1 btn-secondary rounded text-xs">✎</button>
+                    </div>
+                </div>`;
+        })
+        .join("");
+    }
+
+    function selectChapter(index) {
+      state.currentChapterIndex = index;
+      const chapter = state.chapters[index];
+      if (chapter)
+        state.viewMode =
+          chapter.cleanedContent &&
+            (chapter.status === "completed" ||
+              chapter.status === "accepted")
+            ? "diff"
+            : "original";
+      renderChapterList();
+      displayChapter();
+    }
+
+    function displayChapter() {
+      const chapter = state.chapters[state.currentChapterIndex];
+      if (!chapter) return;
+      document.getElementById("currentChapterTitle").textContent =
+        chapter.title;
+      document.getElementById("chapterStatus").textContent =
+        {
+          pending: "待处理",
+          processing: "处理中",
+          completed: "已完成",
+          accepted: "已接受",
+          rejected: "已拒绝",
+          failed: "失败",
+          retrying: "重试中",
+        }[chapter.status] || chapter.status;
+
+      ["original", "cleaned", "diff"].forEach(
+        (m) =>
+        (document.getElementById(
+          `btnView${m.charAt(0).toUpperCase() + m.slice(1)}`,
+        ).className =
+          state.viewMode === m
+            ? "px-3 py-1.5 btn-primary transition-colors text-sm rounded"
+            : "px-3 py-1.5 btn-secondary transition-colors text-sm rounded"),
+      );
+      [
+        "originalView",
+        "cleanedView",
+        "diffView",
+        "processingView",
+        "welcomeScreen",
+      ].forEach((id) =>
+        document.getElementById(id).classList.add("hidden"),
+      );
+
+      // NOTE: Even if state is processing, if user manually clicks a chapter, we show that chapter's state
+      // But if it is actively processing, we show the stream view
+      if (chapter.status === "processing") {
+        // If it is the current streaming one or just processing
+        document
+          .getElementById("processingView")
+          .classList.remove("hidden");
+        // The stream content is updated globally
+      } else if (
+        state.viewMode === "diff" &&
+        chapter.cleanedContent
+      ) {
+        document
+          .getElementById("diffView")
+          .classList.remove("hidden");
+        renderDiff(chapter.originalContent, chapter.cleanedContent);
+      } else if (
+        state.viewMode === "cleaned" &&
+        chapter.cleanedContent
+      ) {
+        document
+          .getElementById("cleanedView")
+          .classList.remove("hidden");
+        document.getElementById("cleanedContent").textContent =
+          chapter.cleanedContent;
+      } else {
+        document
+          .getElementById("originalView")
+          .classList.remove("hidden");
+        document.getElementById("originalContent").textContent =
+          chapter.originalContent;
+      }
+
+      document
+        .getElementById("chapterActionBar")
+        .classList.toggle(
+          "hidden",
+          !["completed", "accepted"].includes(chapter.status),
+        );
+    }
+
+    // ============ Processing Logic (FIXED) ============
+    const SEP = "<<<|||CHAPTER_SEP|||>>>";
+    let lastRequestTime = 0; // For global rate limiting
+
+    // Issue #15: AI Split Logic
+    async function splitChapterWithAI(index) {
+      if (state.activeRequests > 0 || state.isProcessing) {
+        alert("请等待当前任务完成后再操作");
+        return;
+      }
+      if (
+        !confirm(
+          "确定要使用 AI 重新拆分该章节吗？\n(适用于多个章节误合并为一个的情况)",
+        )
+      )
+        return;
+
+      const chapter = state.chapters[index];
+      const originalStatus = chapter.status;
+      chapter.status = "processing";
+      renderChapterList();
+
+      const reqId = Date.now();
+      try {
+        const prompt = `You are a novel chapter splitter. The following text contains multiple merged chapters.
+Please split them based on typical chapter headers (Chapter X, 第X章, etc.).
+Return standard separator format:
+>>>CHAPTER_TITLE: Title1
+Content1...
+>>>CHAPTER_TITLE: Title2
+Content2...
+
+IMPORTANT:
+1. Use ">>>CHAPTER_TITLE:" as separator.
+2. Keep original content text exactly as is, do not summarize.
+3. If no split needed, return the original content wrapped in one block.`;
+
+        // Use current settings (or active node if any? Default to current settings)
+        // We reuse callLLM.
+        // We need a requestId to track, though callLLM uses it mainly for streaming updates.
+        // reqId defined global to try/catch
+        state.runningRequests.set(reqId, {
+          statuses: "Splitting...",
+        }); // Dummy
+
+        // We disable stream for this operation for simplicity in parsing
+        // Check if user has stream on? simpler to force non-stream or handle stream buffer.
+        // Let's force stream=false in callLLM? No, callLLM reads checkbox.
+        // Let's just handle result text.
+
+        const result = await callLLM(
+          chapter.originalContent,
+          prompt,
+          reqId,
+          null,
+          null,
+        );
+
+        // Parse result
+        // Pattern: >>>CHAPTER_TITLE: (.*?) \n (Content)
+        const parts = result
+          .split(/>>>CHAPTER_TITLE:/g)
+          .filter((p) => p.trim());
+
+        if (parts.length === 0) {
+          throw new Error("AI returned no valid chapters");
+        }
+
+        const newChapters = parts.map((part) => {
+          const firstLineBreak = part.indexOf("\n");
+          let title =
+            firstLineBreak > -1
+              ? part.substring(0, firstLineBreak).trim()
+              : "Untitled";
+          let content =
+            firstLineBreak > -1
+              ? part.substring(firstLineBreak).trim()
+              : part;
+
+          return {
+            id: Date.now() + Math.random(),
+            title: title,
+            originalContent: content,
+            cleanedContent: "",
+            status: "pending",
+            lineDecisions: {},
+            retryCount: 0,
+          };
+        });
+
+        // Replace current chapter with new chapters
+        state.chapters.splice(index, 1, ...newChapters);
+        alert(`成功拆分为 ${newChapters.length} 章!`);
+      } catch (e) {
+        console.error(e);
+        alert("拆分失败: " + e.message);
+        chapter.status = originalStatus;
+      } finally {
+        state.runningRequests.delete(reqId); // cleanup
+        renderChapterList();
+      }
+    }
+
+    async function rateLimiter() {
+      const limitInput = document.getElementById("rpmInput");
+      const limit = limitInput
+        ? parseInt(limitInput.value) || 60
+        : 60;
+      const now = Date.now();
+      while (
+        requestTimestamps.length > 0 &&
+        requestTimestamps[0] < now - 60000
+      ) {
+        requestTimestamps.shift();
+      }
+      if (requestTimestamps.length >= limit) {
+        const waitTime = 60000 - (now - requestTimestamps[0]) + 100;
+        await new Promise((r) => setTimeout(r, waitTime));
+        return rateLimiter();
+      }
+      requestTimestamps.push(Date.now());
+    }
+
+    async function startProcessing() {
+      if (state.chapters.length === 0) return;
+      if (state.isProcessing) return;
+
+      // Sync settings from DOM to ensure we use what the user sees/tested
+      state.settings.apiProvider =
+        document.getElementById("apiProvider").value;
+      state.settings.apiUrl = document.getElementById("apiUrl").value;
+      state.settings.apiKey = document.getElementById("apiKey").value;
+      state.settings.model =
+        document.getElementById("modelCustom").value ||
+        document.getElementById("modelSelect").value;
+      state.settings.temperature =
+        document.getElementById("temperature").value;
+      state.settings.systemPrompt =
+        document.getElementById("systemPrompt").value;
+      const streamEl = document.getElementById("streamOutput");
+      if (streamEl) state.settings.streamOutput = streamEl.checked;
+      // Auto-save these settings for convenience
+      localStorage.setItem(
+        "novelCleanerSettings",
+        JSON.stringify(state.settings),
+      );
+
+      state.isProcessing = true;
+      state.isPaused = false;
+      state.shouldStopProcessing = false;
+      state.isRequestLocked = false;
+      lastRequestTime = 0;
+
+      // UI updates
+      document.getElementById("btnProcess").disabled = true;
+      document
+        .getElementById("processingControls")
+        .classList.add("hidden");
+      document
+        .getElementById("runningControls")
+        .classList.remove("hidden");
+
+      // Switch to Processing View (optional, but good UX)
+      [
+        "originalView",
+        "cleanedView",
+        "diffView",
+        "welcomeScreen", // Keep welcomeScreen hidden if chapters are loaded
+      ].forEach((id) =>
+        document.getElementById(id).classList.add("hidden"),
+      );
+      document
+        .getElementById("processingView")
+        .classList.remove("hidden");
+
+      document.getElementById("streamOutput").textContent = ""; // Clear stream output
+
+      // Hide other sections
+      document
+        .getElementById("processingRangeSection")
+        .classList.add("hidden");
+      document
+        .getElementById("advancedSettingsSection")
+        .classList.add("hidden");
+      document
+        .getElementById("intervalSection")
+        .classList.add("hidden");
+      // Force view to processing
+      state.viewMode = "processing";
+      document
+        .getElementById("processingView")
+        .classList.remove("hidden");
+      [
+        "originalView",
+        "cleanedView",
+        "diffView",
+        "welcomeScreen",
+      ].forEach((id) =>
+        document.getElementById(id).classList.add("hidden"),
+      );
+
+      updateStep(3);
+
+      const batchSize =
+        parseInt(document.getElementById("batchSizeInput").value) ||
+        1;
+      const concurrency =
+        parseInt(
+          document.getElementById("concurrencyInput").value,
+        ) || 1;
+
+      // Issue #14: Dynamic Batching - Use Queue instead of static batches
+      // Initialize Pending Queue with INDICES of target chapters
+      // We need indices relative to state.chapters to access them easily later?
+      // Or just store the chapter objects/IDs?
+      // Storing indices is risky if chapters change (e.g. split).
+      // Better to store IDs or just objects?
+      // If we use objects, we can filter by status 'pending'.
+      // Implementation Plan says: state.pendingChapterIds
+
+      // Let's use indices for now, but filter carefully in processNext.
+      // Actually, if we use filter() above, we get a NEW array of objects.
+      // So let's iterate state.chapters and find indices.
+
+      state.pendingChapterIds = [];
+      state.retryChapterIds = []; // High priority queue for failures
+
+      state.chapters.forEach((ch, idx) => {
+        // Check range
+        if (idx < state.rangeStart - 1 || idx >= state.rangeEnd)
+          return;
+        // Check status
+        if (
+          ch.status === "pending" ||
+          ch.status === "rejected" ||
+          ch.needsReprocess
+        ) {
+          state.pendingChapterIds.push(idx);
+        }
+      });
+
+      state.completedCount = 0;
+      const totalChapters = state.pendingChapterIds.length;
+      document.getElementById("processTotal").textContent =
+        totalChapters;
+
+      state.activeRequests = 0;
+      state.runningRequests.clear();
+      state.viewingRequestId = null;
+      renderActiveTasks();
+      // Variables for processNext to closure over are mostly on 'state' now
+      // Global 'retryQueue' is replaced by 'state.retryChapterIds'
+      const MAX_RETRIES = 3;
+
+      const updateProgress = () => {
+        document.getElementById("processProgress").textContent =
+          state.completedCount;
+        document.getElementById("progressBar").style.width =
+          `${(state.completedCount / totalChapters) * 100}%`;
+        document.getElementById("concurrencyStatus").textContent =
+          `活跃请求: ${state.activeRequests}`;
+      };
+
+      const processNext = async () => {
+        if (state.shouldStopProcessing) return;
+
+        while (state.isPaused) {
+          await new Promise((r) => setTimeout(r, 500));
+          if (state.shouldStopProcessing) return;
+        }
+
+        // --- Issue #14: Dynamic Queue based processNext ---
+        let targetNode = null;
+        let batchSize = 1; // Default
+        let nodeInterval = 0;
+
+        // 1. SELECT NODE & 2. RATE LIMIT (Per Node if Multi-Mode)
+        if (
+          state.settings.multiApiMode &&
+          state.settings.apiEndpoints &&
+          state.settings.apiEndpoints.length > 0
+        ) {
+          // Only consider enabled nodes
+          const nodes = state.settings.apiEndpoints.filter(n => n.enabled !== false);
+
+          if (nodes.length === 0) {
+            console.warn("No enabled API nodes available.");
+            return;
+          }
+
+          const now = Date.now();
+
+          // Available candidates (active < maxConcurrency)
+          let candidates = nodes.filter(
+            (n) =>
+              (n.activeCount || 0) < (n.maxConcurrency || 1),
+          );
+
+          // Ready candidates (interval passed)
+          const readyCandidates = candidates.filter((n) => {
+            const interval = (n.interval || 0) * 1000; // seconds to ms
+            const last = n.lastRequestTime || 0;
+            return now - last >= interval;
+          });
+
+          if (readyCandidates.length > 0) {
+            // Strategy: Round-robin with least connections preference
+            // Sort by lastRequestTime first (oldest first), then by activeCount, then by original index
+            readyCandidates.sort((a, b) => {
+              const lastA = a.lastRequestTime || 0;
+              const lastB = b.lastRequestTime || 0;
+              // Prioritize nodes that haven't been used recently
+              if (lastA !== lastB) return lastA - lastB;
+              // Then by activeCount
+              const activeA = a.activeCount || 0;
+              const activeB = b.activeCount || 0;
+              if (activeA !== activeB) return activeA - activeB;
+              // Finally by original index to ensure stable ordering
+              const idxA = state.settings.apiEndpoints.indexOf(a);
+              const idxB = state.settings.apiEndpoints.indexOf(b);
+              return idxA - idxB;
+            });
+            targetNode = readyCandidates[0];
+          } else {
+            // No node ready NOW.
+            // If we have candidates but they are waiting for interval, just wait a bit and retry loop.
+            // If all nodes are FULL (no candidates), active wait a bit longer.
+            if (
+              candidates.length > 0 ||
+              nodes.some(
+                (n) =>
+                  (n.activeCount || 0) >=
+                  (n.maxConcurrency || 1),
+              )
+            ) {
+              await new Promise((r) => setTimeout(r, 100));
+              processNext();
+              return;
+            }
+          }
+
+          if (targetNode) {
+            batchSize =
+              targetNode.batchSize ||
+              parseInt(
+                document.getElementById("batchSizeInput")
+                  .value,
+              ) ||
+              10;
+            if (batchSize <= 0)
+              batchSize =
+                parseInt(
+                  document.getElementById(
+                    "batchSizeInput",
+                  ).value,
+                ) || 10;
+            nodeInterval = (targetNode.interval || 0) * 1000; // seconds to ms
+          }
+        } else {
+          // Single Mode Logic (Global Interval)
+          const globalInterval =
+            (parseFloat(
+              document.getElementById("intervalSlider").value,
+            ) || 0) * 1000;
+          if (globalInterval > 0) {
+            while (state.isRequestLocked) {
+              await new Promise((r) => setTimeout(r, 100));
+              if (state.shouldStopProcessing) return;
+            }
+            state.isRequestLocked = true;
+          }
+          batchSize =
+            parseInt(
+              document.getElementById("batchSizeInput").value,
+            ) || 1;
+        }
+
+        // 3. DEQUEUE WORK (Priority: Retry > Pending)
+        if (!state.retryChapterIds) state.retryChapterIds = [];
+        if (!state.pendingChapterIds) state.pendingChapterIds = [];
+
+        if (
+          state.retryChapterIds.length === 0 &&
+          state.pendingChapterIds.length === 0
+        ) {
+          // Work finished!
+          if (state.isRequestLocked)
+            state.isRequestLocked = false;
+          return;
+        }
+
+        let currentBatchIds = [];
+        let sourceQueue = null;
+
+        if (state.retryChapterIds.length > 0) {
+          sourceQueue = state.retryChapterIds;
+        } else {
+          sourceQueue = state.pendingChapterIds;
+        }
+
+        // Take N items
+        for (let i = 0; i < batchSize; i++) {
+          if (sourceQueue.length > 0)
+            currentBatchIds.push(sourceQueue.shift());
+          else break;
+        }
+
+        // Resolve IDs to Objects (filter out undefined)
+        const currentBatch = currentBatchIds
+          .map((idx) => state.chapters[idx])
+          .filter((ch) => ch !== undefined && ch !== null);
+
+        // If batch is empty after filtering, skip this cycle
+        if (currentBatch.length === 0) {
+          processNext();
+          return;
+        }
+
+        // 4. MARK USAGE
+        if (targetNode) {
+          targetNode.activeCount =
+            (targetNode.activeCount || 0) + 1;
+          targetNode.lastRequestTime = Date.now();
+        }
+
+        // 5. GLOBAL RATE LIMIT (applies to ALL modes)
+        const globalInterval =
+          (parseFloat(
+            document.getElementById("intervalSlider").value,
+          ) || 0) * 1000;
+
+        if (globalInterval > 0) {
+          while (state.isRequestLocked) {
+            await new Promise((r) => setTimeout(r, 100));
+            if (state.shouldStopProcessing) {
+              // Rollback
+              const validIndices = currentBatch.map(ch => state.chapters.indexOf(ch)).filter(i => i >= 0);
+              sourceQueue.unshift(...validIndices);
+              if (targetNode) targetNode.activeCount--;
+              return;
+            }
+          }
+          state.isRequestLocked = true;
+        }
+
+        // Also run RPM limiter in single mode
+        if (!targetNode && !state.settings.multiApiMode) {
+          await rateLimiter();
+        }
+
+        if (state.shouldStopProcessing) {
+          // Rollback
+          const validIndices = currentBatch.map(ch => state.chapters.indexOf(ch)).filter(i => i >= 0);
+          sourceQueue.unshift(...validIndices);
+          if (state.isRequestLocked)
+            state.isRequestLocked = false;
+          if (targetNode) targetNode.activeCount--;
+          return;
+        }
+
+        state.activeRequests++;
+        updateProgress();
+
+        currentBatch.forEach((ch) => (ch.status = "processing"));
+        renderChapterList();
+
+        const requestId = Date.now() + Math.random();
+
+        // API Viz Tag
+        let apiTag = "";
+        if (targetNode) {
+          const index =
+            state.settings.apiEndpoints.indexOf(targetNode);
+          apiTag = `[API #${index + 1}] `;
+        }
+
+        state.runningRequests.set(requestId, {
+          titles:
+            apiTag +
+            currentBatch.map((c) => c.title).join(", "),
+          status: "processing",
+          content: "",
+        });
+
+        if (!state.viewingRequestId) switchView(requestId);
+        renderActiveTasks();
+
+        // 6. EXECUTE REQUEST
+        try {
+          const apiConfig = targetNode
+            ? {
+              url: targetNode.url,
+              key: targetNode.key,
+              model: targetNode.model,
+            }
+            : null;
+
+          await processBatch(
+            currentBatch,
+            requestId,
+            () => {
+              // onConnect callback - Release lock after connection for staggered start
+              if (state.isRequestLocked) {
+                const gInterval =
+                  (parseFloat(
+                    document.getElementById(
+                      "intervalSlider",
+                    ).value,
+                  ) || 0) * 1000;
+                if (gInterval > 0) {
+                  setTimeout(() => {
+                    state.isRequestLocked = false;
+                  }, gInterval);
+                } else {
+                  state.isRequestLocked = false;
+                }
+              }
+            },
+            apiConfig,
+          );
+
+          // SUCCESS HANDLING
+          state.completedCount += currentBatch.length;
+          currentBatch.forEach((ch) => (ch.retryCount = 0));
+          const req = state.runningRequests.get(requestId);
+          if (req) req.status = "completed";
+        } catch (e) {
+          console.error("Task Error:", e);
+          const req = state.runningRequests.get(requestId);
+
+          // Release lock on error
+          if (state.isRequestLocked) {
+            state.isRequestLocked = false;
+          }
+
+          // Check for 429 error and remove problematic node
+          const is429 = e.message && (
+            e.message.includes("429") ||
+            e.message.includes("Too Many Requests") ||
+            e.message.includes("rate limit")
+          );
+
+          if (is429 && targetNode && state.settings.multiApiMode) {
+            console.warn(`429 Error detected for node "${targetNode.name}". Removing from pool.`);
+            // Remove node from apiEndpoints
+            const nodeIndex = state.settings.apiEndpoints.indexOf(targetNode);
+            if (nodeIndex > -1) {
+              state.settings.apiEndpoints.splice(nodeIndex, 1);
+              // Update UI
+              renderSidebarApiNodes();
+              renderApiEndpoints();
+            }
+            // Mark all chapters as pending and return to queue
+            currentBatch.forEach((ch) => {
+              ch.status = "pending";
+              ch.retryCount = 0; // Reset retry count since it's not the chapter's fault
+            });
+            const indices = currentBatch.map((ch) => state.chapters.indexOf(ch)).filter(i => i >= 0);
+            state.retryChapterIds.unshift(...indices);
+            if (req) req.status = "error (429 - node removed)";
+
+            // If no nodes left, stop processing
+            if (state.settings.apiEndpoints.length === 0) {
+              console.error("All API nodes exhausted due to 429 errors.");
+              state.shouldStopProcessing = true;
+            }
+          } else {
+            // Normal error handling
+            const failedChapters = currentBatch.filter(
+              (ch) => ch && ch.status !== "completed",
+            );
+
+            if (failedChapters.length === 0) {
+              if (req) req.status = "completed";
+            } else {
+              const canRetry = failedChapters.every(
+                (ch) => (ch.retryCount || 0) < MAX_RETRIES,
+              );
+
+              if (canRetry) {
+                failedChapters.forEach((ch) => {
+                  ch.retryCount = (ch.retryCount || 0) + 1;
+                  ch.status = "pending";
+                });
+
+                const failedIndices = failedChapters.map((ch) =>
+                  state.chapters.indexOf(ch),
+                ).filter(i => i >= 0);
+                state.retryChapterIds.unshift(...failedIndices);
+
+                if (req) req.status = "retrying";
+
+                const delay = Math.max(
+                  nodeInterval || 1000,
+                  2000,
+                );
+                await new Promise((r) => setTimeout(r, delay));
+              } else {
+                failedChapters.forEach(
+                  (ch) => (ch.status = "failed"),
+                );
+                if (req) req.status = "error";
+              }
+            }
+          }
+        } finally {
+          state.activeRequests--;
+
+          if (targetNode) {
+            targetNode.activeCount = Math.max(
+              0,
+              (targetNode.activeCount || 1) - 1,
+            );
+          }
+
+          if (state.runningRequests.size > 50) {
+            const firstKey = state.runningRequests
+              .keys()
+              .next().value;
+            state.runningRequests.delete(firstKey);
+          }
+
+          updateProgress();
+          renderChapterList();
+          renderActiveTasks();
+
+          processNext();
+        }
+      };
+
+      // We don't use batchIndex anymore
+      // let batchIndex = 0; // Removed
+      // retryQueue is also replaced by retryChapterIds, but let's keep retryQueue for backward compat or just replace?
+      // Plan says:废弃 state.batches, state.batchIndex.
+      // retryQueue in old code was for full batches. Now we use retryChapterIds for individual chapters.
+      // Let's comment out old queue init if any (it was local variable usually).
+
+      // Update processNext signature or logic
+      // processNext needs access to these queues. They are on 'state'.
+
+      // Initial start
+      // Dynamic concurrency: Sum of all nodes or global setting?
+      // Issue #12 says: Total concurrency = Sum of nodes OR User override.
+      // If Multi-Mode:
+      let totalConcurrency = concurrency; // User input
+      if (
+        state.settings.multiApiMode &&
+        state.settings.apiEndpoints
+      ) {
+        // If user wants to enforce their manual input? Or sum?
+        // Usually Multi-Mode implies using the nodes' concurrency.
+        // Let's use Sum of Nodes Active Concurrency.
+        // But wait, the loop below starts `concurrency` workers.
+        // If we have 3 nodes with 2, 2, 2. Total 6.
+        // We should start 6 loops.
+        const sum = state.settings.apiEndpoints.reduce(
+          (a, b) => a + (b.maxConcurrency || 1),
+          0,
+        );
+        totalConcurrency = sum > 0 ? sum : 1;
+      }
+
+      // Start workers
+      for (let i = 0; i < totalConcurrency; i++) {
+        processNext();
+      }
+
+      const checkDone = setInterval(() => {
+        if (
+          state.activeRequests === 0 &&
+          state.pendingChapterIds.length === 0 &&
+          state.retryChapterIds.length === 0 &&
+          !state.shouldStopProcessing
+          // Note: state.shouldStopProcessing is handled inside processNext to stop recursion
+        ) {
+          // Double check if everything is truly done
+          // Or if we were stopped manually
+          if (state.shouldStopProcessing) {
+            clearInterval(checkDone);
+            // finishProcessing called elsewhere? No, usually here.
+            finishProcessing();
+          } else {
+            clearInterval(checkDone);
+            finishProcessing();
+          }
+        }
+      }, 500);
+    }
+
+    function renderActiveTasks() {
+      const list = document.getElementById("activeTasksList");
+      if (state.runningRequests.size === 0) {
+        list.innerHTML =
+          '<div class="text-xs text-center themed-text-tertiary">无活跃任务</div>';
+        return;
+      }
+      // Sort by ID (time)
+      const sorted = [...state.runningRequests.entries()].sort(
+        (a, b) => b[0] - a[0],
+      );
+
+      list.innerHTML = sorted
+        .map(([id, req]) => {
+          const isActive =
+            id === state.viewingRequestId
+              ? "border-l-4 themed-bg-elevated"
+              : "hover:themed-bg-tertiary";
+          const statusIcon =
+            req.status === "processing"
+              ? "🔄"
+              : req.status === "completed"
+                ? "✅"
+                : req.status === "retrying"
+                  ? "🔁"
+                  : "❌";
+          const statusStyle =
+            req.status === "processing"
+              ? 'style="color: var(--accent);"'
+              : "";
+          const statusLabel =
+            req.status === "processing"
+              ? `<span class="text-xs animate-pulse" style="color: var(--accent);">Running</span>`
+              : req.status === "retrying"
+                ? `<span class="text-xs" style="color: var(--warning);">Retrying</span>`
+                : "";
+          return `
+                    <div class="p-2 rounded themed-bg-tertiary themed-border border cursor-pointer mb-1 transition-all ${isActive}" onclick="switchView(${id})">
+                        <div class="flex justify-between items-center">
+                            <span class="text-xs font-mono truncate flex-1" title="${escapeHtml(req.titles)}">${statusIcon} ${escapeHtml(req.titles)}</span>
+                            ${statusLabel}
+                        </div>
+                    </div>
+                `;
+        })
+        .join("");
+    }
+
+    function switchView(requestId) {
+      state.viewingRequestId = requestId;
+      const req = state.runningRequests.get(requestId);
+      if (req) {
+        document.getElementById(
+          "streamingChapterTitle",
+        ).textContent = `正在查看: ${req.titles}`;
+        const out = document.getElementById("streamOutput");
+        out.textContent = req.content;
+        out.scrollTop = out.scrollHeight;
+
+        // Sync Original Content
+        const origDiv = document.getElementById("streamOriginal");
+        origDiv.textContent =
+          req.originalContent || "(等待发送...)";
+        origDiv.scrollTop = 0;
+      }
+      renderActiveTasks();
+    }
+
+    async function processBatch(
+      batch,
+      requestId,
+      onConnect,
+      apiConfig,
+    ) {
+      try {
+        const combinedContent = batch
+          .map(
+            (ch) =>
+              `===CHAPTER_ID:${ch.id}===\n${ch.originalContent}`,
+          )
+          .join(`\n\n${SEP}\n\n`);
+        const sysPrompt =
+          state.settings.systemPrompt +
+          `\nIMPORTANT: Processing ${batch.length} chapters. You MUST return exactly ${batch.length} parts separated by "${SEP}".\n` +
+          `Each part MUST start with "===CHAPTER_ID:X===" line (keep it unchanged).\n` +
+          `Do NOT merge chapters. Do NOT miss any separator.`;
+
+        state.runningRequests.get(requestId).originalContent =
+          combinedContent;
+        state.runningRequests.get(requestId).status = "processing";
+
+        // If this is the currently viewed request, update the original panel immediately
+        if (state.viewingRequestId === requestId) {
+          const origDiv =
+            document.getElementById("streamOriginal");
+          origDiv.textContent = combinedContent;
+          origDiv.scrollTop = 0;
+        }
+
+        // Define progress handler
+        const onProgress = (currentText) => {
+          const parts = currentText.split(SEP);
+          if (parts.length > 1) {
+            const completedParts = parts.slice(0, -1);
+            completedParts.forEach((partContent, idx) => {
+              if (idx < batch.length) {
+                const ch = batch[idx];
+                if (ch.status !== "completed") {
+                  let content = partContent.trim();
+                  content = content
+                    .replace(
+                      /===CHAPTER_ID:\d+===/g,
+                      "",
+                    )
+                    .trim();
+
+                  if (content.length >= 10) {
+                    ch.cleanedContent = content;
+                    ch.status = "completed";
+                    ch.needsReprocess = false;
+                    renderChapterList();
+                  }
+                }
+              }
+            });
+          }
+        };
+
+        // Pass requestId to callLLM
+        const result = await callLLM(
+          combinedContent,
+          sysPrompt,
+          requestId,
+          onProgress,
+          onConnect, // Pass the callback
+          apiConfig, // Issue #12: Pass Config
+        );
+
+        let splitResults = result.split(SEP);
+
+        // --- Validation Logic (Relaxed for Issue #8) ---
+        // 1. Check if count matches
+        if (splitResults.length !== batch.length) {
+          console.warn(
+            `Split Mismatch Warning: Expected ${batch.length}, got ${splitResults.length}. Attempting to map available results.`,
+          );
+          // if we have at least 1 result, we try to use it
+          if (splitResults.length === 0) {
+            throw new Error(
+              "Empty Response: AI returned no content or separators.",
+            );
+          }
+        }
+
+        batch.forEach((ch, idx) => {
+          let content = splitResults[idx]
+            ? splitResults[idx].trim()
+            : "";
+          // Check ID match if possible (optional but good for robustness)
+          // const idMatch = content.match(/===CHAPTER_ID:(\d+)===/);
+
+          content = content
+            .replace(/===CHAPTER_ID:\d+===/g, "")
+            .trim();
+
+          if (content.length < 10) {
+            // 2. Content too short check - Relaxed: Just mark as warning/failed individually but don't crash batch
+            console.warn(
+              `Chapter ${idx + 1} content too short (${content.length} chars). Marking as potential failure.`,
+            );
+            // If retry count is high, we might accept it or mark failed without throwing batch error
+            if (ch.retryCount >= 2) {
+              ch.status = "failed"; // Give up on this specific chapter
+            } else {
+              // Throw to trigger retry if low retry count
+              throw new Error(
+                `Chapter Content Too Short: Chapter ${idx + 1}`,
+              );
+            }
+          } else {
+            ch.cleanedContent = content;
+            ch.status = "completed";
+            ch.needsReprocess = false;
+          }
+        });
+      } catch (e) {
+        console.error("Batch Processing Error:", e.message);
+        // Ensure all chapters in batch are pending for retry if not already handled
+        batch.forEach((ch) => {
+          if (ch.status === "processing") ch.status = "pending";
+        });
+        throw e; // Re-throw to trigger retry mechanism in processNext
+      }
+    }
+
+    async function callLLM(
+      text,
+      systemPrompt,
+      requestId,
+      onUpdate,
+      onConnect,
+      apiConfig,
+    ) {
+      let { apiUrl, apiKey, model, temperature } = state.settings;
+
+      // Issue #12: Override config if provided
+      if (apiConfig) {
+        if (apiConfig.url) apiUrl = apiConfig.url;
+        if (apiConfig.key) apiKey = apiConfig.key;
+        if (apiConfig.model) model = apiConfig.model;
+      }
+      const headers = { "Content-Type": "application/json" };
+      if (apiKey) headers["Authorization"] = `Bearer ${apiKey}`;
+
+      const useStream =
+        document.getElementById("streamOutput").checked;
+      const payload = {
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: text },
+        ],
+        temperature: parseFloat(temperature),
+        stream: useStream,
+        max_tokens: state.settings.maxTokens || 4096,
+      };
+      if (model) payload.model = model;
+
+      let response;
+      try {
+        response = await fetch(apiUrl, {
+          method: "POST",
+          headers,
+          body: JSON.stringify(payload),
+        });
+      } catch (e) {
+        if (
+          e.name === "TypeError" &&
+          e.message === "Failed to fetch"
+        ) {
+          throw new Error(
+            "Network Error (可能是 CORS 跨域限制): 浏览器拦截了请求。请使用支持跨域的 API，或在本地搭建转发代理。",
+          );
+        }
+        throw e;
+      }
+      if (!response.ok)
+        throw new Error(`API Error: ${response.status}`);
+
+      // Issue #6: Connection Established
+      if (onConnect) onConnect();
+
+      let result = "";
+      const outputEl = document.getElementById("streamOutput");
+
+      if (!useStream) {
+        // Non-streaming mode
+        const json = await response.json();
+        const content = json.choices?.[0]?.message?.content || "";
+        result = content;
+
+        // Update state
+        const req = state.runningRequests.get(requestId);
+        if (req) req.content = result;
+
+        // Update UI if viewing
+        if (state.viewingRequestId === requestId) {
+          outputEl.textContent = result;
+        }
+
+        if (onUpdate) onUpdate(result);
+        return result;
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = ""; // Issue #7: Add buffer for incomplete chunks
+      let debugCount = 0; // Issue #7: Debug log limit
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) {
+          // Process any remaining buffer if needed (usually SSE ends with newline so buffer should be empty)
+          break;
+        }
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        // Keep the last part in buffer as it might be incomplete
+        buffer = lines.pop();
+
+        for (const line of lines) {
+          if (line.trim() === "") continue;
+          if (line.startsWith("data:")) {
+            // Allow no space after colon
+            const data = line.slice(5).trim(); // Remove 'data:' prefix
+            if (data === "[DONE]") continue;
+
+            // Debug first 3 chunks
+            if (debugCount < 3) {
+              console.log("SSE Chunk:", data);
+              debugCount++;
+            }
+
+            try {
+              const content =
+                JSON.parse(data).choices?.[0]?.delta
+                  ?.content || "";
+              if (content) {
+                result += content;
+                // Save to request state
+                const req =
+                  state.runningRequests.get(requestId);
+                if (req) {
+                  req.content = result;
+                }
+
+                // Update UI ONLY if viewing this request
+                if (state.viewingRequestId === requestId) {
+                  outputEl.textContent = result;
+                  outputEl.scrollTop =
+                    outputEl.scrollHeight;
+                }
+
+                // Call onUpdate callback if provided
+                if (onUpdate) onUpdate(result);
+              }
+            } catch (e) {
+              console.warn(
+                "SSE Parse Error (ignoring):",
+                e,
+                line,
+              );
+            }
+          }
+        }
+      }
+      return result;
+    }
+
+    // ============ Misc & Setup ============
+    function finishProcessing() {
+      state.isProcessing = false;
+      document
+        .getElementById("processingRangeSection")
+        .classList.remove("hidden");
+      document
+        .getElementById("advancedSettingsSection")
+        .classList.remove("hidden");
+      document
+        .getElementById("intervalSection")
+        .classList.remove("hidden");
+      document
+        .getElementById("processingControls")
+        .classList.remove("hidden");
+      document
+        .getElementById("runningControls")
+        .classList.add("hidden");
+      updateUI();
+      updateStep(4);
+      // Auto switch to Diff view of first completed chapter
+      const firstCompleted = state.chapters.findIndex(
+        (ch) => ch.status === "completed",
+      );
+      if (firstCompleted !== -1) selectChapter(firstCompleted);
+    }
+
+    function togglePause() {
+      state.isPaused = !state.isPaused;
+      const btn = document.getElementById("btnPause");
+      if (state.isPaused) {
+        btn.classList.replace("bg-yellow-600", "bg-green-600");
+        btn.classList.replace(
+          "hover:bg-yellow-500",
+          "hover:bg-green-500",
+        );
+        document.getElementById("pauseIcon").textContent = "▶";
+        document.getElementById("pauseText").textContent = "继续";
+        document
+          .getElementById("pendingNotice")
+          .classList.remove("hidden");
+      } else {
+        btn.classList.replace("bg-green-600", "bg-yellow-600");
+        btn.classList.replace(
+          "hover:bg-green-500",
+          "hover:bg-yellow-500",
+        );
+        document.getElementById("pauseIcon").textContent = "⏸";
+        document.getElementById("pauseText").textContent = "暂停";
+        document
+          .getElementById("pendingNotice")
+          .classList.add("hidden");
+      }
+    }
+    function stopProcessing() {
+      state.shouldStopProcessing = true;
+      document.getElementById("pendingNotice").textContent =
+        "正在停止...";
+      document
+        .getElementById("pendingNotice")
+        .classList.remove("hidden");
+    }
+    function validateAdvancedInputs() {
+      const batch = document.getElementById("batchSizeInput");
+      if (batch.value < 1) batch.value = 1;
+      // Removed max limit
+      const concur = document.getElementById("concurrencyInput");
+      if (concur.value < 1) concur.value = 1;
+      // Removed max limit
+    }
+
+    // Rest of standard functions
+    function resetApp() {
+      if (state.chapters.length && !confirm("重置？")) return;
+      state.files = [];
+      state.chapters = [];
+      state.currentChapterIndex = -1;
+      state.viewMode = "original";
+      state.isProcessing = false;
+      document.getElementById("fileInfo").classList.add("hidden");
+      document
+        .getElementById("processingRangeSection")
+        .classList.add("hidden");
+      document
+        .getElementById("advancedSettingsSection")
+        .classList.add("hidden");
+      document
+        .getElementById("intervalSection")
+        .classList.add("hidden");
+      document
+        .getElementById("processingControls")
+        .classList.remove("hidden");
+      document
+        .getElementById("runningControls")
+        .classList.add("hidden");
+      updateUI();
+      updateStep(1);
+      document
+        .getElementById("welcomeScreen")
+        .classList.remove("hidden");
+      document
+        .getElementById("contentToolbar")
+        .classList.add("hidden");
+      document
+        .getElementById("chapterActionBar")
+        .classList.add("hidden");
+      [
+        "originalView",
+        "cleanedView",
+        "diffView",
+        "processingView",
+      ].forEach((id) =>
+        document.getElementById(id).classList.add("hidden"),
+      );
+    }
+    // ============ Formatting & Diff Logic (RESTORED) ============
+    function escapeHtml(text) {
+      const div = document.createElement("div");
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    function stripWhitespace(text) {
+      return text.replace(/[\s\u3000\u00A0\t\r\n]+/g, "");
+    }
+
+    function normalizeText(text) {
+      // Restore original normalization to preserve paragraph structure
+      return text
+        .replace(/\r\n/g, "\n")
+        .replace(/\n{3,}/g, "\n\n")
+        .trim();
+    }
+
+    function similarity(a, b) {
+      const strippedA = stripWhitespace(a),
+        strippedB = stripWhitespace(b);
+      if (!strippedA && !strippedB) return 1;
+      if (!strippedA || !strippedB) return 0;
+      if (strippedA === strippedB) return 1;
+      const setA = new Set(strippedA.split("")),
+        setB = new Set(strippedB.split(""));
+      return (
+        [...setA].filter((x) => setB.has(x)).length /
+        new Set([...setA, ...setB]).size
+      );
+    }
+
+    function longestCommonSubsequence(str1, str2) {
+      const m = str1.length,
+        n = str2.length;
+      const dp = Array(m + 1)
+        .fill(null)
+        .map(() => Array(n + 1).fill(0));
+      for (let i = 1; i <= m; i++)
+        for (let j = 1; j <= n; j++)
+          dp[i][j] =
+            str1[i - 1] === str2[j - 1]
+              ? dp[i - 1][j - 1] + 1
+              : Math.max(dp[i - 1][j], dp[i][j - 1]);
+      let lcs = "",
+        i = m,
+        j = n;
+      while (i > 0 && j > 0) {
+        if (str1[i - 1] === str2[j - 1]) {
+          lcs = str1[i - 1] + lcs;
+          i--;
+          j--;
+        } else if (dp[i - 1][j] > dp[i][j - 1]) i--;
+        else j--;
+      }
+      return lcs;
+    }
+
+    function findDeletedChars(original, cleaned) {
+      const origStripped = original
+        .replace(/[\s\u3000\u00A0]+/g, " ")
+        .trim();
+      const cleanStripped = cleaned
+        .replace(/[\s\u3000\u00A0]+/g, " ")
+        .trim();
+      if (stripWhitespace(original) === stripWhitespace(cleaned))
+        return escapeHtml(original);
+      const lcs = longestCommonSubsequence(
+        origStripped,
+        cleanStripped,
+      );
+      let result = "",
+        lcsIdx = 0;
+      for (let i = 0; i < origStripped.length; i++) {
+        if (
+          lcsIdx < lcs.length &&
+          origStripped[i] === lcs[lcsIdx]
+        ) {
+          result += escapeHtml(origStripped[i]);
+          lcsIdx++;
+        } else {
+          result += `<span class="deleted-char">${escapeHtml(origStripped[i])}</span>`;
+        }
+      }
+      return result;
+    }
+
+    // ============ Diff Scroll Sync & Interactive ============
+    let syncingScroll = false;
+
+    function setupDiffScrollSync() {
+      const leftPanel = document.getElementById("diffLeftPanel");
+      const rightPanel = document.getElementById("diffRightPanel");
+      if (!leftPanel || !rightPanel) return;
+
+      leftPanel.onscroll = rightPanel.onscroll = null;
+
+      leftPanel.onscroll = () => {
+        if (syncingScroll) return;
+        syncingScroll = true;
+        rightPanel.scrollTop =
+          (leftPanel.scrollTop /
+            (leftPanel.scrollHeight - leftPanel.clientHeight)) *
+          (rightPanel.scrollHeight - rightPanel.clientHeight);
+        syncingScroll = false;
+      };
+      rightPanel.onscroll = () => {
+        if (syncingScroll) return;
+        syncingScroll = true;
+        leftPanel.scrollTop =
+          (rightPanel.scrollTop /
+            (rightPanel.scrollHeight -
+              rightPanel.clientHeight)) *
+          (leftPanel.scrollHeight - leftPanel.clientHeight);
+        syncingScroll = false;
+      };
+    }
+
+    function onDiffLineClick(index) {
+      const leftPanel = document.getElementById("diffLeftPanel");
+      const rightPanel = document.getElementById("diffRightPanel");
+      document
+        .querySelectorAll(".diff-line")
+        .forEach((l) => l.classList.remove("active"));
+      leftPanel
+        .querySelectorAll(".diff-line")
+      [index]?.classList.add("active");
+      rightPanel
+        .querySelectorAll(".diff-line")
+      [index]?.classList.add("active");
+    }
+
+    // ============ Line Decisions & Editing ============
+    function setLineDecision(lineIdx, action) {
+      const chapter = state.chapters[state.currentChapterIndex];
+      chapter.lineDecisions[lineIdx] = { action };
+      displayChapter();
+    }
+
+    function resetLineDecision(lineIdx) {
+      const chapter = state.chapters[state.currentChapterIndex];
+      delete chapter.lineDecisions[lineIdx];
+      displayChapter();
+    }
+
+    function startLineEdit(lineIdx) {
+      const chapter = state.chapters[state.currentChapterIndex];
+      let currentContent = "";
+      if (chapter.lineDecisions[lineIdx]?.content) {
+        currentContent = chapter.lineDecisions[lineIdx].content;
+      } else if (
+        state.currentDiffCleaned &&
+        state.currentDiffCleaned[lineIdx]
+      ) {
+        currentContent =
+          state.currentDiffCleaned[lineIdx].text || "";
+      }
+
+      const wrapper = document.getElementById(
+        `diffLineWrapper${lineIdx}`,
+      );
+      if (!wrapper) return;
+
+      wrapper.innerHTML = `
+                <input type="text" class="line-edit-input flex-1" id="lineEditInput${lineIdx}" value="${escapeHtml(currentContent)}"
+                    onkeydown="handleLineEditKeydown(event, ${lineIdx})">
+                <button onclick="saveLineEdit(${lineIdx})" class="line-action-btn" style="background: var(--success-bg); border-color: var(--success); color: var(--success);" title="保存">💾</button>
+                <button onclick="displayChapter()" class="line-action-btn" title="取消">✖</button>
+            `;
+      const input = document.getElementById(
+        `lineEditInput${lineIdx}`,
+      );
+      input.focus();
+      input.select();
+    }
+
+    function handleLineEditKeydown(event, lineIdx) {
+      if (event.key === "Enter") {
+        saveLineEdit(lineIdx);
+      } else if (event.key === "Escape") {
+        displayChapter();
+      }
+    }
+
+    function saveLineEdit(lineIdx) {
+      const input = document.getElementById(
+        `lineEditInput${lineIdx}`,
+      );
+      if (!input) return;
+      const chapter = state.chapters[state.currentChapterIndex];
+      chapter.lineDecisions[lineIdx] = {
+        action: "edit",
+        content: input.value,
+      };
+      displayChapter();
+    }
+
+    // ============ Chapter Action Functions ============
+    function markForReprocess() {
+      const chapter = state.chapters[state.currentChapterIndex];
+      if (!chapter) return;
+      if (confirm("确定要标记该章节重新处理吗？现有结果将丢失。")) {
+        chapter.status = "pending";
+        chapter.needsReprocess = true;
+        chapter.cleanedContent = null;
+        chapter.lineDecisions = {};
+        renderChapterList();
+        updateUI();
+        displayChapter();
+      }
+    }
+
+    function acceptAllChanges() {
+      const chapter = state.chapters[state.currentChapterIndex];
+      if (!chapter) return;
+      chapter.status = "accepted";
+      chapter.needsReprocess = false;
+      renderChapterList();
+      updateUI();
+      nextChapter();
+    }
+
+    function rejectAllChanges() {
+      const chapter = state.chapters[state.currentChapterIndex];
+      if (!chapter) return;
+      chapter.status = "rejected";
+      chapter.cleanedContent = null;
+      chapter.lineDecisions = {};
+      renderChapterList();
+      updateUI();
+      displayChapter();
+    }
+
+    function prevChapter() {
+      if (state.currentChapterIndex > 0) {
+        selectChapter(state.currentChapterIndex - 1);
+      }
+    }
+
+    function nextChapter() {
+      if (state.currentChapterIndex < state.chapters.length - 1) {
+        selectChapter(state.currentChapterIndex + 1);
+      }
+    }
+
+    function renderDiff(original, cleaned) {
+      const chapter = state.chapters[state.currentChapterIndex];
+      const origLines = normalizeText(original).split("\n");
+      const cleanLines = normalizeText(cleaned).split("\n");
+
+      const origCandidates = origLines.map((text) => ({
+        text,
+        stripped: stripWhitespace(text),
+        used: false,
+        type: "same",
+        matchIdx: -1,
+      }));
+      const cleanCandidates = cleanLines.map((text) => ({
+        text,
+        stripped: stripWhitespace(text),
+        used: false,
+        type: "same",
+        matchIdx: -1,
+      }));
+
+      // Exact matches
+      for (let i = 0; i < cleanCandidates.length; i++) {
+        if (!cleanCandidates[i].stripped) continue;
+        for (let j = 0; j < origCandidates.length; j++) {
+          if (origCandidates[j].used) continue;
+          if (
+            origCandidates[j].stripped ===
+            cleanCandidates[i].stripped
+          ) {
+            origCandidates[j].used = true;
+            origCandidates[j].matchIdx = i;
+            cleanCandidates[i].used = true;
+            cleanCandidates[i].matchIdx = j;
+            break;
+          }
+        }
+      }
+
+      // Fuzzy matches
+      for (let i = 0; i < cleanCandidates.length; i++) {
+        if (cleanCandidates[i].used || !cleanCandidates[i].stripped)
+          continue;
+        let bestMatch = -1,
+          bestScore = 0.5;
+        for (let j = 0; j < origCandidates.length; j++) {
+          if (origCandidates[j].used) continue;
+          const score = similarity(
+            cleanCandidates[i].text,
+            origCandidates[j].text,
+          );
+          if (score > bestScore) {
+            bestScore = score;
+            bestMatch = j;
+          }
+        }
+        if (bestMatch !== -1) {
+          origCandidates[bestMatch].used = true;
+          origCandidates[bestMatch].matchIdx = i;
+          origCandidates[bestMatch].type = "modified";
+          cleanCandidates[i].used = true;
+          cleanCandidates[i].matchIdx = bestMatch;
+          cleanCandidates[i].type = "modified";
+        }
+      }
+
+      origCandidates.forEach((c) => {
+        if (!c.used && c.stripped) c.type = "removed";
+      });
+      cleanCandidates.forEach((c) => {
+        if (!c.used && c.stripped) c.type = "added";
+      });
+
+      // Build aligned output
+      const diffOriginal = [],
+        diffCleaned = [];
+      let origIdx = 0,
+        cleanIdx = 0;
+
+      while (
+        origIdx < origCandidates.length ||
+        cleanIdx < cleanCandidates.length
+      ) {
+        const orig = origCandidates[origIdx],
+          clean = cleanCandidates[cleanIdx];
+        if (orig && !orig.stripped && !orig.used) {
+          diffOriginal.push({
+            text: orig.text,
+            type: "context",
+            matchedText: "",
+          });
+          diffCleaned.push({
+            text: "",
+            type: "placeholder",
+            matchedText: "",
+          });
+          origIdx++;
+          continue;
+        }
+        if (clean && !clean.stripped && !clean.used) {
+          diffOriginal.push({
+            text: "",
+            type: "placeholder",
+            matchedText: "",
+          });
+          diffCleaned.push({
+            text: clean.text,
+            type: "context",
+            matchedText: "",
+          });
+          cleanIdx++;
+          continue;
+        }
+        if (
+          orig &&
+          clean &&
+          orig.matchIdx === cleanIdx &&
+          clean.matchIdx === origIdx
+        ) {
+          diffOriginal.push({
+            text: orig.text,
+            type: orig.type,
+            matchedText: clean.text,
+          });
+          diffCleaned.push({
+            text: clean.text,
+            type: clean.type,
+            matchedText: orig.text,
+          });
+          origIdx++;
+          cleanIdx++;
+        } else if (orig && orig.type === "removed") {
+          diffOriginal.push({
+            text: orig.text,
+            type: "removed",
+            matchedText: "",
+          });
+          diffCleaned.push({
+            text: "",
+            type: "placeholder",
+            matchedText: "",
+          });
+          origIdx++;
+        } else if (clean && clean.type === "added") {
+          diffOriginal.push({
+            text: "",
+            type: "placeholder",
+            matchedText: "",
+          });
+          diffCleaned.push({
+            text: clean.text,
+            type: "added",
+            matchedText: "",
+          });
+          cleanIdx++;
+        } else if (orig && clean) {
+          if (orig.matchIdx >= 0 && orig.matchIdx > cleanIdx) {
+            diffOriginal.push({
+              text: "",
+              type: "placeholder",
+              matchedText: "",
+            });
+            diffCleaned.push({
+              text: clean.text,
+              type: clean.type,
+              matchedText: "",
+            });
+            cleanIdx++;
+          } else if (
+            clean.matchIdx >= 0 &&
+            clean.matchIdx > origIdx
+          ) {
+            diffOriginal.push({
+              text: orig.text,
+              type: orig.type,
+              matchedText: "",
+            });
+            diffCleaned.push({
+              text: "",
+              type: "placeholder",
+              matchedText: "",
+            });
+            origIdx++;
+          } else {
+            diffOriginal.push({
+              text: orig.text,
+              type: orig.type,
+              matchedText: clean.text,
+            });
+            diffCleaned.push({
+              text: clean.text,
+              type: clean.type,
+              matchedText: orig.text,
+            });
+            origIdx++;
+            cleanIdx++;
+          }
+        } else if (orig) {
+          diffOriginal.push({
+            text: orig.text,
+            type: orig.type,
+            matchedText: "",
+          });
+          diffCleaned.push({
+            text: "",
+            type: "placeholder",
+            matchedText: "",
+          });
+          origIdx++;
+        } else if (clean) {
+          diffOriginal.push({
+            text: "",
+            type: "placeholder",
+            matchedText: "",
+          });
+          diffCleaned.push({
+            text: clean.text,
+            type: clean.type,
+            matchedText: "",
+          });
+          cleanIdx++;
+        } else break;
+      }
+
+      // Store for line editing
+      state.currentDiffCleaned = diffCleaned;
+
+      const diffOrigEl = document.getElementById("diffOriginal");
+      const diffCleanEl = document.getElementById("diffCleaned");
+
+      diffOrigEl.innerHTML = diffOriginal
+        .map((line, idx) => {
+          let className =
+            line.type === "removed"
+              ? "diff-removed"
+              : line.type === "modified"
+                ? "diff-modified"
+                : "diff-context";
+          let content = escapeHtml(line.text) || "&nbsp;";
+          if (line.type === "modified" && line.matchedText)
+            content = findDeletedChars(
+              line.text,
+              line.matchedText,
+            );
+          return `<div class="diff-line ${className} px-2 py-0.5 min-h-[1.5rem]" data-index="${idx}" onclick="onDiffLineClick(${idx})">${content}</div>`;
+        })
+        .join("");
+
+      diffCleanEl.innerHTML = diffCleaned
+        .map((line, idx) => {
+          const hasDiff =
+            line.type === "added" ||
+            line.type === "modified" ||
+            line.type === "removed";
+          const decision = chapter.lineDecisions[idx];
+          let className =
+            line.type === "added"
+              ? "diff-added"
+              : line.type === "modified"
+                ? "diff-modified"
+                : "diff-context";
+          let content = escapeHtml(line.text) || "&nbsp;";
+
+          if (decision?.action === "edit") {
+            if (decision.content !== undefined) {
+              content = escapeHtml(decision.content);
+            }
+            className += " edited-line";
+          } else if (decision?.action === "reject") {
+            className += " rejected-line";
+          }
+          if (decision?.action === "edit") {
+            content = escapeHtml(decision.content);
+          }
+
+          let buttons = "";
+          if (hasDiff && line.type !== "placeholder") {
+            const acceptActive =
+              !decision || decision.action === "accept"
+                ? "active-accept"
+                : "";
+            const rejectActive =
+              decision?.action === "reject"
+                ? "active-reject"
+                : "";
+            buttons = `<div class="line-actions">
+                        <button class="line-action-btn ${acceptActive}" onclick="event.stopPropagation(); setLineDecision(${idx}, 'accept')" title="接受">✓</button>
+                        <button class="line-action-btn ${rejectActive}" onclick="event.stopPropagation(); setLineDecision(${idx}, 'reject')" title="拒绝">✗</button>
+                        ${decision ? '<button class="line-action-btn" onclick="event.stopPropagation(); resetLineDecision(' + idx + ')" title="重置">↺</button>' : ""}
+                    </div>`;
+            if (decision?.action === "edit")
+              content +=
+                '<span class="edited-badge">已编辑</span>';
+          }
+
+          // Double click for edit - ALLOW ALL LINES
+          const dblClickHandler =
+            line.type !== "placeholder"
+              ? `ondblclick="event.stopPropagation(); startLineEdit(${idx})"`
+              : "";
+
+          return `<div class="diff-line-wrapper flex items-center gap-1" id="diffLineWrapper${idx}">
+                    <div class="diff-line ${className} px-2 py-0.5 min-h-[1.5rem] flex-1" data-index="${idx}" onclick="onDiffLineClick(${idx})" ${dblClickHandler} style="${line.type !== "placeholder" ? "cursor: pointer;" : ""}">${content}</div>
+                    ${buttons}
+                </div>`;
+        })
+        .join("");
+
+      const stats = {
+        removed: diffOriginal.filter((l) => l.type === "removed")
+          .length,
+        added: diffCleaned.filter((l) => l.type === "added").length,
+        modified: diffOriginal.filter((l) => l.type === "modified")
+          .length,
+      };
+      document.getElementById("diffStats").textContent =
+        `删除 ${stats.removed} 行 | 新增 ${stats.added} 行 | 修改 ${stats.modified} 行`;
+
+      updateCharStats(original, cleaned);
+      setupDiffScrollSync();
+    }
+
+    // ============ Character Statistics & Utils ============
+    function calculateCharCount(text) {
+      return text.replace(/[\s\u3000\u00A0\t\r\n]+/g, "").length;
+    }
+
+    function updateCharStats(original, cleaned) {
+      const origChars = calculateCharCount(original);
+      const cleanChars = calculateCharCount(cleaned);
+      const ratio =
+        origChars > 0 ? (cleanChars / origChars) * 100 : 100;
+      const threshold =
+        parseInt(document.getElementById("charThreshold")?.value) ||
+        state.settings.charThreshold ||
+        90;
+
+      document.getElementById("charStats").textContent =
+        `原文 ${origChars.toLocaleString()} 字 → ${cleanChars.toLocaleString()} 字 (${ratio.toFixed(1)}%)`;
+      const warningEl = document.getElementById("charWarning");
+      if (ratio < threshold) {
+        warningEl.classList.remove("hidden");
+      } else {
+        warningEl.classList.add("hidden");
+      }
+    }
+
+    function toggleEditOriginal() {
+      document
+        .getElementById("originalContent")
+        .classList.toggle("hidden");
+      document
+        .getElementById("originalEditArea")
+        .classList.toggle("hidden");
+      document
+        .getElementById("originalEditActions")
+        .classList.toggle("hidden");
+      document.getElementById("originalEditArea").value =
+        state.chapters[state.currentChapterIndex].originalContent;
+    }
+    function saveEditOriginal() {
+      state.chapters[state.currentChapterIndex].originalContent =
+        document.getElementById("originalEditArea").value;
+      toggleEditOriginal();
+      displayChapter();
+    }
+    function cancelEditOriginal() {
+      toggleEditOriginal();
+    }
+    function toggleEditCleaned() {
+      document
+        .getElementById("cleanedContent")
+        .classList.toggle("hidden");
+      document
+        .getElementById("cleanedEditArea")
+        .classList.toggle("hidden");
+      document
+        .getElementById("cleanedEditActions")
+        .classList.toggle("hidden");
+      document.getElementById("cleanedEditArea").value =
+        state.chapters[state.currentChapterIndex].cleanedContent ||
+        "";
+    }
+    function saveEditCleaned() {
+      state.chapters[state.currentChapterIndex].cleanedContent =
+        document.getElementById("cleanedEditArea").value;
+      state.chapters[state.currentChapterIndex].status = "accepted";
+      toggleEditCleaned();
+      displayChapter();
+    }
+    function cancelEditCleaned() {
+      toggleEditCleaned();
+    }
+    async function exportMerged() {
+      const content = state.chapters
+        .map((ch) => ch.cleanedContent || ch.originalContent)
+        .join("\n\n");
+      const handle = await window.showSaveFilePicker({
+        suggestedName: "cleaned.txt",
+      });
+      const w = await handle.createWritable();
+      await w.write(content);
+      await w.close();
+    }
+    async function exportZip() {
+      const zip = new JSZip();
+      state.chapters.forEach((c, i) =>
+        zip.file(
+          `${i + 1}_${c.title}.txt`,
+          c.cleanedContent || c.originalContent,
+        ),
+      );
+      const blob = await zip.generateAsync({ type: "blob" });
+      const handle = await window.showSaveFilePicker({
+        suggestedName: "chapters.zip",
+      });
+      const w = await handle.createWritable();
+      await w.write(blob);
+      await w.close();
+    }
+
+    // Setup UI
+    function resetRange() {
+      state.rangeStart = 1;
+      state.rangeEnd = state.chapters.length;
+      document.getElementById("rangeStartDisplay").value =
+        state.rangeStart;
+      document.getElementById("rangeEndDisplay").value =
+        state.rangeEnd;
+    }
+    function validateRangeInput(type) {
+      const input = document.getElementById(
+        type === "start" ? "rangeStartDisplay" : "rangeEndDisplay",
+      );
+      let value = parseInt(input.value) || 1;
+      if (type === "start") {
+        value = Math.max(1, Math.min(state.rangeEnd, value));
+        state.rangeStart = value;
+      } else {
+        value = Math.max(
+          state.rangeStart,
+          Math.min(state.chapters.length, value),
+        );
+        state.rangeEnd = value;
+      }
+      input.value = value;
+    }
+    function updateStep(s) {
+      for (let i = 1; i <= 4; i++)
+        document.getElementById(`step${i}-indicator`).className =
+          `w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${i === s ? "step-active text-white" : i < s ? "step-completed text-white" : "step-pending"}`;
+    }
+    function initSpeedSliders() {
+      const s = document.getElementById("startSpeedSlider"),
+        e = document.getElementById("endSpeedSlider");
+      let sInt, eInt;
+      const update = (isS) => {
+        const sl = isS ? s : e;
+        const val = parseInt(sl.value);
+        const spd =
+          Math.abs(val - 50) < 5
+            ? 0
+            : Math.sign(val - 50) *
+            (Math.abs(val - 50) > 30 ? 20 : 5);
+        if (spd === 0) return;
+        if (isS) {
+          state.rangeStart = Math.max(
+            1,
+            Math.min(state.rangeEnd, state.rangeStart + spd),
+          );
+          document.getElementById("rangeStartDisplay").value =
+            state.rangeStart;
+        } else {
+          state.rangeEnd = Math.max(
+            state.rangeStart,
+            Math.min(
+              state.chapters.length,
+              state.rangeEnd + spd,
+            ),
+          );
+          document.getElementById("rangeEndDisplay").value =
+            state.rangeEnd;
+        }
+      };
+      const bind = (el, isS) => {
+        el.onmousedown = () => {
+          if (!window[isS ? "sInt" : "eInt"])
+            window[isS ? "sInt" : "eInt"] = setInterval(
+              () => update(isS),
+              80,
+            );
+        };
+        const stop = () => {
+          clearInterval(window[isS ? "sInt" : "eInt"]);
+          window[isS ? "sInt" : "eInt"] = null;
+          el.value = 50;
+        };
+        el.onmouseup = stop;
+        el.onmouseleave = stop;
+      };
+      bind(s, true);
+      bind(e, false);
+    }
+    function toggleLeftSidebar() {
+      document
+        .getElementById("sidebar")
+        .classList.toggle("collapsed");
+    }
+    function toggleRightSidebar() {
+      document
+        .getElementById("rightSidebar")
+        .classList.toggle("collapsed");
+    }
+
+    // Settings Modals
+    function openSettings() {
+      const s = state.settings;
+      document.getElementById("themeSelect").value = state.theme;
+      document.getElementById("apiProvider").value = s.apiProvider;
+      document.getElementById("apiUrl").value = s.apiUrl;
+      document.getElementById("apiKey").value = s.apiKey;
+      document.getElementById("modelCustom").value = s.model;
+      document.getElementById("temperature").value = s.temperature;
+      document.getElementById("maxTokens").value =
+        s.maxTokens || 4096;
+      document.getElementById("systemPrompt").value = s.systemPrompt;
+      const streamEl = document.getElementById("streamOutput");
+      if (streamEl)
+        streamEl.checked =
+          s.streamOutput !== undefined ? s.streamOutput : true;
+      onProviderChange();
+
+      // Fix: API URL might be empty on reopen if not set in defaults
+      if (!document.getElementById("apiUrl").value && s.apiUrl) {
+        document.getElementById("apiUrl").value = s.apiUrl;
+      }
+      // Clear debug payload to force refresh model
+      document.getElementById("debugPayload").value = "";
+      document.getElementById("debugResponse").value = "";
+      document.getElementById("connectionStatus").textContent = "";
+
+      // Issue #12: Restore Multi-API State
+      const multiMode = s.multiApiMode || false;
+      document.getElementById("multiApiSwitch").checked = multiMode;
+      toggleMultiApiMode(multiMode);
+      renderApiEndpoints();
+
+      document
+        .getElementById("settingsModal")
+        .classList.remove("hidden");
+    }
+    function closeSettings() {
+      document
+        .getElementById("settingsModal")
+        .classList.add("hidden");
+    }
+    function saveSettings(shouldClose = true) {
+      state.settings.apiProvider =
+        document.getElementById("apiProvider").value;
+      state.settings.apiUrl = document.getElementById("apiUrl").value;
+      state.settings.apiKey = document.getElementById("apiKey").value;
+      state.settings.model =
+        document.getElementById("modelCustom").value ||
+        document.getElementById("modelSelect").value;
+      state.settings.temperature =
+        document.getElementById("temperature").value;
+      state.settings.maxTokens =
+        parseInt(document.getElementById("maxTokens").value) ||
+        4096;
+      state.settings.systemPrompt =
+        document.getElementById("systemPrompt").value;
+      const streamEl = document.getElementById("streamOutput");
+      if (streamEl) state.settings.streamOutput = streamEl.checked;
+
+      // Save API History
+      const currentUrl = state.settings.apiUrl;
+      const currentKey = state.settings.apiKey;
+      if (currentUrl) {
+        let history = state.settings.apiHistory || [];
+        // Remove existing
+        history = history.filter((h) => h.url !== currentUrl);
+        // Add to top
+        history.unshift({
+          url: currentUrl,
+          key: currentKey,
+          model: state.settings.model,
+          timestamp: Date.now(),
+        });
+        // Limit to 5
+        if (history.length > 5) history.length = 5;
+        state.settings.apiHistory = history;
+      }
+
+      state.settings.multiApiMode =
+        document.getElementById("multiApiSwitch").checked;
+
+      localStorage.setItem(
+        "novelCleanerSettings",
+        JSON.stringify(state.settings),
+      );
+      updateApiHistoryUI();
+      if (shouldClose) closeSettings();
+    }
+
+    // API History Logic
+    function updateApiHistoryUI() {
+      const list = document.getElementById("apiHistoryList");
+      const select = document.getElementById("apiHistorySelect");
+      const history = state.settings.apiHistory || [];
+
+      list.innerHTML = history
+        .map((item) => `<option value="${item.url}"></option>`)
+        .join("");
+
+      // Update Select Dropdown
+      // Preserve the first option (clock icon)
+      let selectHtml = '<option value="">🕒</option>';
+      selectHtml += history
+        .map((item, idx) => {
+          const label = new URL(item.url).hostname;
+          return `<option value="${idx}">${label} (${item.model || "Default"})</option>`;
+        })
+        .join("");
+      select.innerHTML = selectHtml;
+    }
+
+    function applyApiHistory(index) {
+      if (index === "") return;
+      const i = parseInt(index);
+      const history = state.settings.apiHistory || [];
+      if (history[i]) {
+        const item = history[i];
+        document.getElementById("apiUrl").value = item.url;
+        document.getElementById("apiKey").value = item.key || "";
+
+        // Handle Model
+        if (item.model) {
+          const select = document.getElementById("modelSelect");
+          const options = Array.from(select.options).map(
+            (o) => o.value,
+          );
+          if (options.includes(item.model)) {
+            select.value = item.model;
+            document.getElementById("modelCustom").value = "";
+          } else {
+            select.value = "";
+            document.getElementById("modelCustom").value =
+              item.model;
+          }
+        }
+
+        // Reset select to icon
+        document.getElementById("apiHistorySelect").value = "";
+        // Trigger provider update if needed (optional)
+        clearDebugPayload();
+      }
+    }
+
+    // --- Issue #12: Multi-API Management ---
+    function toggleMultiApiMode(enabled) {
+      state.settings.multiApiMode = enabled;
+      document
+        .getElementById("singleApiConfig")
+        .classList.toggle("hidden", enabled);
+      document
+        .getElementById("multiApiConfig")
+        .classList.toggle("hidden", !enabled);
+
+      // Toggle sidebar views
+      const globalContainer = document.getElementById("globalSettingsContainer");
+      const multiContainer = document.getElementById("multiApiNodesContainer");
+      if (globalContainer) globalContainer.classList.toggle("hidden", enabled);
+      if (multiContainer) multiContainer.classList.toggle("hidden", !enabled);
+
+      updateConcurrencyLabel();
+      renderSidebarApiNodes();
+    }
+
+    function renderApiEndpoints() {
+      const list = document.getElementById("apiEndpointsList");
+      const endpoints = state.settings.apiEndpoints || [];
+
+      if (endpoints.length === 0) {
+        list.innerHTML =
+          '<div class="text-center text-sm themed-text-tertiary py-4">暂无节点，请添加 API</div>';
+        return;
+      }
+
+      list.innerHTML = endpoints
+        .map(
+          (ep, idx) => {
+            const isEnabled = ep.enabled !== false; // Default to true
+            const enabledClass = isEnabled ? '' : 'opacity-50';
+            const statusIcon = ep.testStatus === 'ok' ? '✅' : ep.testStatus === 'error' ? '❌' : ep.testStatus === 'testing' ? '🔄' : '';
+
+            return `
+            <div class="p-3 themed-bg-tertiary rounded-lg border themed-border flex flex-col gap-2 relative ${enabledClass}">
+                <div class="flex justify-between items-start">
+                    <div class="flex items-center gap-2">
+                        <input type="checkbox" ${isEnabled ? 'checked' : ''} 
+                          onchange="toggleEndpointEnabled(${idx}, this.checked)"
+                          class="w-4 h-4 rounded" title="${isEnabled ? '点击禁用' : '点击启用'}" />
+                        <div class="flex-1 min-w-0">
+                            <div class="font-medium text-sm flex items-center gap-2">
+                                 ${statusIcon} ${ep.name || "API Node " + (idx + 1)}
+                                 <span class="text-xs opacity-50 font-normal">(${ep.batchSize || "Global"} chs / ${ep.interval ? ep.interval + "s" : "Global"})</span>
+                            </div>
+                            <div class="text-xs themed-text-secondary truncate max-w-[180px]" title="${ep.url}">${ep.url}</div>
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-1 shrink-0">
+                        <span class="text-xs px-2 py-0.5 rounded bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300">
+                             ${ep.maxConcurrency} 并发
+                        </span>
+                        <button onclick="testSingleEndpoint(${idx})" class="text-xs text-green-500 hover:text-green-700 p-1" title="测试">🧪</button>
+                        <button onclick="editEndpoint(${idx})" class="text-xs text-blue-500 hover:text-blue-700 p-1" title="编辑">✏️</button>
+                        <button onclick="removeEndpoint(${idx})" class="text-xs text-red-500 hover:text-red-700 p-1" title="删除">🗑️</button>
+                    </div>
+                </div>
+                <div class="text-xs themed-text-tertiary">Model: ${ep.model || "Default"}</div>
+            </div>
+        `;
+          },
+        )
+        .join("");
+
+      updateConcurrencyLabel();
+      renderSidebarApiNodes();
+    }
+
+    // Render API nodes in the left sidebar with editable settings
+    function renderSidebarApiNodes() {
+      const list = document.getElementById("sidebarApiNodesList");
+      if (!list) return;
+
+      const endpoints = state.settings.apiEndpoints || [];
+      // Only show enabled nodes in sidebar
+      const enabledEndpoints = endpoints.filter(ep => ep.enabled !== false);
+
+      if (enabledEndpoints.length === 0) {
+        const disabledCount = endpoints.length;
+        list.innerHTML = disabledCount > 0
+          ? `<div class="text-center text-xs themed-text-tertiary py-2">全部 ${disabledCount} 个节点已禁用</div>`
+          : '<div class="text-center text-xs themed-text-tertiary py-2">请先在设置中添加 API 节点</div>';
+        return;
+      }
+
+      list.innerHTML = enabledEndpoints.map((ep) => {
+        // Find original index for proper setting updates
+        const idx = endpoints.indexOf(ep);
+        const name = ep.name || `API #${idx + 1}`;
+        const batchValue = ep.batchSize || '';
+        const intervalValue = ep.interval || '';
+        const concurrency = ep.maxConcurrency || 1;
+        const statusIcon = ep.testStatus === 'ok' ? '✅' : ep.testStatus === 'error' ? '❌' : '';
+
+        return `
+          <div class="p-2 themed-bg-tertiary rounded-lg border themed-border text-xs">
+            <div class="flex items-center justify-between mb-2">
+              <span class="font-medium truncate flex-1" title="${ep.url}">${statusIcon} ${name}</span>
+              <span class="text-xs px-1.5 py-0.5 rounded" style="background: var(--accent-light); color: var(--accent);">
+                ${concurrency} 并发
+              </span>
+            </div>
+            <div class="grid grid-cols-2 gap-2">
+              <div>
+                <label class="block themed-text-tertiary mb-0.5">单次章节</label>
+                <input 
+                  type="number" 
+                  value="${batchValue}" 
+                  min="0" 
+                  placeholder="全局"
+                  class="w-full px-2 py-1 rounded themed-input border themed-border text-xs"
+                  onchange="updateNodeSetting(${idx}, 'batchSize', this.value)"
+                  title="留空或0使用全局设置"
+                />
+              </div>
+              <div>
+                <label class="block themed-text-tertiary mb-0.5">间隔 (秒)</label>
+                <input 
+                  type="number" 
+                  value="${intervalValue}" 
+                  min="0" 
+                  step="0.1"
+                  placeholder="全局"
+                  class="w-full px-2 py-1 rounded themed-input border themed-border text-xs"
+                  onchange="updateNodeSetting(${idx}, 'interval', this.value)"
+                  title="留空或0使用全局设置"
+                />
+              </div>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    // Update a specific node's setting
+    function updateNodeSetting(idx, key, value) {
+      if (!state.settings.apiEndpoints || !state.settings.apiEndpoints[idx]) return;
+
+      // Use parseFloat for interval (seconds), parseInt for batchSize
+      const numValue = key === 'interval' ? (parseFloat(value) || 0) : (parseInt(value) || 0);
+      state.settings.apiEndpoints[idx][key] = numValue;
+
+      // Save settings
+      localStorage.setItem("novelCleanerSettings", JSON.stringify(state.settings));
+
+      // Update settings panel display if open
+      renderApiEndpoints();
+    }
+
+    function addEndpoint() {
+      // Collect current settings as a base for new endpoint
+      const name = prompt(
+        "请输入节点名称 (例如: ModelScope):",
+        "New API",
+      );
+      if (!name) return;
+
+      const url = document.getElementById("apiUrl").value;
+      const key = document.getElementById("apiKey").value;
+      const model =
+        document.getElementById("modelCustom").value ||
+        document.getElementById("modelSelect").value;
+      // Default concurrency = 2
+      const maxConcurrency =
+        parseInt(prompt("该节点最大并发数:", "2")) || 2;
+      const batchSize =
+        parseInt(
+          prompt(
+            "该节点单次请求章节数 (Batch Size): \n(留空则使用全局设置)",
+            "",
+          ),
+        ) || 0;
+      const interval =
+        parseFloat(
+          prompt(
+            "该节点请求间隔 (秒): \n(留空则使用全局设置)",
+            "",
+          ),
+        ) || 0;
+
+      const newEndpoint = {
+        id: Date.now().toString(),
+        name,
+        url: url || "",
+        key: key || "",
+        model: model || "",
+        maxConcurrency,
+        batchSize, // 0 means use global
+        interval, // seconds, 0 means use global
+        lastRequestTime: 0, // For rate limiting
+        activeCount: 0,
+      };
+
+      if (!state.settings.apiEndpoints)
+        state.settings.apiEndpoints = [];
+      state.settings.apiEndpoints.push(newEndpoint);
+      renderApiEndpoints();
+
+      // Auto-save without closing
+      saveSettings(false);
+    }
+
+    function editEndpoint(idx) {
+      const ep = state.settings.apiEndpoints[idx];
+      if (!ep) return;
+
+      const newName = prompt("节点名称:", ep.name);
+      if (newName === null) return; // Cancelled
+
+      const newUrl = prompt("API URL:", ep.url);
+      if (newUrl === null) return;
+
+      const newKey = prompt("API Key:", ep.key);
+      if (newKey === null) return;
+
+      const newModel = prompt("模型名称:", ep.model);
+      if (newModel === null) return;
+
+      const newConcurrency = parseInt(prompt("最大并发数:", ep.maxConcurrency)) || 1;
+      const newBatchSize = parseInt(prompt("单次章节数 (0=全局):", ep.batchSize)) || 0;
+      const newInterval = parseFloat(prompt("请求间隔 (秒, 0=全局):", ep.interval)) || 0;
+
+      // Update endpoint
+      ep.name = newName;
+      ep.url = newUrl;
+      ep.key = newKey;
+      ep.model = newModel;
+      ep.maxConcurrency = newConcurrency;
+      ep.batchSize = newBatchSize;
+      ep.interval = newInterval;
+
+      renderApiEndpoints();
+      saveSettings(false);
+    }
+
+    function removeEndpoint(idx) {
+      if (!confirm("确定删除该节点?")) return;
+      state.settings.apiEndpoints.splice(idx, 1);
+      renderApiEndpoints();
+      saveSettings(false);
+    }
+
+    function toggleEndpointEnabled(idx, enabled) {
+      if (!state.settings.apiEndpoints[idx]) return;
+      state.settings.apiEndpoints[idx].enabled = enabled;
+      renderApiEndpoints();
+      saveSettings(false);
+    }
+
+    async function testSingleEndpoint(idx) {
+      const ep = state.settings.apiEndpoints[idx];
+      if (!ep) return;
+
+      ep.testStatus = 'testing';
+      renderApiEndpoints();
+
+      try {
+        const headers = { "Content-Type": "application/json" };
+        if (ep.key) headers["Authorization"] = `Bearer ${ep.key}`;
+
+        const body = {
+          messages: [{ role: "user", content: "Hi" }],
+          model: ep.model || "default",
+          max_tokens: 10,
+          stream: false,
+        };
+
+        const response = await fetch(ep.url, {
+          method: "POST",
+          headers,
+          body: JSON.stringify(body),
+        });
+
+        if (response.ok) {
+          ep.testStatus = 'ok';
+        } else {
+          ep.testStatus = 'error';
+          console.warn(`API test failed for ${ep.name}: ${response.status}`);
+        }
+      } catch (e) {
+        ep.testStatus = 'error';
+        console.error(`API test error for ${ep.name}:`, e);
+      }
+
+      renderApiEndpoints();
+      saveSettings(false);
+    }
+
+    async function testAllEndpoints() {
+      const endpoints = state.settings.apiEndpoints || [];
+      if (endpoints.length === 0) {
+        alert("暂无节点可测试");
+        return;
+      }
+
+      const statusEl = document.getElementById("batchTestStatus");
+      statusEl.classList.remove("hidden");
+
+      for (let i = 0; i < endpoints.length; i++) {
+        statusEl.textContent = `正在测试 ${i + 1}/${endpoints.length}: ${endpoints[i].name}...`;
+        await testSingleEndpoint(i);
+
+        // Wait 5 seconds between tests (except for the last one)
+        if (i < endpoints.length - 1) {
+          statusEl.textContent = `测试完成 ${i + 1}/${endpoints.length}，等待5秒...`;
+          await new Promise(r => setTimeout(r, 5000));
+        }
+      }
+
+      const okCount = endpoints.filter(ep => ep.testStatus === 'ok').length;
+      const errorCount = endpoints.filter(ep => ep.testStatus === 'error').length;
+      statusEl.textContent = `测试完成！✅ ${okCount} 个可用，❌ ${errorCount} 个失败`;
+
+      // Hide status after 10 seconds
+      setTimeout(() => {
+        statusEl.classList.add("hidden");
+      }, 10000);
+    }
+
+    function updateConcurrencyLabel() {
+      // Just visual hint
+      if (state.settings.multiApiMode) {
+        const total = (state.settings.apiEndpoints || []).reduce(
+          (acc, cur) => acc + (cur.maxConcurrency || 1),
+          0,
+        );
+        // We don't force lock the slider per user request, but show hint
+        // document.getElementById("concurrencyInput").setAttribute("title", `建议设置: ${total}`);
+      }
+    }
+
+    function deleteCurrentHistory() {
+      const currentUrl = document.getElementById("apiUrl").value;
+      if (!currentUrl) return;
+
+      if (!confirm(`确定要从历史记录中删除 "${currentUrl}" 吗？`))
+        return;
+
+      let history = state.settings.apiHistory || [];
+      const initialLen = history.length;
+      history = history.filter((h) => h.url !== currentUrl);
+
+      if (history.length < initialLen) {
+        state.settings.apiHistory = history;
+        // Save immediately
+        localStorage.setItem(
+          "novelCleanerSettings",
+          JSON.stringify(state.settings),
+        );
+        updateApiHistoryUI();
+
+        // Clear inputs if it was the current one
+        // document.getElementById("apiUrl").value = "";
+        // document.getElementById("apiKey").value = "";
+
+        alert("已删除");
+      } else {
+        alert("历史记录中未找到该地址");
+      }
+    }
+
+    function onApiUrlInput(input) {
+      const val = input.value;
+      const history = state.settings.apiHistory || [];
+      const match = history.find((h) => h.url === val);
+      if (match) {
+        if (match.key !== undefined)
+          document.getElementById("apiKey").value = match.key;
+        if (match.model) {
+          const select = document.getElementById("modelSelect");
+          const options = Array.from(select.options).map(
+            (o) => o.value,
+          );
+          if (options.includes(match.model)) {
+            select.value = match.model;
+            document.getElementById("modelCustom").value = "";
+          } else {
+            select.value = "";
+            document.getElementById("modelCustom").value =
+              match.model;
+          }
+        }
+      }
+    }
+
+    function clearLocalStorage() {
+      if (!confirm("确定要清除所有本地设置吗？这将删除API配置、历史记录等所有保存的数据。")) {
+        return;
+      }
+      localStorage.removeItem("novelCleanerSettings");
+      localStorage.removeItem("novelCleanerTheme");
+      // Reset state to defaults
+      state.settings = {
+        multiApiMode: false,
+        apiEndpoints: [],
+        apiHistory: [],
+      };
+      alert("已清除所有本地设置。页面将刷新。");
+      location.reload();
+    }
+
+    function clearDebugPayload() {
+      const el = document.getElementById("debugPayload");
+      if (el) el.value = "";
+      const status = document.getElementById("connectionStatus");
+      if (status) status.textContent = "";
+    }
+
+    function onProviderChange() {
+      clearDebugPayload();
+      const conf =
+        providerConfigs[
+        document.getElementById("apiProvider").value
+        ];
+      document.getElementById("apiUrl").value = conf.url;
+      document
+        .getElementById("apiKeySection")
+        .classList.toggle("hidden", !conf.needsKey);
+      document.getElementById("modelSelect").innerHTML =
+        '<option value="">-- 选择模型 --</option>' +
+        conf.models
+          .map((m) => `<option value="${m}">${m}</option>`)
+          .join("");
+      document
+        .getElementById("localModelRecommendations")
+        .classList.toggle(
+          "hidden",
+          !["lmstudio", "ollama"].includes(
+            document.getElementById("apiProvider").value,
+          ),
+        );
+      updateApiHistoryUI();
+    }
+    async function testConnection() {
+      const statusEl = document.getElementById("connectionStatus");
+      const payloadEl = document.getElementById("debugPayload");
+      const responseEl = document.getElementById("debugResponse");
+      const useStream =
+        document.getElementById("streamOutput").checked;
+
+      statusEl.textContent = "测试中...";
+      statusEl.style.color = "var(--warning)";
+      responseEl.value = "";
+
+      try {
+        const url = document.getElementById("apiUrl").value;
+        const key = document.getElementById("apiKey").value;
+        const headers = { "Content-Type": "application/json" };
+        if (key) headers["Authorization"] = `Bearer ${key}`;
+
+        let body;
+        try {
+          if (payloadEl.value.trim()) {
+            body = JSON.parse(payloadEl.value);
+          }
+        } catch (e) {
+          // Ignore parse error, use default
+        }
+
+        if (!body) {
+          body = {
+            messages: [{ role: "user", content: "Hi" }],
+            model:
+              document.getElementById("modelCustom").value ||
+              document.getElementById("modelSelect").value ||
+              "gpt-3.5-turbo",
+            stream: useStream,
+            max_tokens:
+              parseInt(
+                document.getElementById("maxTokens").value,
+              ) || 5,
+          };
+        } else {
+          // Force update stream setting to match UI
+          body.stream = useStream;
+        }
+
+        // Update payload display
+        payloadEl.value = JSON.stringify(body, null, 2);
+
+        let response;
+        try {
+          response = await fetch(url, {
+            method: "POST",
+            headers,
+            body: JSON.stringify(body),
+          });
+        } catch (e) {
+          if (
+            e.name === "TypeError" &&
+            e.message === "Failed to fetch"
+          ) {
+            statusEl.textContent = "✗ 连接失败 (CORS)";
+            statusEl.style.color = "var(--error)";
+            responseEl.value =
+              "[Network Error]: 可能是 CORS 跨域跨域限制。\n\n浏览器安全策略拦截了请求。这意味着该 API 不支持从网页直接访问。\n请更换支持跨域的 API，或者在本地搭建转发服务。";
+            return;
+          }
+          throw e;
+        }
+
+        // Issue #10: Stream Test logic
+        const contentType =
+          response.headers.get("content-type") || "";
+
+        if (!response.ok) {
+          const text = await response.text();
+          responseEl.value = `[HTTP Error]: ${response.status} ${response.statusText}\nContent-Type: ${contentType}\n\n[Raw Response]:\n${text}`;
+          throw new Error(
+            `HTTP ${response.status} ${response.statusText}`,
+          );
+        }
+
+        // Check for stream compatibility
+        if (useStream) {
+          if (contentType.includes("text/event-stream")) {
+            // It's a stream! Read first chunk to verify
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            const { value, done } = await reader.read();
+            await reader.cancel(); // Stop stream
+
+            const chunk = decoder.decode(value);
+            responseEl.value = `[Stream Verified] ✅\nContent-Type: ${contentType}\n\n[First Chunk Sample]:\n${chunk}`;
+            statusEl.textContent = "✓ 连接成功 (流式)";
+            statusEl.style.color = "var(--success)";
+            return;
+          } else {
+            // Requested stream but got something else (likely JSON)
+            const text = await response.text();
+            responseEl.value = `[Warning] Stream requested but API returned '${contentType}'.\nThis API might not support streaming or ignored the 'stream: true' parameter.\n\n[Response Body]:\n${text}`;
+            statusEl.textContent = "⚠️ 连接成功 (非流式)";
+            statusEl.style.color = "var(--warning)";
+            return;
+          }
+        }
+
+        // Normal JSON handling
+        const text = await response.text();
+        let json;
+        try {
+          json = JSON.parse(text);
+          responseEl.value = JSON.stringify(json, null, 2);
+          statusEl.textContent = "✓ 连接成功";
+          statusEl.style.color = "var(--success)";
+        } catch (e) {
+          responseEl.value = `[Parse Error]: ${e.message}\n\n[Raw Response]:\n${text}`;
+          throw new Error("Invalid JSON response");
+        }
+      } catch (e) {
+        statusEl.textContent = `✗ 错误: ${e.message}`;
+        statusEl.style.color = "var(--error)";
+        // If responseEl is empty (e.g. fetch failed), show error there too
+        if (!responseEl.value) responseEl.value = e.toString();
+      }
+    }
+    function getAutoTheme() {
+      const hour = new Date().getHours();
+      return hour >= 6 && hour < 18 ? "light" : "dark";
+    }
+    function applyTheme(theme) {
+      const actualTheme = theme === "auto" ? getAutoTheme() : theme;
+      document.documentElement.setAttribute(
+        "data-theme",
+        actualTheme,
+      );
+      document.getElementById("themeIcon").textContent =
+        actualTheme === "dark" ? "🌙" : "☀️";
+    }
+    function setTheme(theme) {
+      state.theme = theme;
+      applyTheme(theme);
+      localStorage.setItem("novelCleanerTheme", theme);
+    }
+    function toggleTheme() {
+      const currentTheme =
+        document.documentElement.getAttribute("data-theme");
+      setTheme(currentTheme === "dark" ? "light" : "dark");
+      document.getElementById("themeSelect").value =
+        state.theme === "auto"
+          ? "auto"
+          : currentTheme === "dark"
+            ? "light"
+            : "dark";
+    }
+    function openChapterSettings() {
+      document
+        .getElementById("chapterSettingsModal")
+        .classList.remove("hidden");
+    }
+    function closeChapterSettings() {
+      document
+        .getElementById("chapterSettingsModal")
+        .classList.add("hidden");
+    }
+    function applyChapterSettings() {
+      state.settings.chapterPattern =
+        document.getElementById("chapterPattern").value;
+      processImportedContent();
+      closeChapterSettings();
+    }
+    function onPatternChange() {
+      document
+        .getElementById("customPatternSection")
+        .classList.toggle(
+          "hidden",
+          document.getElementById("chapterPattern").value !==
+          "custom",
+        );
+    }
+
+    function init() {
+      initSpeedSliders();
+      const saved = localStorage.getItem("novelCleanerSettings");
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        // Migration: If saved prompt is the old simple version (short), use the new detailed default from HTML
+        // The new prompt is > 300 chars, old is < 200.
+        if (
+          parsed.systemPrompt &&
+          parsed.systemPrompt.length < 300
+        ) {
+          console.log(
+            "Migrating system prompt to new detailed version",
+          );
+          delete parsed.systemPrompt;
+        }
+        Object.assign(state.settings, parsed);
+
+        // Ensure the UI reflects the potentially new default if we deleted it from parsed
+        if (!parsed.systemPrompt) {
+          state.settings.systemPrompt =
+            document.getElementById("systemPrompt").value;
+        }
+
+        // Load stream setting if exists
+        if (parsed.streamOutput !== undefined) {
+          state.settings.streamOutput = parsed.streamOutput;
+          const el = document.getElementById("streamOutput");
+          if (el) el.checked = parsed.streamOutput;
+        }
+
+        // Initialize Multi-API sidebar display
+        if (state.settings.multiApiMode) {
+          const globalContainer = document.getElementById("globalSettingsContainer");
+          const multiContainer = document.getElementById("multiApiNodesContainer");
+          if (globalContainer) globalContainer.classList.add("hidden");
+          if (multiContainer) multiContainer.classList.remove("hidden");
+          renderSidebarApiNodes();
+        }
+      }
+      setTheme(localStorage.getItem("novelCleanerTheme") || "auto");
+    }
+    init();
+  </script>
+</body>
+
+</html>
