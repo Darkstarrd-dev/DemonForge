@@ -13,7 +13,12 @@
       "Bash(node --experimental-strip-types scripts/smoke.mts)",
       "Bash(timeout 18 npx vite --port 5199 --strictPort)",
       "Bash(curl -s -o /dev/null -w \"HTTP %{http_code}\\\\n\" http://localhost:5199/)",
-      "Bash(curl -s http://localhost:5199/src/main.tsx)"
+      "Bash(curl -s http://localhost:5199/src/main.tsx)",
+      "Bash(perl -i -pe 's/^export const INVISIBLE_RE = .*$/export const INVISIBLE_RE = \\\\/[\\\\\\\\u00AD\\\\\\\\u200B-\\\\\\\\u200F\\\\\\\\u2060-\\\\\\\\u2064\\\\\\\\uFEFF]\\\\/g/ if $. == 31' src/utils/ruleClean.ts)",
+      "Bash(sed -n '29,33p' src/utils/ruleClean.ts)",
+      "Bash(perl -i -pe 's{^export const INVISIBLE_RE = .*$}{export const INVISIBLE_RE = /[\\\\\\\\u00AD\\\\\\\\u200B-\\\\\\\\u200F\\\\\\\\u2060-\\\\\\\\u2064\\\\\\\\uFEFF]/g}' src/utils/ruleClean.ts)",
+      "Bash(node -)",
+      "Bash(node --experimental-strip-types scripts/ruleclean-smoke.mts)"
     ]
   }
 }
