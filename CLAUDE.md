@@ -2,11 +2,12 @@
 
 ## 项目状态
 
-- **当前阶段**：需求设计阶段（尚未进入编码）
+- **当前阶段**：需求设计 + 前端 mock 并行（2026-06-12 起）
 - **本阶段约束**：
-  - 仅读写配置文件（CLAUDE.md）与设计文档（DESIGN.md 等）
-  - 不进行编码、依赖安装、构建、运行等任何非必要的工具调用
-  - 以与用户沟通为主，基于沟通内容进行推演并给出建议
+  - 设计文档（DESIGN.md 等）与配置（CLAUDE.md）照常读写
+  - **允许在 `frontend/` 内编码**：仅限 mock 前端（交互模拟；一切 AI 反馈均为前端模拟，不接真实 LLM 与后端）
+  - `frontend/` 之外仍不建代码、不装依赖；后端实现待设计定稿后启动
+  - 需求决策仍以与用户沟通为主，多解时列选项由用户拍板
 
 ## 项目定位
 
@@ -24,6 +25,9 @@
 | LLM 接入 | Provider 抽象，本地与云端 API 都支持，各模块可指定不同模型 |
 | 数据模型 | 素材库（他人作品参考）与作品库（自己创作）分开建模 |
 | 开发顺序 | 按依赖链 M1→M2→M3→M4→M5，先做 P0 基础设施 |
+| UI 组件库 | Ant Design（实装 v6，原生兼容 React 19） |
+| 前端状态 | zustand + persist（mock 期数据存 localStorage） |
+| mock 定位 | mock 前端即正式前端起点：页面只调 `services/api.ts`，mock 实现集中于 `services/mock/`，接真后端时整层替换、页面零改动 |
 
 ## 工作方式
 
@@ -44,3 +48,5 @@
 | `DESIGN.md` | 工程设计文档：模块设计、数据模型、架构、阶段规划 |
 | `docs/M1_text_cleaning.md` | M1 详细设计（抽象自单页应用原型 `10_novel_cleaner.html`） |
 | `docs/M1_raw_features.md` | raw 文件特征样本模板（**待用户填充**，M1 规则设计依据） |
+| `docs/frontend_mock.md` | mock 前端说明：页面交互要点、mock 边界、运行方式 |
+| `frontend/` | mock 前端工程（Vite + React + TS + antd，即正式前端起点） |

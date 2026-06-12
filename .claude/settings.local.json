@@ -1,7 +1,19 @@
 {
   "permissions": {
     "allow": [
-      "Bash(gh auth *)"
+      "Bash(gh auth *)",
+      "Bash(npm --version)",
+      "Bash(npm create *)",
+      "Bash(npm install *)",
+      "Bash(node -e \"const p=require\\('./package.json'\\); console.log\\(JSON.stringify\\({deps:p.dependencies, dev:Object.keys\\(p.devDependencies\\)}, null, 1\\)\\)\")",
+      "Bash(npx tsc *)",
+      "Bash(npm run *)",
+      "Bash(npx eslint *)",
+      "Bash(echo \"eslint exit: $?\")",
+      "Bash(node --experimental-strip-types scripts/smoke.mts)",
+      "Bash(timeout 18 npx vite --port 5199 --strictPort)",
+      "Bash(curl -s -o /dev/null -w \"HTTP %{http_code}\\\\n\" http://localhost:5199/)",
+      "Bash(curl -s http://localhost:5199/src/main.tsx)"
     ]
   }
 }

@@ -97,7 +97,8 @@ raw 文本 ──M1 清洗切分──▶ 干净章节
 |---|---|---|
 | 后端 | Node.js + Fastify | 【待确认】Express 亦可，倾向 Fastify |
 | 数据库 | SQLite（better-sqlite3）+ sqlite-vec | 向量检索走 sqlite-vec 扩展，无需独立向量库 |
-| 前端 | React + Vite | 已确认 |
+| 前端 | React + Vite + TypeScript | 已确认；UI 组件库 Ant Design（v6），状态管理 zustand |
+| 前端演进策略 | mock 先行 | 设计期已建 `frontend/`（mock 前端=正式前端起点）：页面统一经 `services/api.ts` 调用，当前委托 `services/mock/` 假实现（假数据+模拟流式）；接真后端时替换该层、页面零改动。详见 `docs/frontend_mock.md` |
 | LLM 接入 | Provider 抽象层 | 统一按 OpenAI 兼容格式封装；可配置多个 provider（baseURL + key + 模型名），**各模块可分别指定使用的 provider/模型**；支持流式输出 |
 | Embedding | 同 Provider 抽象 | 走 `/v1/embeddings`，本地（llama.cpp 等）或云端均可 |
 | 任务系统 | 进程内队列 + SSE 进度推送 | 不引入 Redis 等重型组件 |
