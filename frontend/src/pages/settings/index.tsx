@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import {
+  Alert,
   App,
   Button,
   Card,
@@ -36,6 +37,12 @@ export default function SettingsPage() {
   const resetDemo = useAppStore((s) => s.resetDemo)
   const [editing, setEditing] = useState<ProviderNode | null>(null)
   const [testingId, setTestingId] = useState<string | null>(null)
+  const [testResult, setTestResult] = useState<{
+    node: ProviderNode
+    ok: boolean
+    models: string[]
+    error?: string
+  } | null>(null)
   const [form] = Form.useForm<ProviderNode>()
 
   const openEdit = (node?: ProviderNode) => {
@@ -65,20 +72,19 @@ export default function SettingsPage() {
         : [...providers, merged],
     })
     setEditing(null)
-    message.success('节点已保存（mock：仅存于本地演示数据）')
+    message.success('节点已保存（当前存于本地，后续随数据层迁移入库）')
   }
 
   const runTest = async (node: ProviderNode) => {
     setTestingId(node.id)
-    const result = await testProvider(node.baseURL)
+    const result = await testProvider({ baseURL: node.baseURL, apiKey: node.apiKey, model: node.model })
     setState({
       providers: useAppStore
         .getState()
-        .providers.map((p) => (p.id === node.id ? { ...p, lastTestResult: result } : p)),
+        .providers.map((p) => (p.id === node.id ? { ...p, lastTestResult: result.ok ? 'ok' : 'fail' } : p)),
     })
     setTestingId(null)
-    if (result === 'ok') message.success(`节点「${node.name}」连通正常（mock）`)
-    else message.error(`节点「${node.name}」连接失败（mock：URL 含 example 即判失败）`)
+    setTestResult({ node, ...result })
   }
 
   const columns = [
@@ -148,7 +154,7 @@ export default function SettingsPage() {
       >
         <Table rowKey="id" columns={columns} dataSource={providers} pagination={false} size="middle" />
         <Typography.Paragraph type="secondary" style={{ marginTop: 12, marginBottom: 0 }}>
-          统一 OpenAI 兼容格式；正式版由后端 Provider 抽象层调度（节点选择策略：最久未用 + 最少连接，429 冷却恢复）。
+          统一 OpenAI 兼容格式；测试经本地后端 Provider 抽象层调用（/api/llm/test → GET /v1/models）。节点选择策略（最久未用 + 最少连接、429 冷却恢复）待后续完善。
         </Typography.Paragraph>
       </Card>
 
@@ -257,6 +263,47 @@ export default function SettingsPage() {
             </Form.Item>
           </Space>
         </Form>
+      </Modal>
+
+      <Modal
+        title={`连通性测试 — ${testResult?.node.name ?? ''}`}
+        open={!!testResult}
+        onCancel={() => setTestResult(null)}
+        footer={<Button onClick={() => setTestResult(null)}>关闭</Button>}
+      >
+        {testResult?.ok ? (
+          <Space direction="vertical" style={{ width: '100%' }}>
+            <Alert type="success" showIcon message={`连通正常，发现 ${testResult.models.length} 个模型`} />
+            {testResult.models.length > 0 ? (
+              <>
+                <Typography.Text type="secondary">点击模型名即可填入该节点的「默认模型」：</Typography.Text>
+                <Space wrap>
+                  {testResult.models.map((m) => (
+                    <Tag.CheckableTag
+                      key={m}
+                      checked={testResult.node.model === m}
+                      onChange={() => {
+                        setState({
+                          providers: useAppStore
+                            .getState()
+                            .providers.map((p) => (p.id === testResult.node.id ? { ...p, model: m } : p)),
+                        })
+                        setTestResult((r) => (r ? { ...r, node: { ...r.node, model: m } } : r))
+                        message.success(`已将「${testResult.node.name}」默认模型设为 ${m}`)
+                      }}
+                    >
+                      {m}
+                    </Tag.CheckableTag>
+                  ))}
+                </Space>
+              </>
+            ) : (
+              <Typography.Text type="secondary">该端点未返回模型列表（连接本身正常）。</Typography.Text>
+            )}
+          </Space>
+        ) : (
+          <Alert type="error" showIcon message="连接失败" description={testResult?.error} />
+        )}
       </Modal>
     </Space>
   )

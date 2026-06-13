@@ -34,7 +34,7 @@ export default function M1ImportPage() {
         items={[
           { title: '导入文件', description: '编码检测' },
           { title: '章节分割', description: '规则 + AI 兜底' },
-          { title: 'AI 清理', description: '并发批处理（mock）' },
+          { title: '文本清理', description: 'AI / 规则双路径' },
           { title: '审核与入库', description: '行级 diff 审核' },
         ]}
         style={{ marginBottom: 24 }}

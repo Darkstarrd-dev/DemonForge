@@ -1,17 +1,22 @@
 # mock 前端说明（frontend/）
 
-> 状态：v0.1（2026-06-12）。设计阶段产物：可跑通 M1–M5 全流程交互的 mock 前端，
-> **一切 AI 反馈均为前端模拟**，不连接真实 LLM 与后端。
-> 定位：**正式前端的起点**——接真后端时仅替换 mock service 层，页面零改动。
+> 状态：v0.2（2026-06-13）。**已进入正式开发**：M1 文本清理（AI 路径）与 Provider 连通性测试
+> 已接真实后端（`server/` 最小 LLM 网关）；M2–M5 仍为前端模拟，数据仍存 localStorage。
+> 定位：**正式前端**——页面只调 `services/api.ts`；真实项已切到 `services/real/`，其余 mock 项仍在 `services/mock/`。
 
 ## 运行
 
 ```bash
+# 后端 LLM 网关（M1 AI 清理 / 设置页测试 endpoint 需要它）
+cd server && npm install && npm run dev      # 监听 127.0.0.1:8787
+
+# 前端（另开终端）
 cd frontend
 npm install     # 首次
-npm run dev     # 开发服务器
+npm run dev     # 开发服务器（Vite proxy /api → 8787）
 npm run build   # 构建检查
-node --experimental-strip-types scripts/smoke.mts   # 核心逻辑冒烟测试（切分/清理/diff 决策）
+node --experimental-strip-types scripts/smoke.mts           # 核心逻辑冒烟（切分/清理/diff 决策）
+node --experimental-strip-types scripts/ruleclean-smoke.mts # 规则清理引擎冒烟（43 项）
 ```
 
 ## 技术栈与结构
@@ -34,15 +39,14 @@ frontend/src/
 
 ## 真实现 vs mock 边界
 
-| 真实现（无 AI、轻量、原型已验证） | mock（一切 LLM 介入点） |
+| 真实（无 AI / 轻量 / 已接真实后端） | mock（前端模拟的 LLM 介入点） |
 |---|---|
-| TXT 上传读取、编码检测（BOM + UTF-8/GBK 评分）与手动切换重解码 | M1 AI 清理（确定性规则现场生成假结果，制造真实可审 diff） |
-| 章节切分（M1 §3.2 五种预设正则 + 自定义） | M1 AI 拆章（固定拆两章） |
-| 双栏对齐 diff（diff 包）+ 行级决策应用生成最终文本 | M2 设定提取（规则统计伪提取器：对话引导词/地名后缀） |
-| 字符保留率护栏（<90% 警告） | M3 推演候选（角色卡风格模板拼装，假流式） |
-| 数据持久化（localStorage） | M4 章节生成（片段串联 + 模板过渡，假流式） |
-| | M5 一致性检查（预置样例 + 一条真规则：时间线已死角色出现在正文 → error） |
-| | Provider 连通性测试（URL 含 example 即失败） |
+| TXT 上传读取、编码检测（BOM + UTF-8/GBK 评分）与手动切换重解码 | M1 AI 拆章（`aiSplitChapter`，固定拆两章） |
+| 章节切分（M1 §3.2 五种预设正则 + 自定义） | M2 设定提取（规则统计伪提取器：对话引导词/地名后缀） |
+| **M1 AI 清理路径**：真实 LLM 流式，经后端 `/api/llm/clean`（§3.7 v2 prompt） | M3 推演候选（角色卡风格模板拼装，假流式） |
+| **M1 规则清理路径**：本地 `ruleClean`，零 LLM、瞬时 + 统计 | M4 章节生成（片段串联 + 模板过渡，假流式） |
+| **Provider 连通性测试**：真实 `GET /v1/models`，经后端 `/api/llm/test`，列模型可一键填入 | M5 一致性检查（预置样例 + 一条真规则：时间线已死角色出现在正文 → error） |
+| 双栏对齐 diff（diff 包）+ 行级决策应用生成最终文本；字符保留率护栏；数据持久化（localStorage） | |
 
 ## 各页面交互要点
 

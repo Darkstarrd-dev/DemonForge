@@ -95,7 +95,7 @@ raw 文本 ──M1 清洗切分──▶ 干净章节
 
 | 层 | 选型 | 说明 |
 |---|---|---|
-| 后端 | Node.js + Fastify | 【待确认】Express 亦可，倾向 Fastify |
+| 后端 | Node.js + Fastify | 已确认 Fastify（2026-06-13）；最小 LLM 网关已落地 `server/`（无状态，数据层 SQLite 待后续） |
 | 数据库 | SQLite（better-sqlite3）+ sqlite-vec | 向量检索走 sqlite-vec 扩展，无需独立向量库 |
 | 前端 | React + Vite + TypeScript | 已确认；UI 组件库 Ant Design（v6），状态管理 zustand |
 | 前端演进策略 | mock 先行 | 设计期已建 `frontend/`（mock 前端=正式前端起点）：页面统一经 `services/api.ts` 调用，当前委托 `services/mock/` 假实现（假数据+模拟流式）；接真后端时替换该层、页面零改动。详见 `docs/frontend_mock.md` |
@@ -122,7 +122,7 @@ raw 文本 ──M1 清洗切分──▶ 干净章节
 2. **语言风格控制**：M3 推演时角色语言风格如何约束——卡片中维护"语言风格描述 + 台词例句"是否足够？
 3. **一致性检查时机**：章节定稿时自动触发，还是手动触发？
 4. **静态/动态设定分离**（M5 推演建议）是否采纳？
-5. **后端框架**：Fastify 还是 Express？（差异不大，默认 Fastify）
+5. ~~**后端框架**：Fastify 还是 Express？~~ → **已拍板 Fastify**（2026-06-13），最小 LLM 网关落地于 `server/`。
 6. **M1 编码损坏段（mojibake）处理**：损坏字符串占位着原文、机械删除即丢句子内容
    （样本见 `M1_raw_features.md` §4.5）——让 LLM 尝试重写修复（靠 diff 审核把关），
    还是仅标记待人工处理？拍板前默认保留不动。

@@ -1,12 +1,13 @@
-// 统一服务入口：页面只从这里调用。当前全部委托 mock 实现；
-// 接入真实后端时，仅替换本文件的 re-export 指向（或改为 fetch 实现），页面零改动。
+// 统一服务入口：页面只从这里调用。
+// M1 清理（startCleanQueue）与 Provider 连通性测试（testProvider）已接真实后端（services/real）；
+// M2–M5 仍为 mock（services/mock）。接入后端时进一步替换 mock 项，页面零改动。
 export {
   aiSplitChapter,
-  startCleanQueue,
   extractEntities,
   simulateCharacter,
   generateChapterDraft,
   checkConsistency,
-  testProvider,
 } from './mock/impl'
-export type { CleanQueueCallbacks, CleanQueueHandle } from './mock/impl'
+
+export { testProvider, startCleanQueue } from './real/llm'
+export type { CleanQueueCallbacks, CleanQueueHandle, CleanNode, TestResult } from './real/llm'

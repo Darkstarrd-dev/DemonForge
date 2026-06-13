@@ -1,0 +1,20 @@
+{
+  "name": "novelhelper-server",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "novelhelper 后端 — 最小 LLM 网关（Provider 抽象层起点，无状态）",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "tsx src/index.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "fastify": "^5.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}

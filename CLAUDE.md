@@ -2,12 +2,14 @@
 
 ## 项目状态
 
-- **当前阶段**：需求设计 + 前端 mock 并行（2026-06-12 起）
+- **当前阶段**：正式开发启动（2026-06-13 起）——M1 文本清理与系统设置接真实后端
 - **本阶段约束**：
   - 设计文档（DESIGN.md 等）与配置（CLAUDE.md）照常读写
-  - **允许在 `frontend/` 内编码**：仅限 mock 前端（交互模拟；一切 AI 反馈均为前端模拟，不接真实 LLM 与后端）
-  - `frontend/` 之外仍不建代码、不装依赖；后端实现待设计定稿后启动
+  - **已进入实现阶段**：解除「frontend 之外不建代码」约束，按 DESIGN.md 正式架构（Node.js + Fastify 后端、React/Vite 前端）落地
+  - 本轮范围：最小 LLM 网关后端（`server/`，无状态、不引入 SQLite）+ M1/设置页真实化；书/章节等数据仍存前端 localStorage，SQLite 数据层为后续独立任务
+  - 接真实 LLM：M1 AI 清理与 Provider 测试经后端调用真实 endpoint（M2–M5 暂仍 mock）
   - 需求决策仍以与用户沟通为主，多解时列选项由用户拍板
+  - **临时约束（2026-06-13）**：subagent 调用暂停——需 subagent 的场合改为导出提示词 md 交用户外部执行（详见 `HANDOFF.md`）
 
 ## 项目定位
 
@@ -28,6 +30,8 @@
 | UI 组件库 | Ant Design（实装 v6，原生兼容 React 19） |
 | 前端状态 | zustand + persist（mock 期数据存 localStorage） |
 | mock 定位 | mock 前端即正式前端起点：页面只调 `services/api.ts`，mock 实现集中于 `services/mock/`，接真后端时整层替换、页面零改动 |
+| 后端框架 | **Fastify**（2026-06-13 拍板，DESIGN §7 问题 5） |
+| 本轮实现范围 | 最小 LLM 网关（`server/`，无状态、不引入 SQLite，数据暂留 localStorage）；M1 清理双路径（AI 真实流式 / 规则本地 `ruleClean`）+ 设置页真实测试 endpoint |
 
 ## 工作方式
 
@@ -49,4 +53,5 @@
 | `docs/M1_text_cleaning.md` | M1 详细设计（抽象自单页应用原型 `10_novel_cleaner.html`） |
 | `docs/M1_raw_features.md` | raw 文件特征样本模板（**待用户填充**，M1 规则设计依据） |
 | `docs/frontend_mock.md` | mock 前端说明：页面交互要点、mock 边界、运行方式 |
-| `frontend/` | mock 前端工程（Vite + React + TS + antd，即正式前端起点） |
+| `frontend/` | 前端工程（Vite + React + TS + antd）；服务层 `services/api.ts` → mock(`services/mock/`) / real(`services/real/`) |
+| `server/` | 后端工程（Fastify，最小 LLM 网关）：`/api/llm/{test,clean,embed}`、Provider 抽象层 `src/llmClient.ts`、清理 prompt `src/prompts.ts` |
