@@ -18,7 +18,7 @@ import {
   Tag,
   Typography,
 } from 'antd'
-import { useAppStore, genId } from '../../store/appStore'
+import { useAppStore, genId, reloadStoreFromBackend } from '../../store/appStore'
 import { testProvider, getDefaultPrompt } from '../../services/api'
 import type { ModuleKey, ProviderNode } from '../../services/types'
 
@@ -36,10 +36,13 @@ export default function SettingsPage() {
   const providers = useAppStore((s) => s.providers)
   const moduleMapping = useAppStore((s) => s.moduleMapping)
   const m1SystemPrompt = useAppStore((s) => s.m1SystemPrompt)
+  const assetDir = useAppStore((s) => s.assetDir)
   const setState = useAppStore((s) => s.setState)
   const resetDemo = useAppStore((s) => s.resetDemo)
   const [editing, setEditing] = useState<ProviderNode | null>(null)
   const [draftPrompt, setDraftPrompt] = useState<string>(m1SystemPrompt)
+  const [draftDir, setDraftDir] = useState<string>(assetDir)
+  const [applyingDir, setApplyingDir] = useState(false)
   const [loadingPrompt, setLoadingPrompt] = useState(false)
   const [testingId, setTestingId] = useState<string | null>(null)
   const [testResult, setTestResult] = useState<{
@@ -90,6 +93,29 @@ export default function SettingsPage() {
     })
     setTestingId(null)
     setTestResult({ node, ...result })
+  }
+
+  // 切换资产目录：先同步落盘设置（await），再重载该目录数据（避免 debounce 未落地导致读旧库）
+  const applyAssetDir = async () => {
+    const dir = draftDir.trim()
+    setApplyingDir(true)
+    try {
+      const res = await fetch('/api/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ assetDir: dir }),
+      })
+      if (!res.ok) {
+        const e = (await res.json().catch(() => ({}))) as { error?: string }
+        message.error(e.error || '资产目录设置失败')
+        return
+      }
+      setState({ assetDir: dir })
+      await reloadStoreFromBackend()
+      message.success(dir ? `已切换资产目录：${dir}` : '已恢复默认资产目录')
+    } finally {
+      setApplyingDir(false)
+    }
   }
 
   const columns = [
@@ -258,6 +284,27 @@ export default function SettingsPage() {
         <Typography.Paragraph type="secondary" style={{ marginTop: 8, marginBottom: 0 }}>
           {m1SystemPrompt ? `已保存自定义提示词（${m1SystemPrompt.length} 字）。清理时优先使用它。` : '当前为空——清理时使用后端内置默认提示词。'}
           {' M1 第三步可再为单次任务临时覆盖。'}
+        </Typography.Paragraph>
+      </Card>
+
+      <Card title="资产目录">
+        <Typography.Paragraph type="secondary" style={{ marginBottom: 8 }}>
+          业务数据（书/章节/卡片/推演等）保存在此目录下的 <Typography.Text code>novelhelper.db</Typography.Text>，
+          图片存 <Typography.Text code>images/</Typography.Text>。留空使用默认 <Typography.Text code>&lt;repo&gt;/assets</Typography.Text>。
+          切换目录将载入该目录下的数据集（空目录则重新填充种子数据）。Provider/密钥等设置不在此目录。
+        </Typography.Paragraph>
+        <Space.Compact style={{ width: '100%' }}>
+          <Input
+            value={draftDir}
+            onChange={(e) => setDraftDir(e.target.value)}
+            placeholder="如：D:\\novelhelper-data（留空=默认 <repo>/assets）"
+          />
+          <Button type="primary" loading={applyingDir} disabled={draftDir.trim() === assetDir.trim()} onClick={applyAssetDir}>
+            应用并切换
+          </Button>
+        </Space.Compact>
+        <Typography.Paragraph type="secondary" style={{ marginTop: 8, marginBottom: 0 }}>
+          当前：<Typography.Text code>{assetDir || '（默认 <repo>/assets）'}</Typography.Text>
         </Typography.Paragraph>
       </Card>
 

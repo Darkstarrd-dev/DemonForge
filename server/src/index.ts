@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url'
 import { tmpdir } from 'node:os'
 import { llmRoutes } from './routes/llm.ts'
 import { settingsRoutes } from './routes/settings.ts'
+import { storeRoutes } from './routes/store.ts'
 
 const PORT = Number(process.env.PORT ?? 8787)
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)))
@@ -14,6 +15,7 @@ const app = Fastify({ logger: true })
 
 await app.register(llmRoutes)
 await app.register(settingsRoutes)
+await app.register(storeRoutes)
 app.get('/api/health', async () => ({ ok: true }))
 
 const killByPidFile = (filename: string) => {

@@ -6,5 +6,6 @@ __pycache__/
 *.pid
 dist/
 .chrome-profile/
+/assets/
 server/data/settings.json
 server/src/data/settings.json

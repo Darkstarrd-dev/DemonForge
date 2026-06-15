@@ -26,8 +26,8 @@
 
 ## 项目状态快照
 
-- **最后更新**：2026-06-15（第十二次会话·单窗口启动方案 A）
-- **阶段**：正式开发启动（后端已建）——**M1 AI 清理端到端跑通**；设置页接真实 LLM；M2–M5 仍 mock；数据仍存 localStorage
+- **最后更新**：2026-06-15（第十三次会话·localStorage → SQLite 资产库）
+- **阶段**：正式开发启动（后端已建）——**M1 AI 清理端到端跑通**；设置页接真实 LLM；M2–M5 仍 mock；**业务数据已落 SQLite 资产库（可配置资产目录）**，Provider/密钥等设置仍存 `server/src/data/settings.json`
 - **摘要**：在 mock 前端基础上**进入实现阶段**。
   运行方式：双击根目录 `start.vbs`（**单窗口**：隐藏启动后端 :8787 + 前端 :5173，前端就绪后用 Chrome `--app` 应用模式（独立 `.chrome-profile`）打开无地址栏的独立窗口；关窗即由看门狗清理后台进程；`start.bat` 为兼容旧入口的转交薄壳）；
   退出：侧边栏底部「退出系统」按钮（关闭前后端所有进程 + 浏览器窗口）。
@@ -185,6 +185,17 @@
     - [x] `index.ts` 退出 kill 顺序调整：先杀前端树、最后杀后端自身树（`server.pid` 自杀放末位）
     - [x] `.gitignore` 新增 `.chrome-profile/`（Chrome 专属 profile，localStorage 数据所在）
     - [x] 验证：后端 typecheck ✅；端到端单窗口启动/退出待用户试跑
+- [x] **数据持久化迁移：localStorage → SQLite 资产库**（2026-06-15 第十三次会话）
+    - [x] 后端依赖 `better-sqlite3`（Win 预编译，原生模块加载验证通过）
+    - [x] `server/src/store/db.ts`：`getAssetDir`（settings.assetDir 优先、缺省 `<repo>/assets`，自动建 `images/`）+
+      `getDb`（路径变更即关旧库重开，支持运行中切换资产目录）+ 9 表 `(id,data-JSON)` 文档式 + `readAll` + `syncAll`（upsert + 删缺失行，增量写）
+    - [x] `server/src/routes/store.ts`：`GET/POST /api/store`；`index.ts` 注册；`settings.ts` POST 校验创建 `assetDir`
+    - [x] `appStore.ts`：移除 `persist`；`bootstrapStore`（拉设置 + 业务数据，空库则种子重建并持久化）+ `reloadStoreFromBackend`；
+      两 debounce 订阅按 `(state,prev)` 引用比对触发回写（业务 → `/api/store`、设置含 assetDir/currentBookId → `/api/settings`）；
+      `resetDemo` 仅重置业务数据、**保留用户 Provider/密钥配置**（原行为会一并重置回种子）
+    - [x] `main.tsx` 渲染前 `await bootstrapStore()`（兜底）；设置页新增「资产目录」Card（应用并切换：先同步落盘设置再重载）
+    - [x] `importSession`（含整份 rawText）改为仅内存、不持久化；`.gitignore` 加 `/assets/`
+    - [x] 验证：后端 typecheck ✅、db 层读写/upsert/删除/清空直测 ✅、前端 eslint/build/smoke(13)/ruleclean-smoke ✅；端到端待用户试跑
 - [ ] **用户补充 raw 特征余项并拍板新问题**：`M1_raw_features.md` §1 基本情况
       （编码/文件规模/是否一文件多本）与 §2（卷结构、序章番外）待确认；
       DESIGN.md §7 问题 6（mojibake 处理）、问题 7（作者求票去留）待拍板
@@ -209,7 +220,8 @@
 ### 待办（实现阶段，设计定稿后启动）
 
 - [~] P0 基础设施：**Provider 抽象层 + 配置界面（设置页真实测试）已落地**（`server/src/llmClient.ts`）；
-      后端骨架（Fastify）已建；**SQLite 初始化 / 数据层迁移仍待办**（本轮数据暂留 localStorage）
+      后端骨架（Fastify）已建；**业务数据 SQLite 资产库已落地**（`server/src/store/db.ts`，可配置资产目录，文档式 9 表）；
+      向量检索（embedding 表 / sqlite-vec）待 M2 真实化时接入
 - [~] P1 = M1 文本预处理：**AI 路径（真实 LLM 流式）已落地并通过真实端点端到端验证**（规则路径已从 UI 移除）；
       编码检测/切分/审核入库沿用既有；切分 AI 兜底（`aiSplitChapter`）仍 mock、整本长任务队列/重试增强待后续
 - [ ] P2 = M2 设定提取
@@ -219,29 +231,17 @@
 
 ## 交接备注（最近一次会话）
 
-- **日期**：2026-06-15（第十二次会话·单窗口启动方案 A）
-- **本次完成**：把原「双击 `start.bat` → 弹出后端 cmd + 前端 cmd + 浏览器标签页（共 3 个窗口）」改为**单窗口**体验（方案 A：零新依赖、保留 Vite HMR）：
-  ① 新增 `start.vbs`（双击入口，无控制台窗口）→ `WshShell.Run(..., 0, False)` 隐藏调用 `scripts/launch.ps1`。
-  ② 新增 `scripts/launch.ps1`：用 `Start-Process cmd -WindowStyle Hidden -PassThru` 隐藏启动后端/前端，
-     把 cmd 进程树根 PID 写入根目录 `server.pid`/`frontend.pid`（`.gitignore` 已含 `*.pid`）——
-     现有退出逻辑里的 `killByPidFile` 本就读这两个文件、`taskkill /T /F` 杀整棵树，此前从未有人写过它们，
-     现在补上后后端清理（含 tsx watch 树）才彻底可靠；随后轮询 `http://localhost:5173` 就绪、
-     用 **Chrome 应用模式 `chrome --app=`** 打开单窗口。
-  ②b **看门狗 + 关窗自动清理**：Chrome 用固定 `--user-data-dir=.chrome-profile` 强制开独立实例
-     （否则已有 Chrome 在跑时新进程转交旧实例后立即退出，看门狗会误判），`launch.ps1` 末尾 `WaitForExit()`
-     阻塞监视该窗口——无论点应用内「退出系统」还是**直接关窗 X**，窗口一关即 `taskkill /T /F` 清理后台进程树，
-     不留占用端口的孤儿进程。`.chrome-profile/` 已加入 `.gitignore`（localStorage 数据存于此专属 profile，
-     与默认浏览器隔离、跨次启动持久保留）。
-  ③ `start.bat` 改为 `start "" wscript.exe start.vbs` 转交薄壳（保留旧入口习惯，会有一瞬闪烁；想完全无闪直接双击 `start.vbs`）。
-  ④ `server/src/index.ts` `/api/shutdown`：kill 顺序调整为「先前端树 → 最后后端自身树」，
-     因 `server.pid` 指向本进程 cmd 树根、`taskkill /T` 会连带杀掉正在执行 handler 的 node，必须放末位。
-  退出仍走侧边栏「退出系统」→ `POST /api/shutdown` + `window.close()`（app 模式下 `window.close()` 更可能真正关窗）。
-  验证：后端 `tsc --noEmit` ✅。
-- **阻塞项**：无。**待用户端到端试跑**：双击 `start.vbs` 应只出现一个 Chrome 应用窗口；
-  ①点「退出系统」或②直接关窗 X，两种方式都应清理后端/前端隐藏进程（任务管理器确认无残留 node / 端口释放）。
-  前提：本机已装 Chrome（`launch.ps1` 用 `chrome` 走 App Paths 解析）；若 Chrome 装在非标准位置解析不到，需在脚本里补全路径。
-  下一步可选：① SQLite 数据层迁移；② M2–M5 真实化；③ 项目成熟后接 Electron（方案 A 产物可直接替换，业务代码零改动）。
+- **日期**：2026-06-15（第十三次会话·localStorage → SQLite 资产库）
+- **本次完成**：业务数据持久化从浏览器 localStorage 迁到**可配置资产目录下的 SQLite 库**（用户拍板：SQLite + 旧数据从种子重建）。
+  ① 后端：加 `better-sqlite3`；新增 `server/src/store/db.ts`（9 张表统一 `(id,data-JSON)` 文档式 + `readAll` + `syncAll` upsert/删缺失行 + `getAssetDir`/`getDb` 支持运行中切换资产目录）；新增 `server/src/routes/store.ts`（`GET/POST /api/store`）并在 `index.ts` 注册；`settings.ts` POST 校验创建 `assetDir`。`tsconfig` 加 `esModuleInterop`（CJS 默认导入）。
+  ② 前端：`appStore.ts` 移除 `persist`，改 `bootstrapStore()`（`main.tsx` 渲染前 await：拉 `/api/settings` + `/api/store`，空库则种子重建并 POST 持久化）+ `reloadStoreFromBackend()`；两 debounce 订阅按 `(state,prev)` 引用比对触发回写，避免 `importSession` 频繁变动时全量 stringify。设置页新增「资产目录」Card（应用并切换：**先同步 await POST 设置、再 reload**，规避 debounce 未落地读旧库）。
+  ③ 三层归属：业务数据 → `<资产目录>/novelhelper.db`；图片将来 → `<资产目录>/images/`（本轮未加图片字段）；Provider/密钥/映射/提示词/assetDir/currentBookId → `server/src/data/settings.json`（不进资产库，避免备份资产时带走密钥）。
+  验证：后端 typecheck ✅、db 层直测（写/upsert/删/清空）✅、前端 eslint+build+smoke(13)+ruleclean-smoke ✅。
+- **行为变化（需知悉）**：① `importSession`（含整份 rawText）**不再持久化**，仅内存——导入进行中重启会丢当前导入会话。② `resetDemo` 只重置业务数据，**不再重置 Provider/密钥配置**（更安全）。③ localStorage 旧键 `novelhelper-mock` 不再读写，成无害遗留。
+- **阻塞项**：无。**待用户端到端试跑**：双击 `start.vbs` → 首启 `<repo>/assets/novelhelper.db` 自动建、显示种子；改章节/加卡片后重启数据仍在；设置页切换资产目录数据随之切换；DevTools 确认 localStorage 不再写业务数据。
+  下一步可选：① M2 设定提取真实化（届时加 `entity_embedding` 表 + sqlite-vec 向量检索）；② M3–M5 真实化；③ 项目成熟后接 Electron。
   仍待拍板：DESIGN §7 问题 2/3/4/6/7。
+- **上一会话（第十二次·单窗口方案 A）**：`start.vbs` 隐藏启动 + Chrome `--app` 独立 profile + 看门狗关窗清理（详见上方 checklist），端到端仍待用户试跑。
 
 ## 更新本文档的约定
 
