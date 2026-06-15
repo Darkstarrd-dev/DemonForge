@@ -9,5 +9,5 @@ export {
   checkConsistency,
 } from './mock/impl'
 
-export { testProvider, startCleanQueue } from './real/llm'
+export { testProvider, startCleanQueue, getDefaultPrompt } from './real/llm'
 export type { CleanQueueCallbacks, CleanQueueHandle, CleanNode, TestResult, CleanQueueDebugEvent } from './real/llm'

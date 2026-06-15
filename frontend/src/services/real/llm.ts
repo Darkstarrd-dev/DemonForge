@@ -27,6 +27,18 @@ export async function testProvider(node: {
   }
 }
 
+/** 取后端内置默认清理提示词（供设置页「载入默认」/ Step3 占位提示） */
+export async function getDefaultPrompt(): Promise<string> {
+  try {
+    const res = await fetch('/api/llm/prompt')
+    if (!res.ok) return ''
+    const data = (await res.json()) as { prompt?: string }
+    return data.prompt ?? ''
+  } catch {
+    return ''
+  }
+}
+
 // ── M1 清理队列（真实流式，经 /api/llm/clean 的 SSE） ──
 
 export interface CleanNode {
@@ -49,6 +61,10 @@ export interface CleanQueueDebugEvent {
   responseBody?: string
   chunksCount?: number
   error?: string
+  /** 最终输出字符数（done 时回填） */
+  outputLength?: number
+  /** 首个 delta 到达的时间戳（便于看首字节延迟） */
+  firstBytesAt?: number
 }
 
 export interface CleanQueueCallbacks {
@@ -73,16 +89,22 @@ async function streamClean(
   chapterId: string,
   cb: CleanQueueCallbacks,
   signal: AbortSignal,
+  systemPrompt?: string,
 ): Promise<void> {
   let chunksCount = 0
-  const reqBody = { baseURL: node.baseURL, model: node.model, apiKey: node.apiKey ? `${node.apiKey.slice(0, 6)}***` : '(空)' }
+  const reqBody = {
+    baseURL: node.baseURL,
+    model: node.model,
+    apiKey: node.apiKey ? `${node.apiKey.slice(0, 6)}***` : '(空)',
+    systemPromptLen: systemPrompt ? systemPrompt.length : 0,
+  }
   cb.onDebug?.({ type: 'request', chapterId, timestamp: Date.now(), nodeName: node.name, model: node.model, contentLength: content.length, requestBody: reqBody })
   let res: Response
   try {
     res = await fetch('/api/llm/clean', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ baseURL: node.baseURL, apiKey: node.apiKey, model: node.model, content }),
+      body: JSON.stringify({ baseURL: node.baseURL, apiKey: node.apiKey, model: node.model, content, systemPrompt }),
       signal,
     })
   } catch (e) {
@@ -104,6 +126,7 @@ async function streamClean(
   let acc = ''
   let rawChunks = ''
   let sseReported = false
+  let firstBytesAt: number | undefined
   try {
     for (;;) {
       const { done, value } = await reader.read()
@@ -123,16 +146,18 @@ async function streamClean(
         if (!data) continue
         const parsed = JSON.parse(data) as { delta?: string; text?: string; message?: string }
         if (event === 'delta') {
+          if (firstBytesAt === undefined) firstBytesAt = Date.now()
           chunksCount += 1
           acc += parsed.delta ?? ''
           cb.onChunk(chapterId, acc)
         } else if (event === 'done') {
-          cb.onDebug?.({ type: 'response', chapterId, timestamp: Date.now(), statusCode: 200, chunksCount })
-          cb.onDone(chapterId, parsed.text ?? acc)
+          const outText = parsed.text ?? acc
+          cb.onDebug?.({ type: 'response', chapterId, timestamp: Date.now(), statusCode: 200, chunksCount, outputLength: outText.length, firstBytesAt, responseBody: outText.slice(0, 500) })
+          cb.onDone(chapterId, outText)
           return
         } else if (event === 'error') {
           const msg = parsed.message ?? '清理失败'
-          cb.onDebug?.({ type: 'error', chapterId, timestamp: Date.now(), statusCode: 200, chunksCount, responseBody: msg, error: msg })
+          cb.onDebug?.({ type: 'error', chapterId, timestamp: Date.now(), statusCode: 200, chunksCount, firstBytesAt, responseBody: msg, error: msg })
           sseReported = true
           throw new Error(msg)
         }
@@ -160,9 +185,9 @@ export function startCleanQueue(
   chapters: { id: string; content: string }[],
   nodes: CleanNode[],
   cb: CleanQueueCallbacks,
-  opts: { concurrency?: number; batchSize?: number; intervalSec?: number } = {},
+  opts: { concurrency?: number; batchSize?: number; intervalSec?: number; systemPrompt?: string } = {},
 ): CleanQueueHandle {
-  const { concurrency = 3, intervalSec = 0 } = opts
+  const { concurrency = 3, intervalSec = 0, systemPrompt } = opts
   const queue = [...chapters]
   let paused = false
   let stopped = false
@@ -193,7 +218,7 @@ export function startCleanQueue(
       const ac = new AbortController()
       controllers.add(ac)
       try {
-        await streamClean(node, task.content, task.id, cb, ac.signal)
+        await streamClean(node, task.content, task.id, cb, ac.signal, systemPrompt)
       } catch (e) {
         if (!stopped) cb.onError(task.id, e instanceof Error ? e.message : String(e))
       } finally {

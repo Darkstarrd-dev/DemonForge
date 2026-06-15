@@ -16,7 +16,7 @@ import {
   Typography,
 } from 'antd'
 import { useAppStore, genId } from '../../store/appStore'
-import { testProvider } from '../../services/api'
+import { testProvider, getDefaultPrompt } from '../../services/api'
 import type { ModuleKey, ProviderNode } from '../../services/types'
 
 const MODULE_LABELS: Record<ModuleKey, string> = {
@@ -32,9 +32,12 @@ export default function SettingsPage() {
   const { message, modal } = App.useApp()
   const providers = useAppStore((s) => s.providers)
   const moduleMapping = useAppStore((s) => s.moduleMapping)
+  const m1SystemPrompt = useAppStore((s) => s.m1SystemPrompt)
   const setState = useAppStore((s) => s.setState)
   const resetDemo = useAppStore((s) => s.resetDemo)
   const [editing, setEditing] = useState<ProviderNode | null>(null)
+  const [draftPrompt, setDraftPrompt] = useState<string>(m1SystemPrompt)
+  const [loadingPrompt, setLoadingPrompt] = useState(false)
   const [testingId, setTestingId] = useState<string | null>(null)
   const [testResult, setTestResult] = useState<{
     node: ProviderNode
@@ -151,7 +154,7 @@ export default function SettingsPage() {
         </Typography.Paragraph>
       </Card>
 
-      <Card title="模块 → 模型映射（各模块可分别指定 provider 与模型）">
+      <Card title="模块 → 模型映射（各模块指定节点，模型随节点配置）">
         <Table
           rowKey="key"
           pagination={false}
@@ -164,46 +167,82 @@ export default function SettingsPage() {
           columns={[
             { title: '模块', dataIndex: 'label', width: 200 },
             {
-              title: '节点',
+              title: '节点（模型随节点配置）',
               dataIndex: 'nodeId',
-              render: (v: string | null, row: { key: ModuleKey }) => (
-                <Select
-                  style={{ minWidth: 200 }}
-                  value={v}
-                  placeholder="选择节点"
-                  options={providers.map((p) => ({ value: p.id, label: p.name }))}
-                  onChange={(nodeId) => {
-                    const node = providers.find((p) => p.id === nodeId)
-                    setState({
-                      moduleMapping: {
-                        ...moduleMapping,
-                        [row.key]: { nodeId, model: node?.model ?? '' },
-                      },
-                    })
-                  }}
-                />
-              ),
+              render: (v: string | null, row: { key: ModuleKey }) => {
+                return (
+                  <Select
+                    style={{ minWidth: 280 }}
+                    value={v ?? undefined}
+                    placeholder="选择节点"
+                    options={providers.map((p) => ({ value: p.id, label: `${p.name} · ${p.model || '（未设模型）'}` }))}
+                    onChange={(nodeId) => {
+                      setState({
+                        moduleMapping: {
+                          ...moduleMapping,
+                          [row.key]: { nodeId },
+                        },
+                      })
+                    }}
+                  />
+                )
+              },
             },
             {
-              title: '模型名',
-              dataIndex: 'model',
-              render: (v: string, row: { key: ModuleKey }) => (
-                <Input
-                  style={{ maxWidth: 260 }}
-                  value={v}
-                  onChange={(e) =>
-                    setState({
-                      moduleMapping: {
-                        ...moduleMapping,
-                        [row.key]: { ...moduleMapping[row.key], model: e.target.value },
-                      },
-                    })
-                  }
-                />
-              ),
+              title: '将使用模型',
+              key: 'model',
+              width: 240,
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              render: (_: unknown, row: any) => {
+                const node = providers.find((p) => p.id === row.nodeId)
+                return node?.model ? <Tag>{node.model}</Tag> : <Typography.Text type="secondary">—</Typography.Text>
+              },
             },
           ]}
         />
+        <Typography.Paragraph type="secondary" style={{ marginTop: 12, marginBottom: 0 }}>
+          模型名在「Provider 节点池」里为每个节点统一配置；此处仅选择节点。如需某模块用不同模型，请新建一个配置了该模型的节点。
+        </Typography.Paragraph>
+      </Card>
+
+      <Card
+        title="M1 清理提示词（默认）"
+        extra={
+          <Space>
+            <Button
+              loading={loadingPrompt}
+              onClick={async () => {
+                setLoadingPrompt(true)
+                try {
+                  const p = await getDefaultPrompt()
+                  setDraftPrompt(p)
+                } finally {
+                  setLoadingPrompt(false)
+                }
+              }}
+            >
+              载入内置默认
+            </Button>
+            <Button disabled={draftPrompt === m1SystemPrompt} onClick={() => setState({ m1SystemPrompt: draftPrompt })}>
+              保存
+            </Button>
+            <Button disabled={!m1SystemPrompt} onClick={() => { setDraftPrompt(''); setState({ m1SystemPrompt: '' }) }}>
+              清空（用内置）
+            </Button>
+          </Space>
+        }
+      >
+        <Input.TextArea
+          value={draftPrompt}
+          onChange={(e) => setDraftPrompt(e.target.value)}
+          autoSize={{ minRows: 6, maxRows: 16 }}
+          placeholder="留空则使用后端内置默认提示词。点「载入内置默认」可查看并在此基础上修改。"
+          style={{ fontFamily: 'monospace', fontSize: 12 }}
+        />
+        <Typography.Paragraph type="secondary" style={{ marginTop: 8, marginBottom: 0 }}>
+          {m1SystemPrompt ? `已保存自定义提示词（${m1SystemPrompt.length} 字）。清理时优先使用它。` : '当前为空——清理时使用后端内置默认提示词。'}
+          {' M1 第三步可再为单次任务临时覆盖。'}
+        </Typography.Paragraph>
       </Card>
 
       <Card title="演示数据">

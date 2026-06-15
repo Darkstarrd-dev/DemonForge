@@ -5,9 +5,11 @@ import {
   Button,
   Col,
   Collapse,
+  Input,
   InputNumber,
   List,
   Progress,
+  Radio,
   Row,
   Select,
   Space,
@@ -43,12 +45,16 @@ interface DebugEntry {
   responseBody?: string
   chunksCount?: number
   error?: string
+  outputLength?: number
+  firstBytesAt?: number
 }
 
 export default function Step3Clean() {
   const { message } = App.useApp()
   const session = useAppStore((s) => s.importSession)
   const providers = useAppStore((s) => s.providers)
+  const moduleMapping = useAppStore((s) => s.moduleMapping)
+  const m1SystemPrompt = useAppStore((s) => s.m1SystemPrompt)
   const setState = useAppStore((s) => s.setState)
 
   const [selNodeId, setSelNodeId] = useState<string | null>(null)
@@ -62,6 +68,8 @@ export default function Step3Clean() {
   const [active, setActive] = useState<ActiveTask[]>([])
   const [selectedTask, setSelectedTask] = useState<string | null>(null)
   const [debugEntries, setDebugEntries] = useState<DebugEntry[]>([])
+  const [logFilter, setLogFilter] = useState<'all' | 'request' | 'response' | 'error'>('all')
+  const [overridePrompt, setOverridePrompt] = useState('')
   const debugIdRef = useRef(0)
   const handleRef = useRef<CleanQueueHandle | null>(null)
 
@@ -72,10 +80,11 @@ export default function Step3Clean() {
   const doneCount = chapters.filter((c) => c.cleanStatus === 'completed' || c.cleanStatus === 'accepted').length
   const enabledNodes = providers.filter((p) => p.enabled)
 
-  // 选中节点：优先 selNodeId，否则取第一个已启用节点
-  const selectedNode = selNodeId
-    ? providers.find((p) => p.id === selNodeId) ?? null
-    : enabledNodes[0] ?? null
+  // 选中节点：优先 selNodeId；否则取设置页「M1 文本清理」映射节点；再否则首个已启用节点
+  const mappedM1 = moduleMapping.m1Clean.nodeId
+  const defaultNodeId = mappedM1 && providers.some((p) => p.id === mappedM1) ? mappedM1 : enabledNodes[0]?.id ?? null
+  const effectiveNodeId = selNodeId ?? defaultNodeId
+  const selectedNode = effectiveNodeId ? providers.find((p) => p.id === effectiveNodeId) ?? null : null
   const aiNode: CleanNode | null = selectedNode
     ? {
         name: selectedNode.name,
@@ -84,7 +93,7 @@ export default function Step3Clean() {
         model: selectedNode.model,
       }
     : null
-  const nodeOptions = enabledNodes.map((p) => ({ value: p.id, label: p.name }))
+  const nodeOptions = enabledNodes.map((p) => ({ value: p.id, label: `${p.name} · ${p.model || '（未设模型）'}` }))
 
   const patchChapter = (chapterId: string, patch: Record<string, unknown>) => {
     const cur = useAppStore.getState().importSession
@@ -165,13 +174,15 @@ export default function Step3Clean() {
                 responseBody: evt.responseBody,
                 chunksCount: evt.chunksCount,
                 error: evt.error,
+                outputLength: evt.outputLength,
+                firstBytesAt: evt.firstBytesAt,
               },
             ]
             return next.slice(-200)
           })
         },
       },
-      { concurrency, batchSize, intervalSec },
+      { concurrency, batchSize, intervalSec, systemPrompt: overridePrompt.trim() || m1SystemPrompt || undefined },
     )
   }
 
@@ -210,8 +221,8 @@ export default function Step3Clean() {
       <Space wrap align="center">
         <Typography.Text>节点：</Typography.Text>
         <Select
-          style={{ minWidth: 180 }}
-          value={selNodeId}
+          style={{ minWidth: 220 }}
+          value={effectiveNodeId ?? undefined}
           placeholder="选择 Provider 节点"
           options={nodeOptions}
           disabled={running}
@@ -329,93 +340,168 @@ export default function Step3Clean() {
       <Collapse
         items={[
           {
+            key: 'prompt',
+            label: '清理提示词（本次）',
+            children: (
+              <>
+                <Input.TextArea
+                  value={overridePrompt}
+                  onChange={(e) => setOverridePrompt(e.target.value)}
+                  autoSize={{ minRows: 4, maxRows: 14 }}
+                  disabled={running}
+                  placeholder={
+                    m1SystemPrompt
+                      ? `留空则使用设置页默认提示词（${m1SystemPrompt.length} 字）`
+                      : '留空则使用后端内置默认提示词；到设置页可查看/修改默认'
+                  }
+                  style={{ fontFamily: 'monospace', fontSize: 12 }}
+                />
+                <Space style={{ marginTop: 8 }}>
+                  <Button size="small" disabled={running || !overridePrompt} onClick={() => setOverridePrompt('')}>
+                    清空本次覆盖
+                  </Button>
+                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                    生效优先级：本次覆盖 &gt; 设置页默认 &gt; 后端内置
+                  </Typography.Text>
+                </Space>
+              </>
+            ),
+          },
+        ]}
+        style={{ background: '#fafafa' }}
+      />
+
+      <Collapse
+        items={[
+          {
             key: 'debug',
             label: `请求/响应日志 (${debugEntries.length})`,
-            children: debugEntries.length === 0 ? (
-              <Typography.Text type="secondary">暂无记录</Typography.Text>
-            ) : (
-              <List
-                size="small"
-                dataSource={[...debugEntries].reverse()}
-                renderItem={(e) => {
-                  const time = new Date(e.timestamp).toLocaleTimeString()
-                  const color = e.type === 'request' ? 'blue' : e.type === 'error' ? 'red' : 'green'
-                  return (
-                    <List.Item style={{ padding: '6px 0', borderBottom: '1px solid #f0f0f0', display: 'block' }}>
-                      <div style={{ marginBottom: 4 }}>
-                        <Space size={4}>
-                          <Tag color={color} style={{ margin: 0 }}>
-                            {e.type === 'request' ? 'REQ' : e.type === 'error' ? 'ERR' : 'RES'}
-                          </Tag>
-                          <Typography.Text style={{ fontSize: 12 }}>{time}</Typography.Text>
-                          <Typography.Text strong style={{ fontSize: 12 }}>
-                            {e.title}
-                          </Typography.Text>
-                          {e.type === 'request' && (
-                            <>
-                              <Tag style={{ margin: 0 }}>{e.nodeName}</Tag>
-                              <Typography.Text type="secondary" style={{ fontSize: 11 }}>
-                                原文 {e.contentLength} 字
+            children: (
+              <>
+                <Space style={{ marginBottom: 8 }}>
+                  <Radio.Group
+                    size="small"
+                    optionType="button"
+                    buttonStyle="solid"
+                    value={logFilter}
+                    onChange={(e) => setLogFilter(e.target.value)}
+                    options={[
+                      { value: 'all', label: '全部' },
+                      { value: 'request', label: '请求' },
+                      { value: 'response', label: '响应' },
+                      { value: 'error', label: '错误' },
+                    ]}
+                  />
+                  <Button size="small" disabled={!debugEntries.length} onClick={() => setDebugEntries([])}>
+                    清空日志
+                  </Button>
+                </Space>
+                {debugEntries.length === 0 ? (
+                  <Typography.Text type="secondary">暂无记录</Typography.Text>
+                ) : (
+                  <List
+                    size="small"
+                    dataSource={[...debugEntries]
+                      .reverse()
+                      .filter((e) => logFilter === 'all' || e.type === logFilter)}
+                    renderItem={(e) => {
+                      const time = new Date(e.timestamp).toLocaleTimeString()
+                      const color = e.type === 'request' ? 'blue' : e.type === 'error' ? 'red' : 'green'
+                      const reqTs = debugEntries.find((x) => x.chapterId === e.chapterId && x.type === 'request')?.timestamp
+                      const elapsed = reqTs ? e.timestamp - reqTs : undefined
+                      return (
+                        <List.Item style={{ padding: '6px 0', borderBottom: '1px solid #f0f0f0', display: 'block' }}>
+                          <div style={{ marginBottom: 4 }}>
+                            <Space size={4} wrap>
+                              <Tag color={color} style={{ margin: 0 }}>
+                                {e.type === 'request' ? 'REQ' : e.type === 'error' ? 'ERR' : 'RES'}
+                              </Tag>
+                              <Typography.Text style={{ fontSize: 12 }}>{time}</Typography.Text>
+                              <Typography.Text strong style={{ fontSize: 12 }}>
+                                {e.title}
                               </Typography.Text>
-                            </>
+                              {e.type === 'request' && (
+                                <>
+                                  <Tag style={{ margin: 0 }}>{e.nodeName}</Tag>
+                                  <Typography.Text type="secondary" style={{ fontSize: 11 }}>
+                                    原文 {e.contentLength} 字
+                                  </Typography.Text>
+                                </>
+                              )}
+                              {e.type === 'response' && e.contentLength != null && e.outputLength != null && (
+                                <Typography.Text type="secondary" style={{ fontSize: 11 }}>
+                                  {e.contentLength} → {e.outputLength} 字
+                                </Typography.Text>
+                              )}
+                              {(e.type === 'response' || e.type === 'error') && e.statusCode != null && (
+                                <Tag color={e.statusCode < 400 ? 'green' : 'red'} style={{ margin: 0 }}>
+                                  HTTP {e.statusCode}
+                                </Tag>
+                              )}
+                              {e.type === 'response' && (
+                                <Typography.Text type="secondary" style={{ fontSize: 11 }}>
+                                  {e.chunksCount} chunks
+                                </Typography.Text>
+                              )}
+                              {e.firstBytesAt != null && reqTs != null && (
+                                <Typography.Text type="secondary" style={{ fontSize: 11 }}>
+                                  首字节 {(e.firstBytesAt - reqTs) / 1000}s
+                                </Typography.Text>
+                              )}
+                              {elapsed != null && (
+                                <Typography.Text type="secondary" style={{ fontSize: 11 }}>
+                                  耗时 {(elapsed / 1000).toFixed(1)}s
+                                </Typography.Text>
+                              )}
+                              {e.type === 'error' && e.error && (
+                                <Typography.Text type="danger" style={{ fontSize: 11 }}>
+                                  {e.chunksCount != null ? `${e.chunksCount} chunks · ` : ''}
+                                  {e.error}
+                                </Typography.Text>
+                              )}
+                            </Space>
+                          </div>
+                          {e.requestBody && (
+                            <div
+                              style={{
+                                background: '#1f2428',
+                                color: '#c9d1d9',
+                                padding: '6px 10px',
+                                borderRadius: 4,
+                                fontFamily: 'monospace',
+                                fontSize: 11,
+                                whiteSpace: 'pre-wrap',
+                                wordBreak: 'break-all',
+                                marginTop: 2,
+                              }}
+                            >
+                              {JSON.stringify(e.requestBody, null, 2)}
+                            </div>
                           )}
-                          {(e.type === 'response' || e.type === 'error') && e.statusCode != null && (
-                            <Tag color={e.statusCode < 400 ? 'green' : 'red'} style={{ margin: 0 }}>
-                              HTTP {e.statusCode}
-                            </Tag>
+                          {e.responseBody && (
+                            <div
+                              style={{
+                                background: e.type === 'error' ? '#fff1f0' : '#fffbe6',
+                                padding: '6px 10px',
+                                borderRadius: 4,
+                                fontFamily: 'monospace',
+                                fontSize: 11,
+                                whiteSpace: 'pre-wrap',
+                                wordBreak: 'break-all',
+                                maxHeight: 200,
+                                overflow: 'auto',
+                                marginTop: 2,
+                              }}
+                            >
+                              {e.responseBody}
+                            </div>
                           )}
-                          {e.type === 'response' && (
-                            <Typography.Text type="secondary" style={{ fontSize: 11 }}>
-                              {e.chunksCount} chunks
-                            </Typography.Text>
-                          )}
-                          {e.type === 'error' && e.error && (
-                            <Typography.Text type="danger" style={{ fontSize: 11 }}>
-                              {e.chunksCount != null ? `${e.chunksCount} chunks · ` : ''}
-                              {e.error}
-                            </Typography.Text>
-                          )}
-                        </Space>
-                      </div>
-                      {e.requestBody && (
-                        <div
-                          style={{
-                            background: '#1f2428',
-                            color: '#c9d1d9',
-                            padding: '6px 10px',
-                            borderRadius: 4,
-                            fontFamily: 'monospace',
-                            fontSize: 11,
-                            whiteSpace: 'pre-wrap',
-                            wordBreak: 'break-all',
-                            marginTop: 2,
-                          }}
-                        >
-                          {JSON.stringify(e.requestBody, null, 2)}
-                        </div>
-                      )}
-                      {e.responseBody && (
-                        <div
-                          style={{
-                            background: '#fffbe6',
-                            padding: '6px 10px',
-                            borderRadius: 4,
-                            fontFamily: 'monospace',
-                            fontSize: 11,
-                            whiteSpace: 'pre-wrap',
-                            wordBreak: 'break-all',
-                            maxHeight: 200,
-                            overflow: 'auto',
-                            marginTop: 2,
-                          }}
-                        >
-                          {e.responseBody}
-                        </div>
-                      )}
-                    </List.Item>
-                  )
-                }}
-              />
+                        </List.Item>
+                      )
+                    }}
+                  />
+                )}
+              </>
             ),
           },
         ]}

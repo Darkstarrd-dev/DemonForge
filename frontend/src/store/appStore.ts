@@ -40,6 +40,8 @@ export interface AppState {
   issues: ConsistencyIssue[]
   providers: ProviderNode[]
   moduleMapping: Record<ModuleKey, ModuleModelMapping>
+  /** M1 清理系统提示词（设置页持久化默认）。空串=用后端内置默认 */
+  m1SystemPrompt: string
   mergeCandidates: MergeCandidate[]
   /** 当前作品（project 书）id，驱动 M3/M4/M5 */
   currentBookId: string
@@ -64,6 +66,7 @@ const seedState = () => ({
   issues: seedIssues,
   providers: seedProviders,
   moduleMapping: seedModuleMapping,
+  m1SystemPrompt: '',
   mergeCandidates: seedMergeCandidates,
   currentBookId: 'book-proj-1',
   importSession: null,
@@ -98,11 +101,12 @@ export const useAppStore = create<AppState>()(
             try {
               const res = await fetch('/api/settings')
               if (!res.ok) return
-              const data = await res.json() as { providers?: ProviderNode[]; moduleMapping?: Record<ModuleKey, ModuleModelMapping> }
+              const data = await res.json() as { providers?: ProviderNode[]; moduleMapping?: Record<ModuleKey, ModuleModelMapping>; m1SystemPrompt?: string }
               if (data?.providers?.length) {
                 useAppStore.setState({
                   providers: data.providers,
                   moduleMapping: data.moduleMapping ?? useAppStore.getState().moduleMapping,
+                  m1SystemPrompt: typeof data.m1SystemPrompt === 'string' ? data.m1SystemPrompt : useAppStore.getState().m1SystemPrompt,
                 })
               }
             } catch { /* server not available */ }
@@ -116,7 +120,7 @@ export const useAppStore = create<AppState>()(
 let syncTimer: ReturnType<typeof setTimeout> | null = null
 let _lastSynced = ''
 useAppStore.subscribe((s) => {
-  const payload = JSON.stringify({ providers: s.providers, moduleMapping: s.moduleMapping })
+  const payload = JSON.stringify({ providers: s.providers, moduleMapping: s.moduleMapping, m1SystemPrompt: s.m1SystemPrompt })
   if (payload === _lastSynced) return
   _lastSynced = payload
   if (syncTimer) clearTimeout(syncTimer)

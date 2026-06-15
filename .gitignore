@@ -6,3 +6,4 @@ __pycache__/
 *.pid
 dist/
 server/data/settings.json
+server/src/data/settings.json

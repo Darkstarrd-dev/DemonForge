@@ -26,21 +26,24 @@
 
 ## 项目状态快照
 
-- **最后更新**：2026-06-15（第五次会话·再续）
-- **阶段**：正式开发启动（后端已建）——M1 与设置页接真实 LLM；M2–M5 仍 mock；数据仍存 localStorage
+- **最后更新**：2026-06-15（第七次会话·Step3 + 设置页四项增强）
+- **阶段**：正式开发启动（后端已建）——**M1 AI 清理端到端跑通**；设置页接真实 LLM；M2–M5 仍 mock；数据仍存 localStorage
 - **摘要**：在 mock 前端基础上**进入实现阶段**。
   运行方式：双击根目录 `start.bat`（一键启动后端 :8787 + 前端 :5173 并打开浏览器）；
   退出：侧边栏底部「退出系统」按钮（关闭前后端所有进程 + 浏览器窗口）。
-  **M1 第三步**：已移除规则路径（Segmented 切换），仅保留 AI 路径；节点选择 &
-  并发参数（最大并发/单次章节数/请求间隔）从设置页「节点池编辑」移至 Step3 控制栏。
-  自动化验证全过：后端 typecheck、前端 eslint/build(tsc+vite)、smoke(13)、ruleclean-smoke(43)。
-  **本轮新增**：
-  - 设置页自动服务端持久化（`server/data/settings.json`，debounce 1s 同步，`.gitignore`）
-  - AppLayout 高度修复（`100vh`）+ Sider 退出按钮贴底（CSS `.ant-layout-sider-children` flex）
-  - Step3 文字修正（`"AI / 规则双路径"`→`"AI"`）+ 可折叠请求/响应日志面板
-  - 智能 baseURL 归一化（`URL.origin` 提取域名，统一拼 `/v1`）
-  - 调试日志增强：显示脱敏请求体 JSON + HTTP 状态码 + 原始响应体；读取循环重构（先 accumulate 后判 done）
-  - **🚧 AI 对接阻塞**：`/api/llm/clean` handler 从同步改为 async + body 验证前置 hijack，**待重启服务器验证**
+  **M1 第三步**：AI 路径真实流式已跑通；节点选择 & 并发参数（最大并发/单次章节数/请求间隔）在 Step3 控制栏。
+  自动化验证全过：后端 typecheck、前端 eslint/build(tsc+vite)。
+  **本轮新增（第七次会话·四项增强）**：
+  - ① 请求/响应日志增强（过滤/清空/输入输出字数/首字节延迟/耗时/响应体展示）
+  - ② 节点下拉默认选设置页「M1 文本清理」映射节点
+  - ③ 清理提示词双面板：设置页持久化默认 + Step3 单次覆盖（优先级：本次 > 设置页默认 > 后端内置）
+  - ④ 模块→模型映射去除「模型名」输入框，模型名从节点池读取（只读展示）
+  - 修复项：`server/src/routes/llm.ts` 新增 `GET /api/llm/prompt`；`services/real/llm.ts` 新增 `getDefaultPrompt` + `systemPrompt` 透传 + `outputLength`/`firstBytesAt` 字段；store 新增 `m1SystemPrompt` 持久化
+  - **历史修复（第六次会话）**：
+    - ✅ **`/api/llm/clean` 空响应 bug 已定位并修复**：根因是 SSE 客户端断连检测挂在了**错误的信号源**
+      （详见下方「AI 对接排障记录」）。经真实端点（`deepseek/deepseek-v4-flash`）端到端验证：SSE 正常转发、
+      广告删除 + 人名复原 + 正文保留均符合 §3.7 v2 prompt 预期。
+    - 历史新增项：设置页服务端持久化、布局修复、Step3 调试面板、baseURL 归一化（均沿用）
 
 ## Checklist
 
@@ -121,27 +124,29 @@
   - `server/src/llmClient.ts` `normalizeBase`：`URL.origin` 提取域名+端口统一拼 `/v1`（覆盖纯域名/带v1/带完整路径三种输入）
   - `frontend/src/services/real/llm.ts` `streamClean`：读取循环从「先判 done→后累积」改为「先累积→处理 SSE→最后判 done」，确保服务端返回的任意文本都进入 rawChunks 供调试面板展示
   - `server/src/routes/llm.ts` `/api/llm/clean`：handler 从同步改为 `async`，**body 验证移到 `reply.hijack()` 之前**（Fastify 对 hijacked handler 的 body 解析有同步/异步差异，与正常工作的 `/api/llm/test` 对齐）
-
-### AI 对接排障记录
-
-| 步骤 | 尝试 | 结果 |
-|------|------|------|
-| 1 | 命令行直连 LLM（非流式） | ✅ 正常返回 |
-| 2 | 命令行直连 LLM（流式 SSE） | ✅ 正常流式（有 `reasoning_content` + `content` 两种 chunk） |
-| 3 | 经服务器 `/api/llm/clean` | ❌ HTTP 200 但 body 为空（无任何 SSE 事件） |
-| 4 | 排查服务器 `req.body` | 发现非 async handler + `reply.hijack()` 后 body 未解析 |
-| 5 | 改为 async + body 前置验证 | 代码已修，**待重启服务器验证** |
-
-**根因分析**：Fastify 的 `reply.hijack()` 接管原始响应后，同步 handler 中 `req.body` 可能尚未完成解析。
-参考工作中 `/api/llm/test`（async handler，正常）与失败的 `/api/llm/clean`（sync handler）。
-修复策略：将 handler 改为 `async`，在 `hijack()` 之前完成 body 校验，无效请求直接返回 400。
-
-**LLM 响应特征**（deepseek/deepseek-v4-flash）：流式返回包含两种 chunk——
-- `delta.reasoning_content`（推理过程，`content: null`）→ 服务器 `chatStream` 已正确过滤
-- `delta.content`（实际输出）→ 被 `onDelta` 回调累积
+- [x] **✅ M1 AI 清理流程端到端打通**（2026-06-15 第六次会话）：
+  - **定位真正根因**：`/api/llm/clean` 空响应不是 body 解析问题，而是**客户端断连检测挂错信号源**——
+    `req.raw.on('close')` 在请求体读取完毕后**立即触发**（这是 HTTP 正常行为，不代表客户端断开），
+    从而在 chatStream 收到首个 delta 前（实测 ~24ms）就 `ac.abort()`，取消上游 fetch → 空响应。
+    上一会话误判为 body 解析问题，async 改造并未解决。
+  - **修复**（`server/src/routes/llm.ts`）：断连检测改挂到 **`reply.raw`（响应流）的 `close`** 事件——
+    响应流只在客户端真正断开或响应结束时 close（probe 实证：req.raw close 在首数据后即触发，
+    而 reply.raw close 在 end() 后才触发）。注释已写入此陷阱。
+  - **真实端点端到端验证通过**（deepseek/deepseek-v4-flash via `https://runanytime.hxi.me`）：
+    - `/api/llm/test` → 正常返回 17 个模型列表（baseURL 归一化生效）
+    - `/api/llm/clean` → SSE 正常流式（21 delta + 1 done，730 字节）
+    - 清理效果：微信公众号广告行整段删除；TTS 谐音片段 `毛小説羣89利兰`→`毛利兰`（变体字+数字删除+人名复原）；正文零误删
 
 ### 进行中 / 等待用户
 
+- [x] **Step3 / 设置页四项增强**（2026-06-15 第七次会话）
+  - [x] ① 请求/响应日志增强：过滤（全部/请求/响应/错误）+ 清空按钮 + 输入→输出字数对比 + 首字节延迟 + 耗时 + 响应体预览
+  - [x] ② 节点下拉框默认选设置页「M1 文本清理」映射节点（`effectiveNodeId` 优先级：selNodeId → moduleMapping.m1Clean.nodeId → 首个已启用节点）
+  - [x] ③ 清理提示词双面板：设置页持久化默认（`m1SystemPrompt`，含「载入内置默认」按钮）+ Step3 本次覆盖面板（优先级：本次 > 设置页默认 > 后端内置）
+  - [x] ④ 模块→模型映射去除「模型名」输入框，模型名从节点池 `provider.model` 只读展示；节点 Select 的 label 显示模型名
+  - [x] 后端：新增 `GET /api/llm/prompt` 返回内置默认提示词；`/api/llm/clean` 支持可选 `systemPrompt` 字段
+  - [x] 前端：`services/real/llm.ts` 新增 `getDefaultPrompt` + `systemPrompt` 透传 + `outputLength`/`firstBytesAt` 字段
+  - [x] 验证：后端 typecheck ✅、前端 eslint ✅、前端 build(tsc+vite) ✅
 - [ ] **用户补充 raw 特征余项并拍板新问题**：`M1_raw_features.md` §1 基本情况
       （编码/文件规模/是否一文件多本）与 §2（卷结构、序章番外）待确认；
       DESIGN.md §7 问题 6（mojibake 处理）、问题 7（作者求票去留）待拍板
@@ -167,7 +172,7 @@
 
 - [~] P0 基础设施：**Provider 抽象层 + 配置界面（设置页真实测试）已落地**（`server/src/llmClient.ts`）；
       后端骨架（Fastify）已建；**SQLite 初始化 / 数据层迁移仍待办**（本轮数据暂留 localStorage）
-- [~] P1 = M1 文本预处理：**AI 路径（真实 LLM 流式）已落地**（规则路径已从 UI 移除）；
+- [~] P1 = M1 文本预处理：**AI 路径（真实 LLM 流式）已落地并通过真实端点端到端验证**（规则路径已从 UI 移除）；
       编码检测/切分/审核入库沿用既有；切分 AI 兜底（`aiSplitChapter`）仍 mock、整本长任务队列/重试增强待后续
 - [ ] P2 = M2 设定提取
 - [ ] P3 = M3 单角色推演
@@ -176,18 +181,22 @@
 
 ## 交接备注（最近一次会话）
 
-- **日期**：2026-06-15（第五次会话·再续）
-- **本次完成**：① 设置数据服务端文件持久化（`server/data/settings.json`，自动 debounce 同步）
-  ② AppLayout 高度修复 + Sider 退出按钮贴底（`.ant-layout-sider-children` flex 覆盖）
-  ③ Step3 两步文字修正 + 可折叠调试面板（脱敏请求体 JSON / HTTP 状态码 / 原始响应体）
-  ④ baseURL 智能归一化（`URL.origin` 提取域名，覆盖三种输入形态）
-  ⑤ `streamClean` 读取循环重构（先累积后判 done，确保响应体全量捕获）
-  ⑥ **`/api/llm/clean` Fastify body 解析修复**（sync→async，body 验证前置 hijack）
-- **阻塞项**：🚧 `start.bat` 需重启（`tsx watch` 未触发），验证 `/api/llm/clean` async handler 修复后是否正常通过 SSE 转发 LLM 流式响应。
-  ② 后续按优先级：SQLite 数据层迁移、M2–M5 真实化、Step2 AI 拆章真实化、429/重试增强。
-  ③ 仍待拍板：DESIGN §7 问题 2/3/4/6/7。
-- **环境备注**：临时约束「subagent 暂停」仍生效（见顶部 ⚠️ 小节）；
-  后端依赖装于 `server/node_modules`，前端依赖装于 `frontend/node_modules`。
+- **日期**：2026-06-15（第七次会话·Step3 + 设置页四项增强）
+- **本次完成**：四项前端增强全部落地并通过验证：
+  ① 请求/响应日志增强：过滤（全部/请求/响应/错误）+ 清空按钮 + 输入→输出字数对比（RES 行显示 `原文N字 → 输出M字`）+ 首字节延迟 + 耗时（按 chapterId 配对计算）+ 响应体预览（done 显示前 500 字，error 显示错误体）
+  ② 节点下拉默认选设置页「M1 文本清理」映射节点：`effectiveNodeId` 优先级为 `selNodeId → moduleMapping.m1Clean.nodeId → 首个已启用节点`，用户仍可临时下拉切换
+  ③ 清理提示词双面板：设置页 `m1SystemPrompt`（持久化到 settings.json，含「载入内置默认」按钮查看后端内置） + Step3 可折叠「清理提示词（本次）」面板（TextArea + 清空按钮，优先级：本次 > 设置页默认 > 后端内置，经 `startCleanQueue` opts → `streamClean` → `/api/llm/clean` body 透传）
+  ④ 模块→模型映射去除「模型名」输入列，改为「将使用模型」只读展示（Tag 显示 `provider.model`）；节点 Select label 追加模型名（如 `本地llama · qwen3-32b-q4`）；底部说明文案
+  - 后端配合：`server/src/routes/llm.ts` 新增 `GET /api/llm/prompt`（返回 `M1_CLEAN_SYSTEM_PROMPT`）；`/api/llm/clean` body 新增可选 `systemPrompt` 字段，为空则回退内置
+  - 前端新增：`store/appStore.ts` 新增 `m1SystemPrompt` 状态（含 persist + `/api/settings` 同步）；`services/api.ts` 导出 `getDefaultPrompt`；`services/real/llm.ts` 新增 `getDefaultPrompt()` 函数 + `CleanQueueDebugEvent` 新增 `outputLength`/`firstBytesAt` 字段 + `streamClean`/`startCleanQueue` 透传 `systemPrompt`
+- **阻塞项**：无。
+  下一步可选：① 用户用真实 raw 样本整本试跑 M1 四步流水线；② SQLite 数据层迁移；
+  ③ M2–M5 真实化、Step2 AI 拆章真实化、429/重试增强。
+  仍待拍板：DESIGN §7 问题 2/3/4/6/7。
+- **环境备注**：后端已在 :8787 运行（tsx watch 自动重载）；后端依赖装于 `server/node_modules`，前端依赖装于 `frontend/node_modules`。
+- **关键陷阱备忘**（供后续 SSE 相关代码参考）：Fastify `reply.hijack()` 下做 SSE 转发时，
+  **客户端断连检测必须监听 `reply.raw`（响应）的 close，绝不能用 `req.raw`（请求）**——
+  请求流在 body 读取完毕后即 close，与客户端是否断开无关。`server/src/routes/llm.ts` 已写注释。
 
 ## 更新本文档的约定
 

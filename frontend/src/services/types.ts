@@ -131,7 +131,8 @@ export type ModuleKey =
 
 export interface ModuleModelMapping {
   nodeId: string | null
-  model: string
+  /** 模型名不再独立维护——读取时一律从节点池 provider.model 取。保留字段仅为兼容旧 settings.json */
+  model?: string
 }
 
 /** M2 实体合并裁决候选对 */
