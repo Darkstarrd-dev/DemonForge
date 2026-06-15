@@ -97,7 +97,6 @@ interface NodeRuntime {
 interface ChapterTask {
   id: string
   content: string
-  retryCount: number
 }
 
 // ── 单章 SSE 流式请求（batchSize=1 时用） ──
@@ -280,6 +279,23 @@ async function streamBatch(
     }
   }
 
+  /** done / 流意外结束时，按 SEP 做最终拆分；已 onDone 过的章跳过，过短判失败 */
+  const finalizeBatch = (fullText: string) => {
+    const parts = fullText.split(CHAPTER_SEP)
+    for (let i = 0; i < batch.length; i++) {
+      const entry = batch[i]
+      if (completedIds.has(entry.id)) continue
+      const raw = parts[i] ?? ''
+      const cleanText = raw.replace(/===CHAPTER_ID:[^=]+===/g, '').trim()
+      if (cleanText.length < 10) {
+        cb.onDebug?.({ type: 'error', chapterId: entry.id, timestamp: Date.now(), chunksCount, error: `输出过短（${cleanText.length} 字符）`, responseBody: cleanText })
+      } else {
+        cb.onDebug?.({ type: 'response', chapterId: entry.id, timestamp: Date.now(), statusCode: 200, chunksCount, outputLength: cleanText.length, firstBytesAt, responseBody: cleanText.slice(0, 500) })
+        cb.onDone(entry.id, cleanText)
+      }
+    }
+  }
+
   try {
     for (;;) {
       const { done, value } = await reader.read()
@@ -331,22 +347,6 @@ async function streamBatch(
     }
     throw e
   }
-
-  function finalizeBatch(fullText: string) {
-    const parts = fullText.split(CHAPTER_SEP)
-    for (let i = 0; i < batch.length; i++) {
-      const entry = batch[i]
-      if (completedIds.has(entry.id)) continue
-      const raw = parts[i] ?? ''
-      const cleanText = raw.replace(/===CHAPTER_ID:[^=]+===/g, '').trim()
-      if (cleanText.length < 10) {
-        cb.onDebug?.({ type: 'error', chapterId: entry.id, timestamp: Date.now(), chunksCount, error: `输出过短（${cleanText.length} 字符）`, responseBody: cleanText })
-      } else {
-        cb.onDebug?.({ type: 'response', chapterId: entry.id, timestamp: Date.now(), statusCode: 200, chunksCount, outputLength: cleanText.length, firstBytesAt, responseBody: cleanText.slice(0, 500) })
-        cb.onDone(entry.id, cleanText)
-      }
-    }
-  }
 }
 
 // ── 中央调度器 ──
@@ -380,8 +380,11 @@ export function startCleanQueue(
   }
 
   const retryQueue: ChapterTask[] = []
-  const pendingQueue: ChapterTask[] = chapters.map((c) => ({ id: c.id, content: c.content, retryCount: 0 }))
+  const pendingQueue: ChapterTask[] = chapters.map((c) => ({ id: c.id, content: c.content }))
   const MAX_RETRIES = 3
+  // 章节级累计失败次数（batch 失败时同批所有章共享一致的计数，替代原先写在 task 上的 retryCount——
+  // 后者在 batch 重建任务时被归零导致 MAX_RETRIES 失效）
+  const failCounts = new Map<string, number>()
 
   // batch 跟踪：batchId → { controller, chapterIds, nodeId }
   const activeBatches = new Map<string, { ac: AbortController; chapterIds: string[]; nodeId: string }>()
@@ -461,8 +464,9 @@ export function startCleanQueue(
     } catch (e) {
       if (!stopped) {
         const enqueueRetry = (t: ChapterTask) => {
-          t.retryCount += 1
-          if (t.retryCount < MAX_RETRIES) {
+          const fails = (failCounts.get(t.id) ?? 0) + 1
+          failCounts.set(t.id, fails)
+          if (fails < MAX_RETRIES) {
             retryQueue.push(t)
           } else {
             nodeOverrides.delete(t.id)
@@ -470,14 +474,13 @@ export function startCleanQueue(
           }
         }
         enqueueRetry(task)
-        // batch 中其他章（非 anchor）也重试
+        // batch 中其他章（非 anchor）也重试——复用同一 task 对象（无 retryCount 字段，计数走 failCounts）
         if (batchId) {
           const batchInfo = activeBatches.get(batchId)
           if (batchInfo) {
             for (const cid of batchInfo.chapterIds) {
               if (cid !== task.id) {
-                const otherTask: ChapterTask = { id: cid, content: chapters.find((c) => c.id === cid)?.content ?? '', retryCount: 0 }
-                enqueueRetry(otherTask)
+                enqueueRetry({ id: cid, content: chapters.find((c) => c.id === cid)?.content ?? '' })
               }
             }
           }
@@ -576,7 +579,8 @@ export function startCleanQueue(
       for (const cid of batch.chapterIds) {
         const ch = chapters.find((c) => c.id === cid)
         if (ch) {
-          retryQueue.unshift({ id: cid, content: ch.content, retryCount: 0 })
+          failCounts.delete(cid) // 手动切换模型 = 新一轮，失败计数归零
+          retryQueue.unshift({ id: cid, content: ch.content })
         }
       }
       activeBatches.delete(batchId)

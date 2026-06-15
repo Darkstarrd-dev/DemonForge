@@ -26,7 +26,7 @@
 
 ## 项目状态快照
 
-- **最后更新**：2026-06-15（第十次会话·DiffView 列宽对齐 + 范围自动前移）
+- **最后更新**：2026-06-15（第十一次会话·代码审核修正 #1~#3）
 - **阶段**：正式开发启动（后端已建）——**M1 AI 清理端到端跑通**；设置页接真实 LLM；M2–M5 仍 mock；数据仍存 localStorage
 - **摘要**：在 mock 前端基础上**进入实现阶段**。
   运行方式：双击根目录 `start.bat`（一键启动后端 :8787 + 前端 :5173 并打开浏览器）；
@@ -171,6 +171,11 @@
 - [x] **M1 Step3 中央调度器 + batch 多章合并 + 多节点并行 + 运行中热调**（2026-06-15 第八次会话）
 - [x] **Batch 流式分章显示 + 颜色编码 + 模型切换按钮 + 等高布局**（2026-06-15 第九次会话）
 - [x] **DiffView 操作按钮独立列 + rangeStart 完成自动前移**（2026-06-15 第十次会话）
+- [x] **代码审核修正 #1~#3**（2026-06-15 第十一次会话）
+    - [x] #1 批量重试 retryCount 归零 → 全局 `failCounts` Map 替代 `ChapterTask.retryCount`，批内全章共享计数
+    - [x] #2 `finalizeBatch` 声明式函数提升 → `const` 箭头函数前置定义
+    - [x] #3 `start.bat` 退出按钮文案 → 统一为「退出系统」
+    - [x] 验证：前端 typecheck ✅、eslint ✅
 - [ ] **用户补充 raw 特征余项并拍板新问题**：`M1_raw_features.md` §1 基本情况
       （编码/文件规模/是否一文件多本）与 §2（卷结构、序章番外）待确认；
       DESIGN.md §7 问题 6（mojibake 处理）、问题 7（作者求票去留）待拍板
@@ -205,10 +210,12 @@
 
 ## 交接备注（最近一次会话）
 
-- **日期**：2026-06-15（第十次会话·DiffView 列宽对齐 + 范围自动前移）
-- **本次完成**：两项修复全部落地并通过验证：
-  ① **DiffView 左右文本列等宽**：操作按钮从右侧文本 `<td>` 移入独立第 5 列（`<col width=90>`），两个文本 `<col>` 在 `table-layout:fixed` 下均分剩余空间，严格等宽
-  ② **处理范围自动前移**：`onFinish` 回调中从 store 读最新 chapters，`findIndex` 第一个 `pending`/`needsReprocess` 章节，`setRangeStart(idx+1)` 自动跳过已完成章节
+- **日期**：2026-06-15（第十一次会话·代码审核修正 #1~#3）
+- **本次完成**：三项代码审核修正全部落地并通过验证：
+  ① **#1 批量重试 retryCount 归零**（`real/llm.ts`）：`ChapterTask` 移除 `retryCount` 字段，新增全局 `failCounts` Map（`Map<chapterId, number>`），`enqueueRetry` 通过 `failCounts.get/set` 累计失败次数。batch 失败时批内所有章走同一 `failCounts`，不再出现 anchor 章计 3 次、其他章归零重计的问题。`switchBatchNode` 手动切换模型时 `failCounts.delete(cid)` 归零，行为正确。
+  ② **#2 finalizeBatch 声明式提升**（`real/llm.ts`）：从末尾 `function finalizeBatch(fullText)` 改为 `const finalizeBatch = (fullText) =>` 并上移至 `for` 循环前定义，消除函数提升对闭包变量的隐性依赖陷阱。
+  ③ **#3 退出按钮文案统一**（`start.bat`）：`"Logout"` → `"退出系统"`，与 `AppLayout.tsx:64` 侧边栏文案一致。
+  验证：前端 `tsc --noEmit` ✅、`eslint` ✅。
 - **阻塞项**：无。
   下一步可选：① 用户试跑 M1 多节点+多章合并端到端；② SQLite 数据层迁移；③ M2–M5 真实化。
   仍待拍板：DESIGN §7 问题 2/3/4/6/7。

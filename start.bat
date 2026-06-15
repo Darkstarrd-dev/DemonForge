@@ -12,6 +12,6 @@ timeout /t 5 /nobreak >nul
 echo [3/3] Opening browser...
 start http://localhost:5173
 echo.
-echo All processes started. Use the sidebar "Logout" button to stop.
+echo All processes started. Use the sidebar "退出系统" button to stop.
 echo.
 pause
