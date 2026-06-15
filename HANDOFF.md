@@ -26,7 +26,7 @@
 
 ## 项目状态快照
 
-- **最后更新**：2026-06-15（第十三次会话·localStorage → SQLite 资产库）
+- **最后更新**：2026-06-16（第十四次会话·novel-generator skill 集成规划，仅规划+备份，未写实现代码）
 - **阶段**：正式开发启动（后端已建）——**M1 AI 清理端到端跑通**；设置页接真实 LLM；M2–M5 仍 mock；**业务数据已落 SQLite 资产库（可配置资产目录）**，Provider/密钥等设置仍存 `server/src/data/settings.json`
 - **摘要**：在 mock 前端基础上**进入实现阶段**。
   运行方式：双击根目录 `start.vbs`（**单窗口**：隐藏启动后端 :8787 + 前端 :5173，前端就绪后用 Chrome `--app` 应用模式（独立 `.chrome-profile`）打开无地址栏的独立窗口；关窗即由看门狗清理后台进程；`start.bat` 为兼容旧入口的转交薄壳）；
@@ -203,6 +203,14 @@
 
 ### 待办（设计阶段）
 
+- [ ] **【待实施】将 novel-generator skill 结合进项目**（2026-06-16 第十四次会话产出规划，未写实现代码）：
+      详细计划见 `docs/novel_generator_integration_plan.md`（范围已用户拍板）。
+      把 opencode 的 novel-generator skill（雪花法架构 / 三幕式 / 滚动摘要 / 角色状态 / RAG / 批量）
+      **内化为项目原生功能**（后端网关端点 + SQLite 数据模型 + 前端流程页），而非运行 skill 本身
+      （skill 是 subagent + Python CLI 形态，与项目 web/Provider 抽象/subagent 暂停约束不兼容直接调用）。
+      范围四块全做：① 原创起源流程（架构+蓝图）② M4/M5 真实化 ③ RAG 走 **Node + sqlite-vec** ④ 批量生产 +「整章/批量」可选高速档；
+      分 A（地基：数据模型+RAG+上下文组装器）→ B（起源）→ C（生成/管理真实化）→ D（批量）四阶段。
+      参考资料备份在 `ref/`（skill 说明/脚本/示例数据 + 8 个 agent 提示词，见 `ref/README.md`）。
 - [ ] 待讨论问题 2：M3 角色语言风格约束方式（卡片维护"风格描述 + 台词例句"是否足够）
       ——mock 已按"描述 + 例句"实装卡片与推演演示，可在试用后结合体感拍板
 - [ ] 待讨论问题 3：一致性检查触发时机（定稿自动 / 手动）——mock 演示默认"定稿自动 + 随时手动、不阻断定稿"
@@ -231,17 +239,24 @@
 
 ## 交接备注（最近一次会话）
 
-- **日期**：2026-06-15（第十三次会话·localStorage → SQLite 资产库）
-- **本次完成**：业务数据持久化从浏览器 localStorage 迁到**可配置资产目录下的 SQLite 库**（用户拍板：SQLite + 旧数据从种子重建）。
-  ① 后端：加 `better-sqlite3`；新增 `server/src/store/db.ts`（9 张表统一 `(id,data-JSON)` 文档式 + `readAll` + `syncAll` upsert/删缺失行 + `getAssetDir`/`getDb` 支持运行中切换资产目录）；新增 `server/src/routes/store.ts`（`GET/POST /api/store`）并在 `index.ts` 注册；`settings.ts` POST 校验创建 `assetDir`。`tsconfig` 加 `esModuleInterop`（CJS 默认导入）。
-  ② 前端：`appStore.ts` 移除 `persist`，改 `bootstrapStore()`（`main.tsx` 渲染前 await：拉 `/api/settings` + `/api/store`，空库则种子重建并 POST 持久化）+ `reloadStoreFromBackend()`；两 debounce 订阅按 `(state,prev)` 引用比对触发回写，避免 `importSession` 频繁变动时全量 stringify。设置页新增「资产目录」Card（应用并切换：**先同步 await POST 设置、再 reload**，规避 debounce 未落地读旧库）。
-  ③ 三层归属：业务数据 → `<资产目录>/novelhelper.db`；图片将来 → `<资产目录>/images/`（本轮未加图片字段）；Provider/密钥/映射/提示词/assetDir/currentBookId → `server/src/data/settings.json`（不进资产库，避免备份资产时带走密钥）。
-  验证：后端 typecheck ✅、db 层直测（写/upsert/删/清空）✅、前端 eslint+build+smoke(13)+ruleclean-smoke ✅。
-- **行为变化（需知悉）**：① `importSession`（含整份 rawText）**不再持久化**，仅内存——导入进行中重启会丢当前导入会话。② `resetDemo` 只重置业务数据，**不再重置 Provider/密钥配置**（更安全）。③ localStorage 旧键 `novelhelper-mock` 不再读写，成无害遗留。
-- **阻塞项**：无。**待用户端到端试跑**：双击 `start.vbs` → 首启 `<repo>/assets/novelhelper.db` 自动建、显示种子；改章节/加卡片后重启数据仍在；设置页切换资产目录数据随之切换；DevTools 确认 localStorage 不再写业务数据。
-  下一步可选：① M2 设定提取真实化（届时加 `entity_embedding` 表 + sqlite-vec 向量检索）；② M3–M5 真实化；③ 项目成熟后接 Electron。
+- **日期**：2026-06-16（第十四次会话·novel-generator skill 集成规划）
+- **本次完成**：**纯规划 + 资料备份任务，未写任何实现代码**（用户明确「不实际执行」）。
+  分析了 opencode 的 novel-generator skill（`C:\Users\Houpy\.config\opencode\skill\novel-generator` + 8 个 agent 定义
+  `Z:\Playground\.opencode\agents\novel-*.md`），设计「如何把它结合进 novelhelper」的详细计划。
+  ① **计划文档**：`docs/novel_generator_integration_plan.md`（含 skill→项目完整映射表、四阶段实施计划、可复用资产清单、验证方式）。
+     核心判断：skill 是 subagent + Python CLI 形态，与项目 web/Provider 抽象/subagent 暂停约束不兼容直接运行，
+     故「结合」= 把其方法论与 prompt 资产**内化为项目原生功能**（后端网关端点 + SQLite 数据模型 + 前端流程页）。
+  ② **用户拍板的范围**：四块全做——原创起源流程（雪花法架构+蓝图）、M4/M5 真实化、RAG（**Node + sqlite-vec**，非 Python sidecar）、
+     批量生产 +「整章/批量」可选高速档（产出仍进草稿待人审，不自动定稿，守住「AI 辅助而非代笔」理念）。
+  ③ **参考资料备份**：`ref/`（新增 `ref/README.md` 标注来源）——`ref/novel-generator-skill/`（SKILL.md/instruction.md/4 个 Python 脚本/示例人物卡与世界观）
+     + `ref/agents/`（8 个创作 agent 提示词）。这些是计划的设计依据与 prompt 基底。
+- **本会话约束**：用户开场设定**不使用 subagent / Team / Explore**，全程由主 agent 直接用只读+文件工具完成（与项目「subagent 暂停」约束一致）。
+- **阻塞项**：无。**下一步**：按计划文档阶段 A（数据模型变更 + embedding 端点 + sqlite-vec 检索层 + 上下文组装器骨架）启动实施；
+  实施时同步更新 DESIGN.md（新增 M0 起源模块、NovelArchitecture/globalSummary 数据模型、Context Assembler、RAG 实现章节）。
   仍待拍板：DESIGN §7 问题 2/3/4/6/7。
-- **上一会话（第十二次·单窗口方案 A）**：`start.vbs` 隐藏启动 + Chrome `--app` 独立 profile + 看门狗关窗清理（详见上方 checklist），端到端仍待用户试跑。
+- **上一会话（第十三次·localStorage → SQLite 资产库）**：业务数据迁到可配置资产目录下的 SQLite 库
+  （`server/src/store/db.ts` 9 表文档式 + `bootstrapStore`/`reloadStoreFromBackend`；`resetDemo` 不再重置 Provider 配置；
+  `importSession` 改纯内存）。后端 typecheck + db 直测 + 前端 eslint/build/smoke 全过，端到端仍待用户试跑。
 
 ## 更新本文档的约定
 

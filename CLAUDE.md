@@ -53,5 +53,7 @@
 | `docs/M1_text_cleaning.md` | M1 详细设计（抽象自单页应用原型 `10_novel_cleaner.html`） |
 | `docs/M1_raw_features.md` | raw 文件特征样本模板（**待用户填充**，M1 规则设计依据） |
 | `docs/frontend_mock.md` | mock 前端说明：页面交互要点、mock 边界、运行方式 |
+| `docs/novel_generator_integration_plan.md` | **【待实施】** novel-generator skill 结合进项目的详细计划（2026-06-16） |
+| `ref/` | 只读外部参考资料备份（不参与构建）：novel-generator skill 说明/脚本/示例数据 + 8 个创作 agent 提示词（见 `ref/README.md`）；M1 原型 `10_novel_cleaner.html` |
 | `frontend/` | 前端工程（Vite + React + TS + antd）；服务层 `services/api.ts` → mock(`services/mock/`) / real(`services/real/`) |
 | `server/` | 后端工程（Fastify）：`/api/llm/{test,clean,embed}`、Provider 抽象层 `src/llmClient.ts`、清理 prompt `src/prompts.ts`；数据层 `src/store/db.ts`（SQLite 资产库）+ `/api/store`、`/api/settings`、`/api/shutdown` |
