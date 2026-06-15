@@ -6,7 +6,6 @@ import {
   Card,
   Form,
   Input,
-  InputNumber,
   Modal,
   Popconfirm,
   Select,
@@ -52,9 +51,6 @@ export default function SettingsPage() {
       baseURL: '',
       apiKey: '',
       model: '',
-      maxConcurrency: 2,
-      batchSize: 1,
-      intervalSec: 0,
       enabled: true,
       lastTestResult: null,
     }
@@ -91,9 +87,6 @@ export default function SettingsPage() {
     { title: '名称', dataIndex: 'name' },
     { title: 'Base URL', dataIndex: 'baseURL', ellipsis: true },
     { title: '模型', dataIndex: 'model' },
-    { title: '最大并发', dataIndex: 'maxConcurrency', width: 90 },
-    { title: '批大小', dataIndex: 'batchSize', width: 80 },
-    { title: '间隔(s)', dataIndex: 'intervalSec', width: 80 },
     {
       title: '启用',
       dataIndex: 'enabled',
@@ -251,17 +244,6 @@ export default function SettingsPage() {
           <Form.Item name="model" label="默认模型" rules={[{ required: true }]}>
             <Input placeholder="模型名" />
           </Form.Item>
-          <Space size={16}>
-            <Form.Item name="maxConcurrency" label="最大并发">
-              <InputNumber min={1} max={32} />
-            </Form.Item>
-            <Form.Item name="batchSize" label="单次章节数">
-              <InputNumber min={1} max={10} />
-            </Form.Item>
-            <Form.Item name="intervalSec" label="请求间隔(秒)">
-              <InputNumber min={0} max={60} />
-            </Form.Item>
-          </Space>
         </Form>
       </Modal>
 

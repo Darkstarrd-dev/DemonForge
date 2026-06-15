@@ -101,13 +101,15 @@ async function streamClean(
 /**
  * 真实清理队列：保留 mock 版的 N worker 并发 + 暂停/继续/停止骨架。
  * 调用方需保证 nodes 非空（无可用节点时不应启动）。
+ * opts.batchSize 预留（后续实现多章合并请求），当前每 worker 每次仅取 1 章。
  */
 export function startCleanQueue(
   chapters: { id: string; content: string }[],
   nodes: CleanNode[],
   cb: CleanQueueCallbacks,
-  concurrency = 3,
+  opts: { concurrency?: number; batchSize?: number; intervalSec?: number } = {},
 ): CleanQueueHandle {
+  const { concurrency = 3, intervalSec = 0 } = opts
   const queue = [...chapters]
   let paused = false
   let stopped = false
@@ -130,6 +132,8 @@ export function startCleanQueue(
       }
       const task = queue.shift()
       if (!task) break
+      // 请求间隔（错峰锁）
+      if (intervalSec > 0) await new Promise((r) => setTimeout(r, intervalSec * 1000))
       active += 1
       const node = nodes[idx % nodes.length]
       cb.onStart(task.id, node.name)

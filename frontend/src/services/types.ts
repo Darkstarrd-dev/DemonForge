@@ -117,9 +117,6 @@ export interface ProviderNode {
   baseURL: string
   apiKey: string
   model: string
-  maxConcurrency: number
-  batchSize: number
-  intervalSec: number
   enabled: boolean
   lastTestResult?: 'ok' | 'fail' | null
 }

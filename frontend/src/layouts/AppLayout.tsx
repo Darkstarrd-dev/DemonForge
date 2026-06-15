@@ -1,6 +1,7 @@
-import { Layout, Menu, Select, Space, Tag, Typography } from 'antd'
+import { Button, Layout, Menu, Select, Space, Tag, Typography } from 'antd'
 import {
   BookOutlined,
+  PoweroffOutlined,
   HomeOutlined,
   ImportOutlined,
   IdcardOutlined,
@@ -30,9 +31,18 @@ export default function AppLayout() {
   const setState = useAppStore((s) => s.setState)
   const projects = books.filter((b) => b.type === 'project')
 
+  const handleExit = async () => {
+    try {
+      await fetch('/api/shutdown', { method: 'POST' })
+    } catch {
+      // 后端可能已关闭
+    }
+    window.close()
+  }
+
   return (
     <Layout style={{ height: '100%' }}>
-      <Layout.Sider theme="dark" width={208}>
+      <Layout.Sider theme="dark" width={208} style={{ display: 'flex', flexDirection: 'column' }}>
         <div style={{ padding: '16px 20px', color: '#fff', fontSize: 17, fontWeight: 600 }}>
           <BookOutlined style={{ marginRight: 8 }} />
           novelhelper
@@ -43,7 +53,18 @@ export default function AppLayout() {
           items={MENU_ITEMS}
           selectedKeys={[location.pathname]}
           onClick={(e) => navigate(e.key)}
+          style={{ flex: 1 }}
         />
+        <div style={{ padding: '8px 12px', borderTop: '1px solid #303030' }}>
+          <Button
+            block
+            danger
+            icon={<PoweroffOutlined />}
+            onClick={handleExit}
+          >
+            退出系统
+          </Button>
+        </div>
       </Layout.Sider>
       <Layout>
         <Layout.Header

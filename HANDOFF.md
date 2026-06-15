@@ -26,18 +26,14 @@
 
 ## 项目状态快照
 
-- **最后更新**：2026-06-13（第四次会话）
+- **最后更新**：2026-06-15（第五次会话）
 - **阶段**：正式开发启动（后端已建）——M1 与设置页接真实 LLM；M2–M5 仍 mock；数据仍存 localStorage
-- **摘要**：在 mock 前端基础上**进入实现阶段**：新增后端 `server/`（Fastify 最小 LLM 网关，
-  无状态、不引入 SQLite）——`/api/llm/test`（转发 GET /v1/models）、`/api/llm/clean`
-  （SSE 转发流式 chat，内置 §3.7 v2 清理 prompt）、Provider 抽象 `src/llmClient.ts`。
-  前端兑现 mock→real 切换：`services/api.ts` 把 `testProvider`/`startCleanQueue` 切到
-  `services/real/llm.ts`，页面契约不变。**M1 第三步双路径**（AI 真实流式 / 规则本地
-  `ruleClean`，两路径产出都进现有审核步 diff）；**设置页真实测试**（展示模型列表/错误、
-  可一键填入模型）。
-  自动化验证全过：后端 typecheck、前端 lint/build、smoke(13)/ruleclean-smoke(43)、后端 health
-  与 test 错误路径。运行：后端 `cd server && npm run dev`（:8787）+ 前端 `cd frontend && npm run dev`。
-  **待用户**：用真实 endpoint 端到端试 AI 清理流式与设置页测试成功路径。
+- **摘要**：在 mock 前端基础上**进入实现阶段**。
+  运行方式：双击根目录 `start.bat`（一键启动后端 :8787 + 前端 :5173 并打开浏览器）；
+  退出：侧边栏底部「退出系统」按钮（关闭前后端所有进程 + 浏览器窗口）。
+  **M1 第三步**：已移除规则路径（Segmented 切换），仅保留 AI 路径；节点选择 &
+  并发参数（最大并发/单次章节数/请求间隔）从设置页「节点池编辑」移至 Step3 控制栏。
+  自动化验证全过：后端 typecheck、前端 eslint/build(tsc+vite)、smoke(13)、ruleclean-smoke(43)。
 
 ## Checklist
 
@@ -91,8 +87,19 @@
     startCleanQueue，保留 worker 并发/暂停/停止骨架、SSE 解析、新增 onError）；`api.ts` 切换；
     `Step3Clean.tsx` 加「AI 路径 / 规则路径」Segmented（规则路径调 `ruleClean` 瞬时 + 统计）；
     `settings` 真实测试反馈（模型列表一键填入 / 错误详情）
-  - 验证：后端 typecheck、前端 eslint/build、smoke(13)/ruleclean-smoke(43)、后端 health 与
-    test 错误路径全过（真实 endpoint 端到端待用户试）
+   - 验证：后端 typecheck、前端 eslint/build、smoke(13)/ruleclean-smoke(43)、后端 health 与
+     test 错误路径全过（真实 endpoint 端到端待用户试）
+- [x] **M1 Step3 交互重构 + 一键启动/退出**（2026-06-15 第五次会话）：
+  - M1 第三步移除「AI 路径 / 规则路径」Segmented 切换，仅保留 AI 路径（规则路径效果不佳移除）；
+    `ruleClean.ts` 工具/测试保留不动
+  - 并发参数（最大并发 / 单次章节数 / 请求间隔）从设置页「节点池编辑」移至 Step3 控制栏；
+    `ProviderNode` 类型移除 `maxConcurrency`/`batchSize`/`intervalSec`；后端 `startCleanQueue`
+    改为 opts 对象入参、worker 循环实现 `intervalSec` 延迟
+  - Step3 新增节点下拉选择（替代设置页 moduleMapping.m1Clean 固定节点）
+  - **一键启动**：新增根目录 `start.bat`（双击启动后端+前端两个 cmd 窗口，自动打开浏览器）
+  - **一键退出**：侧边栏底部「退出系统」按钮 → `POST /api/shutdown`（后端三级退避 kill：PID 文件 /
+    窗口标题 / Get-CimInstance 杀 node 进程）→ `window.close()`
+  - 前端 `package.json` 新增 `tsx` devDependency（修复 smoke 测试运行依赖）
 
 ### 进行中 / 等待用户
 
@@ -121,8 +128,8 @@
 
 - [~] P0 基础设施：**Provider 抽象层 + 配置界面（设置页真实测试）已落地**（`server/src/llmClient.ts`）；
       后端骨架（Fastify）已建；**SQLite 初始化 / 数据层迁移仍待办**（本轮数据暂留 localStorage）
-- [~] P1 = M1 文本预处理：**清理双路径（AI 真实流式 + 规则 `ruleClean`）已落地**；编码检测/切分/
-      审核入库沿用既有；切分 AI 兜底（`aiSplitChapter`）仍 mock、整本长任务队列/重试增强待后续
+- [~] P1 = M1 文本预处理：**AI 路径（真实 LLM 流式）已落地**（规则路径已从 UI 移除）；
+      编码检测/切分/审核入库沿用既有；切分 AI 兜底（`aiSplitChapter`）仍 mock、整本长任务队列/重试增强待后续
 - [ ] P2 = M2 设定提取
 - [ ] P3 = M3 单角色推演
 - [ ] P4 = M4 章节生成
@@ -130,19 +137,21 @@
 
 ## 交接备注（最近一次会话）
 
-- **日期**：2026-06-13（第四次会话）
-- **本次完成**：进入正式开发阶段（用户拍板解除「frontend 外不建代码」、后端 Fastify、
-  本轮最小 LLM 网关）。新增后端 `server/`（无状态 LLM 网关：test / clean(SSE) / embed 预留，
-  Provider 抽象 + §3.7 v2 prompt）；前端兑现 mock→real 切换（`services/real/llm.ts`，页面零改动契约）；
-  M1 第三步「AI 真实流式 / 规则本地」双路径，两路径产出共用审核步；设置页真实测试（模型列表/错误）。
-  自动化验证全过（typecheck / lint / build / smoke×2 / 后端 health + 错误路径）。
-- **下一步建议**：① **用户用真实 endpoint 端到端试**：先 `cd server && npm run dev`，
-  再 `cd frontend && npm run dev`；设置页配 endpoint → 测试看模型列表；M1 导入演示文本 →
-  切分 → 第三步选 AI 路径看真实流式 / 选规则路径看瞬时清理 → 审核入库。
-  ② 反馈交互调整；③ 后续可推进：SQLite 数据层迁移、M2–M5 真实化、Step2 AI 拆章真实化、
-  混合模式（规则载荷注入 LLM §3.10）、429/重试增强。④ 仍待拍板：DESIGN §7 问题 2/3/4/6/7。
-- **阻塞项**：无（等待用户端到端试用与反馈）。
-- **环境备注**：临时约束「subagent 暂停」仍生效（见顶部 ⚠️ 小节）；后端依赖已装于 `server/node_modules`。
+- **日期**：2026-06-15（第五次会话）
+- **本次完成**：① M1 Step3 交互重构——移除规则路径（Segmented 切换）、仅保留 AI 路径；
+  并发参数（最大并发/单次章节数/请求间隔）从设置页节点编辑移至 Step3 AI 控制栏；
+  Step3 新增节点下拉选择替代 moduleMapping 固定映射；
+  `ProviderNode` 类型精简移除三字段、`startCleanQueue` 参数改为 opts 对象、实现 intervalSec 延迟。
+  ② 一键启动：新增根目录 `start.bat`（双击启动 server + frontend 窗口 + 打开浏览器）。
+  ③ 一键退出：侧边栏「退出系统」按钮 → `POST /api/shutdown`（三级退避 kill）→ `window.close()`。
+  ④ 前端 `package.json` 补 `tsx` 修复 smoke 运行依赖。
+  自动化验证全过（typecheck / lint / build / smoke×2 / 后端 shutdown 端到端验证）。
+- **下一步建议**：① 用户双击 `start.bat` 端到端试用完整流程；
+  ② 后续按优先级：SQLite 数据层迁移、M2–M5 真实化、Step2 AI 拆章真实化、429/重试增强。
+  ③ 仍待拍板：DESIGN §7 问题 2/3/4/6/7。
+- **阻塞项**：无。
+- **环境备注**：临时约束「subagent 暂停」仍生效（见顶部 ⚠️ 小节）；
+  后端依赖装于 `server/node_modules`，前端依赖装于 `frontend/node_modules`。
 
 ## 更新本文档的约定
 
