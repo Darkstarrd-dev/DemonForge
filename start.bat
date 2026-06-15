@@ -1,17 +1,4 @@
 @echo off
-echo ========================================
-echo   novelhelper launcher
-echo ========================================
-echo.
-echo [1/3] Starting backend (port 8787)...
-start "novelhelper-server" cmd /k "cd /d %~dp0server && npm run dev"
-timeout /t 5 /nobreak >nul
-echo [2/3] Starting frontend (port 5173)...
-start "novelhelper-frontend" cmd /k "cd /d %~dp0frontend && npm run dev"
-timeout /t 5 /nobreak >nul
-echo [3/3] Opening browser...
-start http://localhost:5173
-echo.
-echo All processes started. Use the sidebar "退出系统" button to stop.
-echo.
-pause
+rem 旧入口兼容:转交无控制台窗口的 start.vbs(隐藏启动后端/前端 + Edge 应用模式单窗口)。
+rem 想完全无闪烁请直接双击 start.vbs。
+start "" wscript.exe "%~dp0start.vbs"

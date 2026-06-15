@@ -39,11 +39,14 @@ const killFrontendNode = () => {
 
 app.post('/api/shutdown', async (_req, reply) => {
   await reply.send({ ok: true })
+  // 先彻底清理前端进程树,最后再杀后端自身进程树 —— 隐藏启动(start.vbs / launch.ps1)下
+  // server.pid 指向本进程的 cmd 树根,taskkill /T 会连带杀死正在执行此 handler 的 node,
+  // 故必须放在最后,确保前端清理已完成。
   killByPidFile('frontend.pid')
-  killByPidFile('server.pid')
-  killByTitle('novelhelper-server')
   killByTitle('novelhelper-frontend')
   killFrontendNode()
+  killByTitle('novelhelper-server')
+  killByPidFile('server.pid')
   process.exit(0)
 })
 
