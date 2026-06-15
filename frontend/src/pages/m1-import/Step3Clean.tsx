@@ -4,6 +4,7 @@ import {
   App,
   Button,
   Col,
+  Collapse,
   InputNumber,
   List,
   Progress,
@@ -20,12 +21,28 @@ import {
   ThunderboltOutlined,
 } from '@ant-design/icons'
 import { useAppStore } from '../../store/appStore'
-import { startCleanQueue, type CleanNode, type CleanQueueHandle } from '../../services/api'
+import { startCleanQueue, type CleanNode, type CleanQueueHandle, type CleanQueueDebugEvent } from '../../services/api'
 
 interface ActiveTask {
   chapterId: string
   nodeName: string
   acc: string
+}
+
+interface DebugEntry {
+  chapterId: string
+  id: number
+  title: string
+  type: 'request' | 'response' | 'error'
+  timestamp: number
+  nodeName?: string
+  model?: string
+  contentLength?: number
+  requestBody?: Record<string, unknown>
+  statusCode?: number
+  responseBody?: string
+  chunksCount?: number
+  error?: string
 }
 
 export default function Step3Clean() {
@@ -44,6 +61,8 @@ export default function Step3Clean() {
   const [paused, setPaused] = useState(false)
   const [active, setActive] = useState<ActiveTask[]>([])
   const [selectedTask, setSelectedTask] = useState<string | null>(null)
+  const [debugEntries, setDebugEntries] = useState<DebugEntry[]>([])
+  const debugIdRef = useRef(0)
   const handleRef = useRef<CleanQueueHandle | null>(null)
 
   if (!session) return null
@@ -126,6 +145,30 @@ export default function Step3Clean() {
           setRunning(false)
           setActive([])
           message.success('清理完成，请进入审核步骤')
+        },
+        onDebug: (evt: CleanQueueDebugEvent) => {
+          debugIdRef.current += 1
+          setDebugEntries((prev) => {
+            const next = [
+              ...prev,
+              {
+                chapterId: evt.chapterId,
+                id: debugIdRef.current,
+                title: evt.chapterTitle ?? chapters.find((c) => c.id === evt.chapterId)?.title ?? evt.chapterId,
+                type: evt.type,
+                timestamp: evt.timestamp,
+                nodeName: evt.nodeName,
+                model: evt.model,
+                contentLength: evt.contentLength,
+                requestBody: evt.requestBody,
+                statusCode: evt.statusCode,
+                responseBody: evt.responseBody,
+                chunksCount: evt.chunksCount,
+                error: evt.error,
+              },
+            ]
+            return next.slice(-200)
+          })
         },
       },
       { concurrency, batchSize, intervalSec },
@@ -282,6 +325,102 @@ export default function Step3Clean() {
           </Row>
         </Col>
       </Row>
+
+      <Collapse
+        items={[
+          {
+            key: 'debug',
+            label: `请求/响应日志 (${debugEntries.length})`,
+            children: debugEntries.length === 0 ? (
+              <Typography.Text type="secondary">暂无记录</Typography.Text>
+            ) : (
+              <List
+                size="small"
+                dataSource={[...debugEntries].reverse()}
+                renderItem={(e) => {
+                  const time = new Date(e.timestamp).toLocaleTimeString()
+                  const color = e.type === 'request' ? 'blue' : e.type === 'error' ? 'red' : 'green'
+                  return (
+                    <List.Item style={{ padding: '6px 0', borderBottom: '1px solid #f0f0f0', display: 'block' }}>
+                      <div style={{ marginBottom: 4 }}>
+                        <Space size={4}>
+                          <Tag color={color} style={{ margin: 0 }}>
+                            {e.type === 'request' ? 'REQ' : e.type === 'error' ? 'ERR' : 'RES'}
+                          </Tag>
+                          <Typography.Text style={{ fontSize: 12 }}>{time}</Typography.Text>
+                          <Typography.Text strong style={{ fontSize: 12 }}>
+                            {e.title}
+                          </Typography.Text>
+                          {e.type === 'request' && (
+                            <>
+                              <Tag style={{ margin: 0 }}>{e.nodeName}</Tag>
+                              <Typography.Text type="secondary" style={{ fontSize: 11 }}>
+                                原文 {e.contentLength} 字
+                              </Typography.Text>
+                            </>
+                          )}
+                          {(e.type === 'response' || e.type === 'error') && e.statusCode != null && (
+                            <Tag color={e.statusCode < 400 ? 'green' : 'red'} style={{ margin: 0 }}>
+                              HTTP {e.statusCode}
+                            </Tag>
+                          )}
+                          {e.type === 'response' && (
+                            <Typography.Text type="secondary" style={{ fontSize: 11 }}>
+                              {e.chunksCount} chunks
+                            </Typography.Text>
+                          )}
+                          {e.type === 'error' && e.error && (
+                            <Typography.Text type="danger" style={{ fontSize: 11 }}>
+                              {e.chunksCount != null ? `${e.chunksCount} chunks · ` : ''}
+                              {e.error}
+                            </Typography.Text>
+                          )}
+                        </Space>
+                      </div>
+                      {e.requestBody && (
+                        <div
+                          style={{
+                            background: '#1f2428',
+                            color: '#c9d1d9',
+                            padding: '6px 10px',
+                            borderRadius: 4,
+                            fontFamily: 'monospace',
+                            fontSize: 11,
+                            whiteSpace: 'pre-wrap',
+                            wordBreak: 'break-all',
+                            marginTop: 2,
+                          }}
+                        >
+                          {JSON.stringify(e.requestBody, null, 2)}
+                        </div>
+                      )}
+                      {e.responseBody && (
+                        <div
+                          style={{
+                            background: '#fffbe6',
+                            padding: '6px 10px',
+                            borderRadius: 4,
+                            fontFamily: 'monospace',
+                            fontSize: 11,
+                            whiteSpace: 'pre-wrap',
+                            wordBreak: 'break-all',
+                            maxHeight: 200,
+                            overflow: 'auto',
+                            marginTop: 2,
+                          }}
+                        >
+                          {e.responseBody}
+                        </div>
+                      )}
+                    </List.Item>
+                  )
+                }}
+              />
+            ),
+          },
+        ]}
+        style={{ background: '#fafafa' }}
+      />
     </Space>
   )
 }

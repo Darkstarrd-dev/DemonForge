@@ -10,4 +10,4 @@ export {
 } from './mock/impl'
 
 export { testProvider, startCleanQueue } from './real/llm'
-export type { CleanQueueCallbacks, CleanQueueHandle, CleanNode, TestResult } from './real/llm'
+export type { CleanQueueCallbacks, CleanQueueHandle, CleanNode, TestResult, CleanQueueDebugEvent } from './real/llm'

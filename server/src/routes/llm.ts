@@ -14,7 +14,13 @@ export async function llmRoutes(app: FastifyInstance) {
   })
 
   // M1 清理：单章单请求，SSE 把上游流式增量转发给前端
-  app.post('/api/llm/clean', (req, reply) => {
+  app.post('/api/llm/clean', async (req, reply) => {
+    const { baseURL, apiKey, model, content } = (req.body ?? {}) as CleanBody
+    if (!baseURL || !model || !content) {
+      reply.status(400).send({ error: '缺少 baseURL / model / content' })
+      return
+    }
+
     reply.hijack()
     const raw = reply.raw
     raw.writeHead(200, {
@@ -24,13 +30,6 @@ export async function llmRoutes(app: FastifyInstance) {
     })
     const send = (event: string, data: unknown) => {
       raw.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
-    }
-
-    const { baseURL, apiKey, model, content } = (req.body ?? {}) as CleanBody
-    if (!baseURL || !model || !content) {
-      send('error', { message: '缺少 baseURL / model / content' })
-      raw.end()
-      return
     }
 
     const ac = new AbortController()
@@ -50,12 +49,11 @@ export async function llmRoutes(app: FastifyInstance) {
       (delta) => send('delta', { delta }),
     )
       .then((full) => {
-        // §3.8 护栏：输出过短判失败（防模型回解释文字替代正文）
         if (full.trim().length < 10) send('error', { message: `输出过短（${full.trim().length} 字符），判为失败` })
         else send('done', { text: full })
       })
       .catch((e: unknown) => {
-        if (ac.signal.aborted) return // 客户端主动断开，不再回写
+        if (ac.signal.aborted) return
         send('error', { message: e instanceof Error ? e.message : String(e) })
       })
       .finally(() => raw.end())

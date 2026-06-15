@@ -36,12 +36,28 @@ export interface CleanNode {
   model: string
 }
 
+export interface CleanQueueDebugEvent {
+  type: 'request' | 'response' | 'error'
+  chapterId: string
+  chapterTitle?: string
+  timestamp: number
+  nodeName?: string
+  model?: string
+  contentLength?: number
+  requestBody?: Record<string, unknown>
+  statusCode?: number
+  responseBody?: string
+  chunksCount?: number
+  error?: string
+}
+
 export interface CleanQueueCallbacks {
   onStart: (chapterId: string, nodeName: string) => void
   onChunk: (chapterId: string, acc: string) => void
   onDone: (chapterId: string, cleaned: string) => void
   onError: (chapterId: string, message: string) => void
   onFinish: () => void
+  onDebug?: (event: CleanQueueDebugEvent) => void
 }
 
 export interface CleanQueueHandle {
@@ -58,44 +74,81 @@ async function streamClean(
   cb: CleanQueueCallbacks,
   signal: AbortSignal,
 ): Promise<void> {
-  const res = await fetch('/api/llm/clean', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ baseURL: node.baseURL, apiKey: node.apiKey, model: node.model, content }),
-    signal,
-  })
-  if (!res.ok || !res.body) throw new Error(`网关错误 HTTP ${res.status}`)
+  let chunksCount = 0
+  const reqBody = { baseURL: node.baseURL, model: node.model, apiKey: node.apiKey ? `${node.apiKey.slice(0, 6)}***` : '(空)' }
+  cb.onDebug?.({ type: 'request', chapterId, timestamp: Date.now(), nodeName: node.name, model: node.model, contentLength: content.length, requestBody: reqBody })
+  let res: Response
+  try {
+    res = await fetch('/api/llm/clean', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ baseURL: node.baseURL, apiKey: node.apiKey, model: node.model, content }),
+      signal,
+    })
+  } catch (e) {
+    cb.onDebug?.({ type: 'error', chapterId, timestamp: Date.now(), error: `fetch 失败：${e instanceof Error ? e.message : String(e)}` })
+    throw e
+  }
+  if (!res.ok) {
+    const text = await res.text().catch(() => '(无法读取响应体)')
+    cb.onDebug?.({ type: 'error', chapterId, timestamp: Date.now(), statusCode: res.status, responseBody: text.slice(0, 2000), error: `HTTP ${res.status}` })
+    throw new Error(`网关错误 HTTP ${res.status}${text ? `：${text.slice(0, 200)}` : ''}`)
+  }
+  if (!res.body) {
+    cb.onDebug?.({ type: 'error', chapterId, timestamp: Date.now(), statusCode: res.status, error: '响应无 body' })
+    throw new Error('响应无 body')
+  }
   const reader = res.body.getReader()
   const decoder = new TextDecoder()
   let buffer = ''
   let acc = ''
-  for (;;) {
-    const { done, value } = await reader.read()
-    if (done) break
-    buffer += decoder.decode(value, { stream: true })
-    const events = buffer.split('\n\n')
-    buffer = events.pop() ?? ''
-    for (const evt of events) {
-      let event = 'message'
-      let data = ''
-      for (const line of evt.split('\n')) {
-        if (line.startsWith('event:')) event = line.slice(6).trim()
-        else if (line.startsWith('data:')) data += line.slice(5).trim()
+  let rawChunks = ''
+  let sseReported = false
+  try {
+    for (;;) {
+      const { done, value } = await reader.read()
+      const text = value ? decoder.decode(value, { stream: !done }) : ''
+      buffer += text
+      rawChunks += text
+      const events = buffer.split('\n\n')
+      buffer = events.pop() ?? ''
+      for (const evt of events) {
+        if (!evt.trim()) continue
+        let event = 'message'
+        let data = ''
+        for (const line of evt.split('\n')) {
+          if (line.startsWith('event:')) event = line.slice(6).trim()
+          else if (line.startsWith('data:')) data += line.slice(5).trim()
+        }
+        if (!data) continue
+        const parsed = JSON.parse(data) as { delta?: string; text?: string; message?: string }
+        if (event === 'delta') {
+          chunksCount += 1
+          acc += parsed.delta ?? ''
+          cb.onChunk(chapterId, acc)
+        } else if (event === 'done') {
+          cb.onDebug?.({ type: 'response', chapterId, timestamp: Date.now(), statusCode: 200, chunksCount })
+          cb.onDone(chapterId, parsed.text ?? acc)
+          return
+        } else if (event === 'error') {
+          const msg = parsed.message ?? '清理失败'
+          cb.onDebug?.({ type: 'error', chapterId, timestamp: Date.now(), statusCode: 200, chunksCount, responseBody: msg, error: msg })
+          sseReported = true
+          throw new Error(msg)
+        }
       }
-      if (!data) continue
-      const parsed = JSON.parse(data) as { delta?: string; text?: string; message?: string }
-      if (event === 'delta') {
-        acc += parsed.delta ?? ''
-        cb.onChunk(chapterId, acc)
-      } else if (event === 'done') {
-        cb.onDone(chapterId, parsed.text ?? acc)
-        return
-      } else if (event === 'error') {
-        throw new Error(parsed.message ?? '清理失败')
-      }
+      if (done) break
     }
+  } catch (e) {
+    if (!sseReported && !signal.aborted) {
+      const errMsg = e instanceof Error ? e.message : String(e)
+      cb.onDebug?.({ type: 'error', chapterId, timestamp: Date.now(), chunksCount, error: errMsg, responseBody: rawChunks.slice(0, 2000) })
+    }
+    throw e
   }
-  throw new Error('流式响应意外结束')
+  const endMsg = '流式响应意外结束'
+  cb.onDebug?.({ type: 'error', chapterId, timestamp: Date.now(), chunksCount, error: endMsg, responseBody: rawChunks.slice(0, 2000) })
+  throw new Error(endMsg)
 }
 
 /**

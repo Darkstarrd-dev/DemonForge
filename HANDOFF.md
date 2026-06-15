@@ -26,7 +26,7 @@
 
 ## 项目状态快照
 
-- **最后更新**：2026-06-15（第五次会话）
+- **最后更新**：2026-06-15（第五次会话·再续）
 - **阶段**：正式开发启动（后端已建）——M1 与设置页接真实 LLM；M2–M5 仍 mock；数据仍存 localStorage
 - **摘要**：在 mock 前端基础上**进入实现阶段**。
   运行方式：双击根目录 `start.bat`（一键启动后端 :8787 + 前端 :5173 并打开浏览器）；
@@ -34,6 +34,13 @@
   **M1 第三步**：已移除规则路径（Segmented 切换），仅保留 AI 路径；节点选择 &
   并发参数（最大并发/单次章节数/请求间隔）从设置页「节点池编辑」移至 Step3 控制栏。
   自动化验证全过：后端 typecheck、前端 eslint/build(tsc+vite)、smoke(13)、ruleclean-smoke(43)。
+  **本轮新增**：
+  - 设置页自动服务端持久化（`server/data/settings.json`，debounce 1s 同步，`.gitignore`）
+  - AppLayout 高度修复（`100vh`）+ Sider 退出按钮贴底（CSS `.ant-layout-sider-children` flex）
+  - Step3 文字修正（`"AI / 规则双路径"`→`"AI"`）+ 可折叠请求/响应日志面板
+  - 智能 baseURL 归一化（`URL.origin` 提取域名，统一拼 `/v1`）
+  - 调试日志增强：显示脱敏请求体 JSON + HTTP 状态码 + 原始响应体；读取循环重构（先 accumulate 后判 done）
+  - **🚧 AI 对接阻塞**：`/api/llm/clean` handler 从同步改为 async + body 验证前置 hijack，**待重启服务器验证**
 
 ## Checklist
 
@@ -99,7 +106,39 @@
   - **一键启动**：新增根目录 `start.bat`（双击启动后端+前端两个 cmd 窗口，自动打开浏览器）
   - **一键退出**：侧边栏底部「退出系统」按钮 → `POST /api/shutdown`（后端三级退避 kill：PID 文件 /
     窗口标题 / Get-CimInstance 杀 node 进程）→ `window.close()`
-  - 前端 `package.json` 新增 `tsx` devDependency（修复 smoke 测试运行依赖）
+   - 前端 `package.json` 新增 `tsx` devDependency（修复 smoke 测试运行依赖）
+- [x] **设置持久化 + 布局修复 + Step3 调试面板**（2026-06-15 第五次会话·续）：
+  - 设置数据自动同步到 `server/data/settings.json`：新增 `server/src/routes/settings.ts`（GET/POST `/api/settings`），
+    store 启动时从服务端拉取优先于 localStorage，`setState` 变更 debounce 1s 写回；`settings.json` 纳入 `.gitignore`
+  - AppLayout 高度修复：外层 `height: '100%'`→`'100vh'`，内层加 `overflow: 'hidden'`
+  - M1 Step3 文字修正：`"AI / 规则双路径"`→`"AI"`
+  - Step3 可折叠调试面板（`Collapse`）：实时记录每次请求（时间戳/节点/模型/章节/原文长度）与响应（chunks 数/状态/错误），
+    不重复实时窗口已有内容
+  - Sider 退出按钮对齐修复（`height: '100%'`）
+  - 调试日志增强：REQ 显示脱敏请求体（`{baseURL, model, apiKey}` JSON）/ RES 显示 HTTP 状态码 + chunks 数 / ERR 显示
+     状态码 + 服务端原始响应体前 2000 字 + 已接收 SSE 原始数据；修复 SSE error 双重日志 bug
+- [x] **baseURL 智能归一化 + 读取循环修复 + Fastify body 解析修复**（2026-06-15 第五次会话·再续）：
+  - `server/src/llmClient.ts` `normalizeBase`：`URL.origin` 提取域名+端口统一拼 `/v1`（覆盖纯域名/带v1/带完整路径三种输入）
+  - `frontend/src/services/real/llm.ts` `streamClean`：读取循环从「先判 done→后累积」改为「先累积→处理 SSE→最后判 done」，确保服务端返回的任意文本都进入 rawChunks 供调试面板展示
+  - `server/src/routes/llm.ts` `/api/llm/clean`：handler 从同步改为 `async`，**body 验证移到 `reply.hijack()` 之前**（Fastify 对 hijacked handler 的 body 解析有同步/异步差异，与正常工作的 `/api/llm/test` 对齐）
+
+### AI 对接排障记录
+
+| 步骤 | 尝试 | 结果 |
+|------|------|------|
+| 1 | 命令行直连 LLM（非流式） | ✅ 正常返回 |
+| 2 | 命令行直连 LLM（流式 SSE） | ✅ 正常流式（有 `reasoning_content` + `content` 两种 chunk） |
+| 3 | 经服务器 `/api/llm/clean` | ❌ HTTP 200 但 body 为空（无任何 SSE 事件） |
+| 4 | 排查服务器 `req.body` | 发现非 async handler + `reply.hijack()` 后 body 未解析 |
+| 5 | 改为 async + body 前置验证 | 代码已修，**待重启服务器验证** |
+
+**根因分析**：Fastify 的 `reply.hijack()` 接管原始响应后，同步 handler 中 `req.body` 可能尚未完成解析。
+参考工作中 `/api/llm/test`（async handler，正常）与失败的 `/api/llm/clean`（sync handler）。
+修复策略：将 handler 改为 `async`，在 `hijack()` 之前完成 body 校验，无效请求直接返回 400。
+
+**LLM 响应特征**（deepseek/deepseek-v4-flash）：流式返回包含两种 chunk——
+- `delta.reasoning_content`（推理过程，`content: null`）→ 服务器 `chatStream` 已正确过滤
+- `delta.content`（实际输出）→ 被 `onDelta` 回调累积
 
 ### 进行中 / 等待用户
 
@@ -137,19 +176,16 @@
 
 ## 交接备注（最近一次会话）
 
-- **日期**：2026-06-15（第五次会话）
-- **本次完成**：① M1 Step3 交互重构——移除规则路径（Segmented 切换）、仅保留 AI 路径；
-  并发参数（最大并发/单次章节数/请求间隔）从设置页节点编辑移至 Step3 AI 控制栏；
-  Step3 新增节点下拉选择替代 moduleMapping 固定映射；
-  `ProviderNode` 类型精简移除三字段、`startCleanQueue` 参数改为 opts 对象、实现 intervalSec 延迟。
-  ② 一键启动：新增根目录 `start.bat`（双击启动 server + frontend 窗口 + 打开浏览器）。
-  ③ 一键退出：侧边栏「退出系统」按钮 → `POST /api/shutdown`（三级退避 kill）→ `window.close()`。
-  ④ 前端 `package.json` 补 `tsx` 修复 smoke 运行依赖。
-  自动化验证全过（typecheck / lint / build / smoke×2 / 后端 shutdown 端到端验证）。
-- **下一步建议**：① 用户双击 `start.bat` 端到端试用完整流程；
+- **日期**：2026-06-15（第五次会话·再续）
+- **本次完成**：① 设置数据服务端文件持久化（`server/data/settings.json`，自动 debounce 同步）
+  ② AppLayout 高度修复 + Sider 退出按钮贴底（`.ant-layout-sider-children` flex 覆盖）
+  ③ Step3 两步文字修正 + 可折叠调试面板（脱敏请求体 JSON / HTTP 状态码 / 原始响应体）
+  ④ baseURL 智能归一化（`URL.origin` 提取域名，覆盖三种输入形态）
+  ⑤ `streamClean` 读取循环重构（先累积后判 done，确保响应体全量捕获）
+  ⑥ **`/api/llm/clean` Fastify body 解析修复**（sync→async，body 验证前置 hijack）
+- **阻塞项**：🚧 `start.bat` 需重启（`tsx watch` 未触发），验证 `/api/llm/clean` async handler 修复后是否正常通过 SSE 转发 LLM 流式响应。
   ② 后续按优先级：SQLite 数据层迁移、M2–M5 真实化、Step2 AI 拆章真实化、429/重试增强。
   ③ 仍待拍板：DESIGN §7 问题 2/3/4/6/7。
-- **阻塞项**：无。
 - **环境备注**：临时约束「subagent 暂停」仍生效（见顶部 ⚠️ 小节）；
   后端依赖装于 `server/node_modules`，前端依赖装于 `frontend/node_modules`。
 

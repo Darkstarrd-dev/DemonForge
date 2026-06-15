@@ -88,9 +88,46 @@ export const useAppStore = create<AppState>()(
         })),
       resetDemo: () => set(seedState()),
     }),
-    { name: 'novelhelper-mock', version: 1 },
+    {
+      name: 'novelhelper-mock',
+      version: 1,
+      onRehydrateStorage: () => {
+        return (_state, error) => {
+          if (error) return
+          void (async () => {
+            try {
+              const res = await fetch('/api/settings')
+              if (!res.ok) return
+              const data = await res.json() as { providers?: ProviderNode[]; moduleMapping?: Record<ModuleKey, ModuleModelMapping> }
+              if (data?.providers?.length) {
+                useAppStore.setState({
+                  providers: data.providers,
+                  moduleMapping: data.moduleMapping ?? useAppStore.getState().moduleMapping,
+                })
+              }
+            } catch { /* server not available */ }
+          })()
+        }
+      },
+    },
   ),
 )
+
+let syncTimer: ReturnType<typeof setTimeout> | null = null
+let _lastSynced = ''
+useAppStore.subscribe((s) => {
+  const payload = JSON.stringify({ providers: s.providers, moduleMapping: s.moduleMapping })
+  if (payload === _lastSynced) return
+  _lastSynced = payload
+  if (syncTimer) clearTimeout(syncTimer)
+  syncTimer = setTimeout(() => {
+    fetch('/api/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: payload,
+    }).catch(() => {})
+  }, 1000)
+})
 
 let idCounter = 0
 /** 简易唯一 id（mock 用） */

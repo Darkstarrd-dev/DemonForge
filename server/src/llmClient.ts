@@ -7,11 +7,11 @@ export interface ProviderConfig {
   model?: string
 }
 
-/** 规范化 baseURL：去尾部斜杠；若未以 /vN 结尾则补 /v1（兼容用户填 http://x 或 http://x/v1） */
+/** 规范化 baseURL：提取 origin，统一拼 /v1 */
 function normalizeBase(baseURL: string): string {
-  let b = baseURL.trim().replace(/\/+$/, '')
-  if (!/\/v\d+$/.test(b)) b += '/v1'
-  return b
+  const raw = baseURL.trim()
+  const url = /^https?:\/\//i.test(raw) ? new URL(raw) : new URL(`http://${raw}`)
+  return `${url.origin}/v1`
 }
 
 function authHeaders(apiKey?: string): Record<string, string> {

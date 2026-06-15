@@ -41,8 +41,8 @@ export default function AppLayout() {
   }
 
   return (
-    <Layout style={{ height: '100%' }}>
-      <Layout.Sider theme="dark" width={208} style={{ display: 'flex', flexDirection: 'column' }}>
+    <Layout style={{ height: '100vh' }}>
+      <Layout.Sider theme="dark" width={208} style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
         <div style={{ padding: '16px 20px', color: '#fff', fontSize: 17, fontWeight: 600 }}>
           <BookOutlined style={{ marginRight: 8 }} />
           novelhelper
@@ -66,7 +66,7 @@ export default function AppLayout() {
           </Button>
         </div>
       </Layout.Sider>
-      <Layout>
+      <Layout style={{ overflow: 'hidden' }}>
         <Layout.Header
           style={{
             background: '#fff',

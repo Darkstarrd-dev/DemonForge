@@ -97,3 +97,10 @@ body {
   line-height: 1.9;
   font-size: 14px;
 }
+
+/* Sider 内部 flex 链修复（antd 自动套的容器） */
+.ant-layout-sider-children {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
