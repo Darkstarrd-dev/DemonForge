@@ -57,10 +57,11 @@ export default function DiffView({ original, cleaned, decisions, onDecide }: Pro
       <div style={{ maxHeight: 480, overflow: 'auto', border: '1px solid #f0f0f0', borderRadius: 6 }}>
         <table className="diff-table">
           <colgroup>
-            <col className="diff-num" />
+            <col style={{ width: 42 }} />
             <col />
-            <col className="diff-num" />
+            <col style={{ width: 42 }} />
             <col />
+            <col style={{ width: 90 }} />
           </colgroup>
           <tbody>
             {rows.map((row, idx) => {
@@ -95,61 +96,60 @@ export default function DiffView({ original, cleaned, decisions, onDecide }: Pro
                         onBlur={() => setEditingIdx(null)}
                       />
                     ) : (
-                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-                        <span
-                          className={d?.action === 'reject' ? 'diff-line-rejected' : undefined}
-                          style={{ flex: 1 }}
-                        >
-                          {d?.action === 'edit' ? (
-                            <>
-                              {d.content} <Tag color="blue">已编辑</Tag>
-                            </>
-                          ) : d?.action === 'reject' && row.type === 'del' ? (
-                            <span style={{ opacity: 0.8 }}>{row.left?.text}（已恢复原文）</span>
-                          ) : row.right ? (
-                            renderParts(row.rightParts, row.right.text)
-                          ) : (
-                            <span style={{ color: '#bbb' }}>（该行被删除）</span>
-                          )}
-                        </span>
-                        {isDiff && (
-                          <span onClick={(e) => e.stopPropagation()} style={{ whiteSpace: 'nowrap' }}>
-                            <Tooltip title="接受清理结果（默认）">
-                              <Button
-                                type={!d || d.action === 'accept' ? 'primary' : 'text'}
-                                size="small"
-                                icon={<CheckOutlined />}
-                                onClick={() => onDecide(idx, { action: 'accept' })}
-                              />
-                            </Tooltip>
-                            <Tooltip title="拒绝（恢复原文行）">
-                              <Button
-                                type={d?.action === 'reject' ? 'primary' : 'text'}
-                                danger={d?.action === 'reject'}
-                                size="small"
-                                icon={<CloseOutlined />}
-                                onClick={() => onDecide(idx, { action: 'reject' })}
-                              />
-                            </Tooltip>
-                            <Tooltip title="双击行内编辑">
-                              <Button
-                                type="text"
-                                size="small"
-                                icon={<EditOutlined />}
-                                onClick={() => startEdit(idx, row)}
-                              />
-                            </Tooltip>
-                            <Tooltip title="重置决策">
-                              <Button
-                                type="text"
-                                size="small"
-                                icon={<UndoOutlined />}
-                                onClick={() => onDecide(idx, null)}
-                              />
-                            </Tooltip>
-                          </span>
+                      <span
+                        className={d?.action === 'reject' ? 'diff-line-rejected' : undefined}
+                      >
+                        {d?.action === 'edit' ? (
+                          <>
+                            {d.content} <Tag color="blue">已编辑</Tag>
+                          </>
+                        ) : d?.action === 'reject' && row.type === 'del' ? (
+                          <span style={{ opacity: 0.8 }}>{row.left?.text}（已恢复原文）</span>
+                        ) : row.right ? (
+                          renderParts(row.rightParts, row.right.text)
+                        ) : (
+                          <span style={{ color: '#bbb' }}>（该行被删除）</span>
                         )}
-                      </div>
+                      </span>
+                    )}
+                  </td>
+                  <td style={{ verticalAlign: 'top', padding: '2px 4px' }}>
+                    {isDiff && (
+                      <Space size={2}>
+                        <Tooltip title="接受清理结果（默认）">
+                          <Button
+                            type={!d || d.action === 'accept' ? 'primary' : 'text'}
+                            size="small"
+                            icon={<CheckOutlined />}
+                            onClick={() => onDecide(idx, { action: 'accept' })}
+                          />
+                        </Tooltip>
+                        <Tooltip title="拒绝（恢复原文行）">
+                          <Button
+                            type={d?.action === 'reject' ? 'primary' : 'text'}
+                            danger={d?.action === 'reject'}
+                            size="small"
+                            icon={<CloseOutlined />}
+                            onClick={() => onDecide(idx, { action: 'reject' })}
+                          />
+                        </Tooltip>
+                        <Tooltip title="双击行内编辑">
+                          <Button
+                            type="text"
+                            size="small"
+                            icon={<EditOutlined />}
+                            onClick={() => startEdit(idx, row)}
+                          />
+                        </Tooltip>
+                        <Tooltip title="重置决策">
+                          <Button
+                            type="text"
+                            size="small"
+                            icon={<UndoOutlined />}
+                            onClick={() => onDecide(idx, null)}
+                          />
+                        </Tooltip>
+                      </Space>
                     )}
                   </td>
                 </tr>

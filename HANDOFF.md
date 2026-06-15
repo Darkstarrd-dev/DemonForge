@@ -9,11 +9,11 @@
 
 1. **阅读顺序**：`CLAUDE.md`（工程约束与已确认决策）→ 本文档（进展与下一步）→
    `DESIGN.md`（总体设计）→ 当前任务涉及的 `docs/*.md`。
-2. **当前阶段**：正式开发启动——已解除「frontend 之外不建代码」约束，新增后端 `server/`
-   （Fastify 最小 LLM 网关）；M1 清理与设置页接真实 LLM，其余模块（M2–M5）暂仍 mock。
-3. **当前任务焦点**：① M1 第三步双路径（AI 真实流式 / 规则本地）+ 设置页真实测试 endpoint
-   已落地并通过自动化验证，**待用户用真实 endpoint 端到端试用**；
-   ② raw 特征样本余项与 DESIGN §7 问题 2/3/4/6/7 仍待拍板（问题 5 后端框架已定 Fastify）。
+2. **当前阶段**：正式开发启动——后端 `server/`（Fastify 最小 LLM 网关）已建；
+   M1 清理与设置页接真实 LLM，其余模块（M2–M5）暂仍 mock。
+3. **当前任务焦点**：① **M1·Step3 多节点并行 + batch 多章合并已落地**；
+   ② **待用户用真实 endpoint 端到端试跑新模型**（多节点调度/batch 拆分效果）；
+   ③ raw 特征样本余项与 DESIGN §7 问题 2/3/4/6/7 仍待拍板。
 
 ## ⚠️ 当前临时约束（2026-06-13 起）
 
@@ -26,14 +26,35 @@
 
 ## 项目状态快照
 
-- **最后更新**：2026-06-15（第七次会话·Step3 + 设置页四项增强）
+- **最后更新**：2026-06-15（第十次会话·DiffView 列宽对齐 + 范围自动前移）
 - **阶段**：正式开发启动（后端已建）——**M1 AI 清理端到端跑通**；设置页接真实 LLM；M2–M5 仍 mock；数据仍存 localStorage
 - **摘要**：在 mock 前端基础上**进入实现阶段**。
   运行方式：双击根目录 `start.bat`（一键启动后端 :8787 + 前端 :5173 并打开浏览器）；
   退出：侧边栏底部「退出系统」按钮（关闭前后端所有进程 + 浏览器窗口）。
   **M1 第三步**：AI 路径真实流式已跑通；节点选择 & 并发参数（最大并发/单次章节数/请求间隔）在 Step3 控制栏。
-  自动化验证全过：后端 typecheck、前端 eslint/build(tsc+vite)。
-  **本轮新增（第七次会话·四项增强）**：
+   自动化验证全过：后端 typecheck、前端 eslint/build(tsc+vite)。
+   **本轮新增（第八次会话·多节点并行 + batch 多章合并）**：
+   - ① batchSize 生效：多章合并一次请求，用 `<<<|||CHAPTER_SEP|||>>>` 分隔 + `===CHAPTER_ID:id===` 标记，
+     流式中间按 SEP 实时拆章回填；batchSize=1 退化为原单章行为（`real/llm.ts:streamBatch`）
+   - ② 多节点中央调度器：节点 = CPU，maxConcurrency = 核心数，章节 = 共享任务队列；
+     调度器按"最久未用 → 最少连接"动态分配空闲节点取章，fire-and-forget 异步并发
+   - ③ 运行中热调：`CleanQueueHandle.updateNodes()` 即时更新节点池配置（增删节点/调参），
+     worker 每轮读最新配置即时生效
+   - ④ 重试队列：失败章节入 retryQueue 头部重试（最多 3 次），超限标记 failed
+   - ⑤ Step3 UI 重构：节点卡片列表（每节点独立参与开关 + 核心数/批次/间隔可编辑），
+     运行中变更即时推送调度器；提示词 TextArea 首次自动填入内置默认
+   - ⑥ ProviderNode 扩展：新增 `maxConcurrency`(默认2)/`batchSize`(默认1)/`intervalSec`(默认0)；
+     设置页节点编辑 Modal 新增三字段；旧数据 `normalizeProvider()` 补默认值
+   - ⑦ `server/src/prompts.ts`：导出 `CHAPTER_SEP` 常量 + `batchInstruction(n)`（保留供后续服务端批量端点）
+    - 验证：后端 typecheck ✅、前端 eslint ✅、前端 build(tsc+vite) ✅
+   **本轮新增（第九次会话·batch 流式分章 + 颜色编码 + 模型切换）**：
+   - ① batch 流式分章显示：`tryFlushCompleted` 重写——`acc.split(SEP)` 取最后一截只传当前章纯文本给 `onChunk`，每章字数从 0 独立增长，实时窗口左右栏均为当前章节内容
+   - ② 活跃任务列表滚动 + 左右栏等高等宽（440px），无空白不均
+   - ③ 批次颜色编码：`onStart(chapterId, nodeName, batchId?)` 接收 batchId，batch=随机 `hsl(hue,40%,82%)` 左边框
+   - ④ 模型切换按钮：每批 anchor 章右侧 `SwapOutlined` Dropdown → `switchBatchNode(batchId, newNodeId)` → abort + re-enqueue + nodeOverrides 锁定
+   - ⑤ `executeTask` 重构：batchId 生成、`activeBatches` Map 跟踪 AbortController、失败时 batch 内全章重试
+   - 验证：后端 typecheck ✅、前端 eslint ✅、前端 build(tsc+vite) ✅
+   **本轮新增（第七次会话·四项增强）**：
   - ① 请求/响应日志增强（过滤/清空/输入输出字数/首字节延迟/耗时/响应体展示）
   - ② 节点下拉默认选设置页「M1 文本清理」映射节点
   - ③ 清理提示词双面板：设置页持久化默认 + Step3 单次覆盖（优先级：本次 > 设置页默认 > 后端内置）
@@ -146,7 +167,10 @@
   - [x] ④ 模块→模型映射去除「模型名」输入框，模型名从节点池 `provider.model` 只读展示；节点 Select 的 label 显示模型名
   - [x] 后端：新增 `GET /api/llm/prompt` 返回内置默认提示词；`/api/llm/clean` 支持可选 `systemPrompt` 字段
   - [x] 前端：`services/real/llm.ts` 新增 `getDefaultPrompt` + `systemPrompt` 透传 + `outputLength`/`firstBytesAt` 字段
-  - [x] 验证：后端 typecheck ✅、前端 eslint ✅、前端 build(tsc+vite) ✅
+   - [x] 验证：后端 typecheck ✅、前端 eslint ✅、前端 build(tsc+vite) ✅
+- [x] **M1 Step3 中央调度器 + batch 多章合并 + 多节点并行 + 运行中热调**（2026-06-15 第八次会话）
+- [x] **Batch 流式分章显示 + 颜色编码 + 模型切换按钮 + 等高布局**（2026-06-15 第九次会话）
+- [x] **DiffView 操作按钮独立列 + rangeStart 完成自动前移**（2026-06-15 第十次会话）
 - [ ] **用户补充 raw 特征余项并拍板新问题**：`M1_raw_features.md` §1 基本情况
       （编码/文件规模/是否一文件多本）与 §2（卷结构、序章番外）待确认；
       DESIGN.md §7 问题 6（mojibake 处理）、问题 7（作者求票去留）待拍板
@@ -181,22 +205,13 @@
 
 ## 交接备注（最近一次会话）
 
-- **日期**：2026-06-15（第七次会话·Step3 + 设置页四项增强）
-- **本次完成**：四项前端增强全部落地并通过验证：
-  ① 请求/响应日志增强：过滤（全部/请求/响应/错误）+ 清空按钮 + 输入→输出字数对比（RES 行显示 `原文N字 → 输出M字`）+ 首字节延迟 + 耗时（按 chapterId 配对计算）+ 响应体预览（done 显示前 500 字，error 显示错误体）
-  ② 节点下拉默认选设置页「M1 文本清理」映射节点：`effectiveNodeId` 优先级为 `selNodeId → moduleMapping.m1Clean.nodeId → 首个已启用节点`，用户仍可临时下拉切换
-  ③ 清理提示词双面板：设置页 `m1SystemPrompt`（持久化到 settings.json，含「载入内置默认」按钮查看后端内置） + Step3 可折叠「清理提示词（本次）」面板（TextArea + 清空按钮，优先级：本次 > 设置页默认 > 后端内置，经 `startCleanQueue` opts → `streamClean` → `/api/llm/clean` body 透传）
-  ④ 模块→模型映射去除「模型名」输入列，改为「将使用模型」只读展示（Tag 显示 `provider.model`）；节点 Select label 追加模型名（如 `本地llama · qwen3-32b-q4`）；底部说明文案
-  - 后端配合：`server/src/routes/llm.ts` 新增 `GET /api/llm/prompt`（返回 `M1_CLEAN_SYSTEM_PROMPT`）；`/api/llm/clean` body 新增可选 `systemPrompt` 字段，为空则回退内置
-  - 前端新增：`store/appStore.ts` 新增 `m1SystemPrompt` 状态（含 persist + `/api/settings` 同步）；`services/api.ts` 导出 `getDefaultPrompt`；`services/real/llm.ts` 新增 `getDefaultPrompt()` 函数 + `CleanQueueDebugEvent` 新增 `outputLength`/`firstBytesAt` 字段 + `streamClean`/`startCleanQueue` 透传 `systemPrompt`
+- **日期**：2026-06-15（第十次会话·DiffView 列宽对齐 + 范围自动前移）
+- **本次完成**：两项修复全部落地并通过验证：
+  ① **DiffView 左右文本列等宽**：操作按钮从右侧文本 `<td>` 移入独立第 5 列（`<col width=90>`），两个文本 `<col>` 在 `table-layout:fixed` 下均分剩余空间，严格等宽
+  ② **处理范围自动前移**：`onFinish` 回调中从 store 读最新 chapters，`findIndex` 第一个 `pending`/`needsReprocess` 章节，`setRangeStart(idx+1)` 自动跳过已完成章节
 - **阻塞项**：无。
-  下一步可选：① 用户用真实 raw 样本整本试跑 M1 四步流水线；② SQLite 数据层迁移；
-  ③ M2–M5 真实化、Step2 AI 拆章真实化、429/重试增强。
+  下一步可选：① 用户试跑 M1 多节点+多章合并端到端；② SQLite 数据层迁移；③ M2–M5 真实化。
   仍待拍板：DESIGN §7 问题 2/3/4/6/7。
-- **环境备注**：后端已在 :8787 运行（tsx watch 自动重载）；后端依赖装于 `server/node_modules`，前端依赖装于 `frontend/node_modules`。
-- **关键陷阱备忘**（供后续 SSE 相关代码参考）：Fastify `reply.hijack()` 下做 SSE 转发时，
-  **客户端断连检测必须监听 `reply.raw`（响应）的 close，绝不能用 `req.raw`（请求）**——
-  请求流在 body 读取完毕后即 close，与客户端是否断开无关。`server/src/routes/llm.ts` 已写注释。
 
 ## 更新本文档的约定
 

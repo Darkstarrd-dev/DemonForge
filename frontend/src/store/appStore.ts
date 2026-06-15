@@ -55,6 +55,16 @@ export interface AppState {
   resetDemo: () => void
 }
 
+const normalizeProvider = (p: Partial<ProviderNode> & { id: string; name: string; baseURL: string; model: string }): ProviderNode => ({
+  ...p,
+  maxConcurrency: typeof p.maxConcurrency === 'number' && p.maxConcurrency > 0 ? p.maxConcurrency : 2,
+  batchSize: typeof p.batchSize === 'number' && p.batchSize > 0 ? p.batchSize : 1,
+  intervalSec: typeof p.intervalSec === 'number' && p.intervalSec >= 0 ? p.intervalSec : 0,
+  enabled: p.enabled !== false,
+  apiKey: p.apiKey ?? '',
+  lastTestResult: p.lastTestResult ?? null,
+})
+
 const seedState = () => ({
   books: seedBooks,
   chapters: seedChapters,
@@ -104,7 +114,7 @@ export const useAppStore = create<AppState>()(
               const data = await res.json() as { providers?: ProviderNode[]; moduleMapping?: Record<ModuleKey, ModuleModelMapping>; m1SystemPrompt?: string }
               if (data?.providers?.length) {
                 useAppStore.setState({
-                  providers: data.providers,
+                  providers: data.providers.map((p: ProviderNode) => normalizeProvider(p)),
                   moduleMapping: data.moduleMapping ?? useAppStore.getState().moduleMapping,
                   m1SystemPrompt: typeof data.m1SystemPrompt === 'string' ? data.m1SystemPrompt : useAppStore.getState().m1SystemPrompt,
                 })

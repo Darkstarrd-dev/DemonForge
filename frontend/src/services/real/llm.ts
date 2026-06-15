@@ -1,6 +1,4 @@
 // 真实 LLM 服务层 —— 经自家后端网关（/api/llm/*）调用，替代 mock/impl 中的 M1 清理与 Provider 测试。
-// 页面仍只从 services/api.ts 引用；CleanQueueCallbacks/CleanQueueHandle 契约与 mock 版保持一致，
-// 仅新增 onError（真实调用会失败）并把节点入参从「名称」升级为「完整配置」。
 
 export interface TestResult {
   ok: boolean
@@ -27,7 +25,7 @@ export async function testProvider(node: {
   }
 }
 
-/** 取后端内置默认清理提示词（供设置页「载入默认」/ Step3 占位提示） */
+/** 取后端内置默认清理提示词 */
 export async function getDefaultPrompt(): Promise<string> {
   try {
     const res = await fetch('/api/llm/prompt')
@@ -39,13 +37,20 @@ export async function getDefaultPrompt(): Promise<string> {
   }
 }
 
-// ── M1 清理队列（真实流式，经 /api/llm/clean 的 SSE） ──
+// ── 类型定义 ──
+
+/** 多章合并分隔符，服务端 prompt.ts 中同名常量保持一致 */
+export const CHAPTER_SEP = '<<<|||CHAPTER_SEP|||>>>'
 
 export interface CleanNode {
+  id: string
   name: string
   baseURL: string
   apiKey?: string
   model: string
+  maxConcurrency: number
+  batchSize: number
+  intervalSec: number
 }
 
 export interface CleanQueueDebugEvent {
@@ -61,14 +66,12 @@ export interface CleanQueueDebugEvent {
   responseBody?: string
   chunksCount?: number
   error?: string
-  /** 最终输出字符数（done 时回填） */
   outputLength?: number
-  /** 首个 delta 到达的时间戳（便于看首字节延迟） */
   firstBytesAt?: number
 }
 
 export interface CleanQueueCallbacks {
-  onStart: (chapterId: string, nodeName: string) => void
+  onStart: (chapterId: string, nodeName: string, batchId?: string) => void
   onChunk: (chapterId: string, acc: string) => void
   onDone: (chapterId: string, cleaned: string) => void
   onError: (chapterId: string, message: string) => void
@@ -80,10 +83,26 @@ export interface CleanQueueHandle {
   pause: () => void
   resume: () => void
   stop: () => void
+  updateNodes: (nodes: CleanNode[]) => void
+  switchBatchNode: (batchId: string, newNodeId: string) => void
 }
 
-/** 读取一章的 SSE 流：delta 累积回调，done 回填完整文本，error 抛出 */
-async function streamClean(
+// ── 节点运行时状态 ──
+
+interface NodeRuntime {
+  activeCount: number
+  lastRequestTime: number
+}
+
+interface ChapterTask {
+  id: string
+  content: string
+  retryCount: number
+}
+
+// ── 单章 SSE 流式请求（batchSize=1 时用） ──
+
+async function streamSingleChapter(
   node: CleanNode,
   content: string,
   chapterId: string,
@@ -92,6 +111,7 @@ async function streamClean(
   systemPrompt?: string,
 ): Promise<void> {
   let chunksCount = 0
+  let firstBytesAt: number | undefined
   const reqBody = {
     baseURL: node.baseURL,
     model: node.model,
@@ -99,6 +119,7 @@ async function streamClean(
     systemPromptLen: systemPrompt ? systemPrompt.length : 0,
   }
   cb.onDebug?.({ type: 'request', chapterId, timestamp: Date.now(), nodeName: node.name, model: node.model, contentLength: content.length, requestBody: reqBody })
+
   let res: Response
   try {
     res = await fetch('/api/llm/clean', {
@@ -120,13 +141,13 @@ async function streamClean(
     cb.onDebug?.({ type: 'error', chapterId, timestamp: Date.now(), statusCode: res.status, error: '响应无 body' })
     throw new Error('响应无 body')
   }
+
   const reader = res.body.getReader()
   const decoder = new TextDecoder()
   let buffer = ''
   let acc = ''
   let rawChunks = ''
   let sseReported = false
-  let firstBytesAt: number | undefined
   try {
     for (;;) {
       const { done, value } = await reader.read()
@@ -176,72 +197,393 @@ async function streamClean(
   throw new Error(endMsg)
 }
 
+// ── 多章合并请求（batchSize > 1） ──
+
+function buildBatchContent(batch: { id: string; content: string }[]): string {
+  const instr = `[The following text contains ${batch.length} chapters to clean. Each chapter is marked with a "===CHAPTER_ID:X===" header. You MUST return exactly ${batch.length} cleaned chapters, preserving each chapter's header line exactly, with chapters separated by "${CHAPTER_SEP}". Do NOT merge or omit any chapter.]\n\n`
+  return instr + batch.map((c) => `===CHAPTER_ID:${c.id}===\n${c.content}`).join(`\n\n${CHAPTER_SEP}\n\n`)
+}
+
+async function streamBatch(
+  node: CleanNode,
+  batch: { id: string; content: string }[],
+  cb: CleanQueueCallbacks,
+  signal: AbortSignal,
+  systemPrompt?: string,
+): Promise<void> {
+  const combinedContent = buildBatchContent(batch)
+  const firstChapterId = batch[0]?.id ?? 'batch'
+
+  let chunksCount = 0
+  let firstBytesAt: number | undefined
+  const reqBody = {
+    baseURL: node.baseURL,
+    model: node.model,
+    apiKey: node.apiKey ? `${node.apiKey.slice(0, 6)}***` : '(空)',
+    batchSize: batch.length,
+    systemPromptLen: systemPrompt ? systemPrompt.length : 0,
+  }
+  cb.onDebug?.({ type: 'request', chapterId: firstChapterId, timestamp: Date.now(), nodeName: node.name, model: node.model, contentLength: combinedContent.length, requestBody: reqBody })
+
+  let res: Response
+  try {
+    res = await fetch('/api/llm/clean', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ baseURL: node.baseURL, apiKey: node.apiKey, model: node.model, content: combinedContent, systemPrompt }),
+      signal,
+    })
+  } catch (e) {
+    batch.forEach((c) => cb.onDebug?.({ type: 'error', chapterId: c.id, timestamp: Date.now(), error: `fetch 失败：${e instanceof Error ? e.message : String(e)}` }))
+    throw e
+  }
+  if (!res.ok) {
+    const text = await res.text().catch(() => '(无法读取响应体)')
+    batch.forEach((c) => cb.onDebug?.({ type: 'error', chapterId: c.id, timestamp: Date.now(), statusCode: res.status, responseBody: text.slice(0, 2000), error: `HTTP ${res.status}` }))
+    throw new Error(`网关错误 HTTP ${res.status}${text ? `：${text.slice(0, 200)}` : ''}`)
+  }
+  if (!res.body) {
+    batch.forEach((c) => cb.onDebug?.({ type: 'error', chapterId: c.id, timestamp: Date.now(), statusCode: res.status, error: '响应无 body' }))
+    throw new Error('响应无 body')
+  }
+
+  const reader = res.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  let acc = ''
+  let rawChunks = ''
+  const completedIds = new Set<string>()
+
+  /** 尝试按 SEP 拆分流式已完成的部分，未完成的部分只传当前章文本 */
+  const tryFlushCompleted = () => {
+    const parts = acc.split(CHAPTER_SEP)
+    // 已完成部分（除最后一截）→ onDone
+    if (parts.length > 1) {
+      for (const part of parts.slice(0, -1)) {
+        const idMatch = part.match(/===CHAPTER_ID:([^=]+)===/)
+        const chapterId = idMatch ? idMatch[1].trim() : null
+        const cleanText = part.replace(/===CHAPTER_ID:[^=]+===/g, '').trim()
+        if (cleanText.length >= 10 && chapterId && !completedIds.has(chapterId)) {
+          completedIds.add(chapterId)
+          cb.onDebug?.({ type: 'response', chapterId, timestamp: Date.now(), statusCode: 200, chunksCount, outputLength: cleanText.length, firstBytesAt, responseBody: cleanText.slice(0, 500) })
+          cb.onDone(chapterId, cleanText)
+        }
+      }
+    }
+    // 最后一截 = 当前进行中的章 → 只传它的纯文本（不含前几章）
+    const lastPart = parts[parts.length - 1]
+    const idMatch = lastPart.match(/===CHAPTER_ID:([^=]+)===/)
+    const curChapterId = idMatch ? idMatch[1].trim() : batch[0]?.id ?? null
+    const curText = lastPart.replace(/===CHAPTER_ID:[^=]+===/g, '').trim()
+    if (curChapterId && !completedIds.has(curChapterId)) {
+      cb.onChunk(curChapterId, curText)
+    }
+  }
+
+  try {
+    for (;;) {
+      const { done, value } = await reader.read()
+      const text = value ? decoder.decode(value, { stream: !done }) : ''
+      buffer += text
+      rawChunks += text
+      const events = buffer.split('\n\n')
+      buffer = events.pop() ?? ''
+      for (const evt of events) {
+        if (!evt.trim()) continue
+        let event = 'message'
+        let data = ''
+        for (const line of evt.split('\n')) {
+          if (line.startsWith('event:')) event = line.slice(6).trim()
+          else if (line.startsWith('data:')) data += line.slice(5).trim()
+        }
+        if (!data) continue
+        const parsed = JSON.parse(data) as { delta?: string; text?: string; message?: string }
+        if (event === 'delta') {
+          if (firstBytesAt === undefined) firstBytesAt = Date.now()
+          chunksCount += 1
+          acc += parsed.delta ?? ''
+          tryFlushCompleted()
+        } else if (event === 'done') {
+          const fullText = parsed.text ?? acc
+          finalizeBatch(fullText)
+          return
+        } else if (event === 'error') {
+          const msg = parsed.message ?? '清理失败'
+          batch.forEach((c) => {
+            if (!completedIds.has(c.id)) {
+              cb.onDebug?.({ type: 'error', chapterId: c.id, timestamp: Date.now(), statusCode: 200, chunksCount, firstBytesAt, responseBody: msg, error: msg })
+            }
+          })
+          throw new Error(msg)
+        }
+      }
+      if (done) break
+    }
+    // 流意外结束 → 用累积文本做最终拆分
+    finalizeBatch(acc)
+  } catch (e) {
+    if (!signal.aborted) {
+      batch.forEach((c) => {
+        if (!completedIds.has(c.id)) {
+          cb.onDebug?.({ type: 'error', chapterId: c.id, timestamp: Date.now(), chunksCount, error: e instanceof Error ? e.message : String(e), responseBody: rawChunks.slice(0, 2000) })
+        }
+      })
+    }
+    throw e
+  }
+
+  function finalizeBatch(fullText: string) {
+    const parts = fullText.split(CHAPTER_SEP)
+    for (let i = 0; i < batch.length; i++) {
+      const entry = batch[i]
+      if (completedIds.has(entry.id)) continue
+      const raw = parts[i] ?? ''
+      const cleanText = raw.replace(/===CHAPTER_ID:[^=]+===/g, '').trim()
+      if (cleanText.length < 10) {
+        cb.onDebug?.({ type: 'error', chapterId: entry.id, timestamp: Date.now(), chunksCount, error: `输出过短（${cleanText.length} 字符）`, responseBody: cleanText })
+      } else {
+        cb.onDebug?.({ type: 'response', chapterId: entry.id, timestamp: Date.now(), statusCode: 200, chunksCount, outputLength: cleanText.length, firstBytesAt, responseBody: cleanText.slice(0, 500) })
+        cb.onDone(entry.id, cleanText)
+      }
+    }
+  }
+}
+
+// ── 中央调度器 ──
+
 /**
- * 真实清理队列：保留 mock 版的 N worker 并发 + 暂停/继续/停止骨架。
- * 调用方需保证 nodes 非空（无可用节点时不应启动）。
- * opts.batchSize 预留（后续实现多章合并请求），当前每 worker 每次仅取 1 章。
+ * 模型：节点 = CPU，maxConcurrency = 核心数，章节 = 任务
+ * 调度器从共享队列取章，分配给有空闲核心的节点。
+ * intervalSec 是节点级全局计时——同一节点任意两次请求至少间隔该秒数。
+ * 支持运行中 updateNodes() 热更新节点池配置。
  */
 export function startCleanQueue(
   chapters: { id: string; content: string }[],
   nodes: CleanNode[],
   cb: CleanQueueCallbacks,
-  opts: { concurrency?: number; batchSize?: number; intervalSec?: number; systemPrompt?: string } = {},
+  opts: { systemPrompt?: string } = {},
 ): CleanQueueHandle {
-  const { concurrency = 3, intervalSec = 0, systemPrompt } = opts
-  const queue = [...chapters]
+  if (!nodes.length) throw new Error('无可用节点')
+
+  const { systemPrompt } = opts
+
   let paused = false
   let stopped = false
   let active = 0
   let finished = false
-  const controllers = new Set<AbortController>()
+
+  // 可变状态——被 worker 循环读取/修改
+  let nodeConfigs: CleanNode[] = [...nodes]
+  const nodeStates = new Map<string, NodeRuntime>()
+  for (const n of nodeConfigs) {
+    nodeStates.set(n.id, { activeCount: 0, lastRequestTime: 0 })
+  }
+
+  const retryQueue: ChapterTask[] = []
+  const pendingQueue: ChapterTask[] = chapters.map((c) => ({ id: c.id, content: c.content, retryCount: 0 }))
+  const MAX_RETRIES = 3
+
+  // batch 跟踪：batchId → { controller, chapterIds, nodeId }
+  const activeBatches = new Map<string, { ac: AbortController; chapterIds: string[]; nodeId: string }>()
+  // 模型切换覆盖：chapterId → 强制节点 id（切换后下轮调度仅匹配该节点）
+  const nodeOverrides = new Map<string, string>()
 
   const maybeFinish = () => {
-    if (!finished && active === 0 && (queue.length === 0 || stopped)) {
+    if (!finished && active === 0 && pendingQueue.length === 0 && retryQueue.length === 0) {
       finished = true
       cb.onFinish()
     }
   }
 
-  const worker = async (idx: number) => {
+  /** 从队列取 batchSize 个任务 */
+  const dequeueBatch = (batchSize: number): ChapterTask[] => {
+    const result: ChapterTask[] = []
+    // 优先重试队列
+    for (let i = 0; i < batchSize && retryQueue.length > 0; i++) {
+      result.push(retryQueue.shift()!)
+    }
+    // 再从 pending 队列补足
+    for (let i = result.length; i < batchSize && pendingQueue.length > 0; i++) {
+      result.push(pendingQueue.shift()!)
+    }
+    return result
+  }
+
+  /** 选择候选节点——有空闲核心且间隔已过 */
+  const pickCandidate = (): { cfg: CleanNode; state: NodeRuntime } | null => {
+    const now = Date.now()
+    const candidates: { cfg: CleanNode; state: NodeRuntime }[] = []
+    for (const cfg of nodeConfigs) {
+      const state = nodeStates.get(cfg.id)
+      if (!state) continue
+      if (state.activeCount >= cfg.maxConcurrency) continue
+      const intervalMs = cfg.intervalSec * 1000
+      if (intervalMs > 0 && now - state.lastRequestTime < intervalMs) continue
+      candidates.push({ cfg, state })
+    }
+    if (!candidates.length) return null
+    // 排序：最久未用 → 最少连接 → 原序号
+    candidates.sort((a, b) => {
+      const timeDiff = a.state.lastRequestTime - b.state.lastRequestTime
+      if (timeDiff !== 0) return timeDiff
+      const countDiff = a.state.activeCount - b.state.activeCount
+      if (countDiff !== 0) return countDiff
+      return nodeConfigs.indexOf(a.cfg) - nodeConfigs.indexOf(b.cfg)
+    })
+    return candidates[0]
+  }
+
+  const executeTask = async (task: ChapterTask, node: CleanNode, nodeState: NodeRuntime) => {
+    active++
+    nodeState.activeCount++
+    nodeState.lastRequestTime = Date.now()
+    const ac = new AbortController()
+    let batchId: string | undefined
+    try {
+      if (node.batchSize <= 1) {
+        cb.onStart(task.id, node.name)
+        await streamSingleChapter(node, task.content, task.id, cb, ac.signal, systemPrompt)
+        nodeOverrides.delete(task.id)
+      } else {
+        // batch 模式：生成 batchId，取出 batchSize 章
+        batchId = `batch-${Date.now()}-${task.id}`
+        const batchTasks = [task, ...dequeueBatch(node.batchSize - 1)]
+        const chapterIds = batchTasks.map((t) => t.id)
+        activeBatches.set(batchId, { ac, chapterIds, nodeId: node.id })
+        batchTasks.forEach((t) => {
+          cb.onStart(t.id, node.name, t === task ? batchId : undefined)
+        })
+        await streamBatch(node, batchTasks.map((t) => ({ id: t.id, content: t.content })), cb, ac.signal, systemPrompt)
+        // 清除覆盖
+        for (const t of batchTasks) nodeOverrides.delete(t.id)
+        activeBatches.delete(batchId)
+      }
+    } catch (e) {
+      if (!stopped) {
+        const enqueueRetry = (t: ChapterTask) => {
+          t.retryCount += 1
+          if (t.retryCount < MAX_RETRIES) {
+            retryQueue.push(t)
+          } else {
+            nodeOverrides.delete(t.id)
+            cb.onError(t.id, `重试 ${MAX_RETRIES} 次后仍失败：${e instanceof Error ? e.message : String(e)}`)
+          }
+        }
+        enqueueRetry(task)
+        // batch 中其他章（非 anchor）也重试
+        if (batchId) {
+          const batchInfo = activeBatches.get(batchId)
+          if (batchInfo) {
+            for (const cid of batchInfo.chapterIds) {
+              if (cid !== task.id) {
+                const otherTask: ChapterTask = { id: cid, content: chapters.find((c) => c.id === cid)?.content ?? '', retryCount: 0 }
+                enqueueRetry(otherTask)
+              }
+            }
+          }
+          activeBatches.delete(batchId)
+        }
+      }
+    } finally {
+      nodeState.activeCount = Math.max(0, nodeState.activeCount - 1)
+      active--
+    }
+  }
+
+  const workerLoop = async () => {
     while (!stopped) {
       if (paused) {
-        await new Promise((r) => setTimeout(r, 200))
+        await sleep(200)
         continue
       }
-      const task = queue.shift()
-      if (!task) break
-      // 请求间隔（错峰锁）
-      if (intervalSec > 0) await new Promise((r) => setTimeout(r, intervalSec * 1000))
-      active += 1
-      const node = nodes[idx % nodes.length]
-      cb.onStart(task.id, node.name)
-      const ac = new AbortController()
-      controllers.add(ac)
-      try {
-        await streamClean(node, task.content, task.id, cb, ac.signal, systemPrompt)
-      } catch (e) {
-        if (!stopped) cb.onError(task.id, e instanceof Error ? e.message : String(e))
-      } finally {
-        controllers.delete(ac)
-        active -= 1
+      // 读最新节点配置（热更新入口）
+      const candidate = pickCandidate()
+      if (!candidate) {
+        if (retryQueue.length === 0 && pendingQueue.length === 0) {
+          if (active === 0) break
+          await sleep(100)
+          continue
+        }
+        // 有任务但无可用节点（都在忙或在冷却）→ 等一会
+        await sleep(100)
+        continue
       }
+      const { cfg, state } = candidate
+      const task = dequeueBatch(1)[0]
+      if (!task) {
+        if (active === 0) break
+        await sleep(100)
+        continue
+      }
+      // 检查节点覆盖：切换模型后章节只由指定节点处理
+      const overrideNode = nodeOverrides.get(task.id)
+      if (overrideNode && overrideNode !== cfg.id) {
+        retryQueue.unshift(task)
+        await sleep(50)
+        continue
+      }
+      // fire-and-forget：不 await，立即回循环抢下一个节点
+      executeTask(task, cfg, state)
     }
     maybeFinish()
   }
 
-  for (let i = 0; i < concurrency; i++) void worker(i)
+  // 总 worker 数 = 所有节点最大并发之和
+  const totalWorkers = nodeConfigs.reduce((sum, n) => sum + n.maxConcurrency, 0)
+  const workerPromises: Promise<void>[] = []
+  for (let i = 0; i < Math.max(totalWorkers, 1); i++) {
+    workerPromises.push(workerLoop())
+  }
+
+  // 后台兜底：所有 worker 结束时触发 onFinish
+  Promise.all(workerPromises).then(() => maybeFinish())
 
   return {
-    pause: () => {
-      paused = true
-    },
-    resume: () => {
-      paused = false
-    },
+    pause: () => { paused = true },
+    resume: () => { paused = false },
     stop: () => {
       stopped = true
-      queue.length = 0
-      controllers.forEach((c) => c.abort())
+      pendingQueue.length = 0
+      retryQueue.length = 0
+      for (const [, batch] of activeBatches) batch.ac.abort()
+      activeBatches.clear()
+      nodeOverrides.clear()
+    },
+    updateNodes: (newNodes: CleanNode[]) => {
+      const oldIds = new Set(nodeConfigs.map((n) => n.id))
+      for (const n of newNodes) {
+        if (!nodeStates.has(n.id)) {
+          nodeStates.set(n.id, { activeCount: 0, lastRequestTime: 0 })
+        }
+        oldIds.delete(n.id)
+      }
+      for (const id of oldIds) {
+        const s = nodeStates.get(id)
+        if (s && s.activeCount === 0) nodeStates.delete(id)
+      }
+      nodeConfigs = newNodes
+    },
+    switchBatchNode: (batchId: string, newNodeId: string) => {
+      const batch = activeBatches.get(batchId)
+      if (!batch) return
+      // abort 当前请求
+      batch.ac.abort()
+      // 所有章节标记为用新节点
+      for (const cid of batch.chapterIds) {
+        nodeOverrides.set(cid, newNodeId)
+      }
+      // 重新入队
+      for (const cid of batch.chapterIds) {
+        const ch = chapters.find((c) => c.id === cid)
+        if (ch) {
+          retryQueue.unshift({ id: cid, content: ch.content, retryCount: 0 })
+        }
+      }
+      activeBatches.delete(batchId)
     },
   }
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms))
 }

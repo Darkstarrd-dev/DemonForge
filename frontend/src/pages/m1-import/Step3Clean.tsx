@@ -1,18 +1,20 @@
-import { useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Alert,
   App,
   Button,
+  Card,
   Col,
   Collapse,
+  Dropdown,
   Input,
   InputNumber,
   List,
   Progress,
   Radio,
   Row,
-  Select,
   Space,
+  Switch,
   Tag,
   Typography,
 } from 'antd'
@@ -21,14 +23,18 @@ import {
   PauseOutlined,
   StopOutlined,
   ThunderboltOutlined,
+  PlusOutlined,
+  SwapOutlined,
 } from '@ant-design/icons'
 import { useAppStore } from '../../store/appStore'
-import { startCleanQueue, type CleanNode, type CleanQueueHandle, type CleanQueueDebugEvent } from '../../services/api'
+import { startCleanQueue, getDefaultPrompt, type CleanNode, type CleanQueueHandle, type CleanQueueDebugEvent } from '../../services/api'
 
 interface ActiveTask {
   chapterId: string
   nodeName: string
   acc: string
+  batchId?: string
+  isBatchAnchor?: boolean
 }
 
 interface DebugEntry {
@@ -49,18 +55,43 @@ interface DebugEntry {
   firstBytesAt?: number
 }
 
+/** 节点参与运行时状态 */
+interface NodeRuntime {
+  nodeId: string
+  participating: boolean
+  concurrency: number
+  batchSize: number
+  intervalSec: number
+}
+
 export default function Step3Clean() {
   const { message } = App.useApp()
   const session = useAppStore((s) => s.importSession)
   const providers = useAppStore((s) => s.providers)
-  const moduleMapping = useAppStore((s) => s.moduleMapping)
   const m1SystemPrompt = useAppStore((s) => s.m1SystemPrompt)
   const setState = useAppStore((s) => s.setState)
 
-  const [selNodeId, setSelNodeId] = useState<string | null>(null)
-  const [concurrency, setConcurrency] = useState(2)
-  const [batchSize, setBatchSize] = useState(1)
-  const [intervalSec, setIntervalSec] = useState(0)
+  const enabledNodes = useMemo(() => providers.filter((p) => p.enabled), [providers])
+
+  /** 用户对节点参数的运行时修改（覆盖 ProviderNode 默认值） */
+  const [overrides, setOverrides] = useState<Record<string, Partial<NodeRuntime>>>({})
+
+  /** 有效节点运行时状态 = ProviderNode 默认值 + 用户覆盖 */
+  const nodeRunStates: NodeRuntime[] = useMemo(
+    () =>
+      enabledNodes.map((p) => {
+        const o = overrides[p.id] ?? {}
+        return {
+          nodeId: p.id,
+          participating: o.participating ?? true,
+          concurrency: o.concurrency ?? p.maxConcurrency,
+          batchSize: o.batchSize ?? p.batchSize,
+          intervalSec: o.intervalSec ?? p.intervalSec,
+        }
+      }),
+    [enabledNodes, overrides],
+  )
+
   const [rangeStart, setRangeStart] = useState(1)
   const [rangeEnd, setRangeEnd] = useState<number | null>(null)
   const [running, setRunning] = useState(false)
@@ -70,30 +101,30 @@ export default function Step3Clean() {
   const [debugEntries, setDebugEntries] = useState<DebugEntry[]>([])
   const [logFilter, setLogFilter] = useState<'all' | 'request' | 'response' | 'error'>('all')
   const [overridePrompt, setOverridePrompt] = useState('')
+  const [promptLoaded, setPromptLoaded] = useState(false)
   const debugIdRef = useRef(0)
   const handleRef = useRef<CleanQueueHandle | null>(null)
+  const [batchColors, setBatchColors] = useState<Map<string, string>>(new Map())
+
+  // 挂载时加载内置默认 prompt
+  useEffect(() => {
+    if (promptLoaded) return
+    getDefaultPrompt().then((p) => {
+      if (p) {
+        setOverridePrompt(p)
+        setPromptLoaded(true)
+      }
+    })
+  }, [promptLoaded])
 
   if (!session) return null
   const chapters = session.chapters
   const total = chapters.length
   const end = rangeEnd ?? total
   const doneCount = chapters.filter((c) => c.cleanStatus === 'completed' || c.cleanStatus === 'accepted').length
-  const enabledNodes = providers.filter((p) => p.enabled)
 
-  // 选中节点：优先 selNodeId；否则取设置页「M1 文本清理」映射节点；再否则首个已启用节点
-  const mappedM1 = moduleMapping.m1Clean.nodeId
-  const defaultNodeId = mappedM1 && providers.some((p) => p.id === mappedM1) ? mappedM1 : enabledNodes[0]?.id ?? null
-  const effectiveNodeId = selNodeId ?? defaultNodeId
-  const selectedNode = effectiveNodeId ? providers.find((p) => p.id === effectiveNodeId) ?? null : null
-  const aiNode: CleanNode | null = selectedNode
-    ? {
-        name: selectedNode.name,
-        baseURL: selectedNode.baseURL,
-        apiKey: selectedNode.apiKey.trim() || undefined,
-        model: selectedNode.model,
-      }
-    : null
-  const nodeOptions = enabledNodes.map((p) => ({ value: p.id, label: `${p.name} · ${p.model || '（未设模型）'}` }))
+  /** 参选节点（participating 为 true） */
+  const participatingNodes = nodeRunStates.filter((s) => s.participating)
 
   const patchChapter = (chapterId: string, patch: Record<string, unknown>) => {
     const cur = useAppStore.getState().importSession
@@ -114,9 +145,27 @@ export default function Step3Clean() {
     ]
   }
 
+  /** 构建 CleanNode 列表（带热更新后的参数） */
+  const buildCleanNodes = (): CleanNode[] => {
+    return participatingNodes.map((rs) => {
+      const p = providers.find((x) => x.id === rs.nodeId)
+      return {
+        id: rs.nodeId,
+        name: p?.name ?? rs.nodeId,
+        baseURL: p?.baseURL ?? '',
+        apiKey: p?.apiKey?.trim() || undefined,
+        model: p?.model ?? '',
+        maxConcurrency: rs.concurrency,
+        batchSize: rs.batchSize,
+        intervalSec: rs.intervalSec,
+      }
+    }).filter((n) => n.baseURL.trim() && n.model.trim())
+  }
+
   const startAi = () => {
-    if (!aiNode || !aiNode.baseURL.trim() || !aiNode.model.trim()) {
-      message.warning('请先选择一个已配置 Base URL 与模型的节点')
+    const cleanNodes = buildCleanNodes()
+    if (!cleanNodes.length) {
+      message.warning('请至少选择一个有效的节点（需配置 Base URL 与模型）')
       return
     }
     const targets = rangeTargets()
@@ -129,11 +178,20 @@ export default function Step3Clean() {
     targets.forEach((c) => patchChapter(c.id, { cleanStatus: 'pending' }))
     handleRef.current = startCleanQueue(
       targets.map((c) => ({ id: c.id, content: c.content })),
-      [aiNode],
+      cleanNodes,
       {
-        onStart: (chapterId, nodeName) => {
+        onStart: (chapterId, nodeName, batchId) => {
           patchChapter(chapterId, { cleanStatus: 'processing' })
-          setActive((prev) => [...prev, { chapterId, nodeName, acc: '' }])
+          const isAnchor = !!batchId
+          if (batchId) {
+            setBatchColors((prev) => {
+              if (prev.has(batchId)) return prev
+              const next = new Map(prev)
+              next.set(batchId, `hsl(${Math.floor(Math.random() * 360)}, 40%, 82%)`)
+              return next
+            })
+          }
+          setActive((prev) => [...prev, { chapterId, nodeName, acc: '', batchId, isBatchAnchor: isAnchor }])
           setSelectedTask((sel) => sel ?? chapterId)
         },
         onChunk: (chapterId, acc) => {
@@ -154,6 +212,14 @@ export default function Step3Clean() {
           setRunning(false)
           setActive([])
           message.success('清理完成，请进入审核步骤')
+          // 自动前移 rangeStart 跳过已完成章节
+          const curSession = useAppStore.getState().importSession
+          if (curSession) {
+            const nextIdx = curSession.chapters.findIndex(
+              (c) => c.cleanStatus === 'pending' || c.cleanStatus === 'needsReprocess',
+            )
+            if (nextIdx >= 0) setRangeStart(nextIdx + 1)
+          }
         },
         onDebug: (evt: CleanQueueDebugEvent) => {
           debugIdRef.current += 1
@@ -182,7 +248,7 @@ export default function Step3Clean() {
           })
         },
       },
-      { concurrency, batchSize, intervalSec, systemPrompt: overridePrompt.trim() || m1SystemPrompt || undefined },
+      { systemPrompt: overridePrompt.trim() || m1SystemPrompt || undefined },
     )
   }
 
@@ -210,6 +276,16 @@ export default function Step3Clean() {
       })
   }
 
+  const updateNodeSetting = (nodeId: string, patch: Partial<NodeRuntime>) => {
+    setOverrides((prev) => ({ ...prev, [nodeId]: { ...(prev[nodeId] ?? {}), ...patch } }))
+  }
+
+  /** 运行中热更新——即时推送给调度器 */
+  const hotUpdateNodes = () => {
+    if (!running || !handleRef.current) return
+    handleRef.current.updateNodes(buildCleanNodes())
+  }
+
   const gotoReview = () =>
     setState({ importSession: { ...useAppStore.getState().importSession!, step: 3 } })
 
@@ -218,27 +294,93 @@ export default function Step3Clean() {
 
   return (
     <Space direction="vertical" size={16} style={{ width: '100%' }}>
-      <Space wrap align="center">
-        <Typography.Text>节点：</Typography.Text>
-        <Select
-          style={{ minWidth: 220 }}
-          value={effectiveNodeId ?? undefined}
-          placeholder="选择 Provider 节点"
-          options={nodeOptions}
-          disabled={running}
-          onChange={(v) => setSelNodeId(v)}
-          notFoundContent={
-            <Typography.Text type="secondary">无已启用节点，请到设置新增</Typography.Text>
-          }
-        />
-        <Typography.Text>最大并发：</Typography.Text>
-        <InputNumber min={1} max={32} value={concurrency} disabled={running} onChange={(v) => setConcurrency(v ?? 1)} />
-        <Typography.Text>单次章节数：</Typography.Text>
-        <InputNumber min={1} max={10} value={batchSize} disabled={running} onChange={(v) => setBatchSize(v ?? 1)} />
-        <Typography.Text>请求间隔(秒)：</Typography.Text>
-        <InputNumber min={0} max={60} value={intervalSec} disabled={running} onChange={(v) => setIntervalSec(v ?? 0)} />
-      </Space>
+      {/* 节点卡片列表 */}
+      <div>
+        <Typography.Title level={5} style={{ marginBottom: 8 }}>清理节点池</Typography.Title>
+        {nodeRunStates.length === 0 ? (
+          <Alert type="warning" showIcon message="无已启用节点，请先到设置页新增并配置节点" />
+        ) : (
+          <Row gutter={[12, 12]}>
+            {nodeRunStates.map((rs) => {
+              const p = providers.find((x) => x.id === rs.nodeId)
+              const label = p ? `${p.name} · ${p.model || '（未设模型）'}` : rs.nodeId
+              return (
+                <Col key={rs.nodeId} xs={24} sm={12} lg={8} xl={6}>
+                  <Card
+                    size="small"
+                    title={
+                      <Space size={4}>
+                        <Switch
+                          size="small"
+                          checked={rs.participating}
+                          disabled={running}
+                          onChange={(v) => updateNodeSetting(rs.nodeId, { participating: v })}
+                        />
+                        <Typography.Text ellipsis style={{ maxWidth: 160 }}>
+                          {label}
+                        </Typography.Text>
+                      </Space>
+                    }
+                    style={{ borderColor: rs.participating ? '#1677ff' : undefined }}
+                  >
+                    <Space direction="vertical" size={4} style={{ width: '100%' }}>
+                      <Space size={4}>
+                        <Typography.Text type="secondary" style={{ fontSize: 12 }}>核心</Typography.Text>
+                        <InputNumber
+                          size="small"
+                          min={1}
+                          max={32}
+                          value={rs.concurrency}
+                          style={{ width: 56 }}
+                          onChange={(v) => {
+                            updateNodeSetting(rs.nodeId, { concurrency: v ?? 1 })
+                            if (running) setTimeout(hotUpdateNodes, 0)
+                          }}
+                        />
+                        <Typography.Text type="secondary" style={{ fontSize: 12 }}>批次</Typography.Text>
+                        <InputNumber
+                          size="small"
+                          min={1}
+                          max={20}
+                          value={rs.batchSize}
+                          style={{ width: 52 }}
+                          onChange={(v) => {
+                            updateNodeSetting(rs.nodeId, { batchSize: v ?? 1 })
+                            if (running) setTimeout(hotUpdateNodes, 0)
+                          }}
+                        />
+                        <Typography.Text type="secondary" style={{ fontSize: 12 }}>间隔</Typography.Text>
+                        <InputNumber
+                          size="small"
+                          min={0}
+                          max={60}
+                          value={rs.intervalSec}
+                          style={{ width: 52 }}
+                          onChange={(v) => {
+                            updateNodeSetting(rs.nodeId, { intervalSec: v ?? 0 })
+                            if (running) setTimeout(hotUpdateNodes, 0)
+                          }}
+                        />
+                        <Typography.Text type="secondary" style={{ fontSize: 12 }}>s</Typography.Text>
+                      </Space>
+                      {running && rs.participating && (
+                        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                          活跃 {active.filter((t) => {
+                            const nodeP = providers.find((x) => x.id === rs.nodeId)
+                            return t.nodeName === (nodeP?.name ?? '')
+                          }).length} / {rs.concurrency}
+                        </Typography.Text>
+                      )}
+                    </Space>
+                  </Card>
+                </Col>
+              )
+            })}
+          </Row>
+        )}
+      </div>
 
+      {/* 处理范围 */}
       <Space wrap align="center">
         <Typography.Text>处理范围：第</Typography.Text>
         <InputNumber min={1} max={total} value={rangeStart} onChange={(v) => setRangeStart(v ?? 1)} />
@@ -247,10 +389,16 @@ export default function Step3Clean() {
         <Typography.Text>章（共 {total} 章）</Typography.Text>
       </Space>
 
-      <Tag icon={<ThunderboltOutlined />} color={aiNode ? 'blue' : 'red'}>
-        并发 {concurrency} · 节点：{aiNode?.name ?? '无可用，去设置配置'}
+      {/* 摘要 */}
+      <Tag icon={<ThunderboltOutlined />} color={participatingNodes.length ? 'blue' : 'red'}>
+        {participatingNodes.length ? `${participatingNodes.length} 个节点 · ` : '无参选节点'}
+        {participatingNodes.map((s) => {
+          const p = providers.find((x) => x.id === s.nodeId)
+          return `${p?.name ?? s.nodeId}(${s.concurrency}核)`
+        }).join(', ')}
       </Tag>
 
+      {/* 操作按钮 */}
       <Space>
         {!running && (
           <Button type="primary" icon={<CaretRightOutlined />} onClick={startAi}>
@@ -275,6 +423,13 @@ export default function Step3Clean() {
         <Button disabled={doneCount === 0} onClick={gotoReview}>
           进入审核 →
         </Button>
+        <Button
+          size="small"
+          icon={<PlusOutlined />}
+          onClick={() => setState({ importSession: { ...useAppStore.getState().importSession!, step: 1, fileName: '' } })}
+        >
+          新增节点去设置页
+        </Button>
       </Space>
 
       <Progress percent={total ? Math.round((doneCount / total) * 100) : 0} />
@@ -286,62 +441,95 @@ export default function Step3Clean() {
         <Alert type="warning" showIcon message="已暂停：当前流式任务完成后不再取新任务。" />
       )}
 
-      <Row gutter={16}>
-        <Col span={8}>
-          <Typography.Title level={5}>活跃任务</Typography.Title>
-          <List
-            size="small"
-            bordered
-            dataSource={active}
-            locale={{ emptyText: '无活跃请求' }}
-            renderItem={(t) => {
-              const ch = chapters.find((c) => c.id === t.chapterId)
-              return (
-                <List.Item
-                  style={{
-                    cursor: 'pointer',
-                    background: viewing?.chapterId === t.chapterId ? '#e6f4ff' : undefined,
-                  }}
-                  onClick={() => setSelectedTask(t.chapterId)}
-                >
-                  <Space direction="vertical" size={0} style={{ width: '100%' }}>
-                    <Typography.Text ellipsis style={{ maxWidth: 200 }}>
-                      {ch?.title ?? t.chapterId}
-                    </Typography.Text>
-                    <Space size={4}>
-                      <Tag color="processing" style={{ margin: 0 }}>
-                        {t.nodeName}
-                      </Tag>
-                      <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                        {t.acc.length} 字
+      {/* 活跃任务 + 实时窗口 */}
+      <Row gutter={16} style={{ height: 440 }}>
+        <Col span={8} style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+          <Typography.Title level={5} style={{ marginBottom: 8 }}>活跃任务</Typography.Title>
+          <div style={{ flex: 1, overflow: 'auto', border: '1px solid #f0f0f0', borderRadius: 6 }}>
+            {active.length === 0 ? (
+              <Typography.Text type="secondary" style={{ display: 'block', padding: 12 }}>无活跃请求</Typography.Text>
+            ) : (
+              active.map((t) => {
+                const ch = chapters.find((c) => c.id === t.chapterId)
+                const batchColor = t.batchId ? batchColors.get(t.batchId) : undefined
+                return (
+                  <div
+                    key={t.chapterId}
+                    onClick={() => setSelectedTask(t.chapterId)}
+                    style={{
+                      cursor: 'pointer',
+                      padding: '8px 10px',
+                      borderBottom: '1px solid #f0f0f0',
+                      background: viewing?.chapterId === t.chapterId ? '#e6f4ff' : undefined,
+                      borderLeft: batchColor ? `4px solid ${batchColor}` : '4px solid transparent',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                    }}
+                  >
+                    <div>
+                      <Typography.Text ellipsis style={{ maxWidth: 150, display: 'block', fontSize: 13 }}>
+                        {ch?.title ?? t.chapterId}
                       </Typography.Text>
-                    </Space>
-                  </Space>
-                </List.Item>
-              )
-            }}
-          />
+                      <Space size={4}>
+                        <Tag color="processing" style={{ margin: 0, fontSize: 11 }}>{t.nodeName}</Tag>
+                        <Typography.Text type="secondary" style={{ fontSize: 11 }}>
+                          {t.acc.length} 字
+                        </Typography.Text>
+                      </Space>
+                    </div>
+                    {t.isBatchAnchor && t.batchId && running && (
+                      <Dropdown
+                        trigger={['click']}
+                        menu={{
+                          items: enabledNodes.map((pn) => ({
+                            key: pn.id,
+                            label: `${pn.name} · ${pn.model || '—'}`,
+                          })),
+                          onClick: ({ key }) => {
+                            handleRef.current?.switchBatchNode(t.batchId!, key)
+                            // 更新活跃任务的 nodeName
+                            const np = providers.find((x) => x.id === key)
+                            if (np) {
+                              setActive((prev) => prev.map((a) =>
+                                a.batchId === t.batchId ? { ...a, nodeName: np.name } : a,
+                              ))
+                            }
+                          },
+                        }}
+                      >
+                        <Button size="small" type="text" icon={<SwapOutlined />} title="切换模型" />
+                      </Dropdown>
+                    )}
+                  </div>
+                )
+              })
+            )}
+          </div>
         </Col>
-        <Col span={16}>
-          <Typography.Title level={5}>实时窗口（左：发送原文 / 右：AI 流式输出）</Typography.Title>
-          <Row gutter={8}>
-            <Col span={12}>
-              <div className="stream-pane" style={{ background: '#1f2428' }}>
+        <Col span={16} style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+          <Typography.Title level={5} style={{ marginBottom: 8 }}>实时窗口（左：发送原文 / 右：流式输出）</Typography.Title>
+          <Row gutter={8} style={{ flex: 1 }}>
+            <Col span={12} style={{ height: '100%' }}>
+              <div className="stream-pane" style={{ background: '#1f2428', height: '100%', overflow: 'auto' }}>
                 {viewingChapter ? viewingChapter.content : '（点击活跃任务查看）'}
               </div>
             </Col>
-            <Col span={12}>
-              <div className="stream-pane">{viewing ? viewing.acc || '等待响应…' : ''}</div>
+            <Col span={12} style={{ height: '100%' }}>
+              <div className="stream-pane" style={{ height: '100%', overflow: 'auto' }}>
+                {viewing ? viewing.acc || '等待响应…' : ''}
+              </div>
             </Col>
           </Row>
         </Col>
       </Row>
 
+      {/* 清理提示词（本次） */}
       <Collapse
         items={[
           {
             key: 'prompt',
-            label: '清理提示词（本次）',
+            label: `清理提示词（本次）${overridePrompt ? ` · ${overridePrompt.length} 字` : ''}`,
             children: (
               <>
                 <Input.TextArea
@@ -361,7 +549,7 @@ export default function Step3Clean() {
                     清空本次覆盖
                   </Button>
                   <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                    生效优先级：本次覆盖 &gt; 设置页默认 &gt; 后端内置
+                    生效优先级：本次覆盖 &gt; 设置页默认 &gt; 后端内置 · 首次自动填入内置默认
                   </Typography.Text>
                 </Space>
               </>
@@ -371,6 +559,7 @@ export default function Step3Clean() {
         style={{ background: '#fafafa' }}
       />
 
+      {/* 调试日志 */}
       <Collapse
         items={[
           {

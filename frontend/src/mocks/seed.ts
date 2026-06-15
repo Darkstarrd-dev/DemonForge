@@ -352,6 +352,9 @@ export const seedProviders: ProviderNode[] = [
     model: 'qwen3-32b-q4',
     enabled: true,
     lastTestResult: null,
+    maxConcurrency: 2,
+    batchSize: 1,
+    intervalSec: 1,
   },
   {
     id: 'prov-2',
@@ -361,6 +364,9 @@ export const seedProviders: ProviderNode[] = [
     model: 'demo-large-v2',
     enabled: true,
     lastTestResult: null,
+    maxConcurrency: 2,
+    batchSize: 1,
+    intervalSec: 0,
   },
 ]
 

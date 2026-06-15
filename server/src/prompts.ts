@@ -1,6 +1,12 @@
 // M1 清理 prompt —— 取自 docs/M1_text_cleaning.md §3.7 v2 默认版（2026-06-12）。
 // 本轮硬编码内置；「允许用户编辑 / §3.10 规则层载荷动态注入」留待后续。
 
+export const CHAPTER_SEP = '<<<|||CHAPTER_SEP|||>>>'
+
+export function batchInstruction(n: number): string {
+  return `\n\nIMPORTANT: Processing ${n} chapters. You MUST return exactly ${n} parts separated by "${CHAPTER_SEP}".\nEach part MUST start with "===CHAPTER_ID:X===" line (keep it unchanged).\nDo NOT merge chapters. Do NOT miss any separator.`
+}
+
 export const M1_CLEAN_SYSTEM_PROMPT = `你是一位专业的小说文本编辑。你拿到的章节来自网络流传的 TXT 文件，发布渠道在正文中
 植入了大量推广 QQ 群的广告杂讯。你的任务是清除杂讯、尽可能恢复作者原文。
 

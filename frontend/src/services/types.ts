@@ -119,6 +119,12 @@ export interface ProviderNode {
   model: string
   enabled: boolean
   lastTestResult?: 'ok' | 'fail' | null
+  /** 该节点最大并发请求数（核心数），默认 2 */
+  maxConcurrency: number
+  /** 该节点每次请求合并的章节数，默认 1（单章） */
+  batchSize: number
+  /** 该节点两次请求之间最小间隔秒数，默认 0 */
+  intervalSec: number
 }
 
 export type ModuleKey =

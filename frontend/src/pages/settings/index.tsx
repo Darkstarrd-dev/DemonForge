@@ -4,10 +4,13 @@ import {
   App,
   Button,
   Card,
+  Col,
   Form,
   Input,
+  InputNumber,
   Modal,
   Popconfirm,
+  Row,
   Select,
   Space,
   Switch,
@@ -56,6 +59,9 @@ export default function SettingsPage() {
       model: '',
       enabled: true,
       lastTestResult: null,
+      maxConcurrency: 2,
+      batchSize: 1,
+      intervalSec: 0,
     }
     setEditing(target)
     form.setFieldsValue(target)
@@ -90,6 +96,16 @@ export default function SettingsPage() {
     { title: '名称', dataIndex: 'name' },
     { title: 'Base URL', dataIndex: 'baseURL', ellipsis: true },
     { title: '模型', dataIndex: 'model' },
+    {
+      title: '并发 / 批次 / 间隔',
+      key: 'concurrency',
+      width: 140,
+      render: (_: unknown, node: ProviderNode) => (
+        <Typography.Text style={{ fontSize: 12 }}>
+          {node.maxConcurrency}核 · {node.batchSize}章/次 · {node.intervalSec}s
+        </Typography.Text>
+      ),
+    },
     {
       title: '启用',
       dataIndex: 'enabled',
@@ -283,6 +299,23 @@ export default function SettingsPage() {
           <Form.Item name="model" label="默认模型" rules={[{ required: true }]}>
             <Input placeholder="模型名" />
           </Form.Item>
+          <Row gutter={16}>
+            <Col span={8}>
+              <Form.Item name="maxConcurrency" label="最大并发（核心数）" rules={[{ required: true }]}>
+                <InputNumber min={1} max={32} style={{ width: '100%' }} />
+              </Form.Item>
+            </Col>
+            <Col span={8}>
+              <Form.Item name="batchSize" label="单次章节数" rules={[{ required: true }]}>
+                <InputNumber min={1} max={20} style={{ width: '100%' }} />
+              </Form.Item>
+            </Col>
+            <Col span={8}>
+              <Form.Item name="intervalSec" label="请求间隔(秒)" rules={[{ required: true }]}>
+                <InputNumber min={0} max={60} style={{ width: '100%' }} />
+              </Form.Item>
+            </Col>
+          </Row>
         </Form>
       </Modal>
 
