@@ -12,8 +12,8 @@
 2. **当前阶段**：正式开发启动——后端 `server/`（Fastify 最小 LLM 网关）已建；
    M1 清理与设置页接真实 LLM，其余模块（M2–M5）暂仍 mock。
 3. **当前任务焦点**：① **novel-generator 集成·阶段 A 地基已完成并验证通过**（数据模型 + sqlite-vec RAG 检索层 + Context Assembler 骨架）；
-   ② 真实 embedding endpoint 端到端 + 前端 architectures 持久化留用户实机试；
-   ③ 可启动**阶段 B**（起源流程：arch/blueprint 端点 + M0 页）。
+    ② **阶段 B（起源流程）代码已落地并验证全过**（后端 `routes/creation.ts` `/api/llm/{arch,blueprint}` SSE 端点 + 前端 M0 立项页）；
+    ③ 真实 embedding endpoint 端到端 + 前端 architectures 持久化留用户实机试。
 
 ## ⚠️ 当前临时约束（2026-06-13 起）
 
@@ -26,14 +26,18 @@
 
 ## 项目状态快照
 
-- **最后更新**：2026-06-16（第十五次会话·novel-generator 集成**阶段 A 地基完成**——数据模型 + sqlite-vec RAG + Context Assembler 骨架，验证全过）
-- **阶段**：正式开发——M1 AI 清理端到端跑通；**novel-generator 集成进入阶段 A（地基）代码已落地**；M2–M5 仍 mock；业务数据 SQLite 资产库（可配置资产目录），Provider/密钥等设置存 `server/src/data/settings.json`
+- **最后更新**：2026-06-16（第十六次会话·**阶段 B 起源流程代码落地**——后端 arch/blueprint SSE 端点 + 前端 M0 立项页，验证全过）
+- **阶段**：正式开发——M1 AI 清理端到端跑通；**novel-generator 集成阶段 A 地基 + 阶段 B 起源流程代码已落地**；M2–M5 仍 mock；业务数据 SQLite 资产库（可配置资产目录），Provider/密钥等设置存 `server/src/data/settings.json`
 - **摘要**：在 mock 前端基础上**进入实现阶段**。
   运行方式：双击根目录 `start.vbs`（**单窗口**：隐藏启动后端 :8787 + 前端 :5173，前端就绪后用 Chrome `--app` 应用模式（独立 `.chrome-profile`）打开无地址栏的独立窗口；关窗即由看门狗清理后台进程；`start.bat` 为兼容旧入口的转交薄壳）；
   退出：侧边栏底部「退出系统」按钮（关闭前后端所有进程 + 浏览器窗口）。
   **M1 第三步**：AI 路径真实流式已跑通；节点选择 & 并发参数（最大并发/单次章节数/请求间隔）在 Step3 控制栏。
-   自动化验证全过：后端 typecheck、前端 eslint/build(tsc+vite)。
-   **本轮新增（第八次会话·多节点并行 + batch 多章合并）**：
+    自动化验证全过：后端 typecheck、前端 eslint/build(tsc+vite)。
+    **本轮新增（第十六次会话·阶段 B 起源流程）**：
+    - ① 后端：`prompts.ts` 新增 `ARCHITECTURE_PROMPT` / `BLUEPRINT_PROMPT`；`routes/creation.ts` 新建 `/api/llm/{arch,blueprint}` SSE 端点；`index.ts` 注册
+    - ② 前端：`services/real/creation.ts`（`streamArch` / `streamBlueprint`）；`api.ts` 导出；`pages/m0-architecture/parse.ts`（22 项单测全过）；`pages/m0-architecture/index.tsx`（架构区/蓝图区全流程）；`main.tsx` 路由 + `AppLayout.tsx` 菜单
+    - ③ 验证全过：backend typecheck ✅、前端 build(tsc+vite) ✅、lint ✅、parse-smoke(22) ✅、smoke(13) 不回归 ✅、ruleclean-smoke(43) 不回归 ✅
+    **本轮新增（第八次会话·多节点并行 + batch 多章合并）**：
    - ① batchSize 生效：多章合并一次请求，用 `<<<|||CHAPTER_SEP|||>>>` 分隔 + `===CHAPTER_ID:id===` 标记，
      流式中间按 SEP 实时拆章回填；batchSize=1 退化为原单章行为（`real/llm.ts:streamBatch`）
    - ② 多节点中央调度器：节点 = CPU，maxConcurrency = 核心数，章节 = 共享任务队列；
@@ -220,10 +224,13 @@
       **本轮修复 2 个真实 bug**：① `contextAssembler.ts` 闭包内 `chapterIndex` 未窄化（提局部 const）；
       ② `vector.ts` vec0 rowid 必须 BigInt（普通 number 入库即报错，直测发现）。
       仅真实 embedding endpoint 的 add→query 端到端 + 前端造 architectures 刷新持久化留待用户实机试（embed 为简单 HTTP 转发，SQL 已直测，剩余风险低）。
-  - [ ] **阶段 B 起源**（2026-06-16 已完成详细规划，**待实施**——见 `docs/phase_B_origin_plan.md`）：
-    prompt 内化（ARCH/BLUEPRINT）+ 后端 `routes/creation.ts` 的 `/api/llm/{arch,blueprint}` SSE 端点 +
-    前端「M0 立项·架构」页（点子→架构四步流式→采纳建新书→一键蓝图→写 OutlineNode）。
-    已拍板：采纳架构时新建作品；蓝图仅当大纲为空时写入；架构四块分区可编辑。**下一会话可直接据此文档实施。**
+   - [x] **阶段 B 起源**（2026-06-16 第十六次会话·**代码已落地并验证全过**——见 `docs/phase_B_origin_plan.md`）：
+     prompt 内化（ARCH/BLUEPRINT）+ 后端 `routes/creation.ts` 的 `/api/llm/{arch,blueprint}` SSE 端点 +
+     前端「M0 立项·架构」页（点子→架构四步流式→采纳建新书→一键蓝图→写 OutlineNode）。
+     已拍板：采纳架构时新建作品；蓝图仅当大纲为空时写入；架构四块分区可编辑。
+     - [x] 后端：`prompts.ts` 新增 `ARCHITECTURE_PROMPT` / `BLUEPRINT_PROMPT`；`creation.ts` 新建 `/api/llm/arch` / `/api/llm/blueprint` SSE 端点；`index.ts` 注册
+     - [x] 前端：`services/real/creation.ts`（SSE 解析 + `streamArch` / `streamBlueprint`）；`api.ts` 导出；`pages/m0-architecture/parse.ts`（`parseArchitecture` / `parseBlueprint` 纯函数 22 项单测全过）；`pages/m0-architecture/index.tsx`（架构区/蓝图区全流程）；`main.tsx` 路由 + `AppLayout.tsx` 菜单
+     - [x] **验证全过**：后端 typecheck ✅ / 前端 build(tsc+vite) ✅ / lint ✅ / parse-smoke(22) ✅ / smoke(13) 不回归 ✅ / ruleclean-smoke(43) 不回归 ✅
   - [ ] 阶段 C 生成/管理真实化、阶段 D 批量（依赖阶段 B）
 - [ ] 待讨论问题 2：M3 角色语言风格约束方式（卡片维护"风格描述 + 台词例句"是否足够）
       ——mock 已按"描述 + 例句"实装卡片与推演演示，可在试用后结合体感拍板
@@ -253,21 +260,21 @@
 
 ## 交接备注（最近一次会话）
 
-- **日期**：2026-06-16（第十五次会话·novel-generator 集成阶段 A 地基）
-- **本次完成**：按 `docs/novel_generator_integration_plan.md` 阶段 A 落地**全部地基代码**——
-  ① 前端数据模型（`NovelArchitecture`/`RagChunk` 类型、`Book.globalSummary`/`Chapter.summary`/`OutlineNode` 节奏字段、
-     `ModuleKey` 三新键、store `architectures` 切片 + moduleMapping 合并补全、设置页 `MODULE_LABELS` 三 label）；
-  ② 后端 sqlite-vec：装 `sqlite-vec@0.1.9` 并**实机验证** Windows 下 better-sqlite3 加载扩展 + vec0 建表 + KNN 全通；
-     `db.ts` 加 `architectures` 表 + 加载扩展 + `chunk_meta` 表；
-  ③ embedding：`llmClient.embed()` + `/api/llm/embed`（原 501 占位实现）；
-  ④ RAG 检索层 `server/src/store/vector.ts`（递归分块 + add/query + 维度记录）+ `/api/store/vector/{add,query}`；
-  ⑤ 上下文组装器 `server/src/contextAssembler.ts` 骨架（收集六类上下文，不拼 prompt，阶段 A 不接端点）。
-  文档已同步：`CLAUDE.md`（决策表 + server 行）、`DESIGN.md`（§3 数据模型 + §5.1 RAG/组装器实现）。
-- **✅ 验证**：全部自动化验证通过（后端 typecheck / 前端 build·lint / smoke·ruleclean / RAG 直测 / 后端端点冒烟）。
-  本轮修复 2 个真实 bug：contextAssembler 闭包窄化、vector.ts vec0 rowid 必须 BigInt（后者直测才暴露，否则真实入库即崩）。
-- **下一步**：① 真实 embedding endpoint 的 add→query 端到端 + 前端造 architectures 刷新持久化，留用户实机试跑；
-  ② **阶段 B（起源流程）已完成详细规划、待实施**——按 `docs/phase_B_origin_plan.md` 实施（prompt 内化 + `routes/creation.ts` 的 arch/blueprint SSE 端点 + M0 起源页）。本轮经评审决定不实施，仅归档为待办。
-- **上一会话（第十四次·集成规划）**：产出 `docs/novel_generator_integration_plan.md`（skill→项目映射 + 四阶段计划）+ `ref/` 资料备份，纯规划未写代码。
+- **日期**：2026-06-16（第十六次会话·阶段 B 起源流程代码落地 + 全量验证）
+- **本次完成**：按 `docs/phase_B_origin_plan.md` 实施**阶段 B 全部代码**——
+  ① 后端 `prompts.ts` 新增 `ARCHITECTURE_PROMPT` / `BLUEPRINT_PROMPT`（从 ref/agents 内化雪花法 + 三幕式 prompt）；
+  ② `server/src/routes/creation.ts` 新建 `/api/llm/arch` / `/api/llm/blueprint` SSE 端点（复刻 clean 端点范式，参数 schema 同 arch/blueprint 各自所需字段）；
+  ③ `server/src/index.ts` 注册 creation routes；
+  ④ 前端 `services/real/creation.ts`（`streamArch` / `streamBlueprint`，复刻 `streamSSE` 解析范式）；
+  ⑤ `api.ts` 导出 creation 函数；
+  ⑥ `pages/m0-architecture/parse.ts`（`parseArchitecture` 四分区解构 + `parseBlueprint` 章节解析，22 项单测全过）；
+  ⑦ `pages/m0-architecture/index.tsx`（架构区：主题/类型/章数/梗概 + 节点选择 → 流式架构 → 四 TextArea 可编辑 → 采纳建新书；蓝图区：一键蓝图 → Table 预览 → 采纳写大纲/继续生成）；
+  ⑧ `main.tsx` 路由（`/m0-architecture`）+ `AppLayout.tsx` 菜单（`DeploymentUnitOutlined` 图标）。
+- **验证全过**：后端 typecheck ✅ / 前端 build(tsc+vite) ✅ / lint ✅ / parse-smoke(22) ✅ / smoke(13) 不回归 ✅ / ruleclean-smoke(43) 不回归 ✅
+- **下一步**：
+  ① 真实 embedding endpoint 的 add→query 端到端 + 前端造 architectures 刷新持久化，留用户实机试跑；
+  ② 可进入**阶段 C**（M4 章节生成 + M5 一致性真实化）或**阶段 D**（批量生成），依赖阶段 B 完成。
+- **上一会话（第十五次·阶段 A 地基）**：数据模型 + sqlite-vec RAG + Context Assembler 骨架，验证全过。
 
 ## 更新本文档的约定
 

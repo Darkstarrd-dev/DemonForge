@@ -5,6 +5,7 @@ import { ConfigProvider, App as AntApp } from 'antd'
 import zhCN from 'antd/locale/zh_CN'
 import AppLayout from './layouts/AppLayout'
 import HomePage from './pages/home'
+import M0ArchitecturePage from './pages/m0-architecture'
 import M1ImportPage from './pages/m1-import'
 import M2CardsPage from './pages/m2-cards'
 import M3SimulatePage from './pages/m3-simulate'
@@ -24,6 +25,7 @@ bootstrapStore().finally(() => {
             <Routes>
               <Route element={<AppLayout />}>
                 <Route path="/" element={<HomePage />} />
+                <Route path="/m0" element={<M0ArchitecturePage />} />
                 <Route path="/m1" element={<M1ImportPage />} />
                 <Route path="/m2" element={<M2CardsPage />} />
                 <Route path="/m3" element={<M3SimulatePage />} />

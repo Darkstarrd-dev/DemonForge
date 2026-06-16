@@ -5,6 +5,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { tmpdir } from 'node:os'
 import { llmRoutes } from './routes/llm.ts'
+import { creationRoutes } from './routes/creation.ts'
 import { settingsRoutes } from './routes/settings.ts'
 import { storeRoutes } from './routes/store.ts'
 
@@ -14,6 +15,7 @@ const ROOT = dirname(dirname(fileURLToPath(import.meta.url)))
 const app = Fastify({ logger: true })
 
 await app.register(llmRoutes)
+await app.register(creationRoutes)
 await app.register(settingsRoutes)
 await app.register(storeRoutes)
 app.get('/api/health', async () => ({ ok: true }))
