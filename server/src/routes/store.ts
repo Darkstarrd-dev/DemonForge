@@ -1,5 +1,10 @@
 import type { FastifyInstance } from 'fastify'
 import { readAll, syncAll } from '../store/db.ts'
+import { addToVectorStore, queryVectorStore, type ChunkMeta } from '../store/vector.ts'
+import type { ProviderConfig } from '../llmClient.ts'
+
+type VectorAddBody = ProviderConfig & { texts?: string[]; meta?: ChunkMeta }
+type VectorQueryBody = ProviderConfig & { queryText?: string; k?: number; bookId?: string }
 
 export async function storeRoutes(app: FastifyInstance) {
   // 读取全部业务数据（books/chapters/cards/outline/scenes/fragments/stateEvents/issues/mergeCandidates）
@@ -24,6 +29,36 @@ export async function storeRoutes(app: FastifyInstance) {
     } catch (err) {
       app.log.error(err)
       return reply.status(500).send({ error: String(err) })
+    }
+  })
+
+  // RAG 入库：文本分块 → embedding → 写向量库
+  app.post('/api/store/vector/add', async (req, reply) => {
+    const { texts, meta, baseURL, apiKey, model } = (req.body ?? {}) as VectorAddBody
+    if (!Array.isArray(texts) || !texts.length || !meta?.source || !baseURL || !model) {
+      return reply.status(400).send({ error: '缺少 texts[] / meta.source / baseURL / model' })
+    }
+    try {
+      const result = await addToVectorStore({ texts, meta, provider: { baseURL, apiKey, model } })
+      return reply.send(result)
+    } catch (err) {
+      app.log.error(err)
+      return reply.status(502).send({ error: String(err) })
+    }
+  })
+
+  // RAG 检索：query → embedding → KNN 召回
+  app.post('/api/store/vector/query', async (req, reply) => {
+    const { queryText, k, bookId, baseURL, apiKey, model } = (req.body ?? {}) as VectorQueryBody
+    if (!queryText || !baseURL || !model) {
+      return reply.status(400).send({ error: '缺少 queryText / baseURL / model' })
+    }
+    try {
+      const chunks = await queryVectorStore({ queryText, k, bookId, provider: { baseURL, apiKey, model } })
+      return reply.send({ chunks })
+    } catch (err) {
+      app.log.error(err)
+      return reply.status(502).send({ error: String(err) })
     }
   })
 }

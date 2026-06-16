@@ -21,6 +21,11 @@ function writeSettings(data: Record<string, unknown>): void {
   writeFileSync(SETTINGS_PATH, JSON.stringify(data, null, 2), 'utf-8')
 }
 
+/** 后端内部合并写入设置（如 RAG 记录 embeddingDim）——不经过 HTTP。 */
+export function updateSettings(patch: Record<string, unknown>): void {
+  writeSettings({ ...readSettings(), ...patch })
+}
+
 export async function settingsRoutes(app: FastifyInstance) {
   app.get('/api/settings', async (_req, reply) => {
     const data = readSettings()

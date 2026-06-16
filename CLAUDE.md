@@ -31,6 +31,8 @@
 | 前端状态 | zustand（业务数据持久化到后端 SQLite 资产库；Provider/设置存 `server/src/data/settings.json`） |
 | mock 定位 | mock 前端即正式前端起点：页面只调 `services/api.ts`，mock 实现集中于 `services/mock/`，接真后端时整层替换、页面零改动 |
 | 后端框架 | **Fastify**（2026-06-13 拍板，DESIGN §7 问题 5） |
+| RAG 检索 | **Node + sqlite-vec**（2026-06-16 拍板，非 Python sidecar）；向量虚拟表 `vec_chunks` + 元数据表 `chunk_meta`，维度记入 `settings.embeddingDim`，换 embedding 模型需重建 |
+| novel-generator 集成 | 把 skill 方法论与 prompt 资产**内化为原生 web 功能**（非运行 skill）；范围四块全做（起源/M4·M5 真实化/RAG/批量），分 A→D 四阶段（详见 `docs/novel_generator_integration_plan.md`） |
 | 本轮实现范围 | 最小 LLM 网关（`server/`）+ M1 AI 真实流式清理 + 设置页真实测试 endpoint；**业务数据 SQLite 资产库已落地**（可配置资产目录，图片留存路径预留），设置/密钥存 `server/src/data/settings.json` |
 
 ## 工作方式
@@ -56,4 +58,4 @@
 | `docs/novel_generator_integration_plan.md` | **【待实施】** novel-generator skill 结合进项目的详细计划（2026-06-16） |
 | `ref/` | 只读外部参考资料备份（不参与构建）：novel-generator skill 说明/脚本/示例数据 + 8 个创作 agent 提示词（见 `ref/README.md`）；M1 原型 `10_novel_cleaner.html` |
 | `frontend/` | 前端工程（Vite + React + TS + antd）；服务层 `services/api.ts` → mock(`services/mock/`) / real(`services/real/`) |
-| `server/` | 后端工程（Fastify）：`/api/llm/{test,clean,embed}`、Provider 抽象层 `src/llmClient.ts`、清理 prompt `src/prompts.ts`；数据层 `src/store/db.ts`（SQLite 资产库）+ `/api/store`、`/api/settings`、`/api/shutdown` |
+| `server/` | 后端工程（Fastify）：`/api/llm/{test,clean,embed}`、Provider 抽象层 `src/llmClient.ts`（含 `embed()`）、清理 prompt `src/prompts.ts`；数据层 `src/store/db.ts`（SQLite 资产库 + sqlite-vec）+ RAG 检索层 `src/store/vector.ts` + 上下文组装器 `src/contextAssembler.ts`；路由 `/api/store`（含 `/vector/{add,query}`）、`/api/settings`、`/api/shutdown` |

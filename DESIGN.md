@@ -32,13 +32,17 @@ raw 文本 ──M1 清洗切分──▶ 干净章节
 
 核心实体（SQLite，初稿）：
 
-- `book`：作品，类型 reference / project
-- `chapter`：章节，属 book，含正文与状态（raw / cleaned / draft / final）
+- `book`：作品，类型 reference / project；`globalSummary` 滚动摘要（长篇记忆，定稿时增量更新）
+- `chapter`：章节，属 book，含正文与状态（raw / cleaned / draft / final）；`summary` 本章定稿摘要（喂下一章生成）
 - `entity_card`：设定卡片——人物 / 地点 / 物品 / 技能 / 势力等，结构化字段 + 自由文本描述 + 出处引用（章节 + 原文片段）
 - `entity_embedding`：卡片向量，供语义检索
-- `outline`：作品大纲（分卷 / 章节点）
+- `outline`：作品大纲（分卷 / 章节点）；扩节奏字段 positioning/role/suspenseDensity/foreshadow/twistLevel（对齐 novel-blueprint 目录格式）
+- `architecture`：小说架构（book 级，一本一条）——雪花法四步：seed（核心种子）/ characterDynamics（角色动力学）/ worldBuilding（世界观）/ plotStructure（三幕式）；novel-generator 集成新增
 - `simulation`：推演记录——场景描述、目标角色、输入上下文快照、生成候选、采纳标记
 - `state_event`：【待确认】动态状态时间线，见 M5
+
+> 业务实体在资产库以文档式 `(id, data-JSON)` 存储（`server/src/store/db.ts`），字段演进无需迁移。
+> RAG 向量另设独立 schema：`vec_chunks`（sqlite-vec 虚拟表）+ `chunk_meta`（来源/正文），不走文档式同步。
 
 ## 4. 模块设计
 
@@ -103,6 +107,20 @@ raw 文本 ──M1 清洗切分──▶ 干净章节
 | Embedding | 同 Provider 抽象 | 走 `/v1/embeddings`，本地（llama.cpp 等）或云端均可 |
 | 任务系统 | 进程内队列 + SSE 进度推送 | 不引入 Redis 等重型组件 |
 | 鉴权 | 无 | 单用户本地使用【待确认】 |
+
+### 5.1 RAG 检索与上下文组装（novel-generator 集成·阶段 A 地基）
+
+- **RAG 检索层**（`server/src/store/vector.ts`）：`splitText` 递归分块（chunk 3000 / overlap 500，
+  分隔符 `\n\n \n 。！？` 空格 字符，对齐 langchain RecursiveCharacterTextSplitter）→ `embed`
+  批量向量化 → 写 `vec_chunks`（sqlite-vec vec0 虚拟表，float32 BLOB）+ `chunk_meta`。
+  `queryVectorStore` 对 query 向量做 KNN（子查询 `MATCH ... ORDER BY distance LIMIT k` 再 join 元数据）。
+  维度由首个 embedding 决定并记入 `settings.embeddingDim`，换模型维度变更则报错提示重建。
+- **embedding**：`llmClient.embed()` 走 `/v1/embeddings`（OpenAI 兼容）；端点 `POST /api/llm/embed`、
+  入库/检索 `POST /api/store/vector/{add,query}`，provider 由前端按 `moduleMapping.embedding` 传入。
+- **上下文组装器**（`server/src/contextAssembler.ts`，DESIGN §4 点名的 M3/M4/M5 共用组件）：
+  `assembleContext({bookId, chapterIndex?, sceneId?, targetCharacterId?, rag?})` 从资产库收集
+  架构 / 当前+下章蓝图 / 滚动摘要 + 前章摘要 / 角色状态时间线（由 state_event 推导当前态）/
+  RAG 召回 / 已采纳推演片段，返回结构化对象（阶段 A 只收集不拼 prompt，创作端点在阶段 B/C 消费）。
 
 ## 6. 开发阶段规划（按依赖链）
 

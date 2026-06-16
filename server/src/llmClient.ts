@@ -98,3 +98,23 @@ export async function chatStream(
   }
   return full
 }
+
+/** POST /v1/embeddings —— 批量文本向量化，返回每条文本的向量；失败抛错由调用方处理 */
+export async function embed(cfg: ProviderConfig, input: string[]): Promise<number[][]> {
+  const url = `${normalizeBase(cfg.baseURL)}/embeddings`
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders(cfg.apiKey) },
+    body: JSON.stringify({ model: cfg.model, input }),
+  })
+  if (!res.ok) {
+    const body = await res.text().catch(() => '')
+    throw new Error(`HTTP ${res.status} ${res.statusText}${body ? ` — ${body.slice(0, 300)}` : ''}`)
+  }
+  const data = (await res.json()) as { data?: Array<{ embedding?: number[] }> }
+  const vectors = Array.isArray(data.data) ? data.data.map((d) => d.embedding ?? []) : []
+  if (!vectors.length || vectors.some((v) => v.length === 0)) {
+    throw new Error('embedding 响应为空或维度异常')
+  }
+  return vectors
+}

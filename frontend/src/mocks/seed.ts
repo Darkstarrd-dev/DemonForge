@@ -12,6 +12,7 @@ import type {
   ModuleKey,
   ModuleModelMapping,
   MergeCandidate,
+  NovelArchitecture,
 } from '../services/types'
 
 const T0 = '2026-06-01T10:00:00.000Z'
@@ -371,10 +372,16 @@ export const seedProviders: ProviderNode[] = [
 ]
 
 export const seedModuleMapping: Record<ModuleKey, ModuleModelMapping> = {
+  m0Arch: { nodeId: null },
+  m0Blueprint: { nodeId: null },
   m1Clean: { nodeId: 'prov-2', model: 'demo-large-v2' },
   m2Extract: { nodeId: 'prov-2', model: 'demo-large-v2' },
   m3Simulate: { nodeId: 'prov-2', model: 'demo-large-v2' },
   m4Generate: { nodeId: 'prov-2', model: 'demo-large-v2' },
   m5Check: { nodeId: 'prov-1', model: 'qwen3-32b-q4' },
+  m5Finalize: { nodeId: null },
   embedding: { nodeId: 'prov-1', model: 'bge-m3' },
 }
+
+/** 小说架构种子（地基阶段空，起源流程产出后填充） */
+export const seedArchitectures: NovelArchitecture[] = []

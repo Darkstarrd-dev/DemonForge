@@ -7,6 +7,8 @@ export interface Book {
   title: string
   type: BookType
   createdAt: string
+  /** 滚动摘要（长篇记忆，定稿时增量更新）——novel-generator global_summary 对应 */
+  globalSummary?: string
 }
 
 export type ChapterStatus = 'raw' | 'cleaned' | 'draft' | 'final'
@@ -19,6 +21,8 @@ export interface Chapter {
   content: string
   status: ChapterStatus
   outlineNodeId?: string
+  /** 本章定稿摘要（喂给下一章生成）——定稿时由 finalize 生成 */
+  summary?: string
   updatedAt: string
 }
 
@@ -53,6 +57,41 @@ export interface OutlineNode {
   title: string
   summary: string
   order: number
+  // ===== 节奏字段（对齐 novel-blueprint 目录格式，均可选、兼容旧数据）=====
+  /** 本章定位（开端/铺垫/转折/高潮等） */
+  positioning?: string
+  /** 核心作用（推进主线/塑造人物/埋伏笔等） */
+  role?: string
+  /** 悬念密度（低/中/高） */
+  suspenseDensity?: string
+  /** 伏笔操作（埋设/回收/强化的伏笔说明） */
+  foreshadow?: string
+  /** 认知颠覆强度 1–5 */
+  twistLevel?: number
+}
+
+/** 小说架构（book 级，一本一条）——雪花法四步产出，novel-arch 对应 */
+export interface NovelArchitecture {
+  id: string
+  bookId: string
+  /** 核心种子（单句公式） */
+  seed: string
+  /** 角色动力学（驱动力三角 + 关系网） */
+  characterDynamics: string
+  /** 世界观（物理/社会/隐喻三维度） */
+  worldBuilding: string
+  /** 三幕式情节架构 */
+  plotStructure: string
+  updatedAt: string
+}
+
+/** RAG 检索召回片段（前端调 /api/store/vector/query 的返回项） */
+export interface RagChunk {
+  source: string
+  bookId?: string
+  chapterId?: string
+  text: string
+  distance: number
 }
 
 /** M3 推演场景：同一场景可轮流推演多个角色 */
@@ -128,11 +167,14 @@ export interface ProviderNode {
 }
 
 export type ModuleKey =
+  | 'm0Arch'
+  | 'm0Blueprint'
   | 'm1Clean'
   | 'm2Extract'
   | 'm3Simulate'
   | 'm4Generate'
   | 'm5Check'
+  | 'm5Finalize'
   | 'embedding'
 
 export interface ModuleModelMapping {

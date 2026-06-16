@@ -13,6 +13,7 @@ import type {
   ModuleModelMapping,
   MergeCandidate,
   ImportSession,
+  NovelArchitecture,
 } from '../services/types'
 import {
   seedBooks,
@@ -26,6 +27,7 @@ import {
   seedProviders,
   seedModuleMapping,
   seedMergeCandidates,
+  seedArchitectures,
 } from '../mocks/seed'
 
 export interface AppState {
@@ -37,6 +39,8 @@ export interface AppState {
   fragments: SimFragment[]
   stateEvents: StateEvent[]
   issues: ConsistencyIssue[]
+  /** 小说架构（book 级，起源流程产出） */
+  architectures: NovelArchitecture[]
   providers: ProviderNode[]
   moduleMapping: Record<ModuleKey, ModuleModelMapping>
   /** M1 清理系统提示词（设置页持久化默认）。空串=用后端内置默认 */
@@ -75,6 +79,7 @@ const seedState = () => ({
   fragments: seedFragments,
   stateEvents: seedStateEvents,
   issues: seedIssues,
+  architectures: seedArchitectures,
   providers: seedProviders,
   moduleMapping: seedModuleMapping,
   m1SystemPrompt: '',
@@ -110,6 +115,7 @@ export const useAppStore = create<AppState>()((set) => ({
       fragments: seedFragments,
       stateEvents: seedStateEvents,
       issues: seedIssues,
+      architectures: seedArchitectures,
       mergeCandidates: seedMergeCandidates,
       currentBookId: 'book-proj-1',
       importSession: null,
@@ -130,6 +136,7 @@ const businessPayload = (s: AppState) => ({
   fragments: s.fragments,
   stateEvents: s.stateEvents,
   issues: s.issues,
+  architectures: s.architectures,
   mergeCandidates: s.mergeCandidates,
 })
 
@@ -154,7 +161,8 @@ export async function bootstrapStore(): Promise<void> {
       }
       const patch: Partial<AppState> = {}
       if (d.providers?.length) patch.providers = d.providers.map((p) => normalizeProvider(p))
-      if (d.moduleMapping) patch.moduleMapping = d.moduleMapping
+      // 合并 seed 默认键，防旧 settings.json 缺新增 ModuleKey 导致 Record 不全
+      if (d.moduleMapping) patch.moduleMapping = { ...seedModuleMapping, ...d.moduleMapping }
       if (typeof d.m1SystemPrompt === 'string') patch.m1SystemPrompt = d.m1SystemPrompt
       if (typeof d.assetDir === 'string') patch.assetDir = d.assetDir
       if (typeof d.currentBookId === 'string' && d.currentBookId) patch.currentBookId = d.currentBookId
@@ -178,6 +186,7 @@ export async function bootstrapStore(): Promise<void> {
           fragments: (data.fragments ?? []) as SimFragment[],
           stateEvents: (data.stateEvents ?? []) as StateEvent[],
           issues: (data.issues ?? []) as ConsistencyIssue[],
+          architectures: (data.architectures ?? []) as NovelArchitecture[],
           mergeCandidates: (data.mergeCandidates ?? []) as MergeCandidate[],
         })
       } else {
@@ -209,6 +218,7 @@ export async function reloadStoreFromBackend(): Promise<void> {
       fragments: (data.fragments ?? []) as SimFragment[],
       stateEvents: (data.stateEvents ?? []) as StateEvent[],
       issues: (data.issues ?? []) as ConsistencyIssue[],
+      architectures: (data.architectures ?? []) as NovelArchitecture[],
       mergeCandidates: (data.mergeCandidates ?? []) as MergeCandidate[],
     })
   } else {
@@ -219,7 +229,7 @@ export async function reloadStoreFromBackend(): Promise<void> {
   }
 }
 
-// 业务数据回写：仅在 9 个业务切片引用变化时 debounce POST（导入会话变动不触发）
+// 业务数据回写：仅在业务切片引用变化时 debounce POST（导入会话变动不触发）
 let storeTimer: ReturnType<typeof setTimeout> | null = null
 useAppStore.subscribe((s, prev) => {
   if (!storeReady) return
@@ -232,6 +242,7 @@ useAppStore.subscribe((s, prev) => {
     s.fragments === prev.fragments &&
     s.stateEvents === prev.stateEvents &&
     s.issues === prev.issues &&
+    s.architectures === prev.architectures &&
     s.mergeCandidates === prev.mergeCandidates
   ) {
     return

@@ -11,9 +11,9 @@
    `DESIGN.md`（总体设计）→ 当前任务涉及的 `docs/*.md`。
 2. **当前阶段**：正式开发启动——后端 `server/`（Fastify 最小 LLM 网关）已建；
    M1 清理与设置页接真实 LLM，其余模块（M2–M5）暂仍 mock。
-3. **当前任务焦点**：① **M1·Step3 多节点并行 + batch 多章合并已落地**；
-   ② **待用户用真实 endpoint 端到端试跑新模型**（多节点调度/batch 拆分效果）；
-   ③ raw 特征样本余项与 DESIGN §7 问题 2/3/4/6/7 仍待拍板。
+3. **当前任务焦点**：① **novel-generator 集成·阶段 A 地基已完成并验证通过**（数据模型 + sqlite-vec RAG 检索层 + Context Assembler 骨架）；
+   ② 真实 embedding endpoint 端到端 + 前端 architectures 持久化留用户实机试；
+   ③ 可启动**阶段 B**（起源流程：arch/blueprint 端点 + M0 页）。
 
 ## ⚠️ 当前临时约束（2026-06-13 起）
 
@@ -26,8 +26,8 @@
 
 ## 项目状态快照
 
-- **最后更新**：2026-06-16（第十四次会话·novel-generator skill 集成规划，仅规划+备份，未写实现代码）
-- **阶段**：正式开发启动（后端已建）——**M1 AI 清理端到端跑通**；设置页接真实 LLM；M2–M5 仍 mock；**业务数据已落 SQLite 资产库（可配置资产目录）**，Provider/密钥等设置仍存 `server/src/data/settings.json`
+- **最后更新**：2026-06-16（第十五次会话·novel-generator 集成**阶段 A 地基完成**——数据模型 + sqlite-vec RAG + Context Assembler 骨架，验证全过）
+- **阶段**：正式开发——M1 AI 清理端到端跑通；**novel-generator 集成进入阶段 A（地基）代码已落地**；M2–M5 仍 mock；业务数据 SQLite 资产库（可配置资产目录），Provider/密钥等设置存 `server/src/data/settings.json`
 - **摘要**：在 mock 前端基础上**进入实现阶段**。
   运行方式：双击根目录 `start.vbs`（**单窗口**：隐藏启动后端 :8787 + 前端 :5173，前端就绪后用 Chrome `--app` 应用模式（独立 `.chrome-profile`）打开无地址栏的独立窗口；关窗即由看门狗清理后台进程；`start.bat` 为兼容旧入口的转交薄壳）；
   退出：侧边栏底部「退出系统」按钮（关闭前后端所有进程 + 浏览器窗口）。
@@ -203,14 +203,24 @@
 
 ### 待办（设计阶段）
 
-- [ ] **【待实施】将 novel-generator skill 结合进项目**（2026-06-16 第十四次会话产出规划，未写实现代码）：
-      详细计划见 `docs/novel_generator_integration_plan.md`（范围已用户拍板）。
+- [~] **将 novel-generator skill 结合进项目**（2026-06-16 规划，详见 `docs/novel_generator_integration_plan.md`）：
       把 opencode 的 novel-generator skill（雪花法架构 / 三幕式 / 滚动摘要 / 角色状态 / RAG / 批量）
-      **内化为项目原生功能**（后端网关端点 + SQLite 数据模型 + 前端流程页），而非运行 skill 本身
-      （skill 是 subagent + Python CLI 形态，与项目 web/Provider 抽象/subagent 暂停约束不兼容直接调用）。
-      范围四块全做：① 原创起源流程（架构+蓝图）② M4/M5 真实化 ③ RAG 走 **Node + sqlite-vec** ④ 批量生产 +「整章/批量」可选高速档；
-      分 A（地基：数据模型+RAG+上下文组装器）→ B（起源）→ C（生成/管理真实化）→ D（批量）四阶段。
-      参考资料备份在 `ref/`（skill 说明/脚本/示例数据 + 8 个 agent 提示词，见 `ref/README.md`）。
+      **内化为项目原生功能**（后端网关端点 + SQLite 数据模型 + 前端流程页），而非运行 skill 本身。
+      范围四块全做，分 A（地基）→ B（起源）→ C（生成/管理真实化）→ D（批量）四阶段。
+      参考资料备份在 `ref/`（见 `ref/README.md`）。
+  - [~] **阶段 A 地基**（2026-06-16 第十五次会话·代码已落地，**自动化验证待补**——本会话 auto-mode classifier 暂不可用无法跑 npm 命令）：
+    - [x] 数据模型：`types.ts` 加 `NovelArchitecture`/`RagChunk`、扩 `Book.globalSummary`/`Chapter.summary`/`OutlineNode` 节奏字段、`ModuleKey` 加 `m0Arch`/`m0Blueprint`/`m5Finalize`；`seed.ts` 加 `seedArchitectures`(空) + 补 moduleMapping 三键；`appStore.ts` 加 `architectures` 切片（seedState/resetDemo/businessPayload/两订阅/bootstrap/reload）+ moduleMapping 合并补全；`settings/index.tsx` `MODULE_LABELS` 补三 label（自动出 UI 行）
+    - [x] sqlite-vec：`server` 装 `sqlite-vec@0.1.9`（**已实机验证** Win 加载+vec0 建表+KNN 通）；`db.ts` ENTITIES 加 `architectures` 表 + `sqliteVec.load` + `chunk_meta` 表 + 导出 `getDb`
+    - [x] embedding：`llmClient.embed()` + `/api/llm/embed` 实现（原 501 占位）
+    - [x] RAG 检索层：新建 `server/src/store/vector.ts`（`splitText` 递归分块 + `ensureVecTable` 维度记录 + `addToVectorStore` + `queryVectorStore`）；`store.ts` 加 `/api/store/vector/{add,query}`；`settings.ts` 加内部 `updateSettings`
+    - [x] Context Assembler 骨架：新建 `server/src/contextAssembler.ts`（`assembleContext` 收集架构/蓝图/摘要/角色态/RAG/已采纳片段，不拼 prompt，阶段 A 不被端点调用）
+    - [x] **验证全过**（2026-06-16 第十五次会话尾·classifier 恢复后补跑）：后端 typecheck ✅；前端 build(tsc+vite) ✅、lint ✅；
+      smoke(13) ✅、ruleclean ✅；RAG 直测（splitText 分块 + vec_chunks 建表/插入/KNN-join chunk_meta，BigInt rowid）✅；
+      后端端点冒烟 ✅（health 200 / embed·vector/add·vector/query 缺参 400 / 空库 query 短路返回空 / store 返回含 architectures 键证明 sqlite-vec 真实加载）。
+      **本轮修复 2 个真实 bug**：① `contextAssembler.ts` 闭包内 `chapterIndex` 未窄化（提局部 const）；
+      ② `vector.ts` vec0 rowid 必须 BigInt（普通 number 入库即报错，直测发现）。
+      仅真实 embedding endpoint 的 add→query 端到端 + 前端造 architectures 刷新持久化留待用户实机试（embed 为简单 HTTP 转发，SQL 已直测，剩余风险低）。
+  - [ ] 阶段 B 起源、阶段 C 生成/管理真实化、阶段 D 批量（地基已验证通过，可启动阶段 B）
 - [ ] 待讨论问题 2：M3 角色语言风格约束方式（卡片维护"风格描述 + 台词例句"是否足够）
       ——mock 已按"描述 + 例句"实装卡片与推演演示，可在试用后结合体感拍板
 - [ ] 待讨论问题 3：一致性检查触发时机（定稿自动 / 手动）——mock 演示默认"定稿自动 + 随时手动、不阻断定稿"
@@ -239,24 +249,21 @@
 
 ## 交接备注（最近一次会话）
 
-- **日期**：2026-06-16（第十四次会话·novel-generator skill 集成规划）
-- **本次完成**：**纯规划 + 资料备份任务，未写任何实现代码**（用户明确「不实际执行」）。
-  分析了 opencode 的 novel-generator skill（`C:\Users\Houpy\.config\opencode\skill\novel-generator` + 8 个 agent 定义
-  `Z:\Playground\.opencode\agents\novel-*.md`），设计「如何把它结合进 novelhelper」的详细计划。
-  ① **计划文档**：`docs/novel_generator_integration_plan.md`（含 skill→项目完整映射表、四阶段实施计划、可复用资产清单、验证方式）。
-     核心判断：skill 是 subagent + Python CLI 形态，与项目 web/Provider 抽象/subagent 暂停约束不兼容直接运行，
-     故「结合」= 把其方法论与 prompt 资产**内化为项目原生功能**（后端网关端点 + SQLite 数据模型 + 前端流程页）。
-  ② **用户拍板的范围**：四块全做——原创起源流程（雪花法架构+蓝图）、M4/M5 真实化、RAG（**Node + sqlite-vec**，非 Python sidecar）、
-     批量生产 +「整章/批量」可选高速档（产出仍进草稿待人审，不自动定稿，守住「AI 辅助而非代笔」理念）。
-  ③ **参考资料备份**：`ref/`（新增 `ref/README.md` 标注来源）——`ref/novel-generator-skill/`（SKILL.md/instruction.md/4 个 Python 脚本/示例人物卡与世界观）
-     + `ref/agents/`（8 个创作 agent 提示词）。这些是计划的设计依据与 prompt 基底。
-- **本会话约束**：用户开场设定**不使用 subagent / Team / Explore**，全程由主 agent 直接用只读+文件工具完成（与项目「subagent 暂停」约束一致）。
-- **阻塞项**：无。**下一步**：按计划文档阶段 A（数据模型变更 + embedding 端点 + sqlite-vec 检索层 + 上下文组装器骨架）启动实施；
-  实施时同步更新 DESIGN.md（新增 M0 起源模块、NovelArchitecture/globalSummary 数据模型、Context Assembler、RAG 实现章节）。
-  仍待拍板：DESIGN §7 问题 2/3/4/6/7。
-- **上一会话（第十三次·localStorage → SQLite 资产库）**：业务数据迁到可配置资产目录下的 SQLite 库
-  （`server/src/store/db.ts` 9 表文档式 + `bootstrapStore`/`reloadStoreFromBackend`；`resetDemo` 不再重置 Provider 配置；
-  `importSession` 改纯内存）。后端 typecheck + db 直测 + 前端 eslint/build/smoke 全过，端到端仍待用户试跑。
+- **日期**：2026-06-16（第十五次会话·novel-generator 集成阶段 A 地基）
+- **本次完成**：按 `docs/novel_generator_integration_plan.md` 阶段 A 落地**全部地基代码**——
+  ① 前端数据模型（`NovelArchitecture`/`RagChunk` 类型、`Book.globalSummary`/`Chapter.summary`/`OutlineNode` 节奏字段、
+     `ModuleKey` 三新键、store `architectures` 切片 + moduleMapping 合并补全、设置页 `MODULE_LABELS` 三 label）；
+  ② 后端 sqlite-vec：装 `sqlite-vec@0.1.9` 并**实机验证** Windows 下 better-sqlite3 加载扩展 + vec0 建表 + KNN 全通；
+     `db.ts` 加 `architectures` 表 + 加载扩展 + `chunk_meta` 表；
+  ③ embedding：`llmClient.embed()` + `/api/llm/embed`（原 501 占位实现）；
+  ④ RAG 检索层 `server/src/store/vector.ts`（递归分块 + add/query + 维度记录）+ `/api/store/vector/{add,query}`；
+  ⑤ 上下文组装器 `server/src/contextAssembler.ts` 骨架（收集六类上下文，不拼 prompt，阶段 A 不接端点）。
+  文档已同步：`CLAUDE.md`（决策表 + server 行）、`DESIGN.md`（§3 数据模型 + §5.1 RAG/组装器实现）。
+- **✅ 验证**：全部自动化验证通过（后端 typecheck / 前端 build·lint / smoke·ruleclean / RAG 直测 / 后端端点冒烟）。
+  本轮修复 2 个真实 bug：contextAssembler 闭包窄化、vector.ts vec0 rowid 必须 BigInt（后者直测才暴露，否则真实入库即崩）。
+- **下一步**：① 真实 embedding endpoint 的 add→query 端到端 + 前端造 architectures 刷新持久化，留用户实机试跑；
+  ② 启动**阶段 B（起源流程）**：prompt 内化（ARCH/BLUEPRINT）+ `/api/llm/{arch,blueprint}` SSE 端点 + M0 起源页（架构四步流式生成 → 采纳 → 一键生成蓝图落 OutlineNode）。
+- **上一会话（第十四次·集成规划）**：产出 `docs/novel_generator_integration_plan.md`（skill→项目映射 + 四阶段计划）+ `ref/` 资料备份，纯规划未写代码。
 
 ## 更新本文档的约定
 

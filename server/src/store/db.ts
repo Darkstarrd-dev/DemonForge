@@ -3,6 +3,7 @@
 // 契合 types.ts 灵活字段；字段演进无需迁移）。资产目录可在运行中切换：getDb() 比对路径，
 // 变更即关旧库、按新路径开库建表。设置与 API key 不在此库，仍存 server/src/data/settings.json。
 import Database from 'better-sqlite3'
+import * as sqliteVec from 'sqlite-vec'
 import { existsSync, mkdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -22,6 +23,7 @@ const ENTITIES = [
   { key: 'fragments', table: 'fragments' },
   { key: 'stateEvents', table: 'state_events' },
   { key: 'issues', table: 'issues' },
+  { key: 'architectures', table: 'architectures' },
   { key: 'mergeCandidates', table: 'merge_candidates' },
 ] as const
 
@@ -42,7 +44,12 @@ export function getAssetDir(): string {
 
 let cached: { db: Database.Database; dir: string } | null = null
 
-function getDb(): Database.Database {
+/**
+ * 取当前资产目录的 SQLite 句柄（已加载 sqlite-vec 扩展）。资产目录切换即关旧库重开。
+ * 业务实体走文档式 (id,data)；RAG 的 chunk_meta 在此建，向量虚拟表 vec_chunks 因维度
+ * 未知延迟到 vector.ts:ensureVecTable 建。
+ */
+export function getDb(): Database.Database {
   const dir = getAssetDir()
   if (cached && cached.dir === dir) return cached.db
   if (cached) {
@@ -51,9 +58,14 @@ function getDb(): Database.Database {
   }
   const db = new Database(join(dir, 'novelhelper.db'))
   db.pragma('journal_mode = WAL')
+  sqliteVec.load(db)
   for (const { table } of ENTITIES) {
     db.exec(`CREATE TABLE IF NOT EXISTS ${table} (id TEXT PRIMARY KEY, data TEXT NOT NULL)`)
   }
+  // RAG chunk 元数据（向量行 rowid ↔ 来源/文本）。vec_chunks 虚拟表见 vector.ts。
+  db.exec(
+    `CREATE TABLE IF NOT EXISTS chunk_meta (rowid INTEGER PRIMARY KEY, source TEXT, bookId TEXT, chapterId TEXT, text TEXT NOT NULL)`,
+  )
   cached = { db, dir }
   return db
 }

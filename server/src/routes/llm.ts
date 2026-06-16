@@ -1,9 +1,10 @@
 import type { FastifyInstance } from 'fastify'
-import { listModels, chatStream, type ProviderConfig } from '../llmClient.ts'
+import { listModels, chatStream, embed, type ProviderConfig } from '../llmClient.ts'
 import { M1_CLEAN_SYSTEM_PROMPT } from '../prompts.ts'
 
 type TestBody = ProviderConfig
 type CleanBody = ProviderConfig & { content?: string; systemPrompt?: string }
+type EmbedBody = ProviderConfig & { input?: string[] }
 
 export async function llmRoutes(app: FastifyInstance) {
   // 连通性测试：转发 GET /v1/models
@@ -67,6 +68,17 @@ export async function llmRoutes(app: FastifyInstance) {
       .finally(() => raw.end())
   })
 
-  // 预留：embedding（本轮不实现）
-  app.post('/api/llm/embed', async (_req, reply) => reply.code(501).send({ error: 'embedding 未实现（本轮预留）' }))
+  // embedding：批量文本 → 向量（普通 JSON，非 SSE）。返回向量与维度。
+  app.post('/api/llm/embed', async (req, reply) => {
+    const { baseURL, apiKey, model, input } = (req.body ?? {}) as EmbedBody
+    if (!baseURL || !model || !Array.isArray(input) || input.length === 0) {
+      return reply.code(400).send({ error: '缺少 baseURL / model / input[]' })
+    }
+    try {
+      const embeddings = await embed({ baseURL, apiKey, model }, input)
+      return reply.send({ embeddings, dim: embeddings[0].length })
+    } catch (e) {
+      return reply.code(502).send({ error: e instanceof Error ? e.message : String(e) })
+    }
+  })
 }
