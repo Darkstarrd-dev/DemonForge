@@ -55,7 +55,8 @@
 | `docs/M1_text_cleaning.md` | M1 详细设计（抽象自单页应用原型 `10_novel_cleaner.html`） |
 | `docs/M1_raw_features.md` | raw 文件特征样本模板（**待用户填充**，M1 规则设计依据） |
 | `docs/frontend_mock.md` | mock 前端说明：页面交互要点、mock 边界、运行方式 |
-| `docs/novel_generator_integration_plan.md` | **【待实施】** novel-generator skill 结合进项目的详细计划（2026-06-16） |
+| `docs/novel_generator_integration_plan.md` | **【实施中】** novel-generator skill 结合进项目的详细计划（2026-06-16）；阶段 A 地基已完成 |
+| `docs/phase_B_origin_plan.md` | **【待实施】** 阶段 B 起源流程详细实施计划（arch/blueprint 端点 + M0 立项页），下一会话据此接手 |
 | `ref/` | 只读外部参考资料备份（不参与构建）：novel-generator skill 说明/脚本/示例数据 + 8 个创作 agent 提示词（见 `ref/README.md`）；M1 原型 `10_novel_cleaner.html` |
 | `frontend/` | 前端工程（Vite + React + TS + antd）；服务层 `services/api.ts` → mock(`services/mock/`) / real(`services/real/`) |
 | `server/` | 后端工程（Fastify）：`/api/llm/{test,clean,embed}`、Provider 抽象层 `src/llmClient.ts`（含 `embed()`）、清理 prompt `src/prompts.ts`；数据层 `src/store/db.ts`（SQLite 资产库 + sqlite-vec）+ RAG 检索层 `src/store/vector.ts` + 上下文组装器 `src/contextAssembler.ts`；路由 `/api/store`（含 `/vector/{add,query}`）、`/api/settings`、`/api/shutdown` |

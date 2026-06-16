@@ -220,7 +220,11 @@
       **本轮修复 2 个真实 bug**：① `contextAssembler.ts` 闭包内 `chapterIndex` 未窄化（提局部 const）；
       ② `vector.ts` vec0 rowid 必须 BigInt（普通 number 入库即报错，直测发现）。
       仅真实 embedding endpoint 的 add→query 端到端 + 前端造 architectures 刷新持久化留待用户实机试（embed 为简单 HTTP 转发，SQL 已直测，剩余风险低）。
-  - [ ] 阶段 B 起源、阶段 C 生成/管理真实化、阶段 D 批量（地基已验证通过，可启动阶段 B）
+  - [ ] **阶段 B 起源**（2026-06-16 已完成详细规划，**待实施**——见 `docs/phase_B_origin_plan.md`）：
+    prompt 内化（ARCH/BLUEPRINT）+ 后端 `routes/creation.ts` 的 `/api/llm/{arch,blueprint}` SSE 端点 +
+    前端「M0 立项·架构」页（点子→架构四步流式→采纳建新书→一键蓝图→写 OutlineNode）。
+    已拍板：采纳架构时新建作品；蓝图仅当大纲为空时写入；架构四块分区可编辑。**下一会话可直接据此文档实施。**
+  - [ ] 阶段 C 生成/管理真实化、阶段 D 批量（依赖阶段 B）
 - [ ] 待讨论问题 2：M3 角色语言风格约束方式（卡片维护"风格描述 + 台词例句"是否足够）
       ——mock 已按"描述 + 例句"实装卡片与推演演示，可在试用后结合体感拍板
 - [ ] 待讨论问题 3：一致性检查触发时机（定稿自动 / 手动）——mock 演示默认"定稿自动 + 随时手动、不阻断定稿"
@@ -262,7 +266,7 @@
 - **✅ 验证**：全部自动化验证通过（后端 typecheck / 前端 build·lint / smoke·ruleclean / RAG 直测 / 后端端点冒烟）。
   本轮修复 2 个真实 bug：contextAssembler 闭包窄化、vector.ts vec0 rowid 必须 BigInt（后者直测才暴露，否则真实入库即崩）。
 - **下一步**：① 真实 embedding endpoint 的 add→query 端到端 + 前端造 architectures 刷新持久化，留用户实机试跑；
-  ② 启动**阶段 B（起源流程）**：prompt 内化（ARCH/BLUEPRINT）+ `/api/llm/{arch,blueprint}` SSE 端点 + M0 起源页（架构四步流式生成 → 采纳 → 一键生成蓝图落 OutlineNode）。
+  ② **阶段 B（起源流程）已完成详细规划、待实施**——按 `docs/phase_B_origin_plan.md` 实施（prompt 内化 + `routes/creation.ts` 的 arch/blueprint SSE 端点 + M0 起源页）。本轮经评审决定不实施，仅归档为待办。
 - **上一会话（第十四次·集成规划）**：产出 `docs/novel_generator_integration_plan.md`（skill→项目映射 + 四阶段计划）+ `ref/` 资料备份，纯规划未写代码。
 
 ## 更新本文档的约定
