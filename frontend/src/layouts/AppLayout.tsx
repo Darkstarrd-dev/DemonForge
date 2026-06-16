@@ -9,6 +9,7 @@ import {
   PlayCircleOutlined,
   FileTextOutlined,
   FolderOpenOutlined,
+  RocketOutlined,
   SettingOutlined,
 } from '@ant-design/icons'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
@@ -22,6 +23,7 @@ const MENU_ITEMS = [
   { key: '/m3', icon: <PlayCircleOutlined />, label: 'M3 角色推演' },
   { key: '/m4', icon: <FileTextOutlined />, label: 'M4 章节生成' },
   { key: '/m5', icon: <FolderOpenOutlined />, label: 'M5 章节管理' },
+  { key: '/batch', icon: <RocketOutlined />, label: '批量生产' },
   { key: '/settings', icon: <SettingOutlined />, label: '系统设置' },
 ]
 

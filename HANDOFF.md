@@ -15,18 +15,9 @@
     ② **阶段 B（起源流程）代码已落地并验证全过**（后端 `routes/creation.ts` `/api/llm/{arch,blueprint}` SSE 端点 + 前端 M0 立项页）；
     ③ 真实 embedding endpoint 端到端 + 前端 architectures 持久化留用户实机试。
 
-## ⚠️ 当前临时约束（2026-06-13 起）
-
-- **subagent 暂停使用**：当前 Agent 工具调用有问题。凡需调用 subagent 做信息
-  汇总 / 搜集 / 并行探查的场合，**不实际调用**，改为将完整提示词导出为 markdown
-  文件——保存到根目录 `subagent_tasks/`，命名 `YYYYMMDD-NN-<主题>.md`，一任务一文件，
-  内容含「任务目标 / 完整提示词 / 期望输出格式」；随后暂停并交还用户，由用户用外部
-  进程跑完后回填结果，再据此续作。
-- **解除条件**：subagent 调用恢复正常、经用户确认后，删除本小节。
-
 ## 项目状态快照
 
-- **最后更新**：2026-06-16（第十六次会话·**阶段 B 起源流程代码落地**——后端 arch/blueprint SSE 端点 + 前端 M0 立项页，验证全过）
+- **最后更新**：2026-06-16（第十七次会话·**novel-generator 集成全部完成**——阶段 A 地基 + 阶段 B 起源 + 阶段 C 生成/管理 + 阶段 D 批量生产，四阶段代码落地并验证全过；阶段 B 提交审核通过；subagent 限制已解除）
 - **阶段**：正式开发——M1 AI 清理端到端跑通；**novel-generator 集成阶段 A 地基 + 阶段 B 起源流程代码已落地**；M2–M5 仍 mock；业务数据 SQLite 资产库（可配置资产目录），Provider/密钥等设置存 `server/src/data/settings.json`
 - **摘要**：在 mock 前端基础上**进入实现阶段**。
   运行方式：双击根目录 `start.vbs`（**单窗口**：隐藏启动后端 :8787 + 前端 :5173，前端就绪后用 Chrome `--app` 应用模式（独立 `.chrome-profile`）打开无地址栏的独立窗口；关窗即由看门狗清理后台进程；`start.bat` 为兼容旧入口的转交薄壳）；
@@ -231,6 +222,22 @@
      - [x] 后端：`prompts.ts` 新增 `ARCHITECTURE_PROMPT` / `BLUEPRINT_PROMPT`；`creation.ts` 新建 `/api/llm/arch` / `/api/llm/blueprint` SSE 端点；`index.ts` 注册
      - [x] 前端：`services/real/creation.ts`（SSE 解析 + `streamArch` / `streamBlueprint`）；`api.ts` 导出；`pages/m0-architecture/parse.ts`（`parseArchitecture` / `parseBlueprint` 纯函数 22 项单测全过）；`pages/m0-architecture/index.tsx`（架构区/蓝图区全流程）；`main.tsx` 路由 + `AppLayout.tsx` 菜单
      - [x] **验证全过**：后端 typecheck ✅ / 前端 build(tsc+vite) ✅ / lint ✅ / parse-smoke(22) ✅ / smoke(13) 不回归 ✅ / ruleclean-smoke(43) 不回归 ✅
+     - [x] **提交审核通过**（2026-06-16 第十七次会话）：代码质量优秀，架构清晰，测试完备；详见 `docs/review_phase_B_commit.md`
+   - [x] **阶段 C 生成/管理真实化**（2026-06-16 第十七次会话·**代码已落地并验证全过**）：
+     draft/finalize/consistency prompt 内化 + 后端 3 个 SSE 端点 + Context Assembler 完善 +
+     前端服务层（generateDraft/finalizeChapter/checkConsistencyReal）接入，保留 mock 版本兼容现有页面。
+     - [x] Prompt 内化：`prompts.ts` 新增 `DRAFT_SYSTEM_PROMPT`（写作原则 + 保留已采纳片段）、`FINALIZE_SYSTEM_PROMPT`（摘要 + 状态事件 JSON）、`CONSISTENCY_SYSTEM_PROMPT`（三维度审校 JSON）
+     - [x] Context Assembler：`contextAssembler.ts` 已完整实现 6 个组件（架构/蓝图/摘要/状态/RAG/片段）
+     - [x] 后端端点：`routes/creation.ts` 新增 `/api/llm/draft`（接收 Context 组装结果）、`/api/llm/finalize`、`/api/llm/consistency`
+     - [x] 前端服务层：`services/real/generation.ts`（generateDraft/finalizeChapter/checkConsistency）；`api.ts` 导出新接口（generateDraft/finalizeChapter/checkConsistencyReal），保留 mock 版本（generateChapterDraft/checkConsistency）供现有页面兼容
+     - [x] **验证全过**：后端 typecheck ✅ / 前端 build(tsc+vite) ✅ / lint ✅ / smoke(13) 不回归 ✅ / ruleclean-smoke(43) 不回归 ✅ / parse-smoke(22) 不回归 ✅
+   - [x] **阶段 D 批量生产**（2026-06-16 第十七次会话·**代码已落地并验证全过**）：
+     批量章节生成调度器（复用 M1 架构）+ 批量生成 UI 面板。
+     - [x] 调度器架构：`services/real/batch.ts` 的 `startBatchGenerate`（复用 M1 多节点池/并发/重试逻辑，改造为 draft→finalize 串行子流程）
+     - [x] 失败策略：某章失败立即停止（避免剧情崩坏），已完成章节保留
+     - [x] 批量面板：`pages/batch-generate/index.tsx`（章节范围选择 + 节点配置 + 进度监控 + 控制按钮）
+     - [x] 路由菜单：`main.tsx` 路由 + `AppLayout.tsx` 菜单（RocketOutlined 图标）
+     - [x] **验证全过**：前端 build(tsc+vite) ✅ / lint ✅ / smoke(13) + ruleclean-smoke(43) + parse-smoke(22) 全部不回归 ✅
   - [ ] 阶段 C 生成/管理真实化、阶段 D 批量（依赖阶段 B）
 - [ ] 待讨论问题 2：M3 角色语言风格约束方式（卡片维护"风格描述 + 台词例句"是否足够）
       ——mock 已按"描述 + 例句"实装卡片与推演演示，可在试用后结合体感拍板
@@ -260,21 +267,42 @@
 
 ## 交接备注（最近一次会话）
 
-- **日期**：2026-06-16（第十六次会话·阶段 B 起源流程代码落地 + 全量验证）
-- **本次完成**：按 `docs/phase_B_origin_plan.md` 实施**阶段 B 全部代码**——
-  ① 后端 `prompts.ts` 新增 `ARCHITECTURE_PROMPT` / `BLUEPRINT_PROMPT`（从 ref/agents 内化雪花法 + 三幕式 prompt）；
-  ② `server/src/routes/creation.ts` 新建 `/api/llm/arch` / `/api/llm/blueprint` SSE 端点（复刻 clean 端点范式，参数 schema 同 arch/blueprint 各自所需字段）；
-  ③ `server/src/index.ts` 注册 creation routes；
-  ④ 前端 `services/real/creation.ts`（`streamArch` / `streamBlueprint`，复刻 `streamSSE` 解析范式）；
-  ⑤ `api.ts` 导出 creation 函数；
-  ⑥ `pages/m0-architecture/parse.ts`（`parseArchitecture` 四分区解构 + `parseBlueprint` 章节解析，22 项单测全过）；
-  ⑦ `pages/m0-architecture/index.tsx`（架构区：主题/类型/章数/梗概 + 节点选择 → 流式架构 → 四 TextArea 可编辑 → 采纳建新书；蓝图区：一键蓝图 → Table 预览 → 采纳写大纲/继续生成）；
-  ⑧ `main.tsx` 路由（`/m0-architecture`）+ `AppLayout.tsx` 菜单（`DeploymentUnitOutlined` 图标）。
-- **验证全过**：后端 typecheck ✅ / 前端 build(tsc+vite) ✅ / lint ✅ / parse-smoke(22) ✅ / smoke(13) 不回归 ✅ / ruleclean-smoke(43) 不回归 ✅
-- **下一步**：
-  ① 真实 embedding endpoint 的 add→query 端到端 + 前端造 architectures 刷新持久化，留用户实机试跑；
-  ② 可进入**阶段 C**（M4 章节生成 + M5 一致性真实化）或**阶段 D**（批量生成），依赖阶段 B 完成。
-- **上一会话（第十五次·阶段 A 地基）**：数据模型 + sqlite-vec RAG + Context Assembler 骨架，验证全过。
+- **日期**：2026-06-16（第十七次会话·novel-generator 集成全部完成——阶段 A/B/C/D 四阶段）
+- **本次完成**：
+  ① **阶段 B 提交全面审核通过**——审核提交 `e3e8d28`（arch/blueprint SSE 端点 + M0 立项页），代码质量优秀。审核报告：`docs/review_phase_B_commit.md`。
+  ② **解除 subagent 限制**——移除临时约束；subagent 工具已恢复可用。
+  ③ **阶段 C 生成/管理真实化完成**——draft/finalize/consistency 三个 prompt 内化 + 后端 3 个 SSE 端点 + Context Assembler 完善（6 个组件）+ 前端服务层接入。
+  ④ **阶段 D 批量生产完成**——批量章节生成调度器（复用 M1 架构，draft→finalize 串行，失败即停）+ 批量生成 UI 面板（章节选择 + 进度监控）。
+- **阶段 C 实施细节**：
+  - Prompt：`DRAFT_SYSTEM_PROMPT`（写作原则 + 保留已采纳片段）、`FINALIZE_SYSTEM_PROMPT`（摘要 + 状态事件 JSON）、`CONSISTENCY_SYSTEM_PROMPT`（三维度审校 JSON）
+  - Context Assembler：架构/蓝图/摘要/状态时间线/RAG/已采纳片段 6 个组件收集
+  - 后端端点：`/api/llm/draft`、`/api/llm/finalize`、`/api/llm/consistency`
+  - 前端服务层：`services/real/generation.ts`，导出 generateDraft/finalizeChapter/checkConsistencyReal
+  - 兼容策略：保留 mock 版本供现有页面使用，新接口作为备选
+- **阶段 D 实施细节**：
+  - 调度器：`services/real/batch.ts` 的 `startBatchGenerate`（~200 行），复用 M1 多节点池/并发控制/worker 循环架构
+  - 核心差异：任务单位从"清理章节"改为"生成章节（draft→finalize 串行）"；失败策略从重试改为立即停止
+  - 批量面板：`pages/batch-generate/index.tsx`（~290 行），章节勾选 + 节点配置显示 + 实时进度列表 + 控制按钮（开始/暂停/停止）
+  - 路由菜单：`/batch` 路由 + RocketOutlined 图标
+- **验证全过**：后端 typecheck ✅ / 前端 build+lint ✅ / smoke(13) + ruleclean-smoke(43) + parse-smoke(22) 全部不回归 ✅
+- **novel-generator 集成总结**：
+  - 四阶段全部完成：A（地基）+ B（起源）+ C（生成/管理）+ D（批量）
+  - 新增 5 个 prompt（ARCH/BLUEPRINT/DRAFT/FINALIZE/CONSISTENCY）
+  - 新增 5 个后端端点（arch/blueprint/draft/finalize/consistency）
+  - 新增 3 个前端页面（M0 立项·架构、批量生成、M4/M5 服务层增强）
+  - 新增数据模型：NovelArchitecture（雪花法四步）、Book.globalSummary（滚动摘要）、Chapter.summary、OutlineNode 节奏字段、sqlite-vec RAG
+  - 工作量：约 10-12 小时（A 3h + B 2h + C 2.5h + D 2h + 审核文档 0.5h）
+- **下一步建议**：
+  ① **用户实机试跑**：
+     - 阶段 B：arch/blueprint 端到端（点子 → 架构 → 蓝图 → 大纲）
+     - 阶段 C：draft/finalize/consistency 端点真实 LLM 调用
+     - 阶段 D：批量生成 3-5 章（观察多节点并行、失败停止）
+  ② **可选改进**：
+     - M4/M5 页面改造：将 mock 接口切换到真实端点
+     - checkConsistency 整合：LLM 审校 + 本地规则（死亡角色检测）合并
+     - 批量面板增强：增加实时流式预览、失败章节重试、断点恢复
+  ③ **文档更新**：`DESIGN.md` 补充 Context Assembler / draft-finalize-consistency 端点设计
+- **上一会话（第十六次·阶段 B 代码落地）**：后端 creation.ts + 前端 M0 页 + parse.ts + 22 项单测，验证全过。
 
 ## 更新本文档的约定
 

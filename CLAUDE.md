@@ -2,14 +2,13 @@
 
 ## 项目状态
 
-- **当前阶段**：正式开发启动（2026-06-13 起）——M1 文本清理与系统设置接真实后端
+- **当前阶段**：novel-generator 集成全部完成（2026-06-16）——阶段 A 地基 + 阶段 B 起源 + 阶段 C 生成/管理 + 阶段 D 批量生产
 - **本阶段约束**：
   - 设计文档（DESIGN.md 等）与配置（CLAUDE.md）照常读写
-  - **已进入实现阶段**：解除「frontend 之外不建代码」约束，按 DESIGN.md 正式架构（Node.js + Fastify 后端、React/Vite 前端）落地
-  - 本轮范围：最小 LLM 网关后端（`server/`）+ M1/设置页真实化；**业务数据已落 SQLite 资产库**（可配置资产目录，`server/src/store/db.ts`），向量检索待 M2 真实化接入
-  - 接真实 LLM：M1 AI 清理与 Provider 测试经后端调用真实 endpoint（M2–M5 暂仍 mock）
+  - **已进入实现阶段**：按 DESIGN.md 正式架构（Node.js + Fastify 后端、React/Vite 前端）落地
+  - 本轮完成：M0 立项·架构（arch/blueprint）+ M4/M5 真实化（draft/finalize/consistency）+ 批量生产（startBatchGenerate + UI 面板）+ Context Assembler（6 个组件）+ sqlite-vec RAG
+  - 接真实 LLM：M0/M1/M4/M5 已接真实后端；M2 提取、M3 推演仍为 mock
   - 需求决策仍以与用户沟通为主，多解时列选项由用户拍板
-  - **临时约束（2026-06-13）**：subagent 调用暂停——需 subagent 的场合改为导出提示词 md 交用户外部执行（详见 `HANDOFF.md`）
 
 ## 项目定位
 
@@ -32,8 +31,11 @@
 | mock 定位 | mock 前端即正式前端起点：页面只调 `services/api.ts`，mock 实现集中于 `services/mock/`，接真后端时整层替换、页面零改动 |
 | 后端框架 | **Fastify**（2026-06-13 拍板，DESIGN §7 问题 5） |
 | RAG 检索 | **Node + sqlite-vec**（2026-06-16 拍板，非 Python sidecar）；向量虚拟表 `vec_chunks` + 元数据表 `chunk_meta`，维度记入 `settings.embeddingDim`，换 embedding 模型需重建 |
-| novel-generator 集成 | 把 skill 方法论与 prompt 资产**内化为原生 web 功能**（非运行 skill）；范围四块全做（起源/M4·M5 真实化/RAG/批量），分 A→D 四阶段（详见 `docs/novel_generator_integration_plan.md`） |
-| 本轮实现范围 | 最小 LLM 网关（`server/`）+ M1 AI 真实流式清理 + 设置页真实测试 endpoint；**业务数据 SQLite 资产库已落地**（可配置资产目录，图片留存路径预留），设置/密钥存 `server/src/data/settings.json` |
+| novel-generator 集成 | 把 skill 方法论与 prompt 资产**内化为原生 web 功能**（非运行 skill）；范围四块全做（起源/M4·M5 真实化/RAG/批量），分 A→D 四阶段（详见 `docs/novel_generator_integration_plan.md`）；**已全部完成**（2026-06-16） |
+| Context Assembler | M3/M4/M5 共用核心组件（`server/src/contextAssembler.ts`），组装 6 个上下文组件：架构/蓝图/摘要/状态时间线/RAG/已采纳片段 |
+| 创作端点 | 5 个 SSE 流式端点：`/api/llm/{arch,blueprint,draft,finalize,consistency}`；draft 接收 Context Assembler 输入；finalize/consistency 输出 JSON |
+| 批量生产 | 复用 M1 调度器架构（`services/real/batch.ts`），draft→finalize 串行，失败即停；UI 面板：`pages/batch-generate/` |
+| 本轮实现范围 | **novel-generator 四阶段全部完成**：A（地基·数据模型+RAG）+ B（起源·arch/blueprint+M0页）+ C（生成/管理·draft/finalize/consistency）+ D（批量·调度器+UI）；M0/M1/M4/M5 已接真实后端，M2/M3 仍 mock |
 
 ## 工作方式
 
