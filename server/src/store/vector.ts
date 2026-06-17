@@ -3,9 +3,9 @@
 // 查询 → embedding → KNN(vec_distance) → join chunk_meta 返回召回片段。
 // 向量虚拟表 vec_chunks 维度由首个 embedding 决定，记入 settings.embeddingDim；
 // 换 embedding 模型导致维度变更需重建向量库（addToVectorStore 会报错提示）。
-import { embed, type ProviderConfig } from '../llmClient.ts'
-import { readSettings, updateSettings } from '../routes/settings.ts'
-import { getDb } from './db.ts'
+import { embed, type ProviderConfig } from '../llmClient'
+import { readSettings, updateSettings } from '../routes/settings'
+import { getDb } from './db'
 
 export interface RagChunk {
   source: string

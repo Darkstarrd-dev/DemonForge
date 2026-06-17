@@ -2,11 +2,11 @@
 
 ## 项目状态
 
-- **当前阶段**：novel-generator 集成全部完成（2026-06-16）——阶段 A 地基 + 阶段 B 起源 + 阶段 C 生成/管理 + 阶段 D 批量生产
+- **当前阶段**：novel-generator 集成全部完成（2026-06-16）——阶段 A 地基 + 阶段 B 起源 + 阶段 C 生成/管理 + 阶段 D 批量生产；**Electron 框架迁移完成（2026-06-18）**——支持打包为可执行文件
 - **本阶段约束**：
   - 设计文档（DESIGN.md 等）与配置（CLAUDE.md）照常读写
   - **已进入实现阶段**：按 DESIGN.md 正式架构（Node.js + Fastify 后端、React/Vite 前端）落地
-  - 本轮完成：M0 立项·架构（arch/blueprint）+ M4/M5 真实化（draft/finalize/consistency）+ 批量生产（startBatchGenerate + UI 面板）+ Context Assembler（6 个组件）+ sqlite-vec RAG
+  - 本轮完成：M0 立项·架构（arch/blueprint）+ M4/M5 真实化（draft/finalize/consistency）+ 批量生产（startBatchGenerate + UI 面板）+ Context Assembler（6 个组件）+ sqlite-vec RAG + **Electron 迁移**（主进程、进程管理、打包配置）
   - 接真实 LLM：M0/M1/M4/M5 已接真实后端；M2 提取、M3 推演仍为 mock
   - 需求决策仍以与用户沟通为主，多解时列选项由用户拍板
 
@@ -36,6 +36,8 @@
 | 创作端点 | 5 个 SSE 流式端点：`/api/llm/{arch,blueprint,draft,finalize,consistency}`；draft 接收 Context Assembler 输入；finalize/consistency 输出 JSON |
 | 批量生产 | 复用 M1 调度器架构（`services/real/batch.ts`），draft→finalize 串行，失败即停；UI 面板：`pages/batch-generate/` |
 | 本轮实现范围 | **novel-generator 四阶段全部完成**：A（地基·数据模型+RAG）+ B（起源·arch/blueprint+M0页）+ C（生成/管理·draft/finalize/consistency）+ D（批量·调度器+UI）；M0/M1/M4/M5 已接真实后端，M2/M3 仍 mock |
+| Electron 迁移 | **框架迁移完成**（2026-06-18）：主进程管理前后端服务器、窗口关闭清理、打包配置（NSIS 安装包+便携版）；数据目录策略（开发/生产分离）；详见 `ELECTRON.md` |
+| 启动方式 | ① **Electron 模式**（推荐）：`npm run dev` 或 `start-electron.bat`，原生窗口、自动清理；② Chrome 应用模式：`start.vbs`（旧方式，仍可用）；③ 打包版：`npm run dist` 或 `build-electron.bat` 生成安装包/便携版 |
 
 ## 工作方式
 

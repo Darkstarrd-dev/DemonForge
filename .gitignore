@@ -5,7 +5,12 @@ __pycache__/
 .DS_Store
 *.pid
 dist/
+dist-electron/
 .chrome-profile/
 /assets/
 server/data/settings.json
 server/src/data/settings.json
+release/
+server/dist/
+frontend/dist/
+server/src/data/

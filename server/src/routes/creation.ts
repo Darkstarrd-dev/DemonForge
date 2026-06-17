@@ -1,14 +1,14 @@
 // 创作类端点集中处（novel-generator 集成·阶段 B/C：起源流程 + 生成/管理真实化）。
 import type { FastifyInstance, FastifyReply } from 'fastify'
-import { chatStream, type ProviderConfig } from '../llmClient.ts'
+import { chatStream, type ProviderConfig } from '../llmClient'
 import {
   ARCH_SYSTEM_PROMPT,
   BLUEPRINT_SYSTEM_PROMPT,
   DRAFT_SYSTEM_PROMPT,
   FINALIZE_SYSTEM_PROMPT,
   CONSISTENCY_SYSTEM_PROMPT,
-} from '../prompts.ts'
-import { assembleContext, type AssembleInput } from '../contextAssembler.ts'
+} from '../prompts'
+import { assembleContext, type AssembleInput } from '../contextAssembler'
 
 type ArchBody = ProviderConfig & { topic?: string; genre?: string; chapters?: number; guidance?: string }
 type BlueprintBody = ProviderConfig & {

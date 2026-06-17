@@ -1,10 +1,9 @@
 import type { FastifyInstance } from 'fastify'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { join } from 'node:path'
+import { getAppDataDir } from '../utils/paths'
 
-const ROOT = dirname(dirname(fileURLToPath(import.meta.url)))
-const DATA_DIR = join(ROOT, 'data')
+const DATA_DIR = getAppDataDir()
 const SETTINGS_PATH = join(DATA_DIR, 'settings.json')
 
 export function readSettings(): Record<string, unknown> {

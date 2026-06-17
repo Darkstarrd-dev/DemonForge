@@ -1,0 +1,64 @@
+{
+  "name": "novelhelper",
+  "version": "0.1.0",
+  "description": "综合小说创作辅助工具",
+  "main": "dist-electron/main.js",
+  "type": "module",
+  "scripts": {
+    "dev": "npm run build:electron && electron .",
+    "build:electron": "tsc -p electron/tsconfig.json",
+    "build:frontend": "cd frontend && npm run build",
+    "build:backend": "cd server && npm run build",
+    "build": "npm run build:backend && npm run build:frontend && npm run build:electron",
+    "pack": "npm run build && electron-builder --dir",
+    "dist": "npm run build && electron-builder",
+    "postinstall": "cd frontend && npm install && cd ../server && npm install"
+  },
+  "dependencies": {
+    "electron-squirrel-startup": "^1.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "electron": "^33.2.1",
+    "electron-builder": "^25.1.8",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  },
+  "build": {
+    "appId": "com.novelhelper.app",
+    "productName": "NovelHelper",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "dist-electron/**/*",
+      "frontend/dist/**/*",
+      "server/dist/**/*",
+      "server/node_modules/**/*",
+      "!server/node_modules/.cache/**/*"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        },
+        {
+          "target": "portable",
+          "arch": ["x64"]
+        }
+      ],
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    },
+    "portable": {
+      "artifactName": "${productName}-${version}-portable.exe"
+    }
+  }
+}

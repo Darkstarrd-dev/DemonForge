@@ -4,10 +4,10 @@ import { existsSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { tmpdir } from 'node:os'
-import { llmRoutes } from './routes/llm.ts'
-import { creationRoutes } from './routes/creation.ts'
-import { settingsRoutes } from './routes/settings.ts'
-import { storeRoutes } from './routes/store.ts'
+import { llmRoutes } from './routes/llm'
+import { creationRoutes } from './routes/creation'
+import { settingsRoutes } from './routes/settings'
+import { storeRoutes } from './routes/store'
 
 const PORT = Number(process.env.PORT ?? 8787)
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)))

@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify'
-import { listModels, chatStream, embed, type ProviderConfig } from '../llmClient.ts'
-import { M1_CLEAN_SYSTEM_PROMPT } from '../prompts.ts'
+import { listModels, chatStream, embed, type ProviderConfig } from '../llmClient'
+import { M1_CLEAN_SYSTEM_PROMPT } from '../prompts'
 
 type TestBody = ProviderConfig
 type CleanBody = ProviderConfig & { content?: string; systemPrompt?: string }

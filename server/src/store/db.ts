@@ -1,17 +1,15 @@
 // 资产库（SQLite）数据层——业务数据持久化到 <资产目录>/novelhelper.db。
 // 设计：每个实体一张表，统一 (id TEXT PRIMARY KEY, data TEXT) 整实体存 JSON（文档式，
 // 契合 types.ts 灵活字段；字段演进无需迁移）。资产目录可在运行中切换：getDb() 比对路径，
-// 变更即关旧库、按新路径开库建表。设置与 API key 不在此库，仍存 server/src/data/settings.json。
+// 变更即关旧库、按新路径开库建表。设置与 API key 不在此库，仍存用户数据目录的 settings.json。
 import Database from 'better-sqlite3'
 import * as sqliteVec from 'sqlite-vec'
 import { existsSync, mkdirSync } from 'node:fs'
-import { dirname, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
-import { readSettings } from '../routes/settings.ts'
+import { join } from 'node:path'
+import { readSettings } from '../routes/settings'
+import { getAppDataDir } from '../utils/paths'
 
-const HERE = dirname(fileURLToPath(import.meta.url)) // server/src/store
-const REPO_ROOT = dirname(dirname(dirname(HERE)))    // store → src → server → repo
-const DEFAULT_ASSET_DIR = join(REPO_ROOT, 'assets')
+const DEFAULT_ASSET_DIR = join(getAppDataDir(), 'assets')
 
 // 前端 AppState 键 ↔ SQLite 表名
 const ENTITIES = [

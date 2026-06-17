@@ -1,9 +1,9 @@
 // 上下文组装器（Context Assembler）—— DESIGN §4 点名的 M3/M4/M5 共用核心组件。
 // 给定 book/章节/场景/目标角色，从资产库收集创作所需的全部上下文，返回结构化对象。
 // 阶段 A 只做数据收集骨架，不拼最终 prompt（各创作端点在阶段 B/C 消费此对象自行拼装）。
-import { readAll } from './store/db.ts'
-import { queryVectorStore, type RagChunk } from './store/vector.ts'
-import type { ProviderConfig } from './llmClient.ts'
+import { readAll } from './store/db'
+import { queryVectorStore, type RagChunk } from './store/vector'
+import type { ProviderConfig } from './llmClient'
 
 // 后端无共享 types（前端 services/types.ts 不被后端引用），此处内联所需最小字段。
 interface BookLite { id: string; globalSummary?: string }

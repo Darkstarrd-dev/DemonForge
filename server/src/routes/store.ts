@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify'
-import { readAll, syncAll } from '../store/db.ts'
-import { addToVectorStore, queryVectorStore, type ChunkMeta } from '../store/vector.ts'
-import type { ProviderConfig } from '../llmClient.ts'
+import { readAll, syncAll } from '../store/db'
+import { addToVectorStore, queryVectorStore, type ChunkMeta } from '../store/vector'
+import type { ProviderConfig } from '../llmClient'
 
 type VectorAddBody = ProviderConfig & { texts?: string[]; meta?: ChunkMeta }
 type VectorQueryBody = ProviderConfig & { queryText?: string; k?: number; bookId?: string }

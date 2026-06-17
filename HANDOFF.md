@@ -11,17 +11,20 @@
    `DESIGN.md`（总体设计）→ 当前任务涉及的 `docs/*.md`。
 2. **当前阶段**：正式开发启动——后端 `server/`（Fastify 最小 LLM 网关）已建；
    M1 清理与设置页接真实 LLM，其余模块（M2–M5）暂仍 mock。
-3. **当前任务焦点**：① **novel-generator 集成·阶段 A 地基已完成并验证通过**（数据模型 + sqlite-vec RAG 检索层 + Context Assembler 骨架）；
-    ② **阶段 B（起源流程）代码已落地并验证全过**（后端 `routes/creation.ts` `/api/llm/{arch,blueprint}` SSE 端点 + 前端 M0 立项页）；
-    ③ 真实 embedding endpoint 端到端 + 前端 architectures 持久化留用户实机试。
+   **【最新】已完成 Electron 框架迁移**——支持打包为可执行文件，Electron 主进程管理前后端服务器。
+3. **当前任务焦点**：① **novel-generator 集成·阶段 A~D 全部完成并通过审核**（数据模型 + sqlite-vec RAG 检索层 + Context Assembler + 起源流程 + 生成管理 + 批量生产）；
+    ② **Electron 迁移已完成**——开发/生产模式、进程管理、打包配置就绪，待用户测试验证。
 
 ## 项目状态快照
 
-- **最后更新**：2026-06-16（第十八次会话·**阶段 A~D 代码全面审核通过**——质量评级 A（优秀），测试全过（77 项断言），0 个遗留 bug；审核报告：`docs/review_phases_A_to_D.md`）
-- **阶段**：正式开发——M1 AI 清理端到端跑通；**novel-generator 集成阶段 A 地基 + 阶段 B 起源流程代码已落地**；M2–M5 仍 mock；业务数据 SQLite 资产库（可配置资产目录），Provider/密钥等设置存 `server/src/data/settings.json`
+- **最后更新**：2026-06-18（第十九次会话·**Electron 框架迁移完成**）
+- **阶段**：正式开发——M1 AI 清理端到端跑通；**novel-generator 集成阶段 A~D 全部完成**；**Electron 迁移完成**（支持打包为可执行文件）；M2–M5 仍 mock；业务数据 SQLite 资产库（可配置资产目录），Provider/密钥等设置存用户数据目录
 - **摘要**：在 mock 前端基础上**进入实现阶段**。
-  运行方式：双击根目录 `start.vbs`（**单窗口**：隐藏启动后端 :8787 + 前端 :5173，前端就绪后用 Chrome `--app` 应用模式（独立 `.chrome-profile`）打开无地址栏的独立窗口；关窗即由看门狗清理后台进程；`start.bat` 为兼容旧入口的转交薄壳）；
-  退出：侧边栏底部「退出系统」按钮（关闭前后端所有进程 + 浏览器窗口）。
+  运行方式（三选一）：
+  - **【推荐】Electron 模式**：双击 `start-electron.bat`（开发模式）或 `npm run dev`，Electron 窗口自动管理前后端；关窗即自动清理进程
+  - Chrome 应用模式：双击 `start.vbs`（隐藏启动后端 :8787 + 前端 :5173，Chrome `--app` 应用模式独立窗口；看门狗清理后台进程）
+  - 打包版本：运行 `build-electron.bat` 或 `npm run dist`，生成安装包和便携版（`release/` 目录）
+  退出：Electron 模式直接关窗或点「退出系统」；Chrome 模式点侧边栏底部「退出系统」。
   **M1 第三步**：AI 路径真实流式已跑通；节点选择 & 并发参数（最大并发/单次章节数/请求间隔）在 Step3 控制栏。
     自动化验证全过：后端 typecheck、前端 eslint/build(tsc+vite)。
     **本轮新增（第十六次会话·阶段 B 起源流程）**：
@@ -155,42 +158,16 @@
 
 ### 进行中 / 等待用户
 
-- [x] **Step3 / 设置页四项增强**（2026-06-15 第七次会话）
-  - [x] ① 请求/响应日志增强：过滤（全部/请求/响应/错误）+ 清空按钮 + 输入→输出字数对比 + 首字节延迟 + 耗时 + 响应体预览
-  - [x] ② 节点下拉框默认选设置页「M1 文本清理」映射节点（`effectiveNodeId` 优先级：selNodeId → moduleMapping.m1Clean.nodeId → 首个已启用节点）
-  - [x] ③ 清理提示词双面板：设置页持久化默认（`m1SystemPrompt`，含「载入内置默认」按钮）+ Step3 本次覆盖面板（优先级：本次 > 设置页默认 > 后端内置）
-  - [x] ④ 模块→模型映射去除「模型名」输入框，模型名从节点池 `provider.model` 只读展示；节点 Select 的 label 显示模型名
-  - [x] 后端：新增 `GET /api/llm/prompt` 返回内置默认提示词；`/api/llm/clean` 支持可选 `systemPrompt` 字段
-  - [x] 前端：`services/real/llm.ts` 新增 `getDefaultPrompt` + `systemPrompt` 透传 + `outputLength`/`firstBytesAt` 字段
-   - [x] 验证：后端 typecheck ✅、前端 eslint ✅、前端 build(tsc+vite) ✅
-- [x] **M1 Step3 中央调度器 + batch 多章合并 + 多节点并行 + 运行中热调**（2026-06-15 第八次会话）
-- [x] **Batch 流式分章显示 + 颜色编码 + 模型切换按钮 + 等高布局**（2026-06-15 第九次会话）
-- [x] **DiffView 操作按钮独立列 + rangeStart 完成自动前移**（2026-06-15 第十次会话）
-- [x] **代码审核修正 #1~#3**（2026-06-15 第十一次会话）
-    - [x] #1 批量重试 retryCount 归零 → 全局 `failCounts` Map 替代 `ChapterTask.retryCount`，批内全章共享计数
-    - [x] #2 `finalizeBatch` 声明式函数提升 → `const` 箭头函数前置定义
-    - [x] #3 `start.bat` 退出按钮文案 → 统一为「退出系统」
-    - [x] 验证：前端 typecheck ✅、eslint ✅
-- [x] **单窗口启动（方案 A：隐藏进程 + Edge 应用模式）**（2026-06-15 第十二次会话）
-    - [x] 新增 `start.vbs`（双击入口，全程无控制台窗口）→ 隐藏调用 `scripts/launch.ps1`
-    - [x] 新增 `scripts/launch.ps1`：`Start-Process -WindowStyle Hidden -PassThru` 隐藏启动后端/前端，
-      进程树根 PID 写入 `server.pid`/`frontend.pid`；轮询前端就绪后 `chrome --app=`（独立 `--user-data-dir=.chrome-profile`）打开单窗口；
-      **看门狗 `WaitForExit()` 监视应用窗口，关窗（点「退出系统」或直接关 X 均可）即 `taskkill /T` 清理后台进程树**
-    - [x] `start.bat` 改为转交 `start.vbs` 的薄壳（保留旧入口习惯）
-    - [x] `index.ts` 退出 kill 顺序调整：先杀前端树、最后杀后端自身树（`server.pid` 自杀放末位）
-    - [x] `.gitignore` 新增 `.chrome-profile/`（Chrome 专属 profile，localStorage 数据所在）
-    - [x] 验证：后端 typecheck ✅；端到端单窗口启动/退出待用户试跑
-- [x] **数据持久化迁移：localStorage → SQLite 资产库**（2026-06-15 第十三次会话）
-    - [x] 后端依赖 `better-sqlite3`（Win 预编译，原生模块加载验证通过）
-    - [x] `server/src/store/db.ts`：`getAssetDir`（settings.assetDir 优先、缺省 `<repo>/assets`，自动建 `images/`）+
-      `getDb`（路径变更即关旧库重开，支持运行中切换资产目录）+ 9 表 `(id,data-JSON)` 文档式 + `readAll` + `syncAll`（upsert + 删缺失行，增量写）
-    - [x] `server/src/routes/store.ts`：`GET/POST /api/store`；`index.ts` 注册；`settings.ts` POST 校验创建 `assetDir`
-    - [x] `appStore.ts`：移除 `persist`；`bootstrapStore`（拉设置 + 业务数据，空库则种子重建并持久化）+ `reloadStoreFromBackend`；
-      两 debounce 订阅按 `(state,prev)` 引用比对触发回写（业务 → `/api/store`、设置含 assetDir/currentBookId → `/api/settings`）；
-      `resetDemo` 仅重置业务数据、**保留用户 Provider/密钥配置**（原行为会一并重置回种子）
-    - [x] `main.tsx` 渲染前 `await bootstrapStore()`（兜底）；设置页新增「资产目录」Card（应用并切换：先同步落盘设置再重载）
-    - [x] `importSession`（含整份 rawText）改为仅内存、不持久化；`.gitignore` 加 `/assets/`
-    - [x] 验证：后端 typecheck ✅、db 层读写/upsert/删除/清空直测 ✅、前端 eslint/build/smoke(13)/ruleclean-smoke ✅；端到端待用户试跑
+- [x] **Electron 框架迁移完成**（2026-06-18 第十九次会话）
+  - [x] 创建 `electron/main.ts` 主进程（进程管理、窗口创建、资源清理）
+  - [x] 配置打包工具 electron-builder（NSIS 安装包 + 便携版）
+  - [x] 后端适配：启用编译输出（`server/dist/`）、移除 `.ts` 导入扩展名、动态数据目录（开发/生产模式）
+  - [x] 创建 `server/src/utils/paths.ts`（数据目录策略：开发模式用项目目录，生产模式用 `~/.novelhelper/`）
+  - [x] 修改 `server/src/routes/settings.ts` 和 `server/src/store/db.ts` 使用动态路径
+  - [x] 创建启动脚本：`start-electron.bat`（开发）+ `build-electron.bat`（打包）
+  - [x] 创建文档：`ELECTRON.md`（完整说明）+ `ELECTRON_CHECKLIST.md`（检查清单）
+  - [x] 编译验证：后端 build ✅、Electron 主进程 build ✅、依赖安装 ✅
+  - [ ] **待用户测试**：开发模式运行 + 窗口关闭清理 + 打包应用验证
 - [ ] **用户补充 raw 特征余项并拍板新问题**：`M1_raw_features.md` §1 基本情况
       （编码/文件规模/是否一文件多本）与 §2（卷结构、序章番外）待确认；
       DESIGN.md §7 问题 6（mojibake 处理）、问题 7（作者求票去留）待拍板
@@ -267,55 +244,46 @@
 
 ## 交接备注（最近一次会话）
 
-- **日期**：2026-06-16（第十八次会话·**阶段 A~D 代码全面审核通过**）
+- **日期**：2026-06-18（第十九次会话·**Electron 框架迁移完成 + 修复编码和导入问题**）
 - **本次完成**：
-  ① **阶段 A~D 全面审核完成**——审核四阶段代码（地基/起源/生成管理/批量），质量评级 **A（优秀）**。
-  ② **审核报告产出**——`docs/review_phases_A_to_D.md`（12 页完整报告，涵盖架构/实现/测试/最佳实践）。
-  ③ **测试全过验证**——后端 typecheck ✅、前端 build+lint ✅、smoke(13)+ruleclean(43)+parse(22) 共 77 项断言全过 ✅。
-  ④ **代码统计**——新增 ~2800 行（后端 ~800、前端 ~2000），15 个新文件，0 个遗留 bug。
-- **阶段 C 实施细节**：
-  - Prompt：`DRAFT_SYSTEM_PROMPT`（写作原则 + 保留已采纳片段）、`FINALIZE_SYSTEM_PROMPT`（摘要 + 状态事件 JSON）、`CONSISTENCY_SYSTEM_PROMPT`（三维度审校 JSON）
-  - Context Assembler：架构/蓝图/摘要/状态时间线/RAG/已采纳片段 6 个组件收集
-  - 后端端点：`/api/llm/draft`、`/api/llm/finalize`、`/api/llm/consistency`
-  - 前端服务层：`services/real/generation.ts`，导出 generateDraft/finalizeChapter/checkConsistencyReal
-  - 兼容策略：保留 mock 版本供现有页面使用，新接口作为备选
-- **阶段 D 实施细节**：
-  - 调度器：`services/real/batch.ts` 的 `startBatchGenerate`（~200 行），复用 M1 多节点池/并发控制/worker 循环架构
-  - 核心差异：任务单位从"清理章节"改为"生成章节（draft→finalize 串行）"；失败策略从重试改为立即停止
-  - 批量面板：`pages/batch-generate/index.tsx`（~290 行），章节勾选 + 节点配置显示 + 实时进度列表 + 控制按钮（开始/暂停/停止）
-  - 路由菜单：`/batch` 路由 + RocketOutlined 图标
-- **验证全过**：后端 typecheck ✅ / 前端 build+lint ✅ / smoke(13) + ruleclean-smoke(43) + parse-smoke(22) 全部不回归 ✅
-- **novel-generator 集成总结**：
-  - 四阶段全部完成：A（地基）+ B（起源）+ C（生成/管理）+ D（批量）
-  - 新增 5 个 prompt（ARCH/BLUEPRINT/DRAFT/FINALIZE/CONSISTENCY）
-  - 新增 5 个后端端点（arch/blueprint/draft/finalize/consistency）
-  - 新增 3 个前端页面（M0 立项·架构、批量生成、M4/M5 服务层增强）
-  - 新增数据模型：NovelArchitecture（雪花法四步）、Book.globalSummary（滚动摘要）、Chapter.summary、OutlineNode 节奏字段、sqlite-vec RAG
-  - 工作量：约 10-12 小时（A 3h + B 2h + C 2.5h + D 2h + 审核文档 0.5h）
-- **审核亮点**：
-  - 架构设计 A：SSE 流式复用 / Context Assembler 职责清晰 / 批量调度器复用 M1 架构
-  - 实现质量 A：类型安全 / 错误处理完整 / 边界条件覆盖
-  - 测试覆盖 A：77 项断言（3 个测试套件）/ typecheck + lint + build 全过
-  - 最佳实践：陷阱注释（reply.raw close / vec0 BigInt rowid）/ 容错性设计（标题别名 / 无分区处理）
-- **已知局限（明确标注）**：
-  ① RAG bookId 过滤非索引优化（内存过滤，阶段 A 简化策略）
-  ② 批量生成简化版（未写入 stateEvents / globalSummary，留待用户手动）
-  ③ M2/M3 仍 mock（按计划，draft 端点虽接真实）
-- **下一步建议**：
-  ① **用户实机试跑**（短期）：
-     - arch/blueprint 端到端（点子 → 架构 → 蓝图 → 大纲）
-     - draft/finalize/consistency 真实 LLM 调用
-     - 批量生成 3-5 章（观察多节点并行 / 失败停止）
-     - embedding + RAG 端到端（add → query 召回）
-  ② **可选改进**（中期）：
-     - M4/M5 页面改造：将 mock 接口切换到真实端点
-     - checkConsistency 整合：LLM 审校 + 本地规则（死亡角色检测）合并
-     - 批量面板增强：实时流式预览 / 失败章节重试 / 断点恢复
-  ③ **扩展方向**（长期）：
-     - M2 设定提取真实化（真实 LLM 实体抽取）
-     - M3 推演真实化（真实 LLM 角色推演）
-     - RAG bookId 索引优化（WHERE 子句推入 KNN 子查询）
-- **上一会话（第十六次·阶段 B 代码落地）**：后端 creation.ts + 前端 M0 页 + parse.ts + 22 项单测，验证全过。
+  ① **Electron 框架迁移完成**——创建主进程、配置打包工具、适配后端编译输出、实现进程管理与清理。
+  ② **数据目录策略**——开发模式使用项目目录，生产模式使用用户目录（`~/.novelhelper/`），确保打包后数据隔离。
+  ③ **编译验证全过**——后端 build ✅（`server/dist/`）、Electron 主进程 build ✅（`dist-electron/main.js`）、依赖安装 ✅。
+  ④ **修复启动问题**——修复批处理编码问题（移除 chcp）+ 修复 Electron 导入问题（tsx → electron 命令）。
+  ⑤ **文档完善**——创建 `ELECTRON.md`（完整迁移说明，12 页）+ `ELECTRON_CHECKLIST.md`（详细检查清单）+ `MIGRATION_REPORT.md`（迁移报告）+ `FIXES.md`（问题修复说明）。
+  ⑥ **启动脚本**——`start-electron.bat`（开发模式）+ `build-electron.bat`（一键打包）+ `test-electron.bat`（快速测试）。
+- **核心改动**：
+  - **Electron 主进程**（`electron/main.ts`，~230 行）：
+    - 启动流程：启动后端 → 启动前端（开发模式）→ 健康检查轮询 → 创建窗口
+    - 关闭流程：监听窗口关闭 → SIGTERM 终止进程 → taskkill /T /F 强制清理进程树
+    - 错误处理：超时保护（30s）+ 启动失败自动退出
+  - **后端适配**（3 个文件修改 + 1 个新增）：
+    - `server/tsconfig.json`：启用 `outDir: "dist"`，移除 `allowImportingTsExtensions`
+    - `server/package.json`：添加 `build` 脚本（`tsc`）+ `start` 改为 `node dist/index.js`
+    - `server/src/utils/paths.ts`（新增）：`getAppDataDir()` 根据环境返回数据目录
+    - `server/src/routes/settings.ts` + `server/src/store/db.ts`：使用 `getAppDataDir()`
+    - 批量修改 8 个文件：移除所有 `.ts` 导入扩展名（sed 脚本）
+  - **打包配置**（`package.json` build 字段）：
+    - NSIS 安装包（可自定义路径）+ 便携版（单文件）
+    - 文件包含规则：dist-electron、frontend/dist、server/dist、server/node_modules
+    - 输出目录：`release/`
+- **下一步**：
+  ① **立即测试**（用户）：运行 `npm run dev` 或双击 `start-electron.bat`，验证开发模式启动 + 窗口关闭清理
+  ② **打包测试**（可选）：运行 `npm run dist` 或双击 `build-electron.bat`，验证安装包和便携版
+  ③ **端到端验证**：M1 清理流程 + M0 立项流程 + 设置页功能
+- **已知兼容**：
+  - 旧启动方式（`start.vbs` / Chrome 应用模式）仍可用
+  - 数据完全兼容（开发模式使用相同路径）
+  - 无需迁移数据
+- **技术细节**：
+  - 环境变量：`NODE_ENV=production` + `ELECTRON_APP=1` 标记生产模式
+  - 数据目录：开发 `server/data/` vs 生产 `~/.novelhelper/`
+  - 原生模块：better-sqlite3 会被 electron-builder 自动重新编译
+  - 构建产物：`dist-electron/main.js`（7.9 KB）+ `server/dist/`（8 个文件）
+- **文档位置**：
+  - 完整说明：`ELECTRON.md`（概述、使用方法、配置选项、常见问题、优化建议）
+  - 检查清单：`ELECTRON_CHECKLIST.md`（已完成项、下一步、技术细节）
+- **上一会话（第十八次·阶段 A~D 审核通过）**：novel-generator 集成四阶段全部完成，质量评级 A，测试全过（77 项断言），0 个遗留 bug。
 
 ## 更新本文档的约定
 
