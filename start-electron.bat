@@ -1,6 +1,9 @@
 @echo off
-rem 将控制台代码页切换为 UTF-8(65001)，避免 Node 以 UTF-8 输出的中文日志被
-rem 当成 GBK 解码而出现乱码（如 "妫€娴嬪埌" 应为 "检测到"）。
+rem Switch console code page to UTF-8(65001) so UTF-8 output from Node is
+rem not mis-decoded as GBK by the parent CMD console (which garbles Chinese).
+rem NOTE: this bat file itself MUST stay pure ASCII, because CMD reads .bat
+rem bytes using the system default code page (GBK on zh-CN) BEFORE chcp runs,
+rem so any non-ASCII comment here would be mis-parsed and break the script.
 chcp 65001 > nul
 
 echo ========================================

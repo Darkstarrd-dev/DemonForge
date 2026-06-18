@@ -18,9 +18,9 @@
 
 ## 项目状态快照
 
-- **最后更新**：2026-06-18（第二十一次会话·**修复 3D Demo WASM 崩溃 + Error Boundary + Electron 日志英文化**）
+- **最后更新**：2026-06-18（第二十二次会话·**修复 start-electron.bat 启动报错**）
 - **阶段**：正式开发——M1 AI 清理端到端跑通；**novel-generator 集成阶段 A~D 全部完成**；**Electron 迁移完成**；M2–M5 仍 mock；业务数据 SQLite 资产库（可配置资产目录），Provider/密钥等设置存用户数据目录
-- **新增**：全局 Error Boundary（`components/ErrorBoundary.tsx`）兜住子树异常防止白屏；3D Demo animate 循环异常安全修复（init 单例化 + try/catch + 时序修正）；Electron 主进程控制台日志改纯英文避免 Windows GBK 乱码
+- **新增**：全局 Error Boundary（`components/ErrorBoundary.tsx`）兜住子树异常防止白屏；3D Demo animate 循环异常安全修复（init 单例化 + try/catch + 时序修正）；Electron 主进程控制台日志改纯英文避免 Windows GBK 乱码；**`start-electron.bat`/`start.bat` 注释改纯 ASCII + CRLF（消除 CMD 启动报错）**
 - **摘要**：在 mock 前端基础上**进入实现阶段**。
   运行方式（三选一）：
   - **【推荐】Electron 模式**：双击 `start-electron.bat`（开发模式）或 `npm run dev`，Electron 窗口自动管理前后端；关窗即自动清理进程
@@ -160,6 +160,10 @@
 
 ### 进行中 / 等待用户
 
+- [x] **`start-electron.bat` 启动报错已修复**（2026-06-18 第二十二次会话）
+  - [x] **根因**：`start-electron.bat` / `start.bat` 是 **UTF-8（无 BOM）+ LF** 保存，开头带中文 `rem` 注释。Windows CMD 用系统默认代码页 **GBK(936)** 读取 .bat 字节，中文注释被当 GBK 解码成乱码（`侊紙濡?"濡偓濞村鍩?...`），乱码字节错位破坏 `rem` 注释边界，把乱码片段拼上下一行 `chcp 65001 > nul` 当一条命令执行 → 报错；`UTF-8` 里的 `-8` 也被切出来当命令 → `'-8' 不是内部或外部命令`。**关键**：`chcp 65001` 写在 bat 里救不了 bat 自己——CMD 读 .bat 用系统代码页，在 chcp 执行之前完成，故「UTF-8 中文 bat + 开头 chcp 65001」是经典反模式
+  - [x] **修复**：`start-electron.bat` / `start.bat` 的中文 `rem` 注释改纯英文；换行 LF → CRLF；保留 `chcp 65001`（它对 bat 之后 Node/Electron 的 UTF-8 输出仍有效）
+  - [x] **验证**：`file` 报告 `ASCII text, with CRLF line terminators` ✅；全文非 ASCII 字节扫描 `no non-ASCII bytes found` ✅（`build-electron.bat`/`test-electron.bat`/`verify-electron.bat` 本就纯英文，无需改）
 - [x] **3D Demo WASM 崩溃 + 全局白屏已修复**（2026-06-18 第二十一次会话）
   - [x] **根因**：① `requestAnimationFrame` 排在 `world.step()` 之前，异常后下一帧已入队无法取消 → WASM 堆无限异常循环彻底损坏；② `RAPIER.init()` 模块级 `rapierReady` 布尔标记在 StrictMode/HMR 下不可靠；③ 无 Error Boundary 兜底，WASM 异常穿透 React 树 → 白屏
   - [x] **修复 `demo-3d/index.tsx`**：init 单例化（`ensureRapierReady()` 全局 promise）；animate 整帧 try/catch + 任意异常立即 stop；`requestAnimationFrame` 移到 step 成功之后（不再先排下一帧再步进）；stop 幂等 + `world.free()` 包 try/catch；复位按钮 async 确保旧引擎完全销毁后再重启
@@ -252,19 +256,18 @@
 
 ## 交接备注（最近一次会话）
 
-- **日期**：2026-06-18（第二十一次会话·**修复 3D Demo WASM 崩溃 + 全局白屏 + Electron 日志乱码**）
+- **日期**：2026-06-18（第二十二次会话·**修复 start-electron.bat 启动报错**）
 - **本次完成**：
-  ① **修复 3D Demo WASM 崩溃**（`demo-3d/index.tsx` 重写）：init 单例化 + animate 整帧 try/catch + requestAnimationFrame 时序修正 + 稳健 stop（world.free 包 try/catch）+ 复位按钮 async
-  ② **新增全局 Error Boundary**（`components/ErrorBoundary.tsx`）：class 组件，getDerivedStateFromError + componentDidCatch，fallback 含重置/首页按钮
-  ③ **main.tsx 路由层包 ErrorBoundary**：兜住整个 Routes，防止 WASM 异常穿透导致白屏
-  ④ **Electron 控制台日志英文化**（`electron/main.ts` + `start-electron.bat`）：所有 console.* 输出改纯 ASCII，避免 Windows GBK 控制台中文乱码；`chcp 65001` 保留但注释说明对 Electron 子控制台不一定生效
-  ⑤ **更新 HANDOFF.md**：标记 3D Demo bug 已修复
-  ⑥ **验证**：前端 build + lint + tsc ✅；Electron build ✅
+  ① **修复 `start-electron.bat` / `start.bat` 启动报错**：根因是 bat 文件以 UTF-8+LF 保存且开头带中文 `rem` 注释，CMD 用 GBK 解码导致注释乱码错位、`chcp 65001 > nul` 被拼进乱码当命令执行；修复为纯英文注释 + CRLF 换行（`chcp 65001` 保留用于后续 Node/Electron UTF-8 输出）
+  ② **验证**：`file` 报告 ASCII + CRLF ✅；全文非 ASCII 字节扫描通过 ✅
+  ③ **更新 HANDOFF.md**：记录根因与修复，新增"bat 文件须保持纯 ASCII"提醒
 - **已知限制**：
   ① `[Frontend]` 日志中的 Vite 彩色箭头 `➜`（U+279C）在 GBK 控制台仍会截断乱码——这是 Vite 自身的 chalk 输出，需 `FORCE_COLOR=0` 才能彻底消除，当前未加
+  ② **bat 文件必须保持纯 ASCII**：编辑器若把 `.bat` 存成 UTF-8 + 中文注释，双击运行时 CMD 用 GBK 解码会破坏脚本（本次踩坑）。今后编辑 `.bat` 务必英文注释 + CRLF
 - **下一步**：
-  ① 实机验证 3D Demo 正常运行 + 复位 + 路由切换不再白屏
-  ② 验证 M1 清理流程 + M0 立项流程
+  ① 实机验证 `start-electron.bat` 启动不再报 `'-8'`/乱码错误，Electron 正常拉起
+  ② 实机验证 3D Demo 正常运行 + 复位 + 路由切换不再白屏
+  ③ 验证 M1 清理流程 + M0 立项流程
 
 ## 更新本文档的约定
 
