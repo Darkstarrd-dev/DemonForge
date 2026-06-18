@@ -18,9 +18,9 @@
 
 ## 项目状态快照
 
-- **最后更新**：2026-06-18（第二十二次会话·**修复 start-electron.bat 启动报错**）
+- **最后更新**：2026-06-18（第二十三次会话·**书库删除功能 + UI 清理 + M0 节点 fallback 修复**）
 - **阶段**：正式开发——M1 AI 清理端到端跑通；**novel-generator 集成阶段 A~D 全部完成**；**Electron 迁移完成**；M2–M5 仍 mock；业务数据 SQLite 资产库（可配置资产目录），Provider/密钥等设置存用户数据目录
-- **新增**：全局 Error Boundary（`components/ErrorBoundary.tsx`）兜住子树异常防止白屏；3D Demo animate 循环异常安全修复（init 单例化 + try/catch + 时序修正）；Electron 主进程控制台日志改纯英文避免 Windows GBK 乱码；**`start-electron.bat`/`start.bat` 注释改纯 ASCII + CRLF（消除 CMD 启动报错）**
+- **新增**：HomePage 书库概览新增删除功能（`appStore.deleteBook` 级联清理 chapters/cards/outline/architectures/scenes/fragments/stateEvents/issues/mergeCandidates + 删当前作品自动切到首个剩余 project；弹窗勾选确认后才执行）；移除 Header 右上角 mock 演示提示 Tag；修复 M0 立项「请选择生成节点」假报错（`runArch`/`runBlueprint` 改用 `archNodeId ?? resolveArchNode()`，默认映射节点现在真正生效）；Error Boundary / 3D Demo animate 修复 / start-electron.bat 纯 ASCII（沿用上一轮）
 - **摘要**：在 mock 前端基础上**进入实现阶段**。
   运行方式（三选一）：
   - **【推荐】Electron 模式**：双击 `start-electron.bat`（开发模式）或 `npm run dev`，Electron 窗口自动管理前后端；关窗即自动清理进程
@@ -160,6 +160,12 @@
 
 ### 进行中 / 等待用户
 
+- [x] **书库删除功能 + UI 清理 + M0 节点 fallback 修复**（2026-06-18 第二十三次会话）
+  - [x] **书库概览页添加删除按钮**：每行「操作」列放删除按钮 → 弹出 Modal 列出该书的章节/卡片/场景数量等将删数据 → 底部 Checkbox「我已了解将删除以上全部数据」必须勾选后红色「确认删除」按钮才可用（未勾选 disabled）；`destroyOnClose` 每次打开重置勾选
+  - [x] **`appStore.deleteBook(id)` 级联清理**：一次调用清理 books/chapters/cards/outline/architectures/scenes/fragments（按 sceneId 间接）/stateEvents/issues/mergeCandidates（按 cardId 间接）；删当前作品时 `currentBookId` 自动切到首个剩余 project，无则置空
+  - [x] **移除 Header 右上角 mock 演示模式 Tag**：`AppLayout.tsx` 删除 `<Tag>` 及未用 import
+  - [x] **修复 M0 立项「请选择生成节点」假报错**：根因是 Select 显示值用 `archNodeId ?? resolveArchNode()`（看着已选），但 `runArch` 实际调 `getProvider(archNodeId)` 时 state 仍为 null（用户走默认映射没手动改下拉）→ `getProvider(null)` 误报。修复：`runArch`/`runBlueprint` 均改用 `archNodeId ?? resolveArchNode()`，默认映射节点真正生效
+  - [x] **验证全过**：前端 eslint ✅ / build(tsc+vite) ✅（16s）
 - [x] **`start-electron.bat` 启动报错已修复**（2026-06-18 第二十二次会话）
   - [x] **根因**：`start-electron.bat` / `start.bat` 是 **UTF-8（无 BOM）+ LF** 保存，开头带中文 `rem` 注释。Windows CMD 用系统默认代码页 **GBK(936)** 读取 .bat 字节，中文注释被当 GBK 解码成乱码（`侊紙濡?"濡偓濞村鍩?...`），乱码字节错位破坏 `rem` 注释边界，把乱码片段拼上下一行 `chcp 65001 > nul` 当一条命令执行 → 报错；`UTF-8` 里的 `-8` 也被切出来当命令 → `'-8' 不是内部或外部命令`。**关键**：`chcp 65001` 写在 bat 里救不了 bat 自己——CMD 读 .bat 用系统代码页，在 chcp 执行之前完成，故「UTF-8 中文 bat + 开头 chcp 65001」是经典反模式
   - [x] **修复**：`start-electron.bat` / `start.bat` 的中文 `rem` 注释改纯英文；换行 LF → CRLF；保留 `chcp 65001`（它对 bat 之后 Node/Electron 的 UTF-8 输出仍有效）
@@ -256,18 +262,19 @@
 
 ## 交接备注（最近一次会话）
 
-- **日期**：2026-06-18（第二十二次会话·**修复 start-electron.bat 启动报错**）
+- **日期**：2026-06-18（第二十三次会话·**书库删除功能 + UI 清理 + M0 节点 fallback 修复**）
 - **本次完成**：
-  ① **修复 `start-electron.bat` / `start.bat` 启动报错**：根因是 bat 文件以 UTF-8+LF 保存且开头带中文 `rem` 注释，CMD 用 GBK 解码导致注释乱码错位、`chcp 65001 > nul` 被拼进乱码当命令执行；修复为纯英文注释 + CRLF 换行（`chcp 65001` 保留用于后续 Node/Electron UTF-8 输出）
-  ② **验证**：`file` 报告 ASCII + CRLF ✅；全文非 ASCII 字节扫描通过 ✅
-  ③ **更新 HANDOFF.md**：记录根因与修复，新增"bat 文件须保持纯 ASCII"提醒
+  ① **书库概览页添加删除功能**：`appStore.deleteBook(id)` 级联清理一本书的全部关联数据（章节/卡片/大纲/架构/场景/片段/状态事件/问题/合并候选），删当前作品自动切换；HomePage 表格新增「操作」列删除按钮 → Modal 列出待删数据量 + Checkbox 勾选确认（未勾选「确认删除」按钮 disabled）
+  ② **移除 Header 右上角 mock 演示模式 Tag**（连同未用的 Tag import）
+  ③ **修复 M0 立项·架构「请选择生成节点」假报错**：根因是 `runArch` 用裸 `archNodeId`（state 为 null），而 Select 显示值带 `resolveArchNode()` fallback；修复让两个生成动作（arch / blueprint）都用 `archNodeId ?? resolveArchNode()`，默认映射节点生效
+  ④ **验证**：前端 eslint ✅ / build(tsc+vite) ✅
 - **已知限制**：
   ① `[Frontend]` 日志中的 Vite 彩色箭头 `➜`（U+279C）在 GBK 控制台仍会截断乱码——这是 Vite 自身的 chalk 输出，需 `FORCE_COLOR=0` 才能彻底消除，当前未加
-  ② **bat 文件必须保持纯 ASCII**：编辑器若把 `.bat` 存成 UTF-8 + 中文注释，双击运行时 CMD 用 GBK 解码会破坏脚本（本次踩坑）。今后编辑 `.bat` 务必英文注释 + CRLF
+  ② **bat 文件必须保持纯 ASCII**：编辑器若把 `.bat` 存成 UTF-8 + 中文注释，双击运行时 CMD 用 GBK 解码会破坏脚本。今后编辑 `.bat` 务必英文注释 + CRLF
 - **下一步**：
-  ① 实机验证 `start-electron.bat` 启动不再报 `'-8'`/乱码错误，Electron 正常拉起
-  ② 实机验证 3D Demo 正常运行 + 复位 + 路由切换不再白屏
-  ③ 验证 M1 清理流程 + M0 立项流程
+  ① 实机验证书库删除流程（弹窗勾选确认、级联清理、当前作品切换）
+  ② 实机验证 M0 立项生成架构/蓝图不再误报「请选择生成节点」
+  ③ 验证 Header 已无 mock 提示
 
 ## 更新本文档的约定
 

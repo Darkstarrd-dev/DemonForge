@@ -97,7 +97,7 @@ export default function M0ArchitecturePage() {
       message.warning('请先填写主题')
       return
     }
-    const prov = getProvider(archNodeId)
+    const prov = getProvider(archNodeId ?? resolveArchNode())
     if (!prov) {
       message.warning('请选择生成节点（设置页配置）')
       return
@@ -152,7 +152,7 @@ export default function M0ArchitecturePage() {
       message.warning('请先采纳架构')
       return
     }
-    const prov = getProvider(blueprintNodeId)
+    const prov = getProvider(blueprintNodeId ?? resolveBpNode())
     if (!prov) {
       message.warning('请选择生成节点')
       return

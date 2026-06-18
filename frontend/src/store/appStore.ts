@@ -57,6 +57,8 @@ export interface AppState {
   updateChapter: (id: string, patch: Partial<Chapter>) => void
   updateCard: (id: string, patch: Partial<EntityCard>) => void
   updateIssue: (id: string, patch: Partial<ConsistencyIssue>) => void
+  /** 删除一本书及其全部关联数据（级联）。删除当前作品时切到首个剩余 project，无则置空 */
+  deleteBook: (id: string) => void
   resetDemo: () => void
 }
 
@@ -104,6 +106,33 @@ export const useAppStore = create<AppState>()((set) => ({
     set((s) => ({
       issues: s.issues.map((i) => (i.id === id ? { ...i, ...patch } : i)),
     })),
+  deleteBook: (id) =>
+    set((s) => {
+      // 收集待删 book 下的场景 id 与卡片 id，用于级联清理间接引用的 fragments / mergeCandidates
+      const bookSceneIds = new Set(s.scenes.filter((sc) => sc.bookId === id).map((sc) => sc.id))
+      const bookCardIds = new Set(s.cards.filter((c) => c.bookId === id).map((c) => c.id))
+      const remainingBooks = s.books.filter((b) => b.id !== id)
+      // 删除当前作品时：切到首个剩余 project；无 project 则置空
+      const currentBookId =
+        s.currentBookId === id
+          ? remainingBooks.filter((b) => b.type === 'project')[0]?.id ?? ''
+          : s.currentBookId
+      return {
+        books: remainingBooks,
+        chapters: s.chapters.filter((c) => c.bookId !== id),
+        cards: s.cards.filter((c) => c.bookId !== id),
+        outline: s.outline.filter((o) => o.bookId !== id),
+        architectures: s.architectures.filter((a) => a.bookId !== id),
+        scenes: s.scenes.filter((sc) => sc.bookId !== id),
+        fragments: s.fragments.filter((f) => !bookSceneIds.has(f.sceneId)),
+        stateEvents: s.stateEvents.filter((e) => e.bookId !== id),
+        issues: s.issues.filter((i) => i.bookId !== id),
+        mergeCandidates: s.mergeCandidates.filter(
+          (m) => !bookCardIds.has(m.cardAId) && !bookCardIds.has(m.cardBId),
+        ),
+        currentBookId,
+      }
+    }),
   // 仅重置业务数据 + 导入会话；保留 providers/moduleMapping/m1SystemPrompt/assetDir（用户配置）
   resetDemo: () =>
     set({

@@ -1,4 +1,4 @@
-import { Button, Layout, Menu, Select, Space, Tag, Typography } from 'antd'
+import { Button, Layout, Menu, Select, Space, Typography } from 'antd'
 import {
   BookOutlined,
   PoweroffOutlined,
@@ -94,7 +94,6 @@ export default function AppLayout() {
               options={projects.map((b) => ({ value: b.id, label: b.title }))}
             />
           </Space>
-          <Tag color="orange">mock 演示模式 · AI 反馈均为模拟</Tag>
         </Layout.Header>
         <Layout.Content style={{ padding: 16, overflow: 'auto' }}>
           <Outlet />
