@@ -11,6 +11,8 @@ import {
   FolderOpenOutlined,
   RocketOutlined,
   SettingOutlined,
+  BlockOutlined,
+  AppstoreOutlined,
 } from '@ant-design/icons'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useAppStore } from '../store/appStore'
@@ -24,6 +26,8 @@ const MENU_ITEMS = [
   { key: '/m4', icon: <FileTextOutlined />, label: 'M4 章节生成' },
   { key: '/m5', icon: <FolderOpenOutlined />, label: 'M5 章节管理' },
   { key: '/batch', icon: <RocketOutlined />, label: '批量生产' },
+  { key: '/demo-3d', icon: <BlockOutlined />, label: '3D环境Demo' },
+  { key: '/demo-2d', icon: <AppstoreOutlined />, label: '2D环境Demo' },
   { key: '/settings', icon: <SettingOutlined />, label: '系统设置' },
 ]
 

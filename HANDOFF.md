@@ -17,8 +17,9 @@
 
 ## 项目状态快照
 
-- **最后更新**：2026-06-18（第十九次会话·**Electron 框架迁移完成**）
-- **阶段**：正式开发——M1 AI 清理端到端跑通；**novel-generator 集成阶段 A~D 全部完成**；**Electron 迁移完成**（支持打包为可执行文件）；M2–M5 仍 mock；业务数据 SQLite 资产库（可配置资产目录），Provider/密钥等设置存用户数据目录
+- **最后更新**：2026-06-18（第二十次会话·**添加 3D/2D 物理引擎 Demo 页**）
+- **阶段**：正式开发——M1 AI 清理端到端跑通；**novel-generator 集成阶段 A~D 全部完成**；**Electron 迁移完成**；M2–M5 仍 mock；业务数据 SQLite 资产库（可配置资产目录），Provider/密钥等设置存用户数据目录
+- **新增**：侧边栏两个 Demo 选项（3D环境Demo + 2D环境Demo），使用 three.js/Rapier3D 和 Phaser/Matter.js 实现方块掉落刚体演示
 - **摘要**：在 mock 前端基础上**进入实现阶段**。
   运行方式（三选一）：
   - **【推荐】Electron 模式**：双击 `start-electron.bat`（开发模式）或 `npm run dev`，Electron 窗口自动管理前后端；关窗即自动清理进程
@@ -158,6 +159,9 @@
 
 ### 进行中 / 等待用户
 
+- [ ] **3D/2D Demo 已知问题待修复**
+  - [ ] **3D Demo 复位不生效**：点复位后 Rapier WASM 报 `recursive use / unsafe aliasing` 错误，需要完全停止并重建场景才能生效，当前写法触发并发访问冲突
+  - [ ] **3D → 2D 白屏**：在 3D Demo 中点复位后，导航切换到 2D Demo 页面整个白屏，需关掉 app 重启才能恢复（疑似复位操作破坏了 React 渲染树或 Phaser 容器状态）
 - [x] **Electron 框架迁移完成**（2026-06-18 第十九次会话）
   - [x] 创建 `electron/main.ts` 主进程（进程管理、窗口创建、资源清理）
   - [x] 配置打包工具 electron-builder（NSIS 安装包 + 便携版）
@@ -244,46 +248,20 @@
 
 ## 交接备注（最近一次会话）
 
-- **日期**：2026-06-18（第十九次会话·**Electron 框架迁移完成 + 修复编码和导入问题**）
+- **日期**：2026-06-18（第二十次会话·**添加 3D/2D 物理引擎 Demo 页面**）
 - **本次完成**：
-  ① **Electron 框架迁移完成**——创建主进程、配置打包工具、适配后端编译输出、实现进程管理与清理。
-  ② **数据目录策略**——开发模式使用项目目录，生产模式使用用户目录（`~/.novelhelper/`），确保打包后数据隔离。
-  ③ **编译验证全过**——后端 build ✅（`server/dist/`）、Electron 主进程 build ✅（`dist-electron/main.js`）、依赖安装 ✅。
-  ④ **修复启动问题**——修复批处理编码问题（移除 chcp）+ 修复 Electron 导入问题（tsx → electron 命令）。
-  ⑤ **文档完善**——创建 `ELECTRON.md`（完整迁移说明，12 页）+ `ELECTRON_CHECKLIST.md`（详细检查清单）+ `MIGRATION_REPORT.md`（迁移报告）+ `FIXES.md`（问题修复说明）。
-  ⑥ **启动脚本**——`start-electron.bat`（开发模式）+ `build-electron.bat`（一键打包）+ `test-electron.bat`（快速测试）。
-- **核心改动**：
-  - **Electron 主进程**（`electron/main.ts`，~230 行）：
-    - 启动流程：启动后端 → 启动前端（开发模式）→ 健康检查轮询 → 创建窗口
-    - 关闭流程：监听窗口关闭 → SIGTERM 终止进程 → taskkill /T /F 强制清理进程树
-    - 错误处理：超时保护（30s）+ 启动失败自动退出
-  - **后端适配**（3 个文件修改 + 1 个新增）：
-    - `server/tsconfig.json`：启用 `outDir: "dist"`，移除 `allowImportingTsExtensions`
-    - `server/package.json`：添加 `build` 脚本（`tsc`）+ `start` 改为 `node dist/index.js`
-    - `server/src/utils/paths.ts`（新增）：`getAppDataDir()` 根据环境返回数据目录
-    - `server/src/routes/settings.ts` + `server/src/store/db.ts`：使用 `getAppDataDir()`
-    - 批量修改 8 个文件：移除所有 `.ts` 导入扩展名（sed 脚本）
-  - **打包配置**（`package.json` build 字段）：
-    - NSIS 安装包（可自定义路径）+ 便携版（单文件）
-    - 文件包含规则：dist-electron、frontend/dist、server/dist、server/node_modules
-    - 输出目录：`release/`
+  ① 添加 three.js、@dimforge/rapier3d-compat、phaser 三个依赖
+  ② 创建 `frontend/src/pages/demo-3d/index.tsx` — Three.js + Rapier3D 方块掉落刚体演示，带 OrbitControls（鼠标拖拽旋转视角）
+  ③ 创建 `frontend/src/pages/demo-2d/index.tsx` — Phaser + Matter.js 方块掉落刚体演示
+  ④ 侧边栏新增「3D环境Demo」「2D环境Demo」两个菜单项，路由懒加载（`lazy()` + Suspense）
+  ⑤ 两个 Demo 均有复位按钮（ReloadOutlined 图标）
+  ⑥ 构建与 lint 验证通过
+- **已知待处理问题**：
+  ① **3D Demo 复位不生效**：复位按钮在 Rapier WASM 运行期内操作刚体触发 `recursive use / unsafe aliasing` 并发冲突，当前通过 `stop()` + 重建场景实现，但仍有问题
+  ② **3D → 2D 白屏**：从 3D Demo（尤其是点过复位后）切换到 2D Demo，页面白屏且 Console 无报错，需重启 app
 - **下一步**：
-  ① **立即测试**（用户）：运行 `npm run dev` 或双击 `start-electron.bat`，验证开发模式启动 + 窗口关闭清理
-  ② **打包测试**（可选）：运行 `npm run dist` 或双击 `build-electron.bat`，验证安装包和便携版
-  ③ **端到端验证**：M1 清理流程 + M0 立项流程 + 设置页功能
-- **已知兼容**：
-  - 旧启动方式（`start.vbs` / Chrome 应用模式）仍可用
-  - 数据完全兼容（开发模式使用相同路径）
-  - 无需迁移数据
-- **技术细节**：
-  - 环境变量：`NODE_ENV=production` + `ELECTRON_APP=1` 标记生产模式
-  - 数据目录：开发 `server/data/` vs 生产 `~/.novelhelper/`
-  - 原生模块：better-sqlite3 会被 electron-builder 自动重新编译
-  - 构建产物：`dist-electron/main.js`（7.9 KB）+ `server/dist/`（8 个文件）
-- **文档位置**：
-  - 完整说明：`ELECTRON.md`（概述、使用方法、配置选项、常见问题、优化建议）
-  - 检查清单：`ELECTRON_CHECKLIST.md`（已完成项、下一步、技术细节）
-- **上一会话（第十八次·阶段 A~D 审核通过）**：novel-generator 集成四阶段全部完成，质量评级 A，测试全过（77 项断言），0 个遗留 bug。
+  ① 修复两个 Demo 的已知问题
+  ② 验证 M1 清理流程 + M0 立项流程
 
 ## 更新本文档的约定
 
