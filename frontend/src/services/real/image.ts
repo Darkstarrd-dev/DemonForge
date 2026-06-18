@@ -6,6 +6,10 @@ export interface ImageGenParams {
   apiKey: string
   model: string
   prompt: string
+  /** 目标宽度（像素），可选——ModelScope 节点选了分辨率时透传 */
+  width?: number
+  /** 目标高度（像素），可选 */
+  height?: number
 }
 
 export interface ImageGenEvents {

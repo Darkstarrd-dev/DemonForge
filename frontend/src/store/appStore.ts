@@ -14,6 +14,7 @@ import type {
   MergeCandidate,
   ImportSession,
   NovelArchitecture,
+  GeneratedImage,
 } from '../services/types'
 import {
   seedBooks,
@@ -29,6 +30,17 @@ import {
   seedMergeCandidates,
   seedArchitectures,
 } from '../mocks/seed'
+
+/** 文生图 Demo 表单草稿（轻量，持久化到 settings.json） */
+export interface ImageDemoForm {
+  /** 服务商：当前仅 'modelscope' */
+  provider: string
+  /** 选中的文生图节点 id */
+  nodeId?: string
+  prompt: string
+  /** 分辨率预设值，如 '1024x1024' */
+  resolution: string
+}
 
 export interface AppState {
   books: Book[]
@@ -52,6 +64,10 @@ export interface AppState {
   currentBookId: string
   /** M1 导入会话（页面流程态，仅内存、不持久化——含整份 rawText，避免反复回传） */
   importSession: ImportSession | null
+  /** 文生图 Demo 生成历史（持久化到 image_gallery 表，dataUrl 为 base64） */
+  imageGallery: GeneratedImage[]
+  /** 文生图 Demo 表单草稿（持久化到 settings.json） */
+  imageDemoForm: ImageDemoForm
 
   setState: (patch: Partial<AppState>) => void
   updateChapter: (id: string, patch: Partial<Chapter>) => void
@@ -59,6 +75,10 @@ export interface AppState {
   updateIssue: (id: string, patch: Partial<ConsistencyIssue>) => void
   /** 删除一本书及其全部关联数据（级联）。删除当前作品时切到首个剩余 project，无则置空 */
   deleteBook: (id: string) => void
+  /** 文生图：新增一张生成图到历史头部 */
+  addImage: (image: GeneratedImage) => void
+  /** 文生图：按 id 删除一张历史图 */
+  deleteImage: (id: string) => void
   resetDemo: () => void
 }
 
@@ -90,6 +110,8 @@ const seedState = () => ({
   mergeCandidates: seedMergeCandidates,
   currentBookId: 'book-proj-1',
   importSession: null,
+  imageGallery: [] as GeneratedImage[],
+  imageDemoForm: { provider: 'modelscope', nodeId: undefined, prompt: '', resolution: '1024x1024' },
 })
 
 export const useAppStore = create<AppState>()((set) => ({
@@ -156,6 +178,17 @@ export const useAppStore = create<AppState>()((set) => ({
     // 重置同理立即落库
     pushStoreNow()
   },
+  // ===== 文生图 Demo =====
+  // 新图插到历史头部（最新在前）；写入是关键操作 → 立即落库（绕过 1s 防抖）。
+  addImage: (image: GeneratedImage) => {
+    set((s) => ({ imageGallery: [image, ...s.imageGallery] }))
+    pushStoreNow()
+  },
+  // 删除即从历史移除 → syncAll 自动删 SQLite 对应行；立即落库避免"删完立刻关窗"竞态。
+  deleteImage: (id: string) => {
+    set((s) => ({ imageGallery: s.imageGallery.filter((i) => i.id !== id) }))
+    pushStoreNow()
+  },
 }))
 
 // ===== 后端持久化（替代原 localStorage persist）=====
@@ -174,6 +207,7 @@ const businessPayload = (s: AppState) => ({
   issues: s.issues,
   architectures: s.architectures,
   mergeCandidates: s.mergeCandidates,
+  imageGallery: s.imageGallery,
 })
 
 const pushStore = (payload: Record<string, unknown>) =>
@@ -198,6 +232,7 @@ export async function bootstrapStore(): Promise<void> {
         assetDir?: string
         currentBookId?: string
         storeInitialized?: boolean
+        imageDemoForm?: ImageDemoForm
       }
       storeInitialized = d.storeInitialized === true
       const patch: Partial<AppState> = {}
@@ -207,6 +242,9 @@ export async function bootstrapStore(): Promise<void> {
       if (typeof d.m1SystemPrompt === 'string') patch.m1SystemPrompt = d.m1SystemPrompt
       if (typeof d.assetDir === 'string') patch.assetDir = d.assetDir
       if (typeof d.currentBookId === 'string' && d.currentBookId) patch.currentBookId = d.currentBookId
+      // 文生图 Demo 表单草稿（旧 settings.json 无此键则沿用 seed 默认）
+      if (d.imageDemoForm && typeof d.imageDemoForm === 'object')
+        patch.imageDemoForm = { ...useAppStore.getState().imageDemoForm, ...d.imageDemoForm }
       if (Object.keys(patch).length) useAppStore.setState(patch)
     }
   } catch {
@@ -229,6 +267,7 @@ export async function bootstrapStore(): Promise<void> {
           issues: (data.issues ?? []) as ConsistencyIssue[],
           architectures: (data.architectures ?? []) as NovelArchitecture[],
           mergeCandidates: (data.mergeCandidates ?? []) as MergeCandidate[],
+          imageGallery: (data.imageGallery ?? []) as GeneratedImage[],
         })
         // 旧 settings.json 没有该标记 → 趁这次有数据时补写，避免后续"删光"误触发回填
         if (!storeInitialized) {
@@ -275,6 +314,7 @@ export async function reloadStoreFromBackend(): Promise<void> {
       issues: (data.issues ?? []) as ConsistencyIssue[],
       architectures: (data.architectures ?? []) as NovelArchitecture[],
       mergeCandidates: (data.mergeCandidates ?? []) as MergeCandidate[],
+      imageGallery: (data.imageGallery ?? []) as GeneratedImage[],
     })
   } else {
     // 新目录为空 → 填充种子并持久化
@@ -298,7 +338,8 @@ useAppStore.subscribe((s, prev) => {
     s.stateEvents === prev.stateEvents &&
     s.issues === prev.issues &&
     s.architectures === prev.architectures &&
-    s.mergeCandidates === prev.mergeCandidates
+    s.mergeCandidates === prev.mergeCandidates &&
+    s.imageGallery === prev.imageGallery
   ) {
     return
   }
@@ -320,7 +361,7 @@ function pushStoreNow(): void {
   pushStore(businessPayload(useAppStore.getState())).catch(() => {})
 }
 
-// 设置回写：providers/moduleMapping/m1SystemPrompt/assetDir/currentBookId 变化时 debounce POST
+// 设置回写：providers/moduleMapping/m1SystemPrompt/assetDir/currentBookId/imageDemoForm 变化时 debounce POST
 let settingsTimer: ReturnType<typeof setTimeout> | null = null
 useAppStore.subscribe((s, prev) => {
   if (!storeReady) return
@@ -329,7 +370,8 @@ useAppStore.subscribe((s, prev) => {
     s.moduleMapping === prev.moduleMapping &&
     s.m1SystemPrompt === prev.m1SystemPrompt &&
     s.assetDir === prev.assetDir &&
-    s.currentBookId === prev.currentBookId
+    s.currentBookId === prev.currentBookId &&
+    s.imageDemoForm === prev.imageDemoForm
   ) {
     return
   }
@@ -345,6 +387,7 @@ useAppStore.subscribe((s, prev) => {
         m1SystemPrompt: st.m1SystemPrompt,
         assetDir: st.assetDir,
         currentBookId: st.currentBookId,
+        imageDemoForm: st.imageDemoForm,
       }),
     }).catch(() => {})
   }, 1000)
@@ -379,6 +422,7 @@ export async function flushStoreWrites(): Promise<void> {
         m1SystemPrompt: st.m1SystemPrompt,
         assetDir: st.assetDir,
         currentBookId: st.currentBookId,
+        imageDemoForm: st.imageDemoForm,
       }),
       keepalive: true,
     }).catch(() => {}),

@@ -23,6 +23,8 @@ const ENTITIES = [
   { key: 'issues', table: 'issues' },
   { key: 'architectures', table: 'architectures' },
   { key: 'mergeCandidates', table: 'merge_candidates' },
+  // 文生图 Demo 生成历史（dataUrl 等 JSON 整存）
+  { key: 'imageGallery', table: 'image_gallery' },
 ] as const
 
 function ensureDir(dir: string): void {

@@ -7,6 +7,10 @@ export interface ImageGenConfig {
   apiKey: string
   model: string
   prompt: string
+  /** 目标宽度（像素），可选。对齐 ModelScope diffusers pipeline 的 width 参数 */
+  width?: number
+  /** 目标高度（像素），可选。对齐 ModelScope diffusers pipeline 的 height 参数 */
+  height?: number
 }
 
 /** 规范化 baseURL：提取 origin，去尾斜杠（ModelScope 路径自拼 /v1） */
@@ -53,6 +57,10 @@ export async function generateImageModelScope<K extends ImageEventType>(
   const MAX_POLL_MS = 120_000
 
   // 1) 提交任务
+  // body 拼装 width/height（仅在前端显式选择分辨率时透传；未传则由 ModelScope 用默认尺寸）
+  const submitBody: Record<string, unknown> = { model: cfg.model, prompt: cfg.prompt }
+  if (typeof cfg.width === 'number' && cfg.width > 0) submitBody.width = cfg.width
+  if (typeof cfg.height === 'number' && cfg.height > 0) submitBody.height = cfg.height
   const submitRes = await fetch(`${base}/v1/images/generations`, {
     method: 'POST',
     headers: {
@@ -60,7 +68,7 @@ export async function generateImageModelScope<K extends ImageEventType>(
       'Content-Type': 'application/json',
       'X-ModelScope-Async-Mode': 'true',
     },
-    body: JSON.stringify({ model: cfg.model, prompt: cfg.prompt }),
+    body: JSON.stringify(submitBody),
     signal,
   })
   if (!submitRes.ok) {

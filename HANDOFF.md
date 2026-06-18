@@ -18,9 +18,9 @@
 
 ## 项目状态快照
 
-- **最后更新**：2026-06-18（第二十三次会话·**书库删除功能 + UI 清理 + M0 节点 fallback 修复**）
+- **最后更新**：2026-06-19（第二十四次会话·**文生图 Demo 持久化 + 分辨率下拉**）
 - **阶段**：正式开发——M1 AI 清理端到端跑通；**novel-generator 集成阶段 A~D 全部完成**；**Electron 迁移完成**；M2–M5 仍 mock；业务数据 SQLite 资产库（可配置资产目录），Provider/密钥等设置存用户数据目录
-- **新增**：HomePage 书库概览新增删除功能（`appStore.deleteBook` 级联清理 chapters/cards/outline/architectures/scenes/fragments/stateEvents/issues/mergeCandidates + 删当前作品自动切到首个剩余 project；弹窗勾选确认后才执行）；移除 Header 右上角 mock 演示提示 Tag；修复 M0 立项「请选择生成节点」假报错（`runArch`/`runBlueprint` 改用 `archNodeId ?? resolveArchNode()`，默认映射节点现在真正生效）；Error Boundary / 3D Demo animate 修复 / start-electron.bat 纯 ASCII（沿用上一轮）
+- **新增**：文生图 Demo 页持久化——已选节点/Prompt/分辨率存 settings.json（切换页面/重启不丢），生成历史存 SQLite `image_gallery` 表（base64 dataUrl，每张可下载+删除、可一键清空）；ModelScope 节点显示「分辨率」下拉（1024×1024/1280×720/720×1280/1024×768/768×1024），透传 `width`/`height` 到 ModelScope 提交 body（对齐官方 Z-Image-Turbo `height`/`width` 参数）；`GeneratedImage` 类型 + `imageGallery`/`imageDemoForm` 两个 appStore 切片 + `addImage`/`deleteImage` actions（沿用 business→SQLite / settings→JSON 双通道持久化）
 - **摘要**：在 mock 前端基础上**进入实现阶段**。
   运行方式（三选一）：
   - **【推荐】Electron 模式**：双击 `start-electron.bat`（开发模式）或 `npm run dev`，Electron 窗口自动管理前后端；关窗即自动清理进程
@@ -160,6 +160,27 @@
 
 ### 进行中 / 等待用户
 
+- [x] **文生图 Demo 持久化 + 分辨率下拉**（2026-06-19 第二十四次会话）
+  - [x] **持久化分工**：图片数组（大）→ SQLite `/api/store`（新增 `image_gallery` 文档表，随 syncAll/readAll 自动建表读写）；表单草稿 provider/nodeId/prompt/分辨率（小）→ JSON `/api/settings`。沿用 appStore 既有双通道，不引入第三种
+  - [x] **appStore**：新增 `imageGallery: GeneratedImage[]` + `imageDemoForm` 两个切片 + `addImage(img)`（unshift 头部）/ `deleteImage(id)` actions（均 `pushStoreNow` 立即落库）；businessPayload / 两处 subscribe / bootstrapStore / reloadStoreFromBackend / flushStoreWrites 全部接入
+  - [x] **页面重写** `pages/image-demo/index.tsx`：表单去掉 useState 改读写 store（切换页面/重启不丢）；生成成功除即时预览外 `addImage` 落库；结果区拆「本次生成」预览 +「生成历史」网格（每张 prompt 摘要/尺寸/模型 + 下载 + Popconfirm 删除 + 一键清空）
+  - [x] **分辨率下拉**（仅 ModelScope）：5 预设 1024×1024/1280×720/720×1280/1024×768/768×1024；`parseRes` 解析 → 透传 `width`/`height` 经 `services/real/image.ts` → 后端 `imageClient.ts` 提交 body 追加（对齐 Z-Image-Turbo 官方 `height`/`width`）→ `routes/image.ts` 透传
+  - [x] **类型**：`types.ts` 新增 `GeneratedImage`；`ImageGenParams`/`ImageGenConfig` 加可选 `width?`/`height?`（有值才传，向后兼容）
+  - [x] **lint 修复**：`react-hooks/purity` 禁组件作用域调 `Date.now()` → 下载文件名改用图唯一 `img.id`（已含时间戳）
+  - [x] **验证全过**：后端 typecheck ✅ / 前端 eslint ✅ / build(tsc+vite) ✅（797ms）/ smoke(13) 不回归 ✅
+- [x] **文生图 Demo（ModelScope）**（2026-06-19 第二十三次会话·代码已在 497fde1）
+  - [x] **节点池类型下拉**：ProviderNode 编辑表单加「类型」（文本生成/文生图），表格加类型列；模块映射下拉过滤掉文生图节点；`types.ts` 加 `ProviderNodeType='text'|'image'`
+  - [x] **Demo 页** `/demo-image`：服务商（ModelScope）+ 文生图节点 + prompt → 生成图片，SSE 进度（submitted/polling/done）+ 内联展示 + 下载；左侧菜单新增入口
+  - [x] **后端** `imageClient.ts`：ModelScope 异步任务协议（提交任务→轮询状态→取图转 base64 data URL），Python 官方示例转 TS；`/api/image/generate` SSE 路由（断连 abort，同 `/api/llm/clean` 风格）
+  - [x] **前端服务层** `services/real/image.ts`：SSE 读取器，`api.ts` 导出 `generateImage`
+- [x] **预设书删除后重现修复 + 进程清理**（2026-06-18 第二十二次会话·代码已在 067c1ad）
+  - [x] `storeInitialized` flag：bootstrap 仅首次播种，用户删光全部书后不再回填预设（根因：每次 bootstrap 都播种导致删完重现）
+  - [x] `pushStoreNow()`：删除/重置立即落库（绕过 1s debounce，避免"删完立刻关窗"竞态丢失写入）
+  - [x] `flushStoreWrites()` + `beforeunload`/`pagehide`：关窗前冲刷未写数据（keepalive 续命）
+  - [x] AppLayout 退出 handler：flush 后再后端 shutdown
+  - [x] `cleanupProcessesSync()`：同步端口杀进程替代异步 spawn（修复每次重启残留 stale 进程）
+  - [x] `start-electron.bat` 去掉 `pause`（CMD 窗口退出时自动关闭）
+  - [x] HomePage 移除 mock demo 流程 Alert
 - [x] **书库删除功能 + UI 清理 + M0 节点 fallback 修复**（2026-06-18 第二十三次会话）
   - [x] **书库概览页添加删除按钮**：每行「操作」列放删除按钮 → 弹出 Modal 列出该书的章节/卡片/场景数量等将删数据 → 底部 Checkbox「我已了解将删除以上全部数据」必须勾选后红色「确认删除」按钮才可用（未勾选 disabled）；`destroyOnClose` 每次打开重置勾选
   - [x] **`appStore.deleteBook(id)` 级联清理**：一次调用清理 books/chapters/cards/outline/architectures/scenes/fragments（按 sceneId 间接）/stateEvents/issues/mergeCandidates（按 cardId 间接）；删当前作品时 `currentBookId` 自动切到首个剩余 project，无则置空
@@ -262,19 +283,20 @@
 
 ## 交接备注（最近一次会话）
 
-- **日期**：2026-06-18（第二十三次会话·**书库删除功能 + UI 清理 + M0 节点 fallback 修复**）
+- **日期**：2026-06-19（第二十四次会话·**文生图 Demo 持久化 + 分辨率下拉**）
 - **本次完成**：
-  ① **书库概览页添加删除功能**：`appStore.deleteBook(id)` 级联清理一本书的全部关联数据（章节/卡片/大纲/架构/场景/片段/状态事件/问题/合并候选），删当前作品自动切换；HomePage 表格新增「操作」列删除按钮 → Modal 列出待删数据量 + Checkbox 勾选确认（未勾选「确认删除」按钮 disabled）
-  ② **移除 Header 右上角 mock 演示模式 Tag**（连同未用的 Tag import）
-  ③ **修复 M0 立项·架构「请选择生成节点」假报错**：根因是 `runArch` 用裸 `archNodeId`（state 为 null），而 Select 显示值带 `resolveArchNode()` fallback；修复让两个生成动作（arch / blueprint）都用 `archNodeId ?? resolveArchNode()`，默认映射节点生效
-  ④ **验证**：前端 eslint ✅ / build(tsc+vite) ✅
+  ① **持久化**：图片数组 → SQLite 新增 `image_gallery` 表（base64 dataUrl，随 syncAll/readAll 自动读写）；表单 provider/nodeId/prompt/分辨率 → settings.json。`types.ts` 加 `GeneratedImage`；`appStore` 加 `imageGallery`/`imageDemoForm` 切片 + `addImage`/`deleteImage` actions；businessPayload / 两处 subscribe / bootstrapStore / reloadStoreFromBackend / flushStoreWrites 全部接入；首页重写为「本次生成」预览 +「生成历史」网格（下载 / Popconfirm 删除 / 一键清空）
+  ② **分辨率下拉**（仅 ModelScope 节点显示）：5 预设；`parseRes` 解析后透传 `width`/`height` → `services/real/image.ts` → 后端 `imageClient.ts` 提交 body 追加（对齐官方 Z-Image-Turbo `height`/`width`）→ `routes/image.ts` 透传
+  ③ **lint 修复**：`react-hooks/purity` 禁组件作用域 `Date.now()` → 下载文件名改用 `img.id`
+  ④ **同步补档**：把已提交但未入档的 497fde1（文生图 Demo）/ 067c1ad（预设书删除重现修复+进程清理）补进 checklist
+  ⑤ **验证**：后端 typecheck ✅ / 前端 eslint ✅ / build(tsc+vite) ✅ / smoke(13) 不回归 ✅
 - **已知限制**：
   ① `[Frontend]` 日志中的 Vite 彩色箭头 `➜`（U+279C）在 GBK 控制台仍会截断乱码——这是 Vite 自身的 chalk 输出，需 `FORCE_COLOR=0` 才能彻底消除，当前未加
   ② **bat 文件必须保持纯 ASCII**：编辑器若把 `.bat` 存成 UTF-8 + 中文注释，双击运行时 CMD 用 GBK 解码会破坏脚本。今后编辑 `.bat` 务必英文注释 + CRLF
+  ③ **图片以 base64 入库**：单张图较大会放大 `/api/store` 的全量 POST payload（demo 图片数量少可接受）。未来若做正式图片功能（如 M2 卡片配图），可改用 `db.ts:30` 预留的 `assets/images/` 目录做文件存储 + 静态服务
 - **下一步**：
-  ① 实机验证书库删除流程（弹窗勾选确认、级联清理、当前作品切换）
-  ② 实机验证 M0 立项生成架构/蓝图不再误报「请选择生成节点」
-  ③ 验证 Header 已无 mock 提示
+  ① 实机验证文生图 Demo 端到端（真实 ModelScope key + Z-Image-Turbo）：分辨率切换生效、生成历史持久化与删除、切换页面/重启不丢
+  ② 仍待实机验证：书库删除流程、M0 立项生成不再误报「请选择生成节点」、Electron 开发/打包模式
 
 ## 更新本文档的约定
 

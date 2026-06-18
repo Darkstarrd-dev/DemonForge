@@ -94,6 +94,20 @@ export interface RagChunk {
   distance: number
 }
 
+/** 文生图 Demo 生成历史项（持久化到 image_gallery 表，dataUrl 为 base64 data URL） */
+export interface GeneratedImage {
+  id: string
+  dataUrl: string
+  prompt: string
+  /** 生成所用模型名（来自节点） */
+  modelName: string
+  /** 生成所用文生图节点 id */
+  nodeId: string
+  width?: number
+  height?: number
+  createdAt: string
+}
+
 /** M3 推演场景：同一场景可轮流推演多个角色 */
 export interface SimScene {
   id: string
