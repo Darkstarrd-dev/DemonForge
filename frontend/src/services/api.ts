@@ -37,3 +37,7 @@ export type {
 // 批量生成（阶段 D）已接真实后端。
 export { startBatchGenerate } from './real/batch'
 export type { BatchGenTask, BatchGenNode, BatchGenCallbacks, BatchGenHandle } from './real/batch'
+
+// 文生图（文生图 Demo）已接真实后端（ModelScope 异步任务流）。
+export { generateImage } from './real/image'
+export type { ImageGenParams, ImageGenEvents } from './real/image'

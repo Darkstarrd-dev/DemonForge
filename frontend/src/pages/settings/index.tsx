@@ -60,6 +60,7 @@ export default function SettingsPage() {
     const target: ProviderNode = node ?? {
       id: genId('prov'),
       name: '',
+      nodeType: 'text',
       baseURL: '',
       apiKey: '',
       model: '',
@@ -123,6 +124,17 @@ export default function SettingsPage() {
 
   const columns = [
     { title: '名称', dataIndex: 'name' },
+    {
+      title: '类型',
+      dataIndex: 'nodeType',
+      width: 110,
+      render: (v: ProviderNode['nodeType']) =>
+        v === 'image' ? (
+          <Tag color="purple">文生图</Tag>
+        ) : (
+          <Tag color="blue">文本生成</Tag>
+        ),
+    },
     { title: 'Base URL', dataIndex: 'baseURL', ellipsis: true },
     { title: '模型', dataIndex: 'model' },
     {
@@ -220,7 +232,9 @@ export default function SettingsPage() {
                     style={{ minWidth: 280 }}
                     value={v ?? undefined}
                     placeholder="选择节点"
-                    options={providers.map((p) => ({ value: p.id, label: `${p.name} · ${p.model || '（未设模型）'}` }))}
+                    options={providers
+                      .filter((p) => p.nodeType !== 'image')
+                      .map((p) => ({ value: p.id, label: `${p.name} · ${p.model || '（未设模型）'}` }))}
                     onChange={(nodeId) => {
                       setState({
                         moduleMapping: {
@@ -339,6 +353,14 @@ export default function SettingsPage() {
         <Form form={form} layout="vertical" style={{ marginTop: 8 }}>
           <Form.Item name="name" label="名称" rules={[{ required: true }]}>
             <Input placeholder="如：本地 llama.cpp" />
+          </Form.Item>
+          <Form.Item name="nodeType" label="类型" rules={[{ required: true }]}>
+            <Select
+              options={[
+                { value: 'text', label: '文本生成' },
+                { value: 'image', label: '文生图' },
+              ]}
+            />
           </Form.Item>
           <Form.Item name="baseURL" label="Base URL" rules={[{ required: true }]}>
             <Input placeholder="http://127.0.0.1:8080/v1" />

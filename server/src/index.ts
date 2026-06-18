@@ -8,6 +8,7 @@ import { llmRoutes } from './routes/llm'
 import { creationRoutes } from './routes/creation'
 import { settingsRoutes } from './routes/settings'
 import { storeRoutes } from './routes/store'
+import { imageRoutes } from './routes/image'
 
 const PORT = Number(process.env.PORT ?? 8787)
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)))
@@ -18,6 +19,7 @@ await app.register(llmRoutes)
 await app.register(creationRoutes)
 await app.register(settingsRoutes)
 await app.register(storeRoutes)
+await app.register(imageRoutes)
 app.get('/api/health', async () => ({ ok: true }))
 
 const killByPidFile = (filename: string) => {

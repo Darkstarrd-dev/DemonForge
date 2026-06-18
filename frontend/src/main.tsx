@@ -12,6 +12,7 @@ import M3SimulatePage from './pages/m3-simulate'
 import M4GeneratePage from './pages/m4-generate'
 import M5ChaptersPage from './pages/m5-chapters'
 import BatchGeneratePage from './pages/batch-generate'
+import ImageDemoPage from './pages/image-demo'
 import SettingsPage from './pages/settings'
 import { bootstrapStore } from './store/appStore'
 import ErrorBoundary from './components/ErrorBoundary'
@@ -40,6 +41,7 @@ bootstrapStore().finally(() => {
                   <Route path="/m4" element={<M4GeneratePage />} />
                   <Route path="/m5" element={<M5ChaptersPage />} />
                   <Route path="/batch" element={<BatchGeneratePage />} />
+                  <Route path="/demo-image" element={<ImageDemoPage />} />
                   <Route path="/demo-3d" element={<Suspense fallback={<Spin size="large" />}><Demo3DPage /></Suspense>} />
                   <Route path="/demo-2d" element={<Suspense fallback={<Spin size="large" />}><Demo2DPage /></Suspense>} />
                   <Route path="/settings" element={<SettingsPage />} />
