@@ -13,13 +13,14 @@
    M1 清理与设置页接真实 LLM，其余模块（M2–M5）暂仍 mock。
    **【最新】已完成 Electron 框架迁移**——支持打包为可执行文件，Electron 主进程管理前后端服务器。
 3. **当前任务焦点**：① **novel-generator 集成·阶段 A~D 全部完成并通过审核**（数据模型 + sqlite-vec RAG 检索层 + Context Assembler + 起源流程 + 生成管理 + 批量生产）；
-    ② **Electron 迁移已完成**——开发/生产模式、进程管理、打包配置就绪，待用户测试验证。
+    ② **Electron 迁移已完成**——开发/生产模式、进程管理、打包配置就绪，待用户测试验证；
+    ③ **3D Demo WASM 崩溃已修复** + **全局 Error Boundary 已添加**——animate 循环异常安全、init 单例化、ErrorBoundary 兜底白屏。
 
 ## 项目状态快照
 
-- **最后更新**：2026-06-18（第二十次会话·**添加 3D/2D 物理引擎 Demo 页**）
+- **最后更新**：2026-06-18（第二十一次会话·**修复 3D Demo WASM 崩溃 + Error Boundary + Electron 日志英文化**）
 - **阶段**：正式开发——M1 AI 清理端到端跑通；**novel-generator 集成阶段 A~D 全部完成**；**Electron 迁移完成**；M2–M5 仍 mock；业务数据 SQLite 资产库（可配置资产目录），Provider/密钥等设置存用户数据目录
-- **新增**：侧边栏两个 Demo 选项（3D环境Demo + 2D环境Demo），使用 three.js/Rapier3D 和 Phaser/Matter.js 实现方块掉落刚体演示
+- **新增**：全局 Error Boundary（`components/ErrorBoundary.tsx`）兜住子树异常防止白屏；3D Demo animate 循环异常安全修复（init 单例化 + try/catch + 时序修正）；Electron 主进程控制台日志改纯英文避免 Windows GBK 乱码
 - **摘要**：在 mock 前端基础上**进入实现阶段**。
   运行方式（三选一）：
   - **【推荐】Electron 模式**：双击 `start-electron.bat`（开发模式）或 `npm run dev`，Electron 窗口自动管理前后端；关窗即自动清理进程
@@ -159,9 +160,12 @@
 
 ### 进行中 / 等待用户
 
-- [ ] **3D/2D Demo 已知问题待修复**
-  - [ ] **3D Demo 复位不生效**：点复位后 Rapier WASM 报 `recursive use / unsafe aliasing` 错误，需要完全停止并重建场景才能生效，当前写法触发并发访问冲突
-  - [ ] **3D → 2D 白屏**：在 3D Demo 中点复位后，导航切换到 2D Demo 页面整个白屏，需关掉 app 重启才能恢复（疑似复位操作破坏了 React 渲染树或 Phaser 容器状态）
+- [x] **3D Demo WASM 崩溃 + 全局白屏已修复**（2026-06-18 第二十一次会话）
+  - [x] **根因**：① `requestAnimationFrame` 排在 `world.step()` 之前，异常后下一帧已入队无法取消 → WASM 堆无限异常循环彻底损坏；② `RAPIER.init()` 模块级 `rapierReady` 布尔标记在 StrictMode/HMR 下不可靠；③ 无 Error Boundary 兜底，WASM 异常穿透 React 树 → 白屏
+  - [x] **修复 `demo-3d/index.tsx`**：init 单例化（`ensureRapierReady()` 全局 promise）；animate 整帧 try/catch + 任意异常立即 stop；`requestAnimationFrame` 移到 step 成功之后（不再先排下一帧再步进）；stop 幂等 + `world.free()` 包 try/catch；复位按钮 async 确保旧引擎完全销毁后再重启
+  - [x] **新增全局 Error Boundary**（`frontend/src/components/ErrorBoundary.tsx`）：class 组件，`getDerivedStateFromError` + `componentDidCatch`，fallback UI 含「重置页面」+「返回首页」按钮，即使 WASM 异常穿透也不再白屏
+  - [x] **`main.tsx` 路由层包 `<ErrorBoundary>`**：包住 `<Routes>`，layout 内外崩溃均兜住
+  - [x] **验证**：`npm run build`（tsc + vite）✅ / `npm run lint` ✅
 - [x] **Electron 框架迁移完成**（2026-06-18 第十九次会话）
   - [x] 创建 `electron/main.ts` 主进程（进程管理、窗口创建、资源清理）
   - [x] 配置打包工具 electron-builder（NSIS 安装包 + 便携版）
@@ -248,19 +252,18 @@
 
 ## 交接备注（最近一次会话）
 
-- **日期**：2026-06-18（第二十次会话·**添加 3D/2D 物理引擎 Demo 页面**）
+- **日期**：2026-06-18（第二十一次会话·**修复 3D Demo WASM 崩溃 + 全局白屏 + Electron 日志乱码**）
 - **本次完成**：
-  ① 添加 three.js、@dimforge/rapier3d-compat、phaser 三个依赖
-  ② 创建 `frontend/src/pages/demo-3d/index.tsx` — Three.js + Rapier3D 方块掉落刚体演示，带 OrbitControls（鼠标拖拽旋转视角）
-  ③ 创建 `frontend/src/pages/demo-2d/index.tsx` — Phaser + Matter.js 方块掉落刚体演示
-  ④ 侧边栏新增「3D环境Demo」「2D环境Demo」两个菜单项，路由懒加载（`lazy()` + Suspense）
-  ⑤ 两个 Demo 均有复位按钮（ReloadOutlined 图标）
-  ⑥ 构建与 lint 验证通过
-- **已知待处理问题**：
-  ① **3D Demo 复位不生效**：复位按钮在 Rapier WASM 运行期内操作刚体触发 `recursive use / unsafe aliasing` 并发冲突，当前通过 `stop()` + 重建场景实现，但仍有问题
-  ② **3D → 2D 白屏**：从 3D Demo（尤其是点过复位后）切换到 2D Demo，页面白屏且 Console 无报错，需重启 app
+  ① **修复 3D Demo WASM 崩溃**（`demo-3d/index.tsx` 重写）：init 单例化 + animate 整帧 try/catch + requestAnimationFrame 时序修正 + 稳健 stop（world.free 包 try/catch）+ 复位按钮 async
+  ② **新增全局 Error Boundary**（`components/ErrorBoundary.tsx`）：class 组件，getDerivedStateFromError + componentDidCatch，fallback 含重置/首页按钮
+  ③ **main.tsx 路由层包 ErrorBoundary**：兜住整个 Routes，防止 WASM 异常穿透导致白屏
+  ④ **Electron 控制台日志英文化**（`electron/main.ts` + `start-electron.bat`）：所有 console.* 输出改纯 ASCII，避免 Windows GBK 控制台中文乱码；`chcp 65001` 保留但注释说明对 Electron 子控制台不一定生效
+  ⑤ **更新 HANDOFF.md**：标记 3D Demo bug 已修复
+  ⑥ **验证**：前端 build + lint + tsc ✅；Electron build ✅
+- **已知限制**：
+  ① `[Frontend]` 日志中的 Vite 彩色箭头 `➜`（U+279C）在 GBK 控制台仍会截断乱码——这是 Vite 自身的 chalk 输出，需 `FORCE_COLOR=0` 才能彻底消除，当前未加
 - **下一步**：
-  ① 修复两个 Demo 的已知问题
+  ① 实机验证 3D Demo 正常运行 + 复位 + 路由切换不再白屏
   ② 验证 M1 清理流程 + M0 立项流程
 
 ## 更新本文档的约定
