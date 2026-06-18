@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import { Button, Space, Card, Typography } from 'antd'
+import { Button, Space, Card, Typography, App } from 'antd'
 import { ReloadOutlined } from '@ant-design/icons'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
@@ -15,22 +15,37 @@ function randomQuaternion() {
 }
 
 const COLORS = [0xe94560, 0x533483, 0x4ac0c0, 0xf5a623, 0x7bed9f, 0xff6b81, 0x70a1ff]
-let rapierReady = false
+
+// 全局 init 单例：RAPIER.init() 只允许调用一次，多处复用同一个 promise
+let initPromise: Promise<typeof RAPIER> | null = null
+function ensureRapierReady(): Promise<typeof RAPIER> {
+  if (!initPromise) initPromise = RAPIER.init().then(() => RAPIER)
+  return initPromise
+}
 
 export default function Demo3DPage() {
+  const { message } = App.useApp()
   const containerRef = useRef<HTMLDivElement>(null)
+  // engineRef 持有当前运行中的引擎句柄；stop() 内部会把它置 null
   const engineRef = useRef<{ stop: () => void } | null>(null)
 
+  /**
+   * 启动一次 Three.js + Rapier3D 引擎。
+   * 前置条件：调用方需保证 Rapier 已 init（见 ensureRapierReady）。
+   * 任何 WASM 异常都会在 animate 循环内被捕获并立即 stop，避免循环在损坏的堆上继续运行。
+   */
   const startEngine = () => {
     const el = containerRef.current
-    if (!el || !rapierReady) return
+    if (!el) return
     el.innerHTML = ''
 
+    // stopped 标志：一旦为 true，animate 不再排下一帧、stop 也变幂等
     let stopped = false
     let animId = 0
 
     const width = el.clientWidth
     const height = el.clientHeight
+    if (width < 10 || height < 10) return
 
     const scene = new THREE.Scene()
     scene.background = new THREE.Color(0x1a1a2e)
@@ -123,36 +138,86 @@ export default function Demo3DPage() {
     }
 
     let frameCount = 0
+    /**
+     * 单帧主循环。
+     * 关键：先 step + 同步 mesh（包在 try/catch 内），全部成功后再排下一帧。
+     * 这样任一帧 WASM 异常 → 立即 stop → 不会预先排入下一帧 → 不再产生异常循环。
+     */
     const animate = () => {
       if (stopped) return
-      animId = requestAnimationFrame(animate)
 
-      world.step()
-
-      for (let i = cubes.length - 1; i >= 0; i--) {
-        const { body, mesh } = cubes[i]
-        const t = body.translation()
-        const r = body.rotation()
-        mesh.position.set(t.x, t.y, t.z)
-        mesh.quaternion.set(r.x, r.y, r.z, r.w)
-        if (t.y < -20) {
-          scene.remove(mesh)
-          mesh.geometry.dispose()
-          ;(mesh.material as THREE.MeshStandardMaterial).dispose()
-          world.removeRigidBody(body)
-          cubes.splice(i, 1)
+      try {
+        world.step()
+        for (let i = cubes.length - 1; i >= 0; i--) {
+          const { body, mesh } = cubes[i]
+          const t = body.translation()
+          const r = body.rotation()
+          mesh.position.set(t.x, t.y, t.z)
+          mesh.quaternion.set(r.x, r.y, r.z, r.w)
+          if (t.y < -20) {
+            scene.remove(mesh)
+            mesh.geometry.dispose()
+            ;(mesh.material as THREE.MeshStandardMaterial).dispose()
+            world.removeRigidBody(body)
+            cubes.splice(i, 1)
+          }
         }
+
+        frameCount++
+        if (frameCount % 40 === 0 && cubes.length < 80) spawnCube()
+
+        controls.update()
+        renderer.render(scene, camera)
+      } catch (err) {
+        // WASM 堆一旦损坏（aliasing / memory access out of bounds），
+        // 后续任何 step 都会持续 panic。立即停止循环，绝不在损坏的堆上继续。
+        console.error('[Demo3D] 物理引擎帧异常，已停止循环:', err)
+        stopInternal(true)
+        return
       }
 
-      frameCount++
-      if (frameCount % 40 === 0 && cubes.length < 80) spawnCube()
-
-      controls.update()
-      renderer.render(scene, camera)
+      // 本帧全部成功后才排下一帧
+      if (!stopped) animId = requestAnimationFrame(animate)
     }
 
-    for (let i = 0; i < 15; i++) spawnCube()
-    animate()
+    /**
+     * 内部停止实现。fromError=true 表示由异常触发，需额外提示用户。
+     * stop() 与 animate 的 catch 都走这里，幂等。
+     */
+    const stopInternal = (fromError: boolean) => {
+      if (stopped) return
+      stopped = true
+      cancelAnimationFrame(animId)
+      animId = 0
+
+      window.removeEventListener('resize', onResize)
+      controls.dispose()
+      renderer.dispose()
+      for (const c of cubes) {
+        c.mesh.geometry.dispose()
+        ;(c.mesh.material as THREE.MeshStandardMaterial).dispose()
+      }
+      // world.free() 在堆损坏时自身也可能抛，吞掉避免污染调用方
+      try {
+        world.free()
+      } catch {
+        /* 堆已损坏，free 失败忽略 */
+      }
+      if (renderer.domElement.parentNode === el) {
+        el.removeChild(renderer.domElement)
+      }
+      if (engineRef.current && engineRef.current.stop === stop) {
+        engineRef.current = null
+      }
+      if (fromError) {
+        message.error('3D 物理引擎遇到错误，已停止。点「复位」可重新开始。')
+      }
+    }
+
+    // stop 是 stopInternal 的对外稳定句柄
+    const stop = () => stopInternal(false)
+    // 让 animate 的 catch 能引用到 stop（函数提升顺序问题，提前赋值）
+    void stop
 
     const onResize = () => {
       if (stopped || !containerRef.current) return
@@ -164,42 +229,42 @@ export default function Demo3DPage() {
     }
     window.addEventListener('resize', onResize)
 
-    engineRef.current = {
-      stop: () => {
-        stopped = true
-        cancelAnimationFrame(animId)
-        window.removeEventListener('resize', onResize)
-        controls.dispose()
-        renderer.dispose()
-        for (const c of cubes) {
-          c.mesh.geometry.dispose()
-          ;(c.mesh.material as THREE.MeshStandardMaterial).dispose()
-        }
-        world.free()
-        if (renderer.domElement.parentNode === el) {
-          el.removeChild(renderer.domElement)
-        }
-        engineRef.current = null
-      },
-    }
+    engineRef.current = { stop }
+
+    for (let i = 0; i < 15; i++) spawnCube()
+    animate()
   }
 
   useEffect(() => {
+    let cancelled = false
     const init = async () => {
-      if (!rapierReady) {
-        await RAPIER.init()
-        rapierReady = true
+      try {
+        await ensureRapierReady()
+        if (cancelled) return
+        startEngine()
+      } catch (err) {
+        console.error('[Demo3D] Rapier 初始化失败:', err)
+        if (!cancelled) message.error('3D 物理引擎初始化失败')
       }
-      startEngine()
     }
     init()
     return () => {
+      cancelled = true
       engineRef.current?.stop()
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const handleReset = () => {
+  const handleReset = async () => {
+    // 先彻底停止旧引擎（含 world.free），再重启，避免新旧 world 并发访问 WASM
     engineRef.current?.stop()
+    try {
+      await ensureRapierReady()
+    } catch (err) {
+      console.error('[Demo3D] 复位时 Rapier 初始化失败:', err)
+      message.error('3D 物理引擎初始化失败')
+      return
+    }
     startEngine()
   }
 
