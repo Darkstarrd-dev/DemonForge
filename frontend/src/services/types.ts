@@ -150,9 +150,13 @@ export interface ConsistencyIssue {
   status: IssueStatus
 }
 
+export type ProviderNodeType = 'text' | 'image'
+
 export interface ProviderNode {
   id: string
   name: string
+  /** 节点用途：文本生成(默认) / 文生图 */
+  nodeType: ProviderNodeType
   baseURL: string
   apiKey: string
   model: string

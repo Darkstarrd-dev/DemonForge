@@ -329,34 +329,71 @@ function createWindow() {
 }
 
 /**
- * 清理所有子进程
+ * 同步清理所有子进程。
+ *
+ * 关键修复：原实现用 spawn(..., { shell:true }) 拉起后端/前端，捕获的 PID 其实是
+ * cmd.exe（npm.cmd 的宿主）。taskkill /T 虽然能杀 cmd 树，但真正的服务进程
+ * （npm→tsx watch→node、npm→vite→esbuild worker）常脱离 cmd 树成为孤儿，
+ * 故原实现每次关窗都残留进程 → 下次启动总报 "stale app process"。
+ *
+ * 新策略：
+ *  1. 先按已知 PID 同步树杀（execSync，不与 app.quit 抢跑）；
+ *  2. 再按端口兜底扫杀（netstat 定位 + 命令行过滤为本 app + taskkill /T /F + 轮询等释放），
+ *     专杀脱离 cmd 树的孙进程；
+ *  3. 先杀前端，留 ~500ms 缓冲让后端处理完前端关窗前的最后一次 flush（见 appStore
+ *     的 beforeunload 落库），再杀后端。
+ * 整个流程同步阻塞，确保 app 真正退出前端口已释放。
  */
-function cleanupProcesses() {
-  console.log('[Cleanup] Stopping all processes...')
+function cleanupProcessesSync(): void {
+  console.log('[Cleanup] Stopping all processes (sync)...')
 
-  if (backendProcess && !backendProcess.killed) {
-    console.log('[Cleanup] Killing backend process...')
-    backendProcess.kill('SIGTERM')
-    // 强制杀死（Windows 需要 taskkill）
-    if (process.platform === 'win32' && backendProcess.pid) {
-      try {
-        spawn('taskkill', ['/PID', String(backendProcess.pid), '/T', '/F'], { shell: true })
-      } catch (err) {
-        console.error('[Cleanup] Failed to kill backend:', err)
-      }
+  // 1. 先杀前端进程树
+  if (frontendProcess && frontendProcess.pid) {
+    console.log('[Cleanup] Killing frontend process tree...')
+    try {
+      execSync(`taskkill /PID ${frontendProcess.pid} /T /F`, {
+        windowsHide: true,
+        stdio: 'ignore',
+        timeout: 5000,
+      })
+    } catch {
+      /* 已退出，忽略 */
+    }
+    frontendProcess = null
+  }
+
+  // 2. 前端端口兜底扫杀（vite / esbuild worker 可能脱离 cmd 树）
+  if (process.platform === 'win32' && isDev) {
+    freePortIfHeldByOurApp(FRONTEND_PORT, 'frontend')
+  }
+
+  // 3. 短暂缓冲：让后端把前端关窗前的最后一次 flush（删除/编辑等）处理完再杀
+  if (process.platform === 'win32') {
+    try {
+      execSync('ping 127.0.0.1 -n 1 -w 500 > nul', { windowsHide: true, stdio: 'ignore' })
+    } catch {
+      /* ignore */
     }
   }
 
-  if (frontendProcess && !frontendProcess.killed) {
-    console.log('[Cleanup] Killing frontend process...')
-    frontendProcess.kill('SIGTERM')
-    if (process.platform === 'win32' && frontendProcess.pid) {
-      try {
-        spawn('taskkill', ['/PID', String(frontendProcess.pid), '/T', '/F'], { shell: true })
-      } catch (err) {
-        console.error('[Cleanup] Failed to kill frontend:', err)
-      }
+  // 4. 再杀后端进程树
+  if (backendProcess && backendProcess.pid) {
+    console.log('[Cleanup] Killing backend process tree...')
+    try {
+      execSync(`taskkill /PID ${backendProcess.pid} /T /F`, {
+        windowsHide: true,
+        stdio: 'ignore',
+        timeout: 5000,
+      })
+    } catch {
+      /* 已退出，忽略 */
     }
+    backendProcess = null
+  }
+
+  // 5. 后端端口兜底扫杀（tsx watch 拉起的 node 子进程可能脱离 cmd 树）
+  if (process.platform === 'win32') {
+    freePortIfHeldByOurApp(BACKEND_PORT, 'backend')
   }
 }
 
@@ -395,28 +432,18 @@ app.whenReady().then(async () => {
  */
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
-    cleanupProcesses()
     app.quit()
   }
 })
 
 /**
- * 应用退出前清理
+ * 应用退出前同步清理所有子进程。
+ * before-quit 在窗口已关闭、程序即将退出时触发——是同步杀进程的可靠时机。
  */
 app.on('before-quit', () => {
-  cleanupProcesses()
+  cleanupProcessesSync()
 })
 
-/**
- * 应用即将退出时的最后清理
- */
-app.on('will-quit', (event) => {
-  // 确保所有进程都已停止
-  if ((backendProcess && !backendProcess.killed) || (frontendProcess && !frontendProcess.killed)) {
-    event.preventDefault()
-    cleanupProcesses()
-    setTimeout(() => {
-      app.quit()
-    }, 1000)
-  }
-})
+// 开发模式下 Ctrl+C / 终端 kill 也走标准退出路径，确保触发 before-quit 清理
+process.on('SIGINT', () => app.quit())
+process.on('SIGTERM', () => app.quit())

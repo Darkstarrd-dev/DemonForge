@@ -348,6 +348,7 @@ export const seedProviders: ProviderNode[] = [
   {
     id: 'prov-1',
     name: '本地 llama.cpp',
+    nodeType: 'text',
     baseURL: 'http://127.0.0.1:8080/v1',
     apiKey: '',
     model: 'qwen3-32b-q4',
@@ -360,6 +361,7 @@ export const seedProviders: ProviderNode[] = [
   {
     id: 'prov-2',
     name: '云端 API（示例）',
+    nodeType: 'text',
     baseURL: 'https://api.example.com/v1',
     apiKey: 'sk-demo-xxxx',
     model: 'demo-large-v2',

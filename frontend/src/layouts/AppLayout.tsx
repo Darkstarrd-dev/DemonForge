@@ -13,9 +13,10 @@ import {
   SettingOutlined,
   BlockOutlined,
   AppstoreOutlined,
+  PictureOutlined,
 } from '@ant-design/icons'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
-import { useAppStore } from '../store/appStore'
+import { useAppStore, flushStoreWrites } from '../store/appStore'
 
 const MENU_ITEMS = [
   { key: '/', icon: <HomeOutlined />, label: '书库概览' },
@@ -28,6 +29,7 @@ const MENU_ITEMS = [
   { key: '/batch', icon: <RocketOutlined />, label: '批量生产' },
   { key: '/demo-3d', icon: <BlockOutlined />, label: '3D环境Demo' },
   { key: '/demo-2d', icon: <AppstoreOutlined />, label: '2D环境Demo' },
+  { key: '/demo-image', icon: <PictureOutlined />, label: '文生图 Demo' },
   { key: '/settings', icon: <SettingOutlined />, label: '系统设置' },
 ]
 
@@ -40,6 +42,13 @@ export default function AppLayout() {
   const projects = books.filter((b) => b.type === 'project')
 
   const handleExit = async () => {
+    // 先冲刷未提交的 debounce 写入（删除/编辑等），再触发后端 shutdown，
+    // 否则后端被杀掉，最后一次状态丢失，重启后数据回归。
+    try {
+      await flushStoreWrites()
+    } catch {
+      /* 忽略 */
+    }
     try {
       await fetch('/api/shutdown', { method: 'POST' })
     } catch {

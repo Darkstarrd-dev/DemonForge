@@ -39,5 +39,6 @@ echo Note: Electron will auto-start backend and frontend servers
 echo.
 
 call npm run dev
-
-pause
+rem No `pause` here: when Electron exits (backend/frontend already torn down by
+rem the main process cleanup), this CMD window should close automatically.
+rem To debug startup errors, run `npm run dev` directly in your own terminal.

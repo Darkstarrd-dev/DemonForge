@@ -64,6 +64,7 @@ export interface AppState {
 
 const normalizeProvider = (p: Partial<ProviderNode> & { id: string; name: string; baseURL: string; model: string }): ProviderNode => ({
   ...p,
+  nodeType: p.nodeType === 'image' ? 'image' : 'text',
   maxConcurrency: typeof p.maxConcurrency === 'number' && p.maxConcurrency > 0 ? p.maxConcurrency : 2,
   batchSize: typeof p.batchSize === 'number' && p.batchSize > 0 ? p.batchSize : 1,
   intervalSec: typeof p.intervalSec === 'number' && p.intervalSec >= 0 ? p.intervalSec : 0,
@@ -106,7 +107,7 @@ export const useAppStore = create<AppState>()((set) => ({
     set((s) => ({
       issues: s.issues.map((i) => (i.id === id ? { ...i, ...patch } : i)),
     })),
-  deleteBook: (id) =>
+  deleteBook: (id) => {
     set((s) => {
       // 收集待删 book 下的场景 id 与卡片 id，用于级联清理间接引用的 fragments / mergeCandidates
       const bookSceneIds = new Set(s.scenes.filter((sc) => sc.bookId === id).map((sc) => sc.id))
@@ -132,9 +133,12 @@ export const useAppStore = create<AppState>()((set) => ({
         ),
         currentBookId,
       }
-    }),
+    })
+    // 删除是关键操作 → 立即落库（绕过 1s 防抖），避免"删完立刻关窗"竞态丢失写入。
+    pushStoreNow()
+  },
   // 仅重置业务数据 + 导入会话；保留 providers/moduleMapping/m1SystemPrompt/assetDir（用户配置）
-  resetDemo: () =>
+  resetDemo: () => {
     set({
       books: seedBooks,
       chapters: seedChapters,
@@ -148,7 +152,10 @@ export const useAppStore = create<AppState>()((set) => ({
       mergeCandidates: seedMergeCandidates,
       currentBookId: 'book-proj-1',
       importSession: null,
-    }),
+    })
+    // 重置同理立即落库
+    pushStoreNow()
+  },
 }))
 
 // ===== 后端持久化（替代原 localStorage persist）=====
@@ -176,8 +183,11 @@ const pushStore = (payload: Record<string, unknown>) =>
     body: JSON.stringify(payload),
   })
 
-/** 启动引导：先拉设置，再拉业务数据；后端为空则用种子并持久化一次（从种子重建）。 */
+/** 启动引导：先拉设置，再拉业务数据；后端为空且从未初始化过才用种子播种。 */
 export async function bootstrapStore(): Promise<void> {
+  // 标记业务库是否已初始化过。用于区分「首次运行（后端为空→播种）」与
+  // 「用户清空了全部书（后端为空但已初始化→保持空，不再回填种子）」。
+  let storeInitialized = false
   try {
     const res = await fetch('/api/settings')
     if (res.ok) {
@@ -187,7 +197,9 @@ export async function bootstrapStore(): Promise<void> {
         m1SystemPrompt?: string
         assetDir?: string
         currentBookId?: string
+        storeInitialized?: boolean
       }
+      storeInitialized = d.storeInitialized === true
       const patch: Partial<AppState> = {}
       if (d.providers?.length) patch.providers = d.providers.map((p) => normalizeProvider(p))
       // 合并 seed 默认键，防旧 settings.json 缺新增 ModuleKey 导致 Record 不全
@@ -218,12 +230,26 @@ export async function bootstrapStore(): Promise<void> {
           architectures: (data.architectures ?? []) as NovelArchitecture[],
           mergeCandidates: (data.mergeCandidates ?? []) as MergeCandidate[],
         })
-      } else {
-        // 后端为空 → 用种子业务数据并持久化一次
+        // 旧 settings.json 没有该标记 → 趁这次有数据时补写，避免后续"删光"误触发回填
+        if (!storeInitialized) {
+          await fetch('/api/settings', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ storeInitialized: true }),
+          }).catch(() => {})
+        }
+      } else if (!storeInitialized) {
+        // 仅「首次运行」播种：后端为空且从未初始化过 → 用种子并持久化 + 标记已初始化
         const seed = businessPayload(seedState() as unknown as AppState)
         useAppStore.setState(seed)
         await pushStore(seed)
+        await fetch('/api/settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ storeInitialized: true }),
+        }).catch(() => {})
       }
+      // 否则：已初始化但库为空（用户删光了书）→ 保持空，不回填种子
     }
   } catch {
     /* 后端不可用：保留内存种子，仅本会话有效 */
@@ -282,6 +308,18 @@ useAppStore.subscribe((s, prev) => {
   }, 1000)
 })
 
+// 立即把当前业务状态推送到后端（绕过 1s 防抖）。用于删除/重置等一次性关键操作：
+// 点击即落库，不依赖 beforeunload（Electron 卸载时机不稳定，1s 内关窗会丢删除）。
+// function 声明被提升，故 store actions（定义在上方）可在运行时引用。
+function pushStoreNow(): void {
+  if (!storeReady) return
+  if (storeTimer) {
+    clearTimeout(storeTimer)
+    storeTimer = null
+  }
+  pushStore(businessPayload(useAppStore.getState())).catch(() => {})
+}
+
 // 设置回写：providers/moduleMapping/m1SystemPrompt/assetDir/currentBookId 变化时 debounce POST
 let settingsTimer: ReturnType<typeof setTimeout> | null = null
 useAppStore.subscribe((s, prev) => {
@@ -311,6 +349,51 @@ useAppStore.subscribe((s, prev) => {
     }).catch(() => {})
   }, 1000)
 })
+
+// 关窗/退出时立即冲刷未提交的 debounce 写入。
+// 业务数据写入有 1s debounce，若用户删除后立刻关窗，定时器未触发 → 后端拿不到删除 → 重启后数据回归。
+// beforeunload 用 keepalive:true 让请求能熬过页面卸载，确保最后一次状态落库。
+export async function flushStoreWrites(): Promise<void> {
+  if (storeTimer) {
+    clearTimeout(storeTimer)
+    storeTimer = null
+  }
+  if (settingsTimer) {
+    clearTimeout(settingsTimer)
+    settingsTimer = null
+  }
+  const st = useAppStore.getState()
+  await Promise.all([
+    fetch('/api/store', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(businessPayload(st)),
+      keepalive: true,
+    }).catch(() => {}),
+    fetch('/api/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        providers: st.providers,
+        moduleMapping: st.moduleMapping,
+        m1SystemPrompt: st.m1SystemPrompt,
+        assetDir: st.assetDir,
+        currentBookId: st.currentBookId,
+      }),
+      keepalive: true,
+    }).catch(() => {}),
+  ])
+}
+
+if (typeof window !== 'undefined') {
+  // 页面卸载前尽力冲刷（fire-and-forget，靠 keepalive 续命）
+  window.addEventListener('beforeunload', () => {
+    void flushStoreWrites()
+  })
+  window.addEventListener('pagehide', () => {
+    void flushStoreWrites()
+  })
+}
 
 let idCounter = 0
 /** 简易唯一 id */
