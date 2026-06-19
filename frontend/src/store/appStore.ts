@@ -292,8 +292,24 @@ export async function bootstrapStore(): Promise<void> {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ storeInitialized: true }),
         }).catch(() => {})
+      } else {
+        // 已初始化但库为空（用户删光了书 / 切到空目录）→ 必须显式把内存清空，
+        // 否则内存里仍是 seedState() 的两本种子书，后续任意 setState（如 currentBookId
+        // 改动）触发 storeReady 订阅 → 把这两本假书 pushStore 回后端 → 重启后「自动冒出」。
+        useAppStore.setState({
+          books: [],
+          chapters: [],
+          cards: [],
+          outline: [],
+          scenes: [],
+          fragments: [],
+          stateEvents: [],
+          issues: [],
+          architectures: [],
+          mergeCandidates: [],
+          imageGallery: [],
+        })
       }
-      // 否则：已初始化但库为空（用户删光了书）→ 保持空，不回填种子
     }
   } catch {
     /* 后端不可用：保留内存种子，仅本会话有效 */
@@ -322,10 +338,22 @@ export async function reloadStoreFromBackend(): Promise<void> {
       imageGallery: (data.imageGallery ?? []) as GeneratedImage[],
     })
   } else {
-    // 新目录为空 → 填充种子并持久化
-    const seed = businessPayload(seedState() as unknown as AppState)
-    useAppStore.setState(seed)
-    await pushStore(seed)
+    // 目标目录无业务数据 → 视为空书库，保持空（不再自动播种 Mock 演示作品）。
+    // 用户可经 M0 立项 / M1 导入自行创建作品。同样须显式清空内存，避免回切旧
+    // 目录后残留的内存种子被 storeReady 订阅写回后端。
+    useAppStore.setState({
+      books: [],
+      chapters: [],
+      cards: [],
+      outline: [],
+      scenes: [],
+      fragments: [],
+      stateEvents: [],
+      issues: [],
+      architectures: [],
+      mergeCandidates: [],
+      imageGallery: [],
+    })
   }
 }
 

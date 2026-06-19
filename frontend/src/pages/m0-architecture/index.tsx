@@ -27,11 +27,36 @@ import { generateArch, generateBlueprint } from '../../services/api'
 import type { OutlineNode } from '../../services/types'
 import { parseArchitecture, parseBlueprint, type ParsedBlueprintChapter } from './parse'
 
-const ARCH_FIELDS: { key: 'seed' | 'characterDynamics' | 'worldBuilding' | 'plotStructure'; label: string }[] = [
-  { key: 'seed', label: '核心种子' },
-  { key: 'characterDynamics', label: '角色动力学' },
-  { key: 'worldBuilding', label: '世界观' },
-  { key: 'plotStructure', label: '三幕式情节' },
+const ARCH_FIELDS: {
+  key: 'seed' | 'characterDynamics' | 'worldBuilding' | 'plotStructure'
+  label: string
+  /** placeholder：作为「引导用的模板」，空值时提示填写方向；不影响实际值 */
+  template: string
+}[] = [
+  {
+    key: 'seed',
+    label: '核心种子',
+    template:
+      '当[主角]遭遇[核心事件]，必须[关键行动]，否则[灾难后果]……\n（单句公式概括故事本质，需包含显性冲突与潜在危机）',
+  },
+  {
+    key: 'characterDynamics',
+    label: '角色动力学',
+    template:
+      '主角A：表面追求… / 深层渴望… / 灵魂需求…\n对手B：表面… / 深层… / 灵魂…\n（3–6 个核心角色，附驱动力三角与关系网：冲突 / 合作 / 背叛）',
+  },
+  {
+    key: 'worldBuilding',
+    label: '世界观',
+    template:
+      '物理维度：空间 / 时间 / 法则……\n社会维度：权力结构 / 文化禁忌……\n隐喻维度：视觉符号 / 主题映射……',
+  },
+  {
+    key: 'plotStructure',
+    label: '三幕式情节',
+    template:
+      '第一幕（触发）：日常打破 → 关键事件 → 错误抉择\n第二幕（对抗）：压力升级 → 虚假胜利 → 灵魂黑夜\n第三幕（解决）：代价显现 → 终极抉择 → 开放结局',
+  },
 ]
 
 export default function M0ArchitecturePage() {
@@ -301,37 +326,55 @@ export default function M0ArchitecturePage() {
               </Space>
             </Card>
 
-            {(editingArch.seed || editingArch.characterDynamics || editingArch.worldBuilding || editingArch.plotStructure) && (
-              <Card
-                size="small"
-                title={
-                  <span>
-                    <CheckOutlined /> 架构（可编辑）
-                  </span>
-                }
-                extra={
-                  <Button type="primary" size="small" icon={<DeploymentUnitOutlined />} onClick={adoptArch} disabled={!!createdArch}>
-                    {createdArch ? '已采纳' : '采纳架构（建新书）'}
-                  </Button>
-                }
-              >
-                <Space direction="vertical" size={8} style={{ width: '100%' }}>
-                  {ARCH_FIELDS.map((f) => (
-                    <div key={f.key}>
-                      <Typography.Text strong style={{ fontSize: 13 }}>
-                        {f.label}
-                      </Typography.Text>
-                      <Input.TextArea
-                        value={editingArch[f.key]}
-                        onChange={(e) => setEditingArch({ ...editingArch, [f.key]: e.target.value })}
-                        autoSize={{ minRows: 2, maxRows: 6 }}
-                        style={{ marginTop: 4 }}
-                      />
-                    </div>
-                  ))}
-                </Space>
-              </Card>
-            )}
+            <Card
+              size="small"
+              title={
+                <span>
+                  <CheckOutlined /> 架构（手填 / 编辑 AI 产出）
+                </span>
+              }
+              extra={
+                <Button type="primary" size="small" icon={<DeploymentUnitOutlined />} onClick={adoptArch} disabled={!!createdArch}>
+                  {createdArch ? '已采纳' : '采纳架构（建新书）'}
+                </Button>
+              }
+            >
+              <Typography.Paragraph type="secondary" style={{ marginTop: 0, marginBottom: 8, fontSize: 12 }}>
+                {createdArch
+                  ? '已采纳为作品架构。'
+                  : '可直接在下方各框手填，也可点上方「生成架构」由 AI 填入后再编辑；至少填写一项即可采纳。'}
+              </Typography.Paragraph>
+              <Space direction="vertical" size={8} style={{ width: '100%' }}>
+                {ARCH_FIELDS.map((f) => (
+                  <div key={f.key}>
+                    <Typography.Text strong style={{ fontSize: 13 }}>
+                      {f.label}
+                    </Typography.Text>
+                    <Input.TextArea
+                      value={editingArch[f.key]}
+                      onChange={(e) => setEditingArch({ ...editingArch, [f.key]: e.target.value })}
+                      placeholder={f.template}
+                      autoSize={{ minRows: 2, maxRows: 8 }}
+                      style={{ marginTop: 4 }}
+                    />
+                  </div>
+                ))}
+                <Button
+                  size="small"
+                  type="link"
+                  disabled={!!createdArch}
+                  onClick={() => {
+                    const filled: Record<string, string> = {}
+                    for (const f of ARCH_FIELDS)
+                      filled[f.key] = editingArch[f.key].trim() ? editingArch[f.key] : f.template
+                    setEditingArch(filled as typeof editingArch)
+                    message.info('已为空字段填入引导模板，可在其上直接改写')
+                  }}
+                >
+                  填入引导模板
+                </Button>
+              </Space>
+            </Card>
           </Space>
         </Col>
 

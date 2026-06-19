@@ -298,7 +298,9 @@ function createWindow(showMenuBar = true) {
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
-      preload: join(__dirname, 'preload.js'),
+      // preload 用 CommonJS 版（preload.cjs）：Electron 20+ 默认 sandbox: true，
+      // 沙箱内预加载脚本不支持 ESM import。详见 electron/preload.cjs 注释。
+      preload: join(__dirname, 'preload.cjs'),
     },
     show: false, // 等待加载完成后再显示
     autoHideMenuBar: !showMenuBar,
@@ -317,8 +319,12 @@ function createWindow(showMenuBar = true) {
     }
   }
 
-  // 页面加载完成后显示窗口
+  // 页面加载完成后显示窗口，并立即按当前设置同步菜单栏可见性
+  // （构造期 autoHideMenuBar 仅控制隐藏策略，显式 setMenuBarVisibility 确保
+  //   「显示」态下菜单栏确实渲染出来，避免某些情况下需手动按 Alt 才出现）
   mainWindow.once('ready-to-show', () => {
+    mainWindow?.setMenuBarVisibility(showMenuBar)
+    mainWindow?.setAutoHideMenuBar(!showMenuBar)
     mainWindow?.show()
   })
 

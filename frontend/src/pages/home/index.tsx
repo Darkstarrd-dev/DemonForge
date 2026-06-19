@@ -1,11 +1,13 @@
 import { useState } from 'react'
 import { App, Button, Card, Checkbox, Modal, Table, Tag, Typography, Space } from 'antd'
 import { DeleteOutlined } from '@ant-design/icons'
+import { useNavigate } from 'react-router-dom'
 import { useAppStore } from '../../store/appStore'
 import type { Book } from '../../services/types'
 
 export default function HomePage() {
   const { message } = App.useApp()
+  const navigate = useNavigate()
   const books = useAppStore((s) => s.books)
   const chapters = useAppStore((s) => s.chapters)
   const cards = useAppStore((s) => s.cards)
@@ -74,7 +76,21 @@ export default function HomePage() {
   return (
     <Space direction="vertical" size={16} style={{ width: '100%' }}>
       <Card title="书库概览">
-        <Table rowKey="id" columns={columns} dataSource={books} pagination={false} size="middle" />
+        <Table
+          rowKey="id"
+          columns={columns}
+          dataSource={books}
+          pagination={false}
+          size="middle"
+          locale={{
+            emptyText: (
+              <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
+                书库暂无作品。可前往 <Typography.Link onClick={() => navigate('/m0')}>M0 立项·架构</Typography.Link>{' '}
+                新建一个作品，或经 <Typography.Link onClick={() => navigate('/m1')}>M1 文本导入</Typography.Link> 导入素材。
+              </Typography.Paragraph>
+            ),
+          }}
+        />
         <Typography.Paragraph type="secondary" style={{ marginTop: 12, marginBottom: 0 }}>
           素材库 = 他人作品参考（只读提取设定）；作品库 = 自己的创作工作区。M1 导入时选择归属。
         </Typography.Paragraph>

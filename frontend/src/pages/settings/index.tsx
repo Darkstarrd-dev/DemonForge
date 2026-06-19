@@ -325,7 +325,7 @@ export default function SettingsPage() {
         <Typography.Paragraph type="secondary" style={{ marginBottom: 8 }}>
           业务数据（书/章节/卡片/推演等）保存在此目录下的 <Typography.Text code>novelhelper.db</Typography.Text>，
           图片存 <Typography.Text code>images/</Typography.Text>。留空使用默认 <Typography.Text code>&lt;repo&gt;/assets</Typography.Text>。
-          切换目录将载入该目录下的数据集（空目录则重新填充种子数据）。Provider/密钥等设置不在此目录。
+          切换目录将载入该目录下的数据集（空目录则显示空书库，可经 M0 立项 / M1 导入自行创建作品）。Provider/密钥等设置不在此目录。
         </Typography.Paragraph>
         <Space.Compact style={{ width: '100%' }}>
           <Input

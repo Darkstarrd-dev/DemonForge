@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "dev": "npm run build:electron && electron .",
-    "build:electron": "tsc -p electron/tsconfig.json",
+    "build:electron": "tsc -p electron/tsconfig.json && node --input-type=module -e \"import{copyFileSync}from'node:fs';copyFileSync('electron/preload.cjs','dist-electron/preload.cjs')\"",
     "build:frontend": "cd frontend && npm run build",
     "build:backend": "cd server && npm run build",
     "build": "npm run build:backend && npm run build:frontend && npm run build:electron",
