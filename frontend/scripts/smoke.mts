@@ -1,6 +1,6 @@
 // 临时冒烟测试：node --experimental-strip-types 运行，验证核心逻辑
 import { DEMO_RAW_TEXT, mockCleanChapter } from '../src/mocks/demoRaw.ts'
-import { splitChapters, PRESET_PATTERNS, retentionRate, detectChapterPattern, DEFAULT_SPLIT_PATTERNS, compilePatterns } from '../src/utils/split.ts'
+import { splitChapters, PRESET_PATTERNS, retentionRate, detectChapterPattern, DEFAULT_SPLIT_PATTERNS, compilePatterns, normalizeParagraphs } from '../src/utils/split.ts'
 import { alignedDiff, applyLineDecisions, diffStats } from '../src/utils/alignedDiff.ts'
 
 let failed = 0
@@ -90,6 +90,42 @@ const volRegex = compilePatterns(PATTERNS).find((p) => p.key === 'zhang')!.regex
 const volSplit = splitChapters(volText, volRegex, false)
 check('卷结构：卷行单独成章', volSplit.some((c) => c.isVolume && c.title.startsWith('第一卷')), volSplit.map((c) => `${c.title}${c.isVolume ? '(卷)' : ''}`).join(' | '))
 check('卷结构：卷章内容不并入下一章正文', volSplit.filter((c) => c.isVolume).every((c) => !c.content.includes('正文')), '卷章不应含正文')
+
+// 6. 行内标题查找（emoji 前缀 / 标题粘连正文末尾 / 正文引用护栏）—— 2026-06-19 重构
+const zhangSearch = compilePatterns(PATTERNS).find((p) => p.key === 'zhang')!.regex!
+
+// emoji 前缀：👍第2章 ... 应被剥除
+const emojiText = '👍第1章 开端\n正文一\n👍第2章 发展\n正文二'
+const emojiDetect = detectChapterPattern(emojiText, PATTERNS)
+check('检测带 emoji 前缀「第X章」→ 推荐 zhang', emojiDetect.patternKey === 'zhang', `实际 ${emojiDetect.patternKey}`)
+check('emoji 前缀命中 2 处', emojiDetect.hitCount === 2, `实际 ${emojiDetect.hitCount}`)
+const emojiSplit = splitChapters(emojiText, zhangSearch, true)
+check('emoji 剥除，标题干净（第1章 开端）', emojiSplit[0].title === '第1章 开端' && !emojiSplit[0].title.includes('👍'), emojiSplit[0].title)
+
+// 标题粘连在正文末尾同一行（句末标点后）
+const stickText = '前文一句话。第3章 接受现实\n正文一\n后面一句。第4章 新的篇章\n正文二'
+const stickDetect = detectChapterPattern(stickText, PATTERNS)
+check('检测粘连标题（句末标点后）→ 推荐 zhang', stickDetect.patternKey === 'zhang', `实际 ${stickDetect.patternKey}`)
+check('粘连标题命中 2 处', stickDetect.hitCount === 2, `实际 ${stickDetect.hitCount}`)
+const stickSplit = splitChapters(stickText, zhangSearch, true)
+check('粘连标题切分：3 章（序章 + 2 标题章）', stickSplit.length === 3, `实际 ${stickSplit.length}：${stickSplit.map((c) => c.title).join(' | ')}`)
+check('标题前正文归入序章', stickSplit[0].content.includes('前文一句话。'), stickSplit[0].content)
+check('第3章标题干净', stickSplit[1].title === '第3章 接受现实', stickSplit[1].title)
+check('第3章含其后的粘连正文（后面一句。）', stickSplit[1].content.includes('后面一句。'), stickSplit[1].content)
+
+// 正文引用护栏：「他翻到第三章」前一字符「到」非句末标点 → 不误切
+const refText = '他翻到第三章看了看，觉得无聊。\n第一章 开端\n正文一\n第二章 发展\n正文二'
+const refDetect = detectChapterPattern(refText, PATTERNS)
+check('正文引用不误切：仍推荐 zhang', refDetect.patternKey === 'zhang', `实际 ${refDetect.patternKey}`)
+check('正文引用被护栏拦下：仅 2 处真实命中', refDetect.hitCount === 2, `实际 ${refDetect.hitCount}`)
+const refSplit = splitChapters(refText, zhangSearch, true)
+check('正文引用不产生额外切分：3 章（序章 + 2）', refSplit.length === 3, `实际 ${refSplit.length}：${refSplit.map((c) => c.title).join(' | ')}`)
+check('正文引用保留在序章', refSplit[0].content.includes('他翻到第三章'), refSplit[0].content)
+
+// 7. 段落格式化（切分时即格式化）
+check('无空行 → 段间补空行', normalizeParagraphs('第一段。\n第二段。\n第三段。') === '第一段。\n\n第二段。\n\n第三段。', normalizeParagraphs('第一段。\n第二段。\n第三段。'))
+check('多空行 → 压成 1 个', normalizeParagraphs('第一段。\n\n\n\n第二段。') === '第一段。\n\n第二段。', normalizeParagraphs('第一段。\n\n\n\n第二段。'))
+check('已有单空行 → 不动', normalizeParagraphs('第一段。\n\n第二段。') === '第一段。\n\n第二段。', normalizeParagraphs('第一段。\n\n第二段。'))
 
 console.log(failed === 0 ? '\n全部通过' : `\n${failed} 项失败`)
 process.exit(failed === 0 ? 0 : 1)

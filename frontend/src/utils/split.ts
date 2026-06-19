@@ -1,11 +1,17 @@
 // 章节切分——M1 文档 §3.2 预设正则 + 自动检测 + 卷/前缀处理
+//
+// 核心机制（2026-06-19 重构）：放弃「行首锚定」，改「行内任意位置查找 + 标题前置截断」。
+// 真实乱序 raw 文本里，标题可能① 前面带 emoji/装饰符号（stripDecor 剥不全），② 粘在上一章
+// 正文末尾同一行（如「可轻松切断任何常规金属。第3章 接受现实」）。`^` 行首锚两者都救不了。
+// 解决：存储形保留 `^`（用户编辑体验不变），编译时剥锚成「行内搜索形」，匹配后用「句末标点
+// 护栏」区分干净标题行与正文引用，标题前文字归入上一章。
 
 import type { SplitPattern as StoredSplitPattern } from '../services/types'
 
 /** 持久化形态（regex 为字符串，存 settings.json） */
 export type { SplitPattern as StoredSplitPattern } from '../services/types'
 
-/** 检测/切分时使用的运行时形态：regex 已编译为 RegExp（custom 为 null） */
+/** 检测/切分时使用的运行时形态：regex 已编译为「行内搜索形」RegExp（custom 为 null） */
 export interface SplitPattern {
   key: string
   label: string
@@ -26,26 +32,43 @@ export const DEFAULT_SPLIT_PATTERNS: StoredSplitPattern[] = [
   { key: 'custom',  label: '自定义正则', regex: '', builtin: true },
 ]
 
-/** 内置卷正则（旁路识别卷行，独立于用户当前选的模式） */
-const VOLUME_REGEX = /^(第[0-9零一二三四五六七八九十百千万]+卷.*)/
+/** 内置卷正则（旁路识别卷行，独立于用户当前选的模式）—— 存储形（带 ^），转搜索形时用 */
+const VOLUME_SOURCE = '^(第[0-9零一二三四五六七八九十百千万]+卷.*)'
 
-/** 散落装饰符号（爱心/星号/方框/序号圈/书名号/括号等 + 空白） */
-const DECOR_SYMBOLS = /^[☆★◆●○■□※▪♦♥♠♣①-⑳Ⅰ-Ⅻ【】[]「」『』《》（）()\s]+/
+/**
+ * 散落装饰符号（爱心/星号/方框/序号圈/书名号/括号 + 空白），均为 BMP 范围。
+ * 仅剥**行首前导**符号（regex 带 ^），剥到遇到「第/数字/Chapter」即停；
+ * 正文行内的 emoji 不受影响（content buffer 存原始 line，只有标题提取用 stripped）。
+ *
+ * astral emoji 与变体选择符单独用属性转义处理（DECOR_EMOJI / DECOR_VS），
+ * 避免在字符类里混入代理对 / combining mark 触发 no-misleading-character-class。
+ * 半角方括号用 \u005B / \u005D 表达（字符类内裸 [ ] 在 u-flag 下非法，转义又触发
+ * no-useless-escape，unicode 转义两全其美）。
+ */
+const DECOR_SYMBOLS = /^[\s☆★◆●○■□※▪♦♥♠♣①-⑳Ⅰ-Ⅻ【】\u005B\u005D「」『』《》（）()\u2600-\u27BF\u2B00-\u2BFF]+/
+
+/** 行首图形 emoji（astral plane，如 👍🎉）—— 属性转义，避开代理对范围 */
+const DECOR_EMOJI = /^\p{Extended_Pictographic}+/u
+
+/** 行首变体选择符（U+FE00–FE0F，不可见格式字符）—— 属性转义，避开 combining mark 字符类 */
+const DECOR_VS = /^\p{Variation_Selector}+/u
 
 /**
  * 剥除标题行前的装饰前缀。支持两类：
  * ① 成对符号包裹的任意内容块（如 [爱心]、【公告】、（注）），内容可含中文；
- * ② 散落的单个装饰符号 + 空白。
+ * ② 散落的单个装饰符号（含 emoji / 变体选择符）+ 空白。
  * 两类交替反复剥除，直到剩下章节正文。
  */
 const DECOR_BLOCK = /^(\[[^\]]*\]|【[^】]*】|（[^）]*）|\([^)]*\)|「[^」]*」|『[^』]*』|《[^》]*》)/
 
 function stripDecor(s: string): string {
   let out = s
-  // 反复剥：每轮先剥一个成对包裹块，再剥散落符号；都不再变化时停止
+  // 反复剥：每轮先剥成对包裹块、emoji、变体选择符、散落符号；都不再变化时停止
   for (let i = 0; i < 10; i++) {
     const before = out
     out = out.replace(DECOR_BLOCK, '')
+    out = out.replace(DECOR_EMOJI, '')
+    out = out.replace(DECOR_VS, '')
     out = out.replace(DECOR_SYMBOLS, '')
     if (out === before) break
   }
@@ -53,17 +76,29 @@ function stripDecor(s: string): string {
 }
 
 /**
- * 把存储形态（regex 字符串）编译为运行时形态（regex RegExp）。
+ * 把存储形正则（带 ^）转成「行内搜索形」编译。
+ * 剥掉开头的 `^` 锚（若有），其余原样。`flags` 透传。
+ * 编译失败返回 null。
+ */
+export function toSearchRegex(source: string, flags?: string): RegExp | null {
+  if (!source) return null
+  // 去掉开头的 ^ 锚（可能前后有空白/分组起点的细微差异，统一处理行首锚）
+  const stripped = source.replace(/^\s*\^/, '')
+  try {
+    return new RegExp(stripped, flags)
+  } catch {
+    return null
+  }
+}
+
+/**
+ * 把存储形态（regex 字符串）编译为运行时形态（regex 为行内搜索形 RegExp）。
  * custom 模式或编译失败 → regex 为 null。
  */
 export function compilePatterns(stored: StoredSplitPattern[]): SplitPattern[] {
   return stored.map((p) => {
     if (p.key === 'custom' || !p.regex) return { ...p, regex: null }
-    try {
-      return { ...p, regex: new RegExp(p.regex, p.flags) }
-    } catch {
-      return { ...p, regex: null }
-    }
+    return { ...p, regex: toSearchRegex(p.regex, p.flags) }
   })
 }
 
@@ -78,6 +113,49 @@ export interface SplitResult {
 }
 
 const TITLE_MAX = 50
+
+/**
+ * 句末标点（标题前若是这些字符之一，则视为上一章正文自然结束、标题可在此截断开新章）。
+ * 用于区分「正文自然结束 + 标题粘连」与「正文引用第N章」（如「他翻到第三章」）。
+ * 前一字符非句末标点时，命中判为正文引用、不切分。
+ */
+const SENTENCE_END = new Set('。！？!?…」』)）"』】》>.;')
+
+export interface TitleHit {
+  /** 标题在行内的起始偏移（stripDecor 后的坐标系） */
+  index: number
+  /** 标题前文字（归入上一章） */
+  prefix: string
+  /** 标题文本（已截断 TITLE_MAX） */
+  title: string
+}
+
+/**
+ * 在一行内查找章节标题。返回 {index, prefix, title} 或 null。
+ *
+ * 边界护栏：命中若在行内非开头位置（index > 0），要求前一字符是句末标点
+ * （见 SENTENCE_END），否则判为正文引用（如「他翻到第三章」）、返回 null。
+ * 命中在 index 0 = 干净标题行（stripDecor 后），直接通过。
+ *
+ * 标题捕获组：优先 m[1]（首个捕获组，预设正则均含），否则 m[0]。
+ */
+export function findTitleInLine(line: string, searchRegex: RegExp): TitleHit | null {
+  const m = line.match(searchRegex)
+  if (!m || typeof m.index !== 'number') return null
+  const idx = m.index
+  // 行内非开头位置：必须有句末标点背书，否则判正文引用
+  if (idx > 0) {
+    const prev = line[idx - 1]
+    if (!SENTENCE_END.has(prev)) return null
+  }
+  const rawTitle = (m[1] ?? m[0]).replace(/\s+/g, ' ').trim()
+  if (!rawTitle) return null
+  return {
+    index: idx,
+    prefix: line.slice(0, idx).trim(),
+    title: rawTitle.slice(0, TITLE_MAX),
+  }
+}
 
 export interface DetectResult {
   /** 推荐模式 key（无命中时返回 'custom'） */
@@ -96,8 +174,9 @@ const MIN_HITS = 2
 
 /**
  * 自动检测最匹配的章节模式。
- * 逐行扫描，每行先 trim、剥装饰前缀，再对每个非 custom 模式测试命中。
- * 取 hitCount >= MIN_HITS 的最大者；卷模式仅在无章类命中时作为兜底推荐。
+ * 逐行扫描，每行先 trim、剥装饰前缀，再用 findTitleInLine（行内查找 + 句末标点护栏）
+ * 对每个非 custom 模式测试命中。取 hitCount >= MIN_HITS 的最大者；卷模式仅在无章类
+ * 命中时作为兜底推荐。
  */
 export function detectChapterPattern(text: string, stored: StoredSplitPattern[]): DetectResult {
   const patterns = compilePatterns(stored).filter((p) => p.key !== 'custom' && p.regex)
@@ -108,10 +187,10 @@ export function detectChapterPattern(text: string, stored: StoredSplitPattern[])
     const titles: string[] = []
     for (const raw of lines) {
       const stripped = stripDecor(raw.trim())
-      const m = stripped.match(p.regex!)
-      if (m) {
+      const hitInfo = findTitleInLine(stripped, p.regex!)
+      if (hitInfo) {
         hit++
-        if (titles.length < 5) titles.push(m[1].trim().slice(0, TITLE_MAX))
+        if (titles.length < 5) titles.push(hitInfo.title)
       }
     }
     return { pattern: p, hit, titles }
@@ -151,18 +230,56 @@ export function detectChapterPattern(text: string, stored: StoredSplitPattern[])
   }
 }
 
+/**
+ * 段落格式化（切分时即格式化）：
+ * - 无空行 → 每个非空行视为独立段落，段间补 1 空行；
+ * - 已有单空行 → 不动；
+ * - 连续多空行 → 压成 1 个。
+ * 仅规整空行，不碰行内内容（保留全角缩进、标点、作者文风，符合 M1 §3.7 红线）。
+ */
+export function normalizeParagraphs(content: string): string {
+  if (!content) return content
+  const lines = content.split(/\r?\n/)
+  const out: string[] = []
+  let blankRun = 0
+  let sawAnyBlank = false
+  for (const line of lines) {
+    if (line.trim() === '') {
+      blankRun++
+      sawAnyBlank = true
+    } else {
+      // 处理累积的空行
+      if (blankRun > 0) {
+        // 有空行（原文已有段落分隔）→ 压成恰好 1 个
+        out.push('')
+        blankRun = 0
+      } else if (out.length > 0) {
+        // 前一行是非空、且原本无空行分隔 → 补 1 个空行作段落分隔
+        out.push('')
+      }
+      out.push(line)
+    }
+  }
+  // 全文无任何空行且只有一行时，无需补；多行已在循环里补过
+  void sawAnyBlank
+  return out.join('\n').replace(/\n{3,}/g, '\n\n').replace(/^\n+/, '').replace(/\n+$/, '')
+}
+
 export interface SplitOptions {
-  /** 剥除标题行前的装饰符号前缀，默认 true */
+  /** 保留旧签名占位；装饰前缀剥除是核心行为不可关闭 */
   stripDecorPrefix?: boolean
+  /** 是否对每章 content 跑 normalizeParagraphs，默认 true */
+  normalize?: boolean
 }
 
 /**
- * 按行扫描切分。匹配行视为新章标题；标题之前的内容按 keepPrologue 决定
- * 归入"序章"或并入第一章。无任何匹配时全文作为单章。
+ * 按行扫描切分。匹配行（含行内标题，经 findTitleInLine + 句末标点护栏）视为新章标题；
+ * 标题前的同行文字归入上一章。标题之前的内容按 keepPrologue 决定归入「序章」或并入第一章。
+ * 无任何匹配时全文作为单章。
  *
- * 卷结构：当用户选的模式非卷模式时，仍用内置 VOLUME_REGEX 旁路识别卷行，
+ * 卷结构：当用户选的模式非卷模式时，仍用内置卷正则（行内搜索形）旁路识别卷行，
  * 卷行单独成一章（isVolume=true），其内容为卷行之后到下一个卷/章行之前的文本。
- * 标题前的装饰符号会被剥除（由 stripDecorPrefix 控制）。
+ * 标题前的装饰符号会被剥除。
  */
 export function splitChapters(
   text: string,
@@ -170,44 +287,59 @@ export function splitChapters(
   keepPrologue: boolean,
   options: SplitOptions = {},
 ): SplitResult[] {
-  const stripDecorEnabled = options.stripDecorPrefix !== false
-  // 注：装饰前缀剥除是核心行为，stripDecorEnabled 当前保留以兼容签名；如需关闭可在此分支处理。
-  void stripDecorEnabled
+  const normalizeEnabled = options.normalize !== false
+  void options.stripDecorPrefix // 装饰前缀剥除是核心行为，保留签名兼容
   const lines = text.split(/\r?\n/)
   const chapters: SplitResult[] = []
   let curTitle: string | null = null
   let curIsVolume = false
   let buf: string[] = []
 
+  // 卷正则编译为行内搜索形（当用户模式本身是卷模式时不旁路）
+  const isVolumeMode = regex.source.includes('卷')
+  const volumeSearch = toSearchRegex(VOLUME_SOURCE)
+
+  const finalizeContent = (raw: string): string => {
+    const trimmed = raw.trim()
+    return normalizeEnabled ? normalizeParagraphs(trimmed) : trimmed
+  }
+
   const flush = () => {
-    const content = buf.join('\n').trim()
+    const content = finalizeContent(buf.join('\n'))
     if (curTitle !== null) {
-      chapters.push({ title: curTitle.slice(0, TITLE_MAX), content, isVolume: curIsVolume })
+      chapters.push({ title: curTitle, content, isVolume: curIsVolume })
     } else if (content) {
-      if (keepPrologue) chapters.push({ title: '序章', content })
-      else buf = content.split('\n') // 暂存，并入第一章
+      if (keepPrologue) {
+        chapters.push({ title: '序章', content })
+      }
+      // keepPrologue=false：开头正文并入第一章，不在此 push，由 pending 暂存
     }
   }
 
   for (const line of lines) {
     const stripped = stripDecor(line.trim())
 
-    // 卷行旁路识别：当当前切分模式不是卷模式本身时，卷行单独成章
-    const volMatch = stripped.match(VOLUME_REGEX)
-    const isVolumeLine = !!volMatch && !regex.source.includes('卷')
-    const m = stripped.match(regex)
+    // 卷行旁路识别（用户模式本身不是卷模式时）
+    let volHit: TitleHit | null = null
+    if (!isVolumeMode && volumeSearch) {
+      volHit = findTitleInLine(stripped, volumeSearch)
+    }
+    const hit = findTitleInLine(stripped, regex)
 
-    if (isVolumeLine) {
-      // 卷行同样支持 keepPrologue=false：开头正文并入首个卷章
+    if (volHit) {
+      // 标题前文字归上一章
+      if (volHit.prefix) buf.push(volHit.prefix)
+      // keepPrologue=false：开头正文并入首个卷章
       const pending = curTitle === null && !keepPrologue && buf.join('\n').trim() ? buf.join('\n').trim() : null
       flush()
-      curTitle = volMatch![1].trim()
+      curTitle = volHit.title
       curIsVolume = true
       buf = pending ? [pending] : []
-    } else if (m) {
+    } else if (hit) {
+      if (hit.prefix) buf.push(hit.prefix)
       const pending = curTitle === null && !keepPrologue && buf.join('\n').trim() ? buf.join('\n').trim() : null
       flush()
-      curTitle = m[1].trim()
+      curTitle = hit.title
       curIsVolume = false
       buf = pending ? [pending] : []
     } else {
@@ -217,7 +349,7 @@ export function splitChapters(
   flush()
 
   if (chapters.length === 0) {
-    return [{ title: '全文（未匹配到章节标题）', content: text.trim() }]
+    return [{ title: '全文（未匹配到章节标题）', content: finalizeContent(text) }]
   }
   return chapters
 }

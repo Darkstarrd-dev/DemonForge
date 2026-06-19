@@ -18,6 +18,7 @@ import {
   compilePatterns,
   detectChapterPattern,
   splitChapters,
+  toSearchRegex,
   type DetectResult,
   type SplitResult,
 } from '../../utils/split'
@@ -45,8 +46,9 @@ export default function Step2Split() {
   })
   const [customRegex, setCustomRegex] = useState('^(第.+章.*)')
   const [keepPrologue, setKeepPrologue] = useState(true)
-  const [preview, setPreview] = useState<SplitResult[] | null>(null)
   const [aiSplitting, setAiSplitting] = useState<string | null>(null)
+  /** 点击展开的预览章节索引（再次点击同项收起） */
+  const [selectedIdx, setSelectedIdx] = useState<number | null>(null)
 
   // Radio options：内置 + 用户自定义模式，custom 永远在末尾
   const radioOptions = useMemo(() => {
@@ -57,12 +59,15 @@ export default function Step2Split() {
 
   const regex = useMemo(() => {
     if (patternKey !== 'custom') return runtimePatterns.find((p) => p.key === patternKey)?.regex ?? null
-    try {
-      return new RegExp(customRegex)
-    } catch {
-      return null
-    }
+    return toSearchRegex(customRegex)
   }, [patternKey, customRegex, runtimePatterns])
+
+  // 自动预览：regex / rawText / keepPrologue 变化即重算，进入页即显示，无需点按钮
+  const preview = useMemo<SplitResult[] | null>(() => {
+    if (!rawText) return null
+    if (!regex) return null
+    return splitChapters(rawText, regex, keepPrologue)
+  }, [rawText, regex, keepPrologue])
 
   // 手动重新检测（按钮触发）
   const runDetect = (silent = false) => {
@@ -79,14 +84,6 @@ export default function Step2Split() {
 
   if (!session) return null
   const applied = session.chapters.length > 0
-
-  const runPreview = () => {
-    if (!regex) {
-      message.error('自定义正则无效')
-      return
-    }
-    setPreview(splitChapters(session.rawText, regex, keepPrologue))
-  }
 
   const applySplit = () => {
     if (!preview) return
@@ -175,9 +172,11 @@ export default function Step2Split() {
         <Checkbox checked={keepPrologue} onChange={(e) => setKeepPrologue(e.target.checked)}>
           保留第一章之前的内容为「序章」
         </Checkbox>
-        <Button type="primary" onClick={runPreview}>
-          预览切分结果
-        </Button>
+        {patternKey === 'custom' && !regex && (
+          <Typography.Text type="danger" style={{ fontSize: 12 }}>
+            自定义正则无效
+          </Typography.Text>
+        )}
       </Space>
 
       {preview && (
@@ -196,10 +195,16 @@ export default function Step2Split() {
           <List
             size="small"
             bordered
-            style={{ maxHeight: 240, overflow: 'auto' }}
+            style={{ maxHeight: 280, overflow: 'auto' }}
             dataSource={preview}
             renderItem={(item, i) => (
-              <List.Item>
+              <List.Item
+                onClick={() => setSelectedIdx(selectedIdx === i ? null : i)}
+                style={{
+                  cursor: 'pointer',
+                  background: selectedIdx === i ? '#e6f4ff' : undefined,
+                }}
+              >
                 <Typography.Text type="secondary" style={{ marginRight: 12 }}>
                   {i + 1}
                 </Typography.Text>
@@ -215,6 +220,14 @@ export default function Step2Split() {
               </List.Item>
             )}
           />
+          {selectedIdx !== null && preview[selectedIdx] && (
+            <Input.TextArea
+              value={`【${preview[selectedIdx].title}】\n\n${preview[selectedIdx].content}`}
+              readOnly
+              autoSize={{ minRows: 6, maxRows: 18 }}
+              style={{ fontFamily: 'monospace', fontSize: 12 }}
+            />
+          )}
           <Button type="primary" onClick={applySplit}>
             {applied ? '重新应用切分（覆盖当前章节）' : '应用切分'}
           </Button>
