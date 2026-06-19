@@ -192,6 +192,14 @@ export interface ProviderNode {
   batchSize: number
   /** 该节点两次请求之间最小间隔秒数，默认 0 */
   intervalSec: number
+  /** 次数限制开关：开启后按每日额度限制该节点可用次数 */
+  usageLimitEnabled?: boolean
+  /** 每日可用额度（用户设置） */
+  usageLimit?: number
+  /** 当日剩余次数（每次调用后递减，跨日重置为 usageLimit） */
+  usageLeft?: number
+  /** 上次重置剩余次数的日期 YYYY-MM-DD（本地自然日） */
+  usageResetDate?: string
 }
 
 export type ModuleKey =

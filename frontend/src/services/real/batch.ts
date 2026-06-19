@@ -72,9 +72,12 @@ export function startBatchGenerate(
   tasks: BatchGenTask[],
   nodes: BatchGenNode[],
   cb: BatchGenCallbacks,
+  opts: { isNodeAvailable?: (nodeId: string) => boolean } = {},
 ): BatchGenHandle {
   if (!nodes.length) throw new Error('无可用节点')
   if (!tasks.length) throw new Error('无任务')
+
+  const { isNodeAvailable } = opts
 
   let paused = false
   let stopped = false
@@ -108,6 +111,8 @@ export function startBatchGenerate(
       if (state.activeCount >= cfg.maxConcurrency) continue
       const intervalMs = cfg.intervalSec * 1000
       if (intervalMs > 0 && now - state.lastRequestTime < intervalMs) continue
+      // 次数限制：扣减当日额度，额度用尽的节点跳过
+      if (isNodeAvailable && !isNodeAvailable(cfg.id)) continue
       candidates.push({ cfg, state })
     }
     if (!candidates.length) return null

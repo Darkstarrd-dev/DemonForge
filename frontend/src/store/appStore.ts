@@ -97,6 +97,14 @@ export interface AppState {
   setSplitPatterns: (patterns: SplitPattern[]) => void
   /** 设置：恢复章节检测模式池为内置默认（立即落 settings.json） */
   resetSplitPatterns: () => void
+  /**
+   * 次数限制：派发任务前调用，判定该节点当前是否可用并扣减当日剩余次数。
+   * - 未开启次数限制 → 直接返回 true。
+   * - 跨本地自然日 → 重置 usageLeft = usageLimit。
+   * - usageLeft <= 0 → 返回 false（调度器应跳过该节点）。
+   * - 否则 usageLeft -= 1 并写回，返回 true。
+   */
+  consumeProviderUsage: (nodeId: string) => boolean
   resetDemo: () => void
 }
 
@@ -109,6 +117,10 @@ const normalizeProvider = (p: Partial<ProviderNode> & { id: string; name: string
   enabled: p.enabled !== false,
   apiKey: p.apiKey ?? '',
   lastTestResult: p.lastTestResult ?? null,
+  usageLimitEnabled: p.usageLimitEnabled === true,
+  usageLimit: typeof p.usageLimit === 'number' && p.usageLimit >= 0 ? p.usageLimit : 0,
+  usageLeft: typeof p.usageLeft === 'number' && p.usageLeft >= 0 ? p.usageLeft : 0,
+  usageResetDate: p.usageResetDate ?? '',
 })
 
 const seedState = () => ({
@@ -217,6 +229,26 @@ export const useAppStore = create<AppState>()((set) => ({
   resetSplitPatterns: () => {
     set({ splitPatterns: DEFAULT_SPLIT_PATTERNS.map((p) => ({ ...p })) })
     pushSettingsNow()
+  },
+  consumeProviderUsage: (nodeId) => {
+    const node = useAppStore.getState().providers.find((p) => p.id === nodeId)
+    if (!node) return false
+    if (!node.usageLimitEnabled) return true
+    const today = new Date().toISOString().slice(0, 10)
+    let left = node.usageLeft ?? 0
+    let resetDate = node.usageResetDate ?? ''
+    if (resetDate !== today) {
+      left = node.usageLimit ?? 0
+      resetDate = today
+    }
+    if (left <= 0) return false
+    const next = left - 1
+    set((s) => ({
+      providers: s.providers.map((p) =>
+        p.id === nodeId ? { ...p, usageLeft: next, usageResetDate: resetDate } : p,
+      ),
+    }))
+    return true
   },
 }))
 

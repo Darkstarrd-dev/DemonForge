@@ -267,7 +267,7 @@ export default function Step3Clean() {
           })
         },
       },
-      { systemPrompt: overridePrompt.trim() || m1SystemPrompt || undefined },
+      { systemPrompt: overridePrompt.trim() || m1SystemPrompt || undefined, isNodeAvailable: (id) => useAppStore.getState().consumeProviderUsage(id) },
     )
   }
 

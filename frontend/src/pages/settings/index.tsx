@@ -11,16 +11,19 @@ import {
   Modal,
   Popconfirm,
   Row,
+  Segmented,
   Select,
   Space,
   Switch,
   Table,
   Tag,
+  Tooltip,
   Typography,
 } from 'antd'
+import { DownOutlined, UpOutlined } from '@ant-design/icons'
 import { useAppStore, genId, reloadStoreFromBackend } from '../../store/appStore'
 import { testProvider, getDefaultPrompt } from '../../services/api'
-import type { ModuleKey, ProviderNode, SplitPattern } from '../../services/types'
+import type { ModuleKey, ProviderNode, ProviderNodeType, SplitPattern } from '../../services/types'
 
 const MODULE_LABELS: Record<ModuleKey, string> = {
   m0Arch: 'M0 架构设计',
@@ -32,6 +35,41 @@ const MODULE_LABELS: Record<ModuleKey, string> = {
   m5Check: 'M5 一致性检查',
   m5Finalize: 'M5 定稿归档',
   embedding: 'Embedding 向量',
+}
+
+/**
+ * 并发测试用单次探测：向后端 /api/llm/clean 发极短内容请求（15s 超时），
+ * 仅用于判定该节点能否成功响应一次（吞吐量探测），返回 {ok, error}。
+ */
+async function probeOnce(
+  node: Pick<ProviderNode, 'baseURL' | 'apiKey' | 'model'>,
+): Promise<{ ok: boolean; error?: string }> {
+  const ac = new AbortController()
+  const timer = setTimeout(() => ac.abort(), 15000)
+  try {
+    const res = await fetch('/api/llm/clean', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ baseURL: node.baseURL, apiKey: node.apiKey, model: node.model, content: '请回复"OK"。' }),
+      signal: ac.signal,
+    })
+    if (!res.ok) {
+      const text = await res.text().catch(() => '')
+      return { ok: false, error: `HTTP ${res.status}${text ? `：${text.slice(0, 120)}` : ''}` }
+    }
+    if (!res.body) return { ok: false, error: '响应无 body' }
+    // 读流至结束即视为成功（不关心内容）
+    const reader = res.body.getReader()
+    for (;;) {
+      const { done } = await reader.read()
+      if (done) break
+    }
+    return { ok: true }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) }
+  } finally {
+    clearTimeout(timer)
+  }
 }
 
 export default function SettingsPage() {
@@ -47,6 +85,16 @@ export default function SettingsPage() {
   const setState = useAppStore((s) => s.setState)
   const resetDemo = useAppStore((s) => s.resetDemo)
   const [editing, setEditing] = useState<ProviderNode | null>(null)
+  const [nodeTypeFilter, setNodeTypeFilter] = useState<ProviderNodeType>('text')
+  const [batchTesting, setBatchTesting] = useState(false)
+  const [concurrencyTesting, setConcurrencyTesting] = useState<string | null>(null)
+  const [concurrencyResult, setConcurrencyResult] = useState<{
+    node: ProviderNode
+    log: string[]
+    maxConcurrency?: number
+    intervalSec?: number
+    error?: string
+  } | null>(null)
   const [draftPrompt, setDraftPrompt] = useState<string>(m1SystemPrompt)
   const [draftDir, setDraftDir] = useState<string>(assetDir)
   const [applyingDir, setApplyingDir] = useState(false)
@@ -67,7 +115,7 @@ export default function SettingsPage() {
     const target: ProviderNode = node ?? {
       id: genId('prov'),
       name: '',
-      nodeType: 'text',
+      nodeType: nodeTypeFilter,
       baseURL: '',
       apiKey: '',
       model: '',
@@ -76,14 +124,49 @@ export default function SettingsPage() {
       maxConcurrency: 2,
       batchSize: 1,
       intervalSec: 0,
+      usageLimitEnabled: false,
+      usageLimit: 0,
+      usageLeft: 0,
+      usageResetDate: '',
     }
     setEditing(target)
     form.setFieldsValue(target)
   }
 
+  /** 复制节点：新 id，名称按已有同名编号递增（X → X(2) → X(3)） */
+  const duplicateNode = (src: ProviderNode) => {
+    const base = src.name.replace(/\s*\(\d+\)$/, '')
+    const sameBase = providers.filter((p) => p.name.replace(/\s*\(\d+\)$/, '') === base)
+    const maxNum = sameBase.reduce((m, p) => {
+      const mt = p.name.match(/\((\d+)\)$/)
+      return Math.max(m, mt ? Number(mt[1]) : 1)
+    }, 1)
+    const next: ProviderNode = {
+      ...src,
+      id: genId('prov'),
+      name: `${base} (${maxNum + 1})`,
+      enabled: src.enabled,
+      lastTestResult: null,
+      // 次数限制：复制后视为新额度起始（不复制旧剩余）
+      usageLeft: src.usageLimitEnabled ? src.usageLimit ?? 0 : 0,
+      usageResetDate: '',
+    }
+    setState({ providers: [...providers, next] })
+    message.success(`已复制为「${next.name}」`)
+  }
+
   const saveEdit = async () => {
     const values = await form.validateFields()
-    const merged = { ...editing!, ...values }
+    const merged = { ...editing!, ...values } as ProviderNode
+    // 次数限制：开启时若额度变更或剩余未初始化，重置 usageLeft = usageLimit
+    if (merged.usageLimitEnabled) {
+      const old = providers.find((p) => p.id === merged.id)
+      const limitChanged = old?.usageLimit !== merged.usageLimit
+      if (limitChanged || !merged.usageResetDate) {
+        merged.usageLeft = merged.usageLimit ?? 0
+        merged.usageResetDate = ''
+      }
+    }
     const exists = providers.some((p) => p.id === merged.id)
     setState({
       providers: exists
@@ -104,6 +187,112 @@ export default function SettingsPage() {
     })
     setTestingId(null)
     setTestResult({ node, ...result })
+  }
+
+  /** 批量测试当前 Tab 且 enabled 的节点连通性（并发上限 4） */
+  const runBatchTest = async () => {
+    const targets = providers.filter((p) => p.nodeType === nodeTypeFilter && p.enabled)
+    if (!targets.length) {
+      message.warning('当前类型没有已启用的节点')
+      return
+    }
+    setBatchTesting(true)
+    let done = 0
+    let okCount = 0
+    const CONCURRENCY = 4
+    const idx = { i: 0 }
+    const runOne = async (node: ProviderNode) => {
+      const result = await testProvider({ baseURL: node.baseURL, apiKey: node.apiKey, model: node.model })
+      setState({
+        providers: useAppStore
+          .getState()
+          .providers.map((p) => (p.id === node.id ? { ...p, lastTestResult: result.ok ? 'ok' : 'fail' } : p)),
+      })
+      done += 1
+      if (result.ok) okCount += 1
+      message.info({ content: `批量测试进度：${done}/${targets.length}`, key: 'batch-test-progress' })
+    }
+    const workers: Promise<void>[] = []
+    for (let w = 0; w < CONCURRENCY; w++) {
+      workers.push(
+        (async () => {
+          while (idx.i < targets.length) {
+            const node = targets[idx.i++]
+            await runOne(node)
+          }
+        })(),
+      )
+    }
+    await Promise.all(workers)
+    setBatchTesting(false)
+    message.success(`批量测试完成：${okCount}/${targets.length} 正常`)
+  }
+
+  /** 在 providers 全量数组里交换两个节点位置（保持其他节点不动） */
+  const moveNode = (nodeId: string, dir: -1 | 1) => {
+    const list = providers.filter((p) => p.nodeType === nodeTypeFilter)
+    const idxInList = list.findIndex((p) => p.id === nodeId)
+    if (idxInList < 0) return
+    const swapWith = list[idxInList + dir]
+    if (!swapWith) return
+    const aIdx = providers.findIndex((p) => p.id === nodeId)
+    const bIdx = providers.findIndex((p) => p.id === swapWith.id)
+    if (aIdx < 0 || bIdx < 0) return
+    const next = [...providers]
+    ;[next[aIdx], next[bIdx]] = [next[bIdx], next[aIdx]]
+    setState({ providers: next })
+  }
+
+  /** 并发测试：纯前端二分探测该节点可同时接受几个任务，并估算请求间隔 */
+  const runConcurrencyTest = async (node: ProviderNode) => {
+    setConcurrencyTesting(node.id)
+    const log: string[] = []
+    const push = (s: string) => {
+      log.push(s)
+      setConcurrencyResult({ node, log: [...log] })
+    }
+    try {
+      // 1) 单发探测连通 + 记录单请求耗时作为间隔估算基准
+      push('① 单发探测连通性...')
+      const t0 = Date.now()
+      const probe = await probeOnce(node)
+      const singleLatency = Date.now() - t0
+      if (!probe.ok) {
+        push(`✗ 探测失败：${probe.error}`)
+        setConcurrencyResult({ node, log, error: probe.error })
+        setConcurrencyTesting(null)
+        return
+      }
+      push(`✓ 连通正常，单请求耗时 ${singleLatency}ms`)
+
+      // 2) 逐级提高并发，找出全部成功的最大 N（1→2→4→8→16）
+      let bestN = 1
+      const levels = [2, 4, 8, 16]
+      for (const n of levels) {
+        push(`② 尝试并发 ${n} 个请求...`)
+        const t = Date.now()
+        const results = await Promise.all(Array.from({ length: n }, () => probeOnce(node).catch((e) => ({ ok: false, error: e instanceof Error ? e.message : String(e) }))))
+        const ok = results.filter((r) => r.ok).length
+        const latency = Date.now() - t
+        if (ok === n) {
+          bestN = n
+          push(`✓ 全部成功（${ok}/${n}），耗时 ${latency}ms`)
+        } else {
+          push(`△ 仅成功 ${ok}/${n}，达到瓶颈，回退到 ${bestN}`)
+          break
+        }
+      }
+
+      // 3) 间隔估算：单请求平均耗时 / 并发数（粗略反映限速），向下取整最小 0
+      const intervalSec = bestN > 0 ? Math.max(0, Math.round(singleLatency / 1000 / bestN)) : 0
+      push(`③ 推荐参数：最大并发 ${bestN}，请求间隔 ${intervalSec}s`)
+      setConcurrencyResult({ node, log, maxConcurrency: bestN, intervalSec })
+    } catch (e) {
+      push(`✗ 异常：${e instanceof Error ? e.message : String(e)}`)
+      setConcurrencyResult({ node, log, error: e instanceof Error ? e.message : String(e) })
+    } finally {
+      setConcurrencyTesting(null)
+    }
   }
 
   // 切换资产目录：先同步落盘设置（await），再重载该目录数据（避免 debounce 未落地导致读旧库）
@@ -165,19 +354,41 @@ export default function SettingsPage() {
     message.success('已删除')
   }
 
+  // 当前 Tab 过滤后的节点（用于上移/下移首尾禁用判断）
+  const filteredProviders = providers.filter((p) => p.nodeType === nodeTypeFilter)
+
   const columns = [
-    { title: '名称', dataIndex: 'name' },
     {
-      title: '类型',
-      dataIndex: 'nodeType',
-      width: 110,
-      render: (v: ProviderNode['nodeType']) =>
-        v === 'image' ? (
-          <Tag color="purple">文生图</Tag>
-        ) : (
-          <Tag color="blue">文本生成</Tag>
-        ),
+      title: '排序',
+      key: 'order',
+      width: 70,
+      render: (_: unknown, node: ProviderNode) => {
+        const idxInList = filteredProviders.findIndex((p) => p.id === node.id)
+        return (
+          <Space size={0}>
+            <Tooltip title="上移">
+              <Button
+                size="small"
+                type="text"
+                icon={<UpOutlined />}
+                disabled={idxInList <= 0}
+                onClick={() => moveNode(node.id, -1)}
+              />
+            </Tooltip>
+            <Tooltip title="下移">
+              <Button
+                size="small"
+                type="text"
+                icon={<DownOutlined />}
+                disabled={idxInList < 0 || idxInList >= filteredProviders.length - 1}
+                onClick={() => moveNode(node.id, 1)}
+              />
+            </Tooltip>
+          </Space>
+        )
+      },
     },
+    { title: '名称', dataIndex: 'name' },
     { title: 'Base URL', dataIndex: 'baseURL', ellipsis: true },
     { title: '模型', dataIndex: 'model' },
     {
@@ -189,6 +400,21 @@ export default function SettingsPage() {
           {node.maxConcurrency}核 · {node.batchSize}章/次 · {node.intervalSec}s
         </Typography.Text>
       ),
+    },
+    {
+      title: '次数(今日)',
+      key: 'usage',
+      width: 100,
+      render: (_: unknown, node: ProviderNode) => {
+        if (!node.usageLimitEnabled) return <Typography.Text type="secondary">不限</Typography.Text>
+        const left = node.usageLeft ?? 0
+        const limit = node.usageLimit ?? 0
+        return (
+          <Typography.Text type={left <= 0 ? 'danger' : undefined} style={{ fontSize: 12 }}>
+            {left}/{limit}
+          </Typography.Text>
+        )
+      },
     },
     {
       title: '启用',
@@ -216,11 +442,23 @@ export default function SettingsPage() {
     {
       title: '操作',
       key: 'actions',
-      width: 200,
+      width: 300,
       render: (_: unknown, node: ProviderNode) => (
-        <Space size="small">
+        <Space size="small" wrap>
           <Button size="small" loading={testingId === node.id} onClick={() => runTest(node)}>
             测试
+          </Button>
+          {node.nodeType === 'text' && (
+            <Button
+              size="small"
+              loading={concurrencyTesting === node.id}
+              onClick={() => runConcurrencyTest(node)}
+            >
+              并发测试
+            </Button>
+          )}
+          <Button size="small" onClick={() => duplicateNode(node)}>
+            复制
           </Button>
           <Button size="small" onClick={() => openEdit(node)}>
             编辑
@@ -259,12 +497,25 @@ export default function SettingsPage() {
       <Card
         title="Provider 节点池"
         extra={
-          <Button type="primary" onClick={() => openEdit()}>
-            新增节点
-          </Button>
+          <Space>
+            <Segmented
+              value={nodeTypeFilter}
+              onChange={(v) => setNodeTypeFilter(v as ProviderNodeType)}
+              options={[
+                { value: 'text', label: '文本生成' },
+                { value: 'image', label: '文生图' },
+              ]}
+            />
+            <Button loading={batchTesting} onClick={runBatchTest}>
+              批量测试
+            </Button>
+            <Button type="primary" onClick={() => openEdit()}>
+              新增节点
+            </Button>
+          </Space>
         }
       >
-        <Table rowKey="id" columns={columns} dataSource={providers} pagination={false} size="middle" />
+        <Table rowKey="id" columns={columns} dataSource={filteredProviders} pagination={false} size="middle" />
         <Typography.Paragraph type="secondary" style={{ marginTop: 12, marginBottom: 0 }}>
           统一 OpenAI 兼容格式；测试经本地后端 Provider 抽象层调用（/api/llm/test → GET /v1/models）。节点选择策略（最久未用 + 最少连接、429 冷却恢复）待后续完善。
         </Typography.Paragraph>
@@ -515,6 +766,30 @@ export default function SettingsPage() {
               </Form.Item>
             </Col>
           </Row>
+          <Form.Item name="usageLimitEnabled" label="次数限制" valuePropName="checked">
+            <Switch
+              onChange={(checked) => {
+                if (checked) {
+                  const cur = form.getFieldValue('usageLimit')
+                  if (typeof cur !== 'number' || cur <= 0) form.setFieldsValue({ usageLimit: 100, usageLeft: 100 })
+                }
+              }}
+            />
+          </Form.Item>
+          <Form.Item shouldUpdate={(prev, cur) => prev.usageLimitEnabled !== cur.usageLimitEnabled} noStyle>
+            {({ getFieldValue }) =>
+              getFieldValue('usageLimitEnabled') ? (
+                <Form.Item
+                  name="usageLimit"
+                  label="每日额度（次）"
+                  rules={[{ required: true, message: '请输入每日额度' }]}
+                  extra="每天本地自然日 0 点重置为该额度；每次调用后剩余次数递减，耗尽则该节点被跳过。"
+                >
+                  <InputNumber min={1} max={100000} style={{ width: '100%' }} />
+                </Form.Item>
+              ) : null
+            }
+          </Form.Item>
         </Form>
       </Modal>
 
@@ -579,6 +854,58 @@ export default function SettingsPage() {
         ) : (
           <Alert type="error" showIcon message="连接失败" description={testResult?.error} />
         )}
+      </Modal>
+
+      <Modal
+        title={`并发测试 — ${concurrencyResult?.node.name ?? ''}`}
+        open={!!concurrencyResult}
+        onCancel={() => setConcurrencyResult(null)}
+        footer={
+          <Space>
+            <Button onClick={() => setConcurrencyResult(null)}>关闭</Button>
+            <Button
+              type="primary"
+              disabled={concurrencyResult?.maxConcurrency === undefined}
+              onClick={() => {
+                if (!concurrencyResult || concurrencyResult.maxConcurrency === undefined) return
+                const { node, maxConcurrency, intervalSec } = concurrencyResult
+                setState({
+                  providers: useAppStore
+                    .getState()
+                    .providers.map((p) =>
+                      p.id === node.id
+                        ? { ...p, maxConcurrency: maxConcurrency!, intervalSec: intervalSec ?? 0 }
+                        : p,
+                    ),
+                })
+                message.success(`已写回：最大并发 ${maxConcurrency}，请求间隔 ${intervalSec}s`)
+                setConcurrencyResult(null)
+              }}
+            >
+              应用推荐参数
+            </Button>
+          </Space>
+        }
+      >
+        <Space direction="vertical" style={{ width: '100%' }}>
+          {concurrencyResult?.error && (
+            <Alert type="error" showIcon message="测试失败" description={concurrencyResult.error} />
+          )}
+          {concurrencyResult?.maxConcurrency !== undefined && (
+            <Alert
+              type="success"
+              showIcon
+              message={`推荐参数：最大并发 ${concurrencyResult.maxConcurrency}，请求间隔 ${concurrencyResult.intervalSec}s`}
+            />
+          )}
+          <Typography.Text type="secondary">探测过程：</Typography.Text>
+          <pre style={{ background: 'var(--ant-color-fill-tertiary)', padding: 8, fontSize: 12, margin: 0, whiteSpace: 'pre-wrap', maxHeight: 240, overflow: 'auto' }}>
+            {concurrencyResult?.log.join('\n')}
+          </pre>
+          <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
+            通过逐级提高并发请求数（1→2→4→8→16）探测该节点可同时接受的任务数，遇到首个失败级别即回退。请求间隔由单请求耗时估算，仅供参考，可按「应用推荐参数」写回节点配置。
+          </Typography.Paragraph>
+        </Space>
       </Modal>
     </Space>
   )

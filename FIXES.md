@@ -208,3 +208,50 @@ taskkill /F /IM node.exe
 
 **状态**: ✅ 所有问题已修复，可以运行  
 **测试**: 运行 `npm run dev` 🚀
+
+---
+
+## 2026-06-19 晚 — 节点池功能增强 + 入库数据恢复
+
+### A. 系统设置 → 节点池 新增 6 项功能 ✅
+
+**改动文件**：`frontend/src/services/types.ts`、`frontend/src/store/appStore.ts`、`frontend/src/services/real/batch.ts`、`frontend/src/services/real/llm.ts`、`frontend/src/pages/m1-import/Step3Clean.tsx`、`frontend/src/pages/batch-generate/index.tsx`、`frontend/src/pages/settings/index.tsx`（后端无需改，设置走现有 settings.json 防抖回写）。
+
+1. **Tab 切换（文本生成 / 文生图）**：节点池标题右侧 `Segmented` 切换 `nodeTypeFilter`，表格只显示对应类型；原「类型」列删除；新增节点按当前 Tab 预设 `nodeType`。
+2. **批量测试按钮**：遍历当前 Tab 且 `enabled` 的节点，并发上限 4 调 `testProvider`，实时进度 + 结束汇总，更新每个节点 `lastTestResult`。
+3. **节点上移 / 下移**：操作列 ↑↓ 按钮（首行禁用↑、末行禁用↓），在 providers 全量数组里交换两项位置，数组顺序即持久化（防抖回写 settings.json），重启保留。
+4. **复制节点**：新 id，名称按同名编号递增（`X` → `X (2)` → `X (3)`），`usageLeft` 不复制（视为新额度起始）。
+5. **并发测试按钮**（仅文本节点显示）：纯前端二分探测——单发连通探测 + 逐级提高并发 2→4→8→16，遇首个未全部成功的级别回退，取「全部成功的最大 N」为 `maxConcurrency`，单请求耗时/N 估算 `intervalSec`；弹 Modal 展示探测日志，确认后写回节点参数。
+6. **次数限制开关 + 每日刷新**：
+   - `ProviderNode` 加 4 字段：`usageLimitEnabled / usageLimit / usageLeft / usageResetDate`。
+   - 新增 store action `consumeProviderUsage(nodeId)`：未开启返回 true；跨本地自然日（`YYYY-MM-DD`）重置 `usageLeft = usageLimit`；到 0 返回 false（调度器跳过）；否则递减写回。
+   - 接入递减点：`batch.ts`/`llm.ts` 的 `pickCandidate` 加 `isNodeAvailable` 钩子参数，由 Step3Clean / batch-generate 启动队列时传入 `consumeProviderUsage`，选节点时扣减额度。
+   - 编辑 Modal 加「次数限制」Switch + 条件展示「每日额度」；表格加「次数(今日)」列展示 `剩余/额度`，用尽标红。
+
+**类型变更向后兼容**：新字段在 `normalizeProvider` 补默认值，旧 settings.json 无字段也能跑。`tsc --noEmit` 与 `vite build` 均通过。
+
+**构建期坑**：rolldown-vite 无法解析 `startBatchGenerate(...)` 内联第 4 个 opts 对象参数（报 "Unexpected token"），已将 batch-generate 的回调提取为具名 const `callbacks` 再传入规避。
+
+### B. 入库小说数据恢复 ✅
+
+**现象**：本次功能开发后发现书库为空，入库的《综漫，人在实教，幕后开启杀戮都市》及 100+ 章正文消失。
+
+**排查结论**：
+- 数据**并未真正丢失**——SQLite 行被 delete 但数据页未 VACUUM 回收，全部实体仍残留在 `server/src/data/assets/novelhelper.db` 文件字节流中。
+- 清空发生在本次代码改动**之前**（db 22:10 被改写，早于 settings.json 22:58 写入），与本次节点池功能无关。
+- 根因是 `syncAll` 的「删除 payload 里没有的 id」策略：当前端内存为空（books=[]）时触发全量同步，会把库里所有书删掉。最可能触发点是之前「入库 bodyLimit 超限 + 前端吞错误报成功」修复过程中、或某次前端内存为空时的全量同步。
+
+**恢复过程**：
+1. 备份原 db → `novelhelper.db.bak-20260619_231156`。
+2. 停后端释放 db 句柄。
+3. `sqlite3 .recover` 从 free pages 重建 lost_and_found（正确处理跨页）+ db 字节流大括号配对（补 recover 漏掉的短 book 行），合并去重提取出全部实体。
+4. 直接 upsert 写回各表（纯插入/更新，绝不删除），避开 syncAll 的删除逻辑。
+5. 补回被覆盖的 seed 书行（`book-ref-1` 剑啸九州、`book-proj-1` 北境长歌）及其 seed 大纲。
+6. 修复 `moduleMapping`：全部指向已删除的旧 seed 节点（prov-1/prov-2），改为指向实际配置的 SenseNova 节点。
+7. 重启后端，API 验证：3 本书 / 113 章 / 13 卡片 / 6 大纲，主书 106 章正文完整。
+
+**恢复后注意**：前端 store 内存里 `moduleMapping` 是旧值，需刷新页面（Ctrl+R）从后端重新拉取，否则 UI 操作的防抖回写可能覆盖回去。
+
+### C. 待办（结构性风险，未修）
+
+`syncAll` 的全量删除策略在「前端内存为空 + 触发同步」时会清库，是数据安全的结构性隐患。建议后续加防护：当 payload 的 books 为空但库非空且 `storeInitialized` 时，拒绝执行删除（只 upsert）。本次未改，留待确认。

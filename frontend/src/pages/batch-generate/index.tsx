@@ -89,7 +89,7 @@ export default function BatchGeneratePage() {
     setRunning(true)
     setPaused(false)
 
-    const h = startBatchGenerate(tasks, batchNodes, {
+    const callbacks = {
       onStart: (chapterId, _nodeName, phase) => {
         setTaskStates((prev) => {
           const next = new Map(prev)
@@ -173,6 +173,9 @@ export default function BatchGeneratePage() {
         const completed = Array.from(taskStates.values()).filter((t) => t.status === 'completed').length
         message.success(`批量生成完成：${completed}/${selectedIds.length} 章`)
       },
+    }
+    const h = startBatchGenerate(tasks, batchNodes, callbacks, {
+      isNodeAvailable: (id: string) => useAppStore.getState().consumeProviderUsage(id),
     })
 
     setHandle(h)

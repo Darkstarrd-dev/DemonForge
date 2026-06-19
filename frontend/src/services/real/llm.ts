@@ -361,11 +361,11 @@ export function startCleanQueue(
   chapters: { id: string; content: string }[],
   nodes: CleanNode[],
   cb: CleanQueueCallbacks,
-  opts: { systemPrompt?: string } = {},
+  opts: { systemPrompt?: string; isNodeAvailable?: (nodeId: string) => boolean } = {},
 ): CleanQueueHandle {
   if (!nodes.length) throw new Error('无可用节点')
 
-  const { systemPrompt } = opts
+  const { systemPrompt, isNodeAvailable } = opts
 
   let paused = false
   let stopped = false
@@ -422,6 +422,8 @@ export function startCleanQueue(
       if (state.activeCount >= cfg.maxConcurrency) continue
       const intervalMs = cfg.intervalSec * 1000
       if (intervalMs > 0 && now - state.lastRequestTime < intervalMs) continue
+      // 次数限制：扣减当日额度，额度用尽的节点跳过
+      if (isNodeAvailable && !isNodeAvailable(cfg.id)) continue
       candidates.push({ cfg, state })
     }
     if (!candidates.length) return null
