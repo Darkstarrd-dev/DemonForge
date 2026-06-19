@@ -9,6 +9,8 @@ import { creationRoutes } from './routes/creation'
 import { settingsRoutes } from './routes/settings'
 import { storeRoutes } from './routes/store'
 import { imageRoutes } from './routes/image'
+import { getAppDataDir } from './utils/paths'
+import { getAssetDir } from './store/db'
 
 const PORT = Number(process.env.PORT ?? 8787)
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)))
@@ -58,6 +60,9 @@ app.post('/api/shutdown', async (_req, reply) => {
 
 try {
   await app.listen({ port: PORT, host: '127.0.0.1' })
+  // 启动即打印实际数据目录，便于诊断"入库数据丢失"类问题（数据目录漂移曾导致 db 分裂散落）。
+  app.log.info(`[data-dir] settings/json at: ${getAppDataDir()}`)
+  app.log.info(`[data-dir] asset db dir:   ${getAssetDir()}`)
 } catch (err) {
   app.log.error(err)
   process.exit(1)

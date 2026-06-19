@@ -15,11 +15,11 @@
 3. **当前任务焦点**：① **novel-generator 集成·阶段 A~D 全部完成并通过审核**（数据模型 + sqlite-vec RAG 检索层 + Context Assembler + 起源流程 + 生成管理 + 批量生产）；
     ② **Electron 迁移已完成**——开发/生产模式、进程管理、打包配置就绪，待用户测试验证；
     ③ **3D Demo WASM 崩溃已修复** + **全局 Error Boundary 已添加**——animate 循环异常安全、init 单例化、ErrorBoundary 兜底白屏。
-    ④ **【最新】用户反馈回访**——问题2 书库阅读页已解决；问题1 入库持久化端到端诊断+真机重启双重验证有效（用户仍复现需硬刷新 Electron 窗口）；问题3 Step2 拆分后自动检测章节标题（复用 detectChapterPattern 算法提取首行标题）。
+    ④ **【最新】问题1 入库持久化根因修复**——真正根因是**数据目录在代码版本间漂移导致 db 文件分裂**（初始版写项目根 `assets/`、Electron 迁移后写 `server/src/data/`，且 tsx-src 与 node-dist 解析到不同子目录）。已用 `NOVELHELPER_DATA_DIR` 环境变量作单一真相源、清理散落 db、重建 dist，端到端验证（入库→终止后端→重启→数据完整存活）通过。
 
 ## 项目状态快照
 
-- **最后更新**：2026-06-19（第二十八次会话·**问题2 已解决 + 问题1 持久化加固 + 问题3 拆分后自动检测标题**）
+- **最后更新**：2026-06-19（第二十九次会话·**问题1 入库持久化根因修复 + 数据目录单一真相源**）
 - **阶段**：正式开发——M1 AI 清理端到端跑通；**novel-generator 集成阶段 A~D 全部完成**；**Electron 迁移完成**；M2–M5 仍 mock；业务数据 SQLite 资产库（可配置资产目录），Provider/密钥等设置存用户数据目录
 - **新增**：M1 Step2 章节分割由「纯手选模式」升级为「**进入页自动检测推荐 + 手选/正则兜底**」——`detectChapterPattern` 逐行扫描每个模式按命中数评分（MIN_HITS=2，卷模式仅在无章类命中时兜底），进入 Step2 即 lazy 初始化推荐模式 + 抽样标题提示（绿/黄按 confidence）；标题前装饰符号（`[爱心]`/`★`/`【】`等成对包裹块 + 散落符号）自动 `stripDecor` 剥除再匹配；**卷结构单独成章**（内置 `VOLUME_REGEX` 旁路识别，标记 `isVolume`，Step3 `skipClean` 跳过 LLM 原样保留）；**句末标点护栏扩展中文闭引号**（`\u201D` / `\u2019`，修复对话 `～"第2章` 粘连场景）；**预览光标人工拆分**（展开章节文本可定位光标，一键把光标后内容拆为新章，补偿自动切分遗漏）；检测模式池存 `settings.json`，设置页新增「章节检测模式池」Card 可增删改（内置 8 模式：第X章/回/卷/节、X章无「第」字、Chapter N 带 `i` flag、数字+顿号、custom）；`SplitPattern` 类型加 `flags?`/`builtin?`，`ImportChapter` 加 `skipClean?`
 - **摘要**：在 mock 前端基础上**进入实现阶段**。
@@ -161,6 +161,14 @@
 
 ### 进行中 / 等待用户
 
+- [x] **问题1 入库持久化根因修复 + 数据目录单一真相源**（2026-06-19 第二十九次会话·**端到端验证通过**）
+  - [x] **真正根因（终于定位）**：前几轮 `pushStoreNow` async 加固只动了"写入时机"，**没动到病根**。真根因是**数据目录在代码版本间漂移 → db 文件分裂散落**：① SQLite 初版（`3cf6618`）用 `REPO_ROOT = dirname×3(HERE)` 把库写到**项目根 `assets/`**；② Electron 迁移（`34405c3`）改 `paths.ts: join(__dirname,'..','data')` → tsx 跑 src 解析到 `server/src/data/`、node 跑 dist 解析到 `server/dist/data/`。**三个不同位置的 db 互相看不到对方数据**——入库写一处、重启读另一处 → 入库内容消失；某次后端解析到根目录（无 settings.json → `storeInitialized` 缺失 + 库空）→ bootstrap 走播种分支 → Mock 重现。
+  - [x] **取证实证**（运行中后端实时探测）：POST 标记 `PROBE_*` 到 `/api/settings`，回查落点确认后端用 `server/src/data`；全表 dump 三个 db（根目录旧库全空/旧表结构无 `image_gallery`、`server/src/data` 含诊断脚本污染的 `test-node-book` 且 chapters=0、`server/dist/data` 不存在）；git 历史 confirm 路径逻辑演变。
+  - [x] **修复·单一真相源**：① `electron/main.ts` spawn 后端时传 `NOVELHELPER_DATA_DIR`（dev=`ROOT/server/src/data`，prod=`~/.novelhelper`）+ import `homedir`；② `server/src/utils/paths.ts:getAppDataDir()` 优先读该环境变量（回退逻辑保留向后兼容）；③ `server/src/index.ts` 启动即打印 `[data-dir] settings/json at:` + `asset db dir:` 便于诊断。
+  - [x] **清理**（全部确认无用户珍贵数据后删）：根目录 `assets/`（历史遗留空旧库 + 空 images）、`server/src/data/assets/novelhelper.db*`（诊断污染的 test-node-book + WAL）；**保留 `server/src/data/settings.json`** 用户 providers/API keys/moduleMapping 配置，仅清空 `currentBookId`（指向已删幽灵书）+ 删探测残留 `__probe`，`storeInitialized:true` 保持（空库不回填 Mock）。
+  - [x] **重建编译**：`server/build`(tsc) ✅ + `build:electron`(dist-electron/main.js) ✅，验证新 dist 含 `imageRoutes`/`image_gallery` 表/`NOVELHELPER_DATA_DIR` 逻辑。
+  - [x] **端到端验证（tsx src 模拟 Electron dev）**：传 `NOVELHELPER_DATA_DIR=server/src/data` 启动 → 入库（books=1/chapters=2 含中文）→ PowerShell 终止后端 → 同环境变量重启 → `GET /api/store` **books=1 chapters=2 完整存活**（含中文标题「第一章 开端/第二章 发展」）。启动日志确认数据目录锚定 `server/src/data`。测试数据已清，db 留空供 Electron 启动重建。
+  - [ ] **待用户实机验证**：重启 `start-electron.bat` → M1 入库一本真书 → 完全退出 Electron 再进 → 确认入库内容仍在、书库无 Mock 演示书重现。
 - [x] **问题2 已解决 + 问题1 持久化加固 + 问题3 拆分后自动检测标题**（2026-06-19 第二十八次会话）
   - [x] **问题1 入库持久化**：`pushStoreNow` 返回 `Promise<void>`，`Step4.doStore` 改 `await pushStoreNow()`（写完才提示成功）。端到端诊断脚本 + 真机后端重启测试双重验证持久化链路正常（含后端重启存活）。**用户仍复现 → 硬刷新 Electron 窗口（Ctrl+Shift+R）/ 重启 start-electron.bat**（vite HMR 对 appStore.ts 模块级副作用热替换不稳定）
   - [x] **问题3 拆分后自动检测**：新增 `split.ts:detectLeadingChapterTitle(content, patterns)`（取首条非空行 stripDecor 后 findTitleInLine 测各内置模式，命中返回 `{title, content(剥首行)}`，无命中 null）；`Step2Split.splitAtCursor` 接入（标题优先级：用户输入 > 自动检测 > 「原标题（续）」）；UI 提示更新；smoke +4 断言
@@ -309,20 +317,22 @@
 
 ## 交接备注（最近一次会话）
 
-- **日期**：2026-06-19（第二十八次会话·**问题2 已验证解决 + 问题1 持久化加固 + 问题3 拆分后自动检测标题**）
-- **本次完成**（用户反馈回访）：
-  ① **问题2 已解决**（书库阅读/编辑页）：用户确认 `/book-reader` 双栏编辑页工作正常。
-  ② **问题1 — M1 入库持久化加固**：上一会话的 `pushStoreNow` 修复经端到端诊断脚本（patch fetch 走绝对 URL 跑真实 appStore 模块：bootstrap→import→pushStoreNow→flush→re-bootstrap）+ 真机后端重启测试（杀进程→新进程读 marker）双重验证，**持久化链路完全正常**（含后端重启存活）。进一步加固：`pushStoreNow` 返回 `Promise<void>`，`Step4.doStore` 改 `async proceed` + `await pushStoreNow()`，**写完才提示成功**（失败弹 error），消除"提示成功但写入未完成"的窗口。**用户仍复现丢失 → 几乎可确定是 Electron 窗口仍跑修复前代码**（vite HMR 对 Zustand 模块级订阅副作用的 appStore.ts 热替换不稳定），**需硬刷新窗口（Ctrl+Shift+R）或重启 Electron**。
-  ③ **问题3 — 拆分后自动检测章节标题**：用户拆分位置常是"没切好的章节边界"，其后内容本身就可能是被并到上一章的真实标题行（如 `第3章 新的展开`）。新增 `split.ts:detectLeadingChapterTitle(content, patterns)`：取首条非空行 stripDecor 后用 `findTitleInLine`（复用自动检测算法）测各内置模式，命中→返回 `{title, content(剥离首行)}`，无命中→null。`Step2Split.splitAtCursor` 接入：标题优先级 = 用户输入 > 自动检测 > 「原标题（续）」；命中时 content 剥首行、message 提示「（自动检测到标题）」。UI 提示更新说明该行为。
-- **验证全过**：eslint ✅ / build(tsc+vite,725ms) ✅ / smoke(34：原 30 + 新增 4 detectLeadingChapterTitle 断言) ✅ / ruleclean-smoke(43) ✅ / parse-smoke(22) ✅
+- **日期**：2026-06-19（第二十九次会话·**问题1 入库持久化根因修复 + 数据目录单一真相源**）
+- **本次完成**（用户反馈：硬刷新后问题1仍复现）：
+  - **彻底定位真根因**（前几轮的 `pushStoreNow` async 加固没动到病根）：**数据目录在代码版本间漂移 → db 文件分裂散落**。SQLite 初版（`3cf6618`）用 `REPO_ROOT=dirname×3(HERE)` 写到**项目根 `assets/`**；Electron 迁移（`34405c3`）改 `paths.ts: join(__dirname,'..','data')`，而 `import.meta.url` 在 tsx(跑 src) 解析到 `server/src/data/`、在 node(跑 dist) 解析到 `server/dist/data/`——**三个不同位置的 db 互相看不到对方数据**。入库写一处、重启读另一处 → 入库内容消失；某次解析到根目录（无 settings.json → `storeInitialized` 缺失 + 库空）→ bootstrap 走播种分支 → Mock 演示书重现。**取证实证**：运行中后端 POST 标记 `PROBE_*` 探测落点 + 全表 dump 三个 db + git 历史对照。
+  - **修复·单一真相源**：① `electron/main.ts:startBackend` spawn 时传 `NOVELHELPER_DATA_DIR`（dev=`ROOT/server/src/data`、prod=`~/.novelhelper`）+ import `homedir`；② `paths.ts:getAppDataDir()` 优先读该环境变量（回退逻辑保留向后兼容，覆盖非 Electron 直跑）；③ `index.ts` 启动即 log `[data-dir] settings/json at:` + `asset db dir:` 便于日后排查。
+  - **清理散落 db**（全部确认无用户珍贵数据后删）：根目录 `assets/`（历史遗留空旧库 + 空 images）、`server/src/data/assets/novelhelper.db*`（诊断脚本污染的 `test-node-book` + WAL）。**保留 `server/src/data/settings.json`** 用户 providers/API keys/moduleMapping 配置，仅清空 `currentBookId`（指向已删幽灵书）+ 删探测残留 `__probe`，`storeInitialized:true` 保持（空库不回填 Mock）。
+  - **重建编译**：`server/build`(tsc) ✅ + `build:electron`(dist-electron) ✅，验证新 dist 含 `imageRoutes` / `image_gallery` 表 / `NOVELHELPER_DATA_DIR` 逻辑。
+  - **端到端验证通过**（tsx src 模拟 Electron dev）：传 `NOVELHELPER_DATA_DIR=server/src/data` 启动 → 入库 books=1/chapters=2（含中文标题）→ PowerShell 终止后端 → 同环境变量重启 → `GET /api/store` **books=1 chapters=2 完整存活**。测试数据已清。
+- **验证全过**：后端 build(tsc) ✅ / build:electron(dist-electron) ✅ / 端到端入库→重启→存活 ✅（启动日志确认数据目录锚定 `server/src/data`）
 - **已知限制/注意**：
-  ① **问题1 若用户仍复现** → 让其 Ctrl+Shift+R 硬刷新 Electron 窗口（或重启 start-electron.bat）。诊断已证修复有效，唯一可能是窗口未加载新代码
-  ② **detectLeadingChapterTitle 复用 findTitleInLine**：首行 index 0 直接通过（不需句末标点背书）；index > 0 需句末标点。这与自动检测口径一致。末尾装饰符号（如 `★第4章 暗流★`）会算进标题（`第4章 暗流★`），因预设正则 `.*` 贪婪——属预期（stripDecor 只剥前缀）
-  ③ **问题3 用户输入优先**：若用户在标题输入框填了内容，跳过自动检测直接用之（尊重用户明确覆盖）
+  ① **前几轮诊断脚本的教训**：上轮"端到端诊断脚本"直接连后端**真实 db** 写入 `test-node-book`（没隔离），污染了 `server/src/data` 库——本次已清。**今后诊断持久化必须用隔离的临时 db 或 mock fetch**，绝不可连生产库。
+  ② **dist import 缺 `.js` 扩展名隐患**（本次发现，**未修**——影响打包版，开发模式 tsx src 不受影响）：`server/tsconfig.json` 用 `moduleResolution: "bundler"`（`34405c3` 引入），tsc 不重写 import 扩展名 → `node dist/index.js` 报 `ERR_MODULE_NOT_FOUND`（如 `Cannot find module .../routes/llm`）。**留待打包分发阶段处理**（候选方案：TS 5.7 `rewriteRelativeImportExtensions` + import 带 `.ts`；或生产模式后端改用 tsx 跑 src；或 esbuild 打包 dist）。**用户当前开发模式无此问题**。
+  ③ **数据目录现已单一锚定**（`server/src/data`）：任何持久化异常排查第一步——看后端启动日志的 `[data-dir]` 两行确认实际落点。
 - **下一步**：
-  ① 让用户硬刷新窗口后重测问题1（导入→入库→重启仍在）
-  ② 实机验证问题3：Step2 展开章节→光标拆在「第N章」前→拆分后新章自动用「第N章 …」标题
-  ③ 仍待实机验证（历史项）：文生图 Demo 端到端、书库删除流程、M0 立项不再误报、Electron 开发/打包模式
+  ① **用户实机验证（核心）**：重启 `start-electron.bat` → M1 入库一本真书 → **完全退出 Electron 再进** → 确认入库内容仍在、书库无 Mock 演示书重现
+  ② 仍待实机验证（历史项）：问题3 拆分后自动检测标题、文生图 Demo 端到端、书库删除流程、M0 立项不再误报
+  ③（后续）打包分发前修复 dist import 扩展名（见已知限制 ②）
 
 ## 更新本文档的约定
 

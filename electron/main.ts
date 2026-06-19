@@ -3,6 +3,7 @@ import { spawn, execSync, ChildProcess } from 'node:child_process'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { existsSync } from 'node:fs'
+import { homedir } from 'node:os'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
@@ -186,6 +187,12 @@ function startBackend(): Promise<void> {
         PORT: String(BACKEND_PORT),
         NODE_ENV: isDev ? 'development' : 'production',
         ELECTRON_APP: '1', // 标记运行在 Electron 中
+        // 数据目录单一真相源：消除 tsx(跑 src) 与 node(跑 dist) 的解析分裂。
+        // 开发模式锚定项目内的 server/src/data（与既有位置一致，用户 settings.json 无需迁移）；
+        // 生产模式锚定用户主目录 ~/.novelhelper。
+        NOVELHELPER_DATA_DIR: isDev
+          ? join(ROOT, 'server', 'src', 'data')
+          : join(homedir(), '.novelhelper'),
       },
       shell: true,
     })
