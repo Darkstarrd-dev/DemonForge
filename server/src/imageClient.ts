@@ -7,10 +7,16 @@ export interface ImageGenConfig {
   apiKey: string
   model: string
   prompt: string
-  /** 目标宽度（像素），可选。对齐 ModelScope diffusers pipeline 的 width 参数 */
-  width?: number
-  /** 目标高度（像素），可选。对齐 ModelScope diffusers pipeline 的 height 参数 */
-  height?: number
+  /** 输出分辨率字符串，如 "1024x1024"（ModelScope 首选格式，对应 payload 的 size 字段） */
+  size?: string
+  /** 采样步数，如 9（Z-Image-Turbo 默认）/ 50 */
+  steps?: number
+  /** classifier-free guidance scale，如 4.0 */
+  guidance?: number
+  /** 随机种子，可复现；留空则随机 */
+  seed?: number
+  /** 反向提示词，描述要避免的内容 */
+  negativePrompt?: string
 }
 
 /** 规范化 baseURL：提取 origin，去尾斜杠（ModelScope 路径自拼 /v1） */
@@ -36,10 +42,21 @@ function sniffMime(bytes: Uint8Array): string {
   return 'image/jpeg'
 }
 
+/** 尝试 JSON.parse；失败则原样返回字符串（调试展示用，避免大段 JSON 解析失败丢失原文） */
+function tryParseJson(s: string): unknown {
+  try {
+    return JSON.parse(s)
+  } catch {
+    return s
+  }
+}
+
 export interface ImageEventPayloads {
   submitted: { taskId: string }
   polling: { status: string; attempt: number }
   done: { image: string; model: string }
+  /** 调试事件：回传实际发给 ModelScope 的 payload 与各阶段返回的原始响应体，供前端展示排障 */
+  debug: { stage: 'submit' | 'poll' | 'fetchImage'; payload?: unknown; response?: unknown; error?: string }
 }
 
 export type ImageEventType = keyof ImageEventPayloads
@@ -57,10 +74,14 @@ export async function generateImageModelScope<K extends ImageEventType>(
   const MAX_POLL_MS = 120_000
 
   // 1) 提交任务
-  // body 拼装 width/height（仅在前端显式选择分辨率时透传；未传则由 ModelScope 用默认尺寸）
+  // body 拼装：按 ModelScope 官方示例（prompt + size + steps + guidance + seed + negative_prompt）。
+  // 仅在前端显式提供某参数时透传，未传则由 ModelScope 用默认值。
   const submitBody: Record<string, unknown> = { model: cfg.model, prompt: cfg.prompt }
-  if (typeof cfg.width === 'number' && cfg.width > 0) submitBody.width = cfg.width
-  if (typeof cfg.height === 'number' && cfg.height > 0) submitBody.height = cfg.height
+  if (cfg.size) submitBody.size = cfg.size
+  if (typeof cfg.steps === 'number' && cfg.steps > 0) submitBody.steps = cfg.steps
+  if (typeof cfg.guidance === 'number') submitBody.guidance = cfg.guidance
+  if (typeof cfg.seed === 'number') submitBody.seed = cfg.seed
+  if (cfg.negativePrompt?.trim()) submitBody.negative_prompt = cfg.negativePrompt.trim()
   const submitRes = await fetch(`${base}/v1/images/generations`, {
     method: 'POST',
     headers: {
@@ -71,11 +92,23 @@ export async function generateImageModelScope<K extends ImageEventType>(
     body: JSON.stringify(submitBody),
     signal,
   })
-  if (!submitRes.ok) {
-    const body = await submitRes.text().catch(() => '')
-    throw new Error(`提交任务失败：HTTP ${submitRes.status} ${submitRes.statusText}${body ? ` — ${body.slice(0, 300)}` : ''}`)
+  const submitText = await submitRes.text().catch(() => '')
+  let submitData: { task_id?: string } = {}
+  try {
+    submitData = submitText ? (JSON.parse(submitText) as { task_id?: string }) : {}
+  } catch {
+    /* 非 JSON 响应，留作调试展示 */
   }
-  const submitData = (await submitRes.json()) as { task_id?: string }
+  // 回传调试：实际发送的 payload + ModelScope 提交接口返回的原始响应
+  onEvent('debug' as K, {
+    stage: 'submit',
+    payload: submitBody,
+    response: submitText ? tryParseJson(submitText) : submitText,
+    ...(submitRes.ok ? {} : { error: `HTTP ${submitRes.status} ${submitRes.statusText}` }),
+  } as ImageEventPayloads[K])
+  if (!submitRes.ok) {
+    throw new Error(`提交任务失败：HTTP ${submitRes.status} ${submitRes.statusText}${submitText ? ` — ${submitText.slice(0, 300)}` : ''}`)
+  }
   const taskId = submitData.task_id
   if (!taskId) throw new Error('提交任务成功，但未返回 task_id')
   onEvent('submitted' as K, { taskId } as ImageEventPayloads[K])
@@ -95,14 +128,21 @@ export async function generateImageModelScope<K extends ImageEventType>(
       },
       signal,
     })
-    if (!pollRes.ok) {
-      const body = await pollRes.text().catch(() => '')
-      throw new Error(`查询任务失败：HTTP ${pollRes.status} ${pollRes.statusText}${body ? ` — ${body.slice(0, 300)}` : ''}`)
+    const pollText = await pollRes.text().catch(() => '')
+    let data: { task_status?: string; output_images?: string[]; errors?: unknown } = {}
+    try {
+      data = pollText ? (JSON.parse(pollText) as { task_status?: string; output_images?: string[]; errors?: unknown }) : {}
+    } catch {
+      /* 非 JSON，留作调试展示 */
     }
-    const data = (await pollRes.json()) as {
-      task_status?: string
-      output_images?: string[]
-      errors?: unknown
+    // 回传调试：本次轮询的原始响应
+    onEvent('debug' as K, {
+      stage: 'poll',
+      response: pollText ? tryParseJson(pollText) : pollText,
+      ...(pollRes.ok ? {} : { error: `HTTP ${pollRes.status} ${pollRes.statusText}` }),
+    } as ImageEventPayloads[K])
+    if (!pollRes.ok) {
+      throw new Error(`查询任务失败：HTTP ${pollRes.status} ${pollRes.statusText}${pollText ? ` — ${pollText.slice(0, 300)}` : ''}`)
     }
     lastStatus = data.task_status ?? 'UNKNOWN'
     attempt += 1
@@ -113,6 +153,11 @@ export async function generateImageModelScope<K extends ImageEventType>(
       if (!imgUrl) throw new Error('任务成功，但未返回 output_images')
       // 3) 取图并转 base64 data URL
       const imgRes = await fetch(imgUrl, { signal })
+      onEvent('debug' as K, {
+        stage: 'fetchImage',
+        payload: { url: imgUrl },
+        ...(imgRes.ok ? { response: `HTTP ${imgRes.status} (${imgRes.headers.get('content-type') ?? 'unknown'})` } : { error: `HTTP ${imgRes.status} ${imgRes.statusText}` }),
+      } as ImageEventPayloads[K])
       if (!imgRes.ok) throw new Error(`下载图片失败：HTTP ${imgRes.status} ${imgRes.statusText}`)
       const buf = new Uint8Array(await imgRes.arrayBuffer())
       const mime = sniffMime(buf)

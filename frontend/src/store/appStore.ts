@@ -40,8 +40,16 @@ export interface ImageDemoForm {
   /** 选中的文生图节点 id */
   nodeId?: string
   prompt: string
-  /** 分辨率预设值，如 '1024x1024' */
+  /** 分辨率预设值，如 '1024x1024'（透传给 ModelScope 的 size 字段） */
   resolution: string
+  /** 反向提示词（negative_prompt），可选 */
+  negativePrompt?: string
+  /** 采样步数（steps），可选 */
+  steps?: number
+  /** 引导系数（guidance），可选 */
+  guidance?: number
+  /** 随机种子（seed），留空则随机 */
+  seed?: number
 }
 
 export interface AppState {

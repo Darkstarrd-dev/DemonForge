@@ -105,6 +105,16 @@ export interface GeneratedImage {
   nodeId: string
   width?: number
   height?: number
+  /** 生成所用分辨率字符串（如 "1024x1024"） */
+  size?: string
+  /** 反向提示词 */
+  negativePrompt?: string
+  /** 采样步数 */
+  steps?: number
+  /** 引导系数 */
+  guidance?: number
+  /** 随机种子 */
+  seed?: number
   createdAt: string
 }
 

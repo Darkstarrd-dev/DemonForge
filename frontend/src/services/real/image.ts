@@ -6,16 +6,32 @@ export interface ImageGenParams {
   apiKey: string
   model: string
   prompt: string
-  /** 目标宽度（像素），可选——ModelScope 节点选了分辨率时透传 */
-  width?: number
-  /** 目标高度（像素），可选 */
-  height?: number
+  /** 输出分辨率字符串，如 "1024x1024"（对应 ModelScope payload 的 size 字段） */
+  size?: string
+  /** 采样步数，可选 */
+  steps?: number
+  /** guidance scale，可选 */
+  guidance?: number
+  /** 随机种子，可选 */
+  seed?: number
+  /** 反向提示词，可选 */
+  negativePrompt?: string
+}
+
+/** 调试事件载荷：展示后端发给 ModelScope 的 payload 与各阶段返回的原始响应 */
+export interface ImageGenDebug {
+  stage: 'submit' | 'poll' | 'fetchImage'
+  payload?: unknown
+  response?: unknown
+  error?: string
 }
 
 export interface ImageGenEvents {
   submitted: (data: { taskId: string }) => void
   polling: (data: { status: string; attempt: number }) => void
   done: (data: { image: string; model: string }) => void
+  /** 调试事件：每次提交/轮询/取图时触发，携带 payload 与 ModelScope 返回的响应体 */
+  debug: (data: ImageGenDebug) => void
 }
 
 /**
@@ -61,6 +77,7 @@ export async function generateImage(
       if (event === 'submitted') events.submitted?.(parsed as unknown as { taskId: string })
       else if (event === 'polling') events.polling?.(parsed as unknown as { status: string; attempt: number })
       else if (event === 'done') events.done?.(parsed as unknown as { image: string; model: string })
+      else if (event === 'debug') events.debug?.(parsed as unknown as ImageGenDebug)
       else if (event === 'error') throw new Error((parsed.message as string) ?? '生成失败')
     }
     if (done) break
