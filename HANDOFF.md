@@ -15,13 +15,14 @@
 3. **当前任务焦点**：① **novel-generator 集成·阶段 A~D 全部完成并通过审核**（数据模型 + sqlite-vec RAG 检索层 + Context Assembler + 起源流程 + 生成管理 + 批量生产）；
     ② **Electron 迁移已完成**——开发/生产模式、进程管理、打包配置就绪，待用户测试验证；
     ③ **3D Demo WASM 崩溃已修复** + **全局 Error Boundary 已添加**——animate 循环异常安全、init 单例化、ErrorBoundary 兜底白屏。
-    ④ **【最新】文生图 Demo 完善 ModelScope 服务**——新增可选参数（negative_prompt/steps/guidance/seed）全链路透传，分辨率改用 ModelScope 首选的 `size` 字符串格式；新增调试信息区（payload + ModelScope 各阶段响应），排障可见后端实发 JSON 与服务端原始响应体。**用户实机测试通过**。
+    ④ 文生图 Demo 完善 ModelScope 服务——可选参数全链路透传 + 调试信息区，用户实机测试通过。
+    ⑤ **【最新】系统设置·节点池增强 6 项功能**（Tab 切换文本/文生图、批量测试、上下移调序、复制节点、并发测试、次数限制+每日刷新）+ **入库小说数据恢复**（syncAll 误删 → sqlite3 .recover 从 free pages 重建，主书 106 章完整找回）。详见 FIXES.md「2026-06-19 晚」。
 
 ## 项目状态快照
 
-- **最后更新**：2026-06-19（第三十一次会话·**文生图 Demo 完善 ModelScope 服务**）
+- **最后更新**：2026-06-19（第三十二次会话·**节点池增强 + 入库数据恢复**）
 - **阶段**：正式开发——M1 AI 清理端到端跑通；**novel-generator 集成阶段 A~D 全部完成**；**Electron 迁移完成**；M2–M5 仍 mock；业务数据 SQLite 资产库（可配置资产目录），Provider/密钥等设置存用户数据目录
-- **新增**：**文生图 Demo 完善 ModelScope 文生图服务**——① 新增 ModelScope 官方支持的可选参数（`negative_prompt`/`steps`/`guidance`/`seed`）全链路透传（前端表单 → 服务层 → 后端 imageClient → ModelScope payload），分辨率从 `width`/`height` 整数改用 ModelScope 首选的 **`size` 字符串格式**（如 `"1024x1024"`）；② 新增 `debug` SSE 事件，后端在提交/轮询/取图三处回传「实际发给 ModelScope 的 payload」与「服务端原始响应体」，前端文生图页面新增独立「调试信息」Card（两个 monospace 只读文本框：payload + 各阶段响应追加，带时间戳与 HTTP 错误标记），排障时直接可见后端实发 JSON 与 ModelScope 原始响应；③ 历史项 `GeneratedImage` 扩展记录所用参数（size/steps/guidance/seed/negativePrompt）便于复现。文档式 SQLite 表无需迁移。**用户实机测试通过**。
+- **新增**：**系统设置·节点池增强 6 项功能**——① 标题右侧 `Segmented` 切换「文本生成/文生图」，表格按类型过滤、原「类型」列取消，新增节点按当前 Tab 预设 `nodeType`；② 「批量测试」按钮，并发上限 4 测当前类型已启用节点连通性，实时进度 + 汇总；③ 节点 ↑↓ 上移/下移调序（在 providers 全量数组交换位置，数组顺序即持久化，重启保留）；④ 「复制」按钮，新 id + 同名编号递增（`X`→`X (2)`→`X (3)`），`usageLeft` 不复制；⑤ 「并发测试」按钮（仅文本节点），纯前端二分探测——单发连通 + 逐级提高并发 2→4→8→16，取全部成功的最大 N 为 `maxConcurrency`，单请求耗时/N 估算 `intervalSec`，弹 Modal 展示日志并写回；⑥ 「次数限制」开关 + 每日本地自然日刷新——`ProviderNode` 加 4 字段（`usageLimitEnabled`/`usageLimit`/`usageLeft`/`usageResetDate`），新增 store action `consumeProviderUsage`（跨日重置、到 0 跳过、否则递减），接入 `batch.ts`/`llm.ts` 的 `pickCandidate` 经 `isNodeAvailable` 钩子扣减。类型向后兼容（normalizeProvider 补默认值），tsc + vite build 通过。**另：恢复此前被 `syncAll` 误删的入库小说数据**（`sqlite3 .recover` 从 free pages 重建，主书《综漫，人在实教，幕后开启杀戮都市》106 章正文完整找回，3 本书/113 章/13 卡片/6 大纲），修复 `moduleMapping` 全部指向已删除旧 seed 节点（prov-1/prov-2）改为指向实际 SenseNova 节点。详见 FIXES.md「2026-06-19 晚」。
 - **摘要**：在 mock 前端基础上**进入实现阶段**。
   运行方式（三选一）：
   - **【推荐】Electron 模式**：双击 `start-electron.bat`（开发模式）或 `npm run dev`，Electron 窗口自动管理前后端；关窗即自动清理进程
@@ -181,6 +182,17 @@
   - [x] **新增调试信息区（核心需求）**：新增 `debug` SSE 事件类型——后端 `imageClient.ts` 在提交(`submit`)/轮询(`poll`)/取图(`fetchImage`)三处回传「实际发给 ModelScope 的 payload」与「服务端原始响应体」（含 HTTP 错误码标记），经 `routes/image.ts` 转发；前端服务层解析 `debug` 事件回调上抛；文生图页面「本次生成」卡片下方新增独立「调试信息」Card——两个 monospace 只读文本框：①「后端发送的 Payload」显示实发 JSON；②「ModelScope 返回的响应」按时间顺序追加各阶段响应（提交 task_id、轮询 task_status、取图状态），带时间戳与 `⚠ HTTP xxx` 错误标记。排障时直接可见后端实发 JSON 与服务端原始响应，不再靠猜。
   - [x] **历史项记录生成参数**：`GeneratedImage` 类型扩展 `size`/`steps`/`guidance`/`seed`/`negativePrompt` 字段，生成图片落入历史库时一并记录（便于复现）。文档式 SQLite 表整存 JSON，无需迁移。
   - [x] **验证全过**：后端 typecheck ✅ / 前端 eslint ✅ / build(tsc+vite,14.9s) ✅ / smoke ✅ / parse-smoke ✅ / ruleclean-smoke ✅（全不回归）。**用户实机测试通过**。
+- [x] **系统设置·节点池增强 6 项功能 + 入库数据恢复**（2026-06-19 第三十二次会话·**已提交推送 fc9582b**）
+  - [x] **Tab 切换文本生成/文生图**：节点池标题右侧 `Segmented` 切 `nodeTypeFilter`，表格按类型过滤；原「类型」列删除；新增节点按当前 Tab 预设 `nodeType`
+  - [x] **批量测试**：遍历当前 Tab 且 enabled 的节点，并发上限 4 调 `testProvider`，实时进度（`message.info` key 防抖）+ 结束汇总「x/y 正常」，更新每节点 `lastTestResult`
+  - [x] **上移/下移调序**：操作列 ↑↓ 按钮（首行禁用↑、末行禁用↓），在 providers 全量数组交换两项位置，数组顺序即持久化（防抖回写 settings.json），重启保留
+  - [x] **复制节点**：新 id，名称按同名编号递增（正则 `/^(.*)\s*\((\d+)\)$/` 取最大编号+1，`X`→`X (2)`→`X (3)`），`usageLeft` 不复制（新额度起始）
+  - [x] **并发测试**（仅文本节点显示）：纯前端二分探测——`probeOnce` 经 `/api/llm/clean` 发极短内容（15s 超时），单发连通 + 单请求耗时；逐级 2→4→8→16，遇首个未全部成功的级别回退，取全部成功最大 N 为 `maxConcurrency`，单请求耗时/N 估算 `intervalSec`（min 0）；弹 Modal 展示探测日志 + 「应用推荐参数」写回
+  - [x] **次数限制 + 每日刷新**：`ProviderNode` 加 `usageLimitEnabled`/`usageLimit`/`usageLeft`/`usageResetDate`（normalizeProvider 补默认值，向后兼容）；新增 store action `consumeProviderUsage(nodeId)`——未开启返回 true，跨本地自然日（`YYYY-MM-DD`）重置 `usageLeft=usageLimit`，到 0 返回 false（调度器跳过），否则递减写回；接入 `batch.ts`/`llm.ts` `pickCandidate` 经 `opts.isNodeAvailable` 钩子（由 Step3Clean/batch-generate 启动队列时传入）；编辑 Modal 加「次数限制」Switch + 条件「每日额度」InputNumber；表格加「次数(今日)」列展示 `剩余/额度`，用尽标红
+  - [x] **入库数据恢复**：本次功能开发后发现书库为空——排查确认数据未真丢（SQLite 行 delete 但数据页未 VACUUM，残留 db 字节流）。清空发生在本次改动之前（db 22:10 被改写，早于 settings 22:58），与本次功能无关；根因是 `syncAll` 全量删除策略 + 前端内存为空触发同步。恢复过程：备份 db → 停后端 → `sqlite3 .recover` 重建 lost_and_found（处理跨页）+ db 字节流大括号配对（补 recover 漏的短 book 行）→ 直接 upsert 写回（纯插入/更新绝不删除）→ 补回被覆盖的 seed 书行（book-ref-1/book-proj-1）+ seed 大纲 → 修复 moduleMapping（prov-1/prov-2 → SenseNova）→ 重启后端。验证：3 本书/113 章/13 卡片/6 大纲，主书 106 章正文完整
+  - [x] **验证全过**：tsc --noEmit ✅ / vite build ✅（构建期遇 rolldown 无法解析内联第 4 对象参数，已将 batch-generate 回调提取为具名 const `callbacks` 规避）
+  - [ ] **待用户实机验证**：刷新前端页面（Ctrl+R）让内存 moduleMapping 从后端重拉（否则旧值防抖回写可能覆盖）；各新功能点（Tab/批量测试/上下移/复制/并发测试/次数限制）实机走一遍
+  - [ ] **结构性风险待修（建议）**：`syncAll` 全量删除策略在「前端内存为空 + 触发同步」时会清库——建议加防护「payload.books 为空但库非空且 storeInitialized 时拒绝删除只 upsert」。本次未改，留待确认
 - [x] **问题2 已解决 + 问题1 持久化加固 + 问题3 拆分后自动检测标题**（2026-06-19 第二十八次会话）
   - [x] **问题1 入库持久化**：`pushStoreNow` 返回 `Promise<void>`，`Step4.doStore` 改 `await pushStoreNow()`（写完才提示成功）。端到端诊断脚本 + 真机后端重启测试双重验证持久化链路正常（含后端重启存活）。**用户仍复现 → 硬刷新 Electron 窗口（Ctrl+Shift+R）/ 重启 start-electron.bat**（vite HMR 对 appStore.ts 模块级副作用热替换不稳定）
   - [x] **问题3 拆分后自动检测**：新增 `split.ts:detectLeadingChapterTitle(content, patterns)`（取首条非空行 stripDecor 后 findTitleInLine 测各内置模式，命中返回 `{title, content(剥首行)}`，无命中 null）；`Step2Split.splitAtCursor` 接入（标题优先级：用户输入 > 自动检测 > 「原标题（续）」）；UI 提示更新；smoke +4 断言
@@ -329,21 +341,28 @@
 
 ## 交接备注（最近一次会话）
 
-- **日期**：2026-06-19（第三十一次会话·**文生图 Demo 完善 ModelScope 服务**）
-- **本次完成**（用户需求：完善 ModelScope 文生图服务——增加可选参数 + 显示后端发送的 payload 与 ModelScope 返回的响应）：
-  - **新增 ModelScope 可选参数全链路透传**：`negative_prompt`（反向提示词 TextArea）/ `steps`（采样步数 InputNumber 1-100）/ `guidance`（引导系数 InputNumber 0-20）/ `seed`（随机种子 InputNumber + 🎲随机按钮）。前端表单（折叠区默认展开）→ `services/real/image.ts` `ImageGenParams` → 后端 `imageClient.ts` `ImageGenConfig` → `submitBody` 仅在有值时拼装（留空用模型默认值）。参数随表单持久化到 `settings.json`。
-  - **分辨率改用 `size` 字符串格式**：原先透传 `width`/`height` 整数，改用 ModelScope 首选的 `size` 字符串（如 `"1024x1024"`，对齐官方 Python 示例 payload）。类型层面删除 width/height、新增 `size?`；历史项展示兼容旧 width/height 数据。
-  - **新增调试信息区（核心需求）**：新增 `debug` SSE 事件——后端 `imageClient.ts` 在提交(`submit`)/轮询(`poll`)/取图(`fetchImage`)三处回传 payload + 服务端原始响应体（含 HTTP 错误标记），经 `routes/image.ts` 转发；前端解析 `debug` 事件；文生图页面「本次生成」卡片下方新增独立「调试信息」Card——两个 monospace 只读文本框：①「后端发送的 Payload」显示实发 JSON；②「ModelScope 返回的响应」按时间戳追加各阶段响应（提交 task_id、轮询 task_status、取图状态）+ `⚠ HTTP xxx` 错误标记。**排障直接可见后端实发 JSON 与服务端原始响应，不再靠猜**。
-  - **历史项记录生成参数**：`GeneratedImage` 扩展 `size`/`steps`/`guidance`/`seed`/`negativePrompt`，生成图片落入历史库时一并记录（便于复现）。文档式 SQLite 表无需迁移。
-- **验证全过**：后端 typecheck ✅ / 前端 eslint ✅ / build(tsc+vite,14.9s) ✅ / smoke ✅ / parse-smoke ✅ / ruleclean-smoke ✅（全不回归）。**用户实机测试通过**。
+- **日期**：2026-06-19（第三十二次会话·**节点池增强 + 入库数据恢复**）
+- **本次完成**（用户需求：系统设置·节点池增加 6 项功能）：
+  - **Tab 切换**：标题右侧 `Segmented`（文本生成/文生图），表格按 `nodeTypeFilter` 过滤、删除原类型列、新增节点按 Tab 预设 `nodeType`
+  - **批量测试**：并发上限 4 测当前类型已启用节点连通性，实时进度 + 汇总，更新 `lastTestResult`
+  - **上移/下移**：操作列 ↑↓，在 providers 全量数组交换位置，数组顺序即持久化
+  - **复制节点**：新 id + 同名编号递增（`X`→`X (2)`→`X (3)`）
+  - **并发测试**（仅文本节点）：纯前端二分探测 `maxConcurrency` + 估算 `intervalSec`，弹 Modal 写回
+  - **次数限制**：`ProviderNode` 加 4 字段 + `consumeProviderUsage` action（每日本地自然日刷新、到 0 跳过、递减），接入 batch/llm 调度钩子；编辑 Modal 加开关 + 每日额度；表格加「次数(今日)」列
+  - **入库数据恢复**：发现书库为空 → 排查确认数据未真丢（SQLite 行 delete 但数据页未 VACUUM）→ `sqlite3 .recover` + 字节流配对提取 → 直接 upsert 写回（不删除）→ 补 seed 书 + 修复 moduleMapping（prov-1/prov-2 → SenseNova）→ 重启后端。主书《综漫，人在实教，幕后开启杀戮都市》106 章正文完整找回，共 3 本书/113 章/13 卡片/6 大纲
+- **改动文件**（8 个，已提交 `fc9582b` 推送 main）：`frontend/src/services/types.ts`、`frontend/src/store/appStore.ts`、`frontend/src/services/real/batch.ts`、`frontend/src/services/real/llm.ts`、`frontend/src/pages/m1-import/Step3Clean.tsx`、`frontend/src/pages/batch-generate/index.tsx`、`frontend/src/pages/settings/index.tsx`、`FIXES.md`
+- **验证全过**：tsc --noEmit ✅ / vite build ✅（构建期 rolldown 内联第 4 对象参数解析坑，已提取具名 const 规避）/ 后端 API 验证数据可读 ✅
 - **已知限制/注意**：
-  ① **前几轮诊断脚本的教训**：上上轮"端到端诊断脚本"直接连后端**真实 db** 写入 `test-node-book`（没隔离），污染了 `server/src/data` 库。**今后诊断持久化必须用隔离的临时 db 或 mock fetch**，绝不可连生产库。
-  ② **dist import 缺 `.js` 扩展名隐患**（未修——影响打包版，开发模式 tsx src 不受影响）：`server/tsconfig.json` 用 `moduleResolution: "bundler"`（`34405c3` 引入），tsc 不重写 import 扩展名 → `node dist/index.js` 报 `ERR_MODULE_NOT_FOUND`。**留待打包分发阶段处理**。**用户当前开发模式无此问题**。
-  ③ **数据目录单一锚定**（`server/src/data`）：任何持久化异常排查第一步——看后端启动日志的 `[data-dir]` 两行确认实际落点。
+  ① **前端需刷新页面（Ctrl+R）**：前端 store 内存里 `moduleMapping` 是旧值（prov-1/prov-2），刷新后从后端重拉正确值（指向 SenseNova）；否则 UI 操作的防抖回写可能把旧值覆盖回去
+  ② **数据恢复后 db 备份**：原 db 备份在 `server/src/data/assets/novelhelper.db.bak-20260619_231156`（gitignore，本地保留）
+  ③ **结构性风险未修**：`syncAll` 全量删除策略在「前端内存为空 + 触发同步」时会清库——建议后续加防护「payload.books 为空但库非空且 storeInitialized 时拒绝删除只 upsert」。本次未改
+  ④ **dist import 缺 `.js` 扩展名隐患**（未修——影响打包版，开发模式 tsx src 不受影响）：留待打包分发阶段处理
+  ⑤ **数据目录单一锚定**（`server/src/data`）：任何持久化异常排查第一步——看后端启动日志的 `[data-dir]` 两行确认实际落点
 - **下一步**：
-  ① 仍待实机验证（历史项）：问题3 拆分后自动检测标题、书库删除流程、M0 立项不再误报、入库真书持久化（第三十次会话已修复，待用户确认）
-  ②（后续）打包分发前修复 dist import 扩展名（见已知限制 ②）
-  ③ M2–M5 详细设计与真实化推进
+  ① 用户刷新前端 + 实机验证 6 项新功能 + 数据恢复结果
+  ②（建议）修 syncAll 全量删除的结构性数据安全风险
+  ③（后续）打包分发前修复 dist import 扩展名
+  ④ M2–M5 详细设计与真实化推进
 
 ## 更新本文档的约定
 
