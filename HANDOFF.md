@@ -18,9 +18,9 @@
 
 ## 项目状态快照
 
-- **最后更新**：2026-06-19（第二十四次会话·**文生图 Demo 持久化 + 分辨率下拉**）
+- **最后更新**：2026-06-19（第二十五次会话·**M1 Step2 章节自动检测 + 卷/前缀处理 + 检测池可配置**）
 - **阶段**：正式开发——M1 AI 清理端到端跑通；**novel-generator 集成阶段 A~D 全部完成**；**Electron 迁移完成**；M2–M5 仍 mock；业务数据 SQLite 资产库（可配置资产目录），Provider/密钥等设置存用户数据目录
-- **新增**：文生图 Demo 页持久化——已选节点/Prompt/分辨率存 settings.json（切换页面/重启不丢），生成历史存 SQLite `image_gallery` 表（base64 dataUrl，每张可下载+删除、可一键清空）；ModelScope 节点显示「分辨率」下拉（1024×1024/1280×720/720×1280/1024×768/768×1024），透传 `width`/`height` 到 ModelScope 提交 body（对齐官方 Z-Image-Turbo `height`/`width` 参数）；`GeneratedImage` 类型 + `imageGallery`/`imageDemoForm` 两个 appStore 切片 + `addImage`/`deleteImage` actions（沿用 business→SQLite / settings→JSON 双通道持久化）
+- **新增**：M1 Step2 章节分割由「纯手选模式」升级为「**进入页自动检测推荐 + 手选/正则兜底**」——`detectChapterPattern` 逐行扫描每个模式按命中数评分（MIN_HITS=2，卷模式仅在无章类命中时兜底），进入 Step2 即 lazy 初始化推荐模式 + 抽样标题提示（绿/黄按 confidence）；标题前装饰符号（`[爱心]`/`★`/`【】`等成对包裹块 + 散落符号）自动 `stripDecor` 剥除再匹配；**卷结构单独成章**（内置 `VOLUME_REGEX` 旁路识别，标记 `isVolume`，Step3 `skipClean` 跳过 LLM 原样保留）；检测模式池存 `settings.json`，设置页新增「章节检测模式池」Card 可增删改（内置 8 模式：第X章/回/卷/节、X章无「第」字、Chapter N 带 `i` flag、数字+顿号、custom）；`SplitPattern` 类型加 `flags?`/`builtin?`，`ImportChapter` 加 `skipClean?`
 - **摘要**：在 mock 前端基础上**进入实现阶段**。
   运行方式（三选一）：
   - **【推荐】Electron 模式**：双击 `start-electron.bat`（开发模式）或 `npm run dev`，Electron 窗口自动管理前后端；关窗即自动清理进程
@@ -160,6 +160,16 @@
 
 ### 进行中 / 等待用户
 
+- [x] **M1 Step2 章节自动检测 + 卷/前缀处理 + 检测池可配置**（2026-06-19 第二十五次会话）
+  - [x] **自动检测算法** `split.ts:detectChapterPattern`：逐行扫描，每行先 `stripDecor` 剥装饰前缀再对各模式（非 custom）测命中；`hitCount >= MIN_HITS(2)` 取最大者；卷模式（juan）仅无章类命中时兜底；confidence = best/(best+second)；返回 `{patternKey, hitCount, confidence, reason, sampledTitles(前5)}`
+  - [x] **装饰前缀剥除** `stripDecor`：两类交替反复剥——① 成对符号包裹块 `[爱心]`/`【公告】`/`（注）`/`「」`等（内容可含中文，单轮剥一个块）② 散落单个装饰符号 + 空白；最多 10 轮
+  - [x] **卷单独成章** `splitChapters`：内置 `VOLUME_REGEX` 旁路识别卷行（不依赖用户当前模式，且当前模式含「卷」字时不旁路），卷行单独成一章 `isVolume:true`，内容为卷行后到下一卷/章行前的文本；keepPrologue=false 时开头正文并入首个卷章
+  - [x] **模式池可配置**：`SplitPattern` 类型（regex 字符串 + `flags?` + `builtin?`）存 `settings.json`；`DEFAULT_SPLIT_PATTERNS` 8 模式（章/回/卷/节、X章、Chapter N 带 `i` flag、数字+顿号、custom）；`compilePatterns` 编译为运行时 RegExp
+  - [x] **appStore** `splitPatterns` 切片（settings 通道）：`settingsPayload` 统一构造（消除三处重复）；`setSplitPatterns`/`resetSplitPatterns` actions 用 `pushSettingsNow` 立即落库；bootstrap 合并补 custom 兜底
+  - [x] **Step2Split**：进入页 lazy `useState` 初始化检测 + 推荐 patternKey（无 effect setState，lint 合规）；Radio 用 store 模式池；Alert 显示检测 reason + 抽样标题 Tag + 「重新检测」按钮；预览列表卷章显紫色「卷」Tag；applySplit 时 `isVolume→skipClean`
+  - [x] **Step3Clean**：useEffect 把 `skipClean` 章自动置 `completed`+`cleanedContent=content`（原样保留，不调 LLM）；`rangeTargets` 排除 skipClean 双保险；状态列显「卷·跳过清理」紫 Tag
+  - [x] **设置页**「章节检测模式池」Card：Table（名称/正则/内置标记/操作）+ 新增/编辑 Modal（regex 试编译校验）+ 删除（custom 不可删）+ 恢复默认
+  - [x] **验证全过**：smoke(23：原 13 不回归 + 新增 10 检测/卷/前缀断言，demo 章数 7→9 含 2 卷) ✅ / 前端 eslint ✅ / build(tsc+vite,14s) ✅ / 后端 typecheck ✅
 - [x] **文生图 Demo 持久化 + 分辨率下拉**（2026-06-19 第二十四次会话）
   - [x] **持久化分工**：图片数组（大）→ SQLite `/api/store`（新增 `image_gallery` 文档表，随 syncAll/readAll 自动建表读写）；表单草稿 provider/nodeId/prompt/分辨率（小）→ JSON `/api/settings`。沿用 appStore 既有双通道，不引入第三种
   - [x] **appStore**：新增 `imageGallery: GeneratedImage[]` + `imageDemoForm` 两个切片 + `addImage(img)`（unshift 头部）/ `deleteImage(id)` actions（均 `pushStoreNow` 立即落库）；businessPayload / 两处 subscribe / bootstrapStore / reloadStoreFromBackend / flushStoreWrites 全部接入
@@ -283,20 +293,23 @@
 
 ## 交接备注（最近一次会话）
 
-- **日期**：2026-06-19（第二十四次会话·**文生图 Demo 持久化 + 分辨率下拉**）
+- **日期**：2026-06-19（第二十五次会话·**M1 Step2 章节自动检测 + 卷/前缀处理 + 检测池可配置**）
 - **本次完成**：
-  ① **持久化**：图片数组 → SQLite 新增 `image_gallery` 表（base64 dataUrl，随 syncAll/readAll 自动读写）；表单 provider/nodeId/prompt/分辨率 → settings.json。`types.ts` 加 `GeneratedImage`；`appStore` 加 `imageGallery`/`imageDemoForm` 切片 + `addImage`/`deleteImage` actions；businessPayload / 两处 subscribe / bootstrapStore / reloadStoreFromBackend / flushStoreWrites 全部接入；首页重写为「本次生成」预览 +「生成历史」网格（下载 / Popconfirm 删除 / 一键清空）
-  ② **分辨率下拉**（仅 ModelScope 节点显示）：5 预设；`parseRes` 解析后透传 `width`/`height` → `services/real/image.ts` → 后端 `imageClient.ts` 提交 body 追加（对齐官方 Z-Image-Turbo `height`/`width`）→ `routes/image.ts` 透传
-  ③ **lint 修复**：`react-hooks/purity` 禁组件作用域 `Date.now()` → 下载文件名改用 `img.id`
-  ④ **同步补档**：把已提交但未入档的 497fde1（文生图 Demo）/ 067c1ad（预设书删除重现修复+进程清理）补进 checklist
-  ⑤ **验证**：后端 typecheck ✅ / 前端 eslint ✅ / build(tsc+vite) ✅ / smoke(13) 不回归 ✅
-- **已知限制**：
-  ① `[Frontend]` 日志中的 Vite 彩色箭头 `➜`（U+279C）在 GBK 控制台仍会截断乱码——这是 Vite 自身的 chalk 输出，需 `FORCE_COLOR=0` 才能彻底消除，当前未加
-  ② **bat 文件必须保持纯 ASCII**：编辑器若把 `.bat` 存成 UTF-8 + 中文注释，双击运行时 CMD 用 GBK 解码会破坏脚本。今后编辑 `.bat` 务必英文注释 + CRLF
-  ③ **图片以 base64 入库**：单张图较大会放大 `/api/store` 的全量 POST payload（demo 图片数量少可接受）。未来若做正式图片功能（如 M2 卡片配图），可改用 `db.ts:30` 预留的 `assets/images/` 目录做文件存储 + 静态服务
+  ① **自动检测**：`split.ts` 新增 `detectChapterPattern`（逐行扫描 + stripDecor 前缀剥除 + 每模式命中计数 + 卷兜底 + confidence 评分 + 抽样标题）；`splitChapters` 升级（stripDecor 剥前缀、`VOLUME_REGEX` 旁路识别卷行单独成章 `isVolume`、卷分支支持 keepPrologue pending）
+  ② **模式池可配置**：`SplitPattern` 加 `flags?`/`builtin?`；`DEFAULT_SPLIT_PATTERNS` 8 模式（新增 第X节/X章/Chapter N(i)/数字顿号）；`compilePatterns` 支持 flags；`types.ts:ImportChapter` 加 `skipClean?`
+  ③ **appStore** `splitPatterns` settings 切片 + `settingsPayload` 抽函数（消除 subscribe/pushSettingsNow/flush 三处重复）+ `setSplitPatterns`/`resetSplitPatterns` actions + bootstrap 合并补 custom 兜底
+  ④ **Step2Split** 重写：lazy useState 初始化检测（无 effect setState，合规 react-hooks/set-state-in-effect）；Radio 用 store 池；检测 Alert + 抽样标题 + 重新检测按钮；卷章紫 Tag；isVolume→skipClean
+  ⑤ **Step3Clean**：skipClean 章自动置 completed+原样保留（useEffect）+ rangeTargets 排除；状态列「卷·跳过清理」Tag
+  ⑥ **设置页**「章节检测模式池」Card（增删改 + regex 试编译校验 + 恢复默认 + 编辑 Modal）
+  ⑦ **smoke** +10 断言（检测 4 模式/前缀/卷成章/无模式兜底），demo 章数断言 7→9（含 2 卷标记）
+  ⑧ **验证**：smoke(23) ✅ / eslint ✅ / build(tsc+vite) ✅ / 后端 typecheck ✅
+- **已知限制/注意**：
+  ① **卷成章改变了切分行为**：含卷结构的文本（如 demo）现在卷行会单独成一章（之前并入相邻章）。既有依赖固定章数的逻辑需注意——已同步更新 smoke 断言。若用户不希望卷单独成章，可在 Step2 选「第X卷」模式（此时旁路不触发，卷即正常章）
+  ② **装饰前缀剥除范围**：`stripDecor` 剥成对包裹块（`[]`/`【】`/`（）`/`()`/`「」`/`『』`/`《》`）+ 散落符号（`☆★◆●○■□※▪♦♥♠♣①-⑳Ⅰ-Ⅻ` 等）。若遇新前缀形态，可在 `DECOR_BLOCK`/`DECOR_SYMBOLS` 正则补充
+  ③ **检测池持久化**：旧 `settings.json` 无 `splitPatterns` 键时 bootstrap 用内置默认；用户改后覆盖。`custom` 模式 key 永远保留（设置页不可删，由用户在 Step2 临时输入正则）
 - **下一步**：
-  ① 实机验证文生图 Demo 端到端（真实 ModelScope key + Z-Image-Turbo）：分辨率切换生效、生成历史持久化与删除、切换页面/重启不丢
-  ② 仍待实机验证：书库删除流程、M0 立项生成不再误报「请选择生成节点」、Electron 开发/打包模式
+  ① 实机验证 M1 Step2 自动检测：导入真实小说 raw 文本，看推荐模式是否命中预期；卷结构是否正确单独成章且 Step3 跳过；前缀 `[爱心]第X章` 是否剥除
+  ② 仍待实机验证（历史项）：文生图 Demo 端到端、书库删除流程、M0 立项不再误报、Electron 开发/打包模式
 
 ## 更新本文档的约定
 

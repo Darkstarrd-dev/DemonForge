@@ -20,7 +20,7 @@ import {
 } from 'antd'
 import { useAppStore, genId, reloadStoreFromBackend } from '../../store/appStore'
 import { testProvider, getDefaultPrompt } from '../../services/api'
-import type { ModuleKey, ProviderNode } from '../../services/types'
+import type { ModuleKey, ProviderNode, SplitPattern } from '../../services/types'
 
 const MODULE_LABELS: Record<ModuleKey, string> = {
   m0Arch: 'M0 架构设计',
@@ -41,6 +41,9 @@ export default function SettingsPage() {
   const m1SystemPrompt = useAppStore((s) => s.m1SystemPrompt)
   const assetDir = useAppStore((s) => s.assetDir)
   const showMenuBar = useAppStore((s) => s.showMenuBar)
+  const splitPatterns = useAppStore((s) => s.splitPatterns)
+  const setSplitPatterns = useAppStore((s) => s.setSplitPatterns)
+  const resetSplitPatterns = useAppStore((s) => s.resetSplitPatterns)
   const setState = useAppStore((s) => s.setState)
   const resetDemo = useAppStore((s) => s.resetDemo)
   const [editing, setEditing] = useState<ProviderNode | null>(null)
@@ -56,6 +59,9 @@ export default function SettingsPage() {
     error?: string
   } | null>(null)
   const [form] = Form.useForm<ProviderNode>()
+  // 章节检测模式编辑
+  const [editingPattern, setEditingPattern] = useState<SplitPattern | null>(null)
+  const [patternForm] = Form.useForm<SplitPattern>()
 
   const openEdit = (node?: ProviderNode) => {
     const target: ProviderNode = node ?? {
@@ -121,6 +127,42 @@ export default function SettingsPage() {
     } finally {
       setApplyingDir(false)
     }
+  }
+
+  // ===== 章节检测模式池管理 =====
+  const openPatternEdit = (p?: SplitPattern) => {
+    const target: SplitPattern = p ?? { key: genId('pat'), label: '', regex: '', builtin: false }
+    setEditingPattern(target)
+    patternForm.setFieldsValue(target)
+  }
+
+  const savePatternEdit = async () => {
+    const values = await patternForm.validateFields()
+    const merged: SplitPattern = { ...editingPattern!, ...values }
+    // regex 试编译校验（custom 模式允许空）
+    if (merged.key !== 'custom' && merged.regex) {
+      try {
+        new RegExp(merged.regex)
+      } catch {
+        message.error('正则表达式无效，请检查语法')
+        return
+      }
+    }
+    const exists = splitPatterns.some((p) => p.key === merged.key)
+    setSplitPatterns(
+      exists ? splitPatterns.map((p) => (p.key === merged.key ? merged : p)) : [...splitPatterns, merged],
+    )
+    setEditingPattern(null)
+    message.success('检测模式已保存')
+  }
+
+  const deletePattern = (p: SplitPattern) => {
+    if (p.key === 'custom') {
+      message.warning('「自定义正则」模式不可删除')
+      return
+    }
+    setSplitPatterns(splitPatterns.filter((x) => x.key !== p.key))
+    message.success('已删除')
   }
 
   const columns = [
@@ -321,6 +363,74 @@ export default function SettingsPage() {
         </Typography.Paragraph>
       </Card>
 
+      <Card
+        title="章节检测模式池"
+        extra={
+          <Space>
+            <Button onClick={() => openPatternEdit()}>新增模式</Button>
+            <Popconfirm
+              title="恢复为内置默认模式池？"
+              description="当前自定义/修改将丢失"
+              onConfirm={() => {
+                resetSplitPatterns()
+                message.success('已恢复内置默认模式池')
+              }}
+            >
+              <Button>恢复默认</Button>
+            </Popconfirm>
+          </Space>
+        }
+      >
+        <Table
+          rowKey="key"
+          pagination={false}
+          size="middle"
+          dataSource={splitPatterns}
+          columns={[
+            { title: '名称', dataIndex: 'label', width: 200 },
+            {
+              title: '正则',
+              dataIndex: 'regex',
+              render: (v: string, row: SplitPattern) =>
+                row.key === 'custom' ? (
+                  <Typography.Text type="secondary">（用户在 M1 Step2 输入）</Typography.Text>
+                ) : (
+                  <Typography.Text code style={{ fontSize: 12 }}>{v}</Typography.Text>
+                ),
+            },
+            {
+              title: '内置',
+              dataIndex: 'builtin',
+              width: 70,
+              render: (v?: boolean) => (v ? <Tag>内置</Tag> : <Tag color="blue">自定义</Tag>),
+            },
+            {
+              title: '操作',
+              key: 'actions',
+              width: 150,
+              render: (_: unknown, p: SplitPattern) => (
+                <Space size="small">
+                  <Button size="small" onClick={() => openPatternEdit(p)}>
+                    编辑
+                  </Button>
+                  {p.key !== 'custom' && (
+                    <Popconfirm title="删除该检测模式？" onConfirm={() => deletePattern(p)}>
+                      <Button size="small" danger>
+                        删除
+                      </Button>
+                    </Popconfirm>
+                  )}
+                </Space>
+              ),
+            },
+          ]}
+        />
+        <Typography.Paragraph type="secondary" style={{ marginTop: 12, marginBottom: 0 }}>
+          M1 Step2 进入时自动从这些模式中按命中数评分推荐最匹配的章节分割模式。正则需以 <Typography.Text code>^</Typography.Text> 开头（整行匹配）并包含一个捕获组作为章节标题；
+          标题行前的装饰符号（如 [爱心]、★）会被自动剥除。「自定义正则」模式由用户在 M1 Step2 临时输入，不在此编辑。
+        </Typography.Paragraph>
+      </Card>
+
       <Card title="资产目录">
         <Typography.Paragraph type="secondary" style={{ marginBottom: 8 }}>
           业务数据（书/章节/卡片/推演等）保存在此目录下的 <Typography.Text code>novelhelper.db</Typography.Text>，
@@ -405,6 +515,28 @@ export default function SettingsPage() {
               </Form.Item>
             </Col>
           </Row>
+        </Form>
+      </Modal>
+
+      <Modal
+        title={splitPatterns.some((p) => p.key === editingPattern?.key) ? '编辑检测模式' : '新增检测模式'}
+        open={!!editingPattern}
+        onOk={savePatternEdit}
+        onCancel={() => setEditingPattern(null)}
+        destroyOnHidden
+      >
+        <Form form={patternForm} layout="vertical" style={{ marginTop: 8 }}>
+          <Form.Item name="label" label="名称" rules={[{ required: true }]}>
+            <Input placeholder="如：第X章" />
+          </Form.Item>
+          <Form.Item
+            name="regex"
+            label="正则表达式"
+            rules={[{ required: true, message: '请输入正则（custom 模式除外）' }]}
+            extra="以 ^ 开头整行匹配，含一个捕获组作为标题。如：^(第[0-9一二三四五六七八九十]+章.*)"
+          >
+            <Input placeholder="^(第[0-9零一二三四五六七八九十百千万]+章.*)" style={{ fontFamily: 'monospace' }} />
+          </Form.Item>
         </Form>
       </Modal>
 

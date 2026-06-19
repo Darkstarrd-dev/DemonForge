@@ -117,6 +117,25 @@ export default function Step3Clean() {
     })
   }, [promptLoaded])
 
+  // 卷标记章（skipClean）跳过 LLM 清理：直接置 completed 且原样保留正文。
+  // 在进入 Step3 / 章节列表变化时补刷一次，确保进度条与队列都把它们视为已完成。
+  useEffect(() => {
+    const cur = useAppStore.getState().importSession
+    if (!cur) return
+    const dirty = cur.chapters.filter((c) => c.skipClean && c.cleanStatus !== 'completed')
+    if (dirty.length === 0) return
+    setState({
+      importSession: {
+        ...cur,
+        chapters: cur.chapters.map((c) =>
+          c.skipClean && c.cleanStatus !== 'completed'
+            ? { ...c, cleanStatus: 'completed', cleanedContent: c.content, lineDecisions: {} }
+            : c,
+        ),
+      },
+    })
+  }, [session?.chapters, setState])
+
   if (!session) return null
   const chapters = session.chapters
   const total = chapters.length
@@ -138,7 +157,7 @@ export default function Step3Clean() {
   }
 
   const rangeTargets = () => {
-    const inRange = chapters.slice(rangeStart - 1, end)
+    const inRange = chapters.slice(rangeStart - 1, end).filter((c) => !c.skipClean)
     return [
       ...inRange.filter((c) => c.cleanStatus === 'needsReprocess'),
       ...inRange.filter((c) => c.cleanStatus === 'pending'),

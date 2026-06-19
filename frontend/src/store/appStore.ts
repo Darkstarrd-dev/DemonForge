@@ -15,6 +15,7 @@ import type {
   ImportSession,
   NovelArchitecture,
   GeneratedImage,
+  SplitPattern,
 } from '../services/types'
 import {
   seedBooks,
@@ -30,6 +31,7 @@ import {
   seedMergeCandidates,
   seedArchitectures,
 } from '../mocks/seed'
+import { DEFAULT_SPLIT_PATTERNS } from '../utils/split'
 
 /** 文生图 Demo 表单草稿（轻量，持久化到 settings.json） */
 export interface ImageDemoForm {
@@ -70,6 +72,8 @@ export interface AppState {
   imageGallery: GeneratedImage[]
   /** 文生图 Demo 表单草稿（持久化到 settings.json） */
   imageDemoForm: ImageDemoForm
+  /** M1 章节检测模式池（持久化到 settings.json，设置页可增删改） */
+  splitPatterns: SplitPattern[]
 
   setState: (patch: Partial<AppState>) => void
   updateChapter: (id: string, patch: Partial<Chapter>) => void
@@ -81,6 +85,10 @@ export interface AppState {
   addImage: (image: GeneratedImage) => void
   /** 文生图：按 id 删除一张历史图 */
   deleteImage: (id: string) => void
+  /** 设置：覆盖章节检测模式池（立即落 settings.json） */
+  setSplitPatterns: (patterns: SplitPattern[]) => void
+  /** 设置：恢复章节检测模式池为内置默认（立即落 settings.json） */
+  resetSplitPatterns: () => void
   resetDemo: () => void
 }
 
@@ -115,6 +123,7 @@ const seedState = () => ({
   importSession: null,
   imageGallery: [] as GeneratedImage[],
   imageDemoForm: { provider: 'modelscope', nodeId: undefined, prompt: '', resolution: '1024x1024' },
+  splitPatterns: DEFAULT_SPLIT_PATTERNS.map((p) => ({ ...p })),
 })
 
 export const useAppStore = create<AppState>()((set) => ({
@@ -192,6 +201,15 @@ export const useAppStore = create<AppState>()((set) => ({
     set((s) => ({ imageGallery: s.imageGallery.filter((i) => i.id !== id) }))
     pushStoreNow()
   },
+  // ===== 章节检测模式池（设置通道，落 settings.json） =====
+  setSplitPatterns: (patterns) => {
+    set({ splitPatterns: patterns })
+    pushSettingsNow()
+  },
+  resetSplitPatterns: () => {
+    set({ splitPatterns: DEFAULT_SPLIT_PATTERNS.map((p) => ({ ...p })) })
+    pushSettingsNow()
+  },
 }))
 
 // ===== 后端持久化（替代原 localStorage persist）=====
@@ -237,6 +255,7 @@ export async function bootstrapStore(): Promise<void> {
         storeInitialized?: boolean
         imageDemoForm?: ImageDemoForm
         showMenuBar?: boolean
+        splitPatterns?: SplitPattern[]
       }
       storeInitialized = d.storeInitialized === true
       const patch: Partial<AppState> = {}
@@ -250,6 +269,11 @@ export async function bootstrapStore(): Promise<void> {
       // 文生图 Demo 表单草稿（旧 settings.json 无此键则沿用 seed 默认）
       if (d.imageDemoForm && typeof d.imageDemoForm === 'object')
         patch.imageDemoForm = { ...useAppStore.getState().imageDemoForm, ...d.imageDemoForm }
+      // 章节检测模式池（旧 settings.json 无此键则沿用内置默认池；确保 custom 永在）
+      if (Array.isArray(d.splitPatterns) && d.splitPatterns.length) {
+        const hasCustom = d.splitPatterns.some((p) => p.key === 'custom')
+        patch.splitPatterns = hasCustom ? d.splitPatterns : [...d.splitPatterns, { key: 'custom', label: '自定义正则', regex: '', builtin: true }]
+      }
       if (Object.keys(patch).length) useAppStore.setState(patch)
     }
   } catch {
@@ -394,7 +418,19 @@ function pushStoreNow(): void {
   pushStore(businessPayload(useAppStore.getState())).catch(() => {})
 }
 
-// 设置回写：providers/moduleMapping/m1SystemPrompt/assetDir/currentBookId/imageDemoForm 变化时 debounce POST
+// 设置回写：providers/moduleMapping/m1SystemPrompt/assetDir/currentBookId/imageDemoForm/
+// showMenuBar/splitPatterns 变化时 debounce POST
+const settingsPayload = (s: AppState) => ({
+  providers: s.providers,
+  moduleMapping: s.moduleMapping,
+  m1SystemPrompt: s.m1SystemPrompt,
+  assetDir: s.assetDir,
+  currentBookId: s.currentBookId,
+  imageDemoForm: s.imageDemoForm,
+  showMenuBar: s.showMenuBar,
+  splitPatterns: s.splitPatterns,
+})
+
 let settingsTimer: ReturnType<typeof setTimeout> | null = null
 useAppStore.subscribe((s, prev) => {
   if (!storeReady) return
@@ -405,28 +441,35 @@ useAppStore.subscribe((s, prev) => {
     s.assetDir === prev.assetDir &&
     s.currentBookId === prev.currentBookId &&
     s.imageDemoForm === prev.imageDemoForm &&
-    s.showMenuBar === prev.showMenuBar
+    s.showMenuBar === prev.showMenuBar &&
+    s.splitPatterns === prev.splitPatterns
   ) {
     return
   }
   if (settingsTimer) clearTimeout(settingsTimer)
   settingsTimer = setTimeout(() => {
-    const st = useAppStore.getState()
     fetch('/api/settings', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        providers: st.providers,
-        moduleMapping: st.moduleMapping,
-        m1SystemPrompt: st.m1SystemPrompt,
-        assetDir: st.assetDir,
-        currentBookId: st.currentBookId,
-        imageDemoForm: st.imageDemoForm,
-        showMenuBar: st.showMenuBar,
-      }),
+      body: JSON.stringify(settingsPayload(useAppStore.getState())),
     }).catch(() => {})
   }, 1000)
 })
+
+// 立即把当前设置推送到后端（绕过 1s 防抖）。用于 splitPatterns 编辑/恢复等关键操作。
+// function 声明被提升，故 store actions（定义在上方）可在运行时引用。
+function pushSettingsNow(): void {
+  if (!storeReady) return
+  if (settingsTimer) {
+    clearTimeout(settingsTimer)
+    settingsTimer = null
+  }
+  fetch('/api/settings', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(settingsPayload(useAppStore.getState())),
+  }).catch(() => {})
+}
 
 // 关窗/退出时立即冲刷未提交的 debounce 写入。
 // 业务数据写入有 1s debounce，若用户删除后立刻关窗，定时器未触发 → 后端拿不到删除 → 重启后数据回归。
@@ -451,15 +494,7 @@ export async function flushStoreWrites(): Promise<void> {
     fetch('/api/settings', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        providers: st.providers,
-        moduleMapping: st.moduleMapping,
-        m1SystemPrompt: st.m1SystemPrompt,
-        assetDir: st.assetDir,
-        currentBookId: st.currentBookId,
-        imageDemoForm: st.imageDemoForm,
-        showMenuBar: st.showMenuBar,
-      }),
+      body: JSON.stringify(settingsPayload(st)),
       keepalive: true,
     }).catch(() => {}),
   ])

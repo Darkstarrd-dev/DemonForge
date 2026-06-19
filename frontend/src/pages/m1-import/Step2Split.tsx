@@ -12,30 +12,70 @@ import {
   Tag,
   Typography,
 } from 'antd'
-import { RobotOutlined } from '@ant-design/icons'
+import { RobotOutlined, ReloadOutlined } from '@ant-design/icons'
 import { useAppStore, genId } from '../../store/appStore'
-import { PRESET_PATTERNS, splitChapters, type SplitResult } from '../../utils/split'
+import {
+  compilePatterns,
+  detectChapterPattern,
+  splitChapters,
+  type DetectResult,
+  type SplitResult,
+} from '../../utils/split'
 import { aiSplitChapter } from '../../services/api'
-import type { ImportChapter } from '../../services/types'
+import type { ImportChapter, SplitPattern } from '../../services/types'
 
 export default function Step2Split() {
   const { message } = App.useApp()
   const session = useAppStore((s) => s.importSession)
   const setState = useAppStore((s) => s.setState)
-  const [patternKey, setPatternKey] = useState('zhang')
+  const splitPatterns = useAppStore((s) => s.splitPatterns)
+
+  // 编译为运行时形态（regex 为 RegExp|null）
+  const runtimePatterns = useMemo(() => compilePatterns(splitPatterns), [splitPatterns])
+
+  // 进入页即自动检测（lazy 初始化，仅首次；rawText 变化时由"重新检测"按钮手动触发）
+  const rawText = session?.rawText ?? ''
+  const [detect, setDetect] = useState<DetectResult | null>(() =>
+    rawText ? detectChapterPattern(rawText, splitPatterns) : null,
+  )
+  const [patternKey, setPatternKey] = useState<string>(() => {
+    if (!rawText) return 'zhang'
+    const r = detectChapterPattern(rawText, splitPatterns)
+    return r.patternKey !== 'custom' ? r.patternKey : 'zhang'
+  })
   const [customRegex, setCustomRegex] = useState('^(第.+章.*)')
   const [keepPrologue, setKeepPrologue] = useState(true)
   const [preview, setPreview] = useState<SplitResult[] | null>(null)
   const [aiSplitting, setAiSplitting] = useState<string | null>(null)
 
+  // Radio options：内置 + 用户自定义模式，custom 永远在末尾
+  const radioOptions = useMemo(() => {
+    const custom = splitPatterns.find((p) => p.key === 'custom') ?? { key: 'custom', label: '自定义正则', regex: '' }
+    const others = splitPatterns.filter((p) => p.key !== 'custom')
+    return [...others, custom as SplitPattern].map((p) => ({ value: p.key, label: p.label }))
+  }, [splitPatterns])
+
   const regex = useMemo(() => {
-    if (patternKey !== 'custom') return PRESET_PATTERNS.find((p) => p.key === patternKey)!.regex!
+    if (patternKey !== 'custom') return runtimePatterns.find((p) => p.key === patternKey)?.regex ?? null
     try {
       return new RegExp(customRegex)
     } catch {
       return null
     }
-  }, [patternKey, customRegex])
+  }, [patternKey, customRegex, runtimePatterns])
+
+  // 手动重新检测（按钮触发）
+  const runDetect = (silent = false) => {
+    if (!rawText) return
+    const result = detectChapterPattern(rawText, splitPatterns)
+    setDetect(result)
+    if (result.patternKey !== 'custom') {
+      setPatternKey(result.patternKey)
+    }
+    if (!silent && result.patternKey === 'custom') {
+      message.info('未检测到明显章节模式，请手动选择或输入正则')
+    }
+  }
 
   if (!session) return null
   const applied = session.chapters.length > 0
@@ -57,6 +97,8 @@ export default function Step2Split() {
       cleanStatus: 'pending',
       lineDecisions: {},
       retryCount: 0,
+      // 卷标题行单独成章 → Step3 跳过 LLM 清理，原样保留
+      skipClean: p.isVolume === true,
     }))
     setState({ importSession: { ...session, chapters } })
     message.success(`已应用切分：${chapters.length} 章`)
@@ -78,6 +120,7 @@ export default function Step2Split() {
         cleanStatus: 'pending',
         lineDecisions: {},
         retryCount: 0,
+        skipClean: ch.skipClean,
       }))
       const chapters = [...cur.chapters.slice(0, idx), ...newOnes, ...cur.chapters.slice(idx + 1)]
       setState({ importSession: { ...cur, chapters } })
@@ -86,13 +129,37 @@ export default function Step2Split() {
     setAiSplitting(null)
   }
 
+  const detectHigh = detect && detect.patternKey !== 'custom' && detect.confidence >= 0.5
+
   return (
     <Space direction="vertical" size={16} style={{ width: '100%' }}>
+      {detect && (
+        <Alert
+          type={detect.patternKey === 'custom' ? 'warning' : detectHigh ? 'success' : 'info'}
+          showIcon
+          icon={<RobotOutlined />}
+          message={`自动检测：${detect.reason}`}
+          description={
+            detect.sampledTitles.length > 0 ? (
+              <Space wrap size={4}>
+                {detect.sampledTitles.map((t, i) => (
+                  <Tag key={i}>{t}</Tag>
+                ))}
+              </Space>
+            ) : undefined
+          }
+          action={
+            <Button size="small" icon={<ReloadOutlined />} onClick={() => runDetect(false)}>
+              重新检测
+            </Button>
+          }
+        />
+      )}
       <Space wrap align="center">
         <Radio.Group
           value={patternKey}
           onChange={(e) => setPatternKey(e.target.value)}
-          options={PRESET_PATTERNS.map((p) => ({ value: p.key, label: p.label }))}
+          options={radioOptions}
         />
       </Space>
       {patternKey === 'custom' && (
@@ -120,7 +187,9 @@ export default function Step2Split() {
             showIcon
             message={
               preview.length > 1
-                ? `预计切分为 ${preview.length} 章`
+                ? `预计切分为 ${preview.length} 章${
+                    preview.some((p) => p.isVolume) ? `（含 ${preview.filter((p) => p.isVolume).length} 个卷标记章，将跳过 AI 清理）` : ''
+                  }`
                 : '未匹配到章节标题，将全文作为单章（可换模式或用自定义正则）'
             }
           />
@@ -135,6 +204,11 @@ export default function Step2Split() {
                   {i + 1}
                 </Typography.Text>
                 {item.title}
+                {item.isVolume && (
+                  <Tag color="purple" style={{ marginLeft: 8 }}>
+                    卷
+                  </Tag>
+                )}
                 <Typography.Text type="secondary" style={{ marginLeft: 'auto' }}>
                   {item.content.length} 字
                 </Typography.Text>
@@ -164,8 +238,13 @@ export default function Step2Split() {
               { title: '字数', render: (_, c) => c.content.length, width: 80 },
               {
                 title: '状态',
-                width: 90,
-                render: (_, c) => <Tag>{c.cleanStatus === 'pending' ? '待清理' : c.cleanStatus}</Tag>,
+                width: 110,
+                render: (_, c) =>
+                  c.skipClean ? (
+                    <Tag color="purple">卷·跳过清理</Tag>
+                  ) : (
+                    <Tag>{c.cleanStatus === 'pending' ? '待清理' : c.cleanStatus}</Tag>
+                  ),
               },
               {
                 title: '操作',

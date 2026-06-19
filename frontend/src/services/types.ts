@@ -236,6 +236,18 @@ export interface ImportChapter {
   finalText?: string
   lineDecisions: Record<number, LineDecision>
   retryCount: number
+  /** 卷/特殊标记章，Step3 跳过 LLM 调用，原样保留 */
+  skipClean?: boolean
+}
+
+/** 章节检测模式（持久化形态：regex 为字符串，便于用户编辑 + settings.json 存储） */
+export interface SplitPattern {
+  key: string
+  label: string
+  regex: string
+  /** 正则标志，如 'i'（大小写忽略）。可选 */
+  flags?: string
+  builtin?: boolean
 }
 
 export interface ImportSession {
