@@ -15,12 +15,13 @@
 3. **当前任务焦点**：① **novel-generator 集成·阶段 A~D 全部完成并通过审核**（数据模型 + sqlite-vec RAG 检索层 + Context Assembler + 起源流程 + 生成管理 + 批量生产）；
     ② **Electron 迁移已完成**——开发/生产模式、进程管理、打包配置就绪，待用户测试验证；
     ③ **3D Demo WASM 崩溃已修复** + **全局 Error Boundary 已添加**——animate 循环异常安全、init 单例化、ErrorBoundary 兜底白屏。
+    ④ **【最新】M1 Step2 切分算法持续优化**——闭引号收尾标题粘连修复 + 预览光标人工拆分（补偿自动切分遗漏）。
 
 ## 项目状态快照
 
-- **最后更新**：2026-06-19（第二十五次会话·**M1 Step2 章节自动检测 + 卷/前缀处理 + 检测池可配置**）
+- **最后更新**：2026-06-19（第二十六次会话·**M1 Step2 闭引号收尾修复 + 预览光标人工拆分**）
 - **阶段**：正式开发——M1 AI 清理端到端跑通；**novel-generator 集成阶段 A~D 全部完成**；**Electron 迁移完成**；M2–M5 仍 mock；业务数据 SQLite 资产库（可配置资产目录），Provider/密钥等设置存用户数据目录
-- **新增**：M1 Step2 章节分割由「纯手选模式」升级为「**进入页自动检测推荐 + 手选/正则兜底**」——`detectChapterPattern` 逐行扫描每个模式按命中数评分（MIN_HITS=2，卷模式仅在无章类命中时兜底），进入 Step2 即 lazy 初始化推荐模式 + 抽样标题提示（绿/黄按 confidence）；标题前装饰符号（`[爱心]`/`★`/`【】`等成对包裹块 + 散落符号）自动 `stripDecor` 剥除再匹配；**卷结构单独成章**（内置 `VOLUME_REGEX` 旁路识别，标记 `isVolume`，Step3 `skipClean` 跳过 LLM 原样保留）；检测模式池存 `settings.json`，设置页新增「章节检测模式池」Card 可增删改（内置 8 模式：第X章/回/卷/节、X章无「第」字、Chapter N 带 `i` flag、数字+顿号、custom）；`SplitPattern` 类型加 `flags?`/`builtin?`，`ImportChapter` 加 `skipClean?`
+- **新增**：M1 Step2 章节分割由「纯手选模式」升级为「**进入页自动检测推荐 + 手选/正则兜底**」——`detectChapterPattern` 逐行扫描每个模式按命中数评分（MIN_HITS=2，卷模式仅在无章类命中时兜底），进入 Step2 即 lazy 初始化推荐模式 + 抽样标题提示（绿/黄按 confidence）；标题前装饰符号（`[爱心]`/`★`/`【】`等成对包裹块 + 散落符号）自动 `stripDecor` 剥除再匹配；**卷结构单独成章**（内置 `VOLUME_REGEX` 旁路识别，标记 `isVolume`，Step3 `skipClean` 跳过 LLM 原样保留）；**句末标点护栏扩展中文闭引号**（`\u201D` / `\u2019`，修复对话 `～"第2章` 粘连场景）；**预览光标人工拆分**（展开章节文本可定位光标，一键把光标后内容拆为新章，补偿自动切分遗漏）；检测模式池存 `settings.json`，设置页新增「章节检测模式池」Card 可增删改（内置 8 模式：第X章/回/卷/节、X章无「第」字、Chapter N 带 `i` flag、数字+顿号、custom）；`SplitPattern` 类型加 `flags?`/`builtin?`，`ImportChapter` 加 `skipClean?`
 - **摘要**：在 mock 前端基础上**进入实现阶段**。
   运行方式（三选一）：
   - **【推荐】Electron 模式**：双击 `start-electron.bat`（开发模式）或 `npm run dev`，Electron 窗口自动管理前后端；关窗即自动清理进程
@@ -170,6 +171,12 @@
   - [x] **Step3Clean**：useEffect 把 `skipClean` 章自动置 `completed`+`cleanedContent=content`（原样保留，不调 LLM）；`rangeTargets` 排除 skipClean 双保险；状态列显「卷·跳过清理」紫 Tag
   - [x] **设置页**「章节检测模式池」Card：Table（名称/正则/内置标记/操作）+ 新增/编辑 Modal（regex 试编译校验）+ 删除（custom 不可删）+ 恢复默认
   - [x] **验证全过**：smoke(23：原 13 不回归 + 新增 10 检测/卷/前缀断言，demo 章数 7→9 含 2 卷) ✅ / 前端 eslint ✅ / build(tsc+vite,14s) ✅ / 后端 typecheck ✅
+- [x] **M1 Step2 闭引号收尾修复 + 预览光标人工拆分**（2026-06-19 第二十六次会话）
+  - [x] **句末标点护栏扩展** `split.ts:SENTENCE_END`：新增 `\u201D`（"中文右引号）和 `\u2019`（'中文右单引号）。修复对话 `…幸运观众～"第2章 名为日常的崩坏` 类粘连场景——原集合仅含 ASCII `"`（U+0022），中文闭引号未命中导致标题被判正文引用。开引号不加入（对话开头非章节边界）
+  - [x] **预览光标人工拆分** `Step2Split.tsx`：展开章节文本改为可定位光标的 textarea（`onClick`/`onSelect`→`selectionStart` 反算 content 偏移）；显示光标偏移 + 新章标题输入框（默认 `原标题（续）`）+「在此拆分」按钮（`ScissorOutlined`）。点击拆分按光标偏移切当前章 content 为两段，前段留原章、后段插入为新章，章节数+1，列表实时更新
+  - [x] **人工覆盖层** `manualOverrides`：拆分后预览改用人工结果，避免 regex 重算覆盖；切换模式/正则/序章选项时通过「渲染期签名对比」（`splitSignature` + `prevSignature`）自动清空（React 官方「adjusting state on prop change」模式，规避 `react-hooks/set-state-in-effect`）
+  - [x] **smoke** +7 断言（闭引号收尾粘连检测/切分/标题干净/前置正文归序章/后续正文归新章），总计 smoke(30)
+  - [x] **验证全过**：smoke(30) ✅ / eslint ✅ / tsc --noEmit ✅ / build(tsc+vite) ✅
 - [x] **文生图 Demo 持久化 + 分辨率下拉**（2026-06-19 第二十四次会话）
   - [x] **持久化分工**：图片数组（大）→ SQLite `/api/store`（新增 `image_gallery` 文档表，随 syncAll/readAll 自动建表读写）；表单草稿 provider/nodeId/prompt/分辨率（小）→ JSON `/api/settings`。沿用 appStore 既有双通道，不引入第三种
   - [x] **appStore**：新增 `imageGallery: GeneratedImage[]` + `imageDemoForm` 两个切片 + `addImage(img)`（unshift 头部）/ `deleteImage(id)` actions（均 `pushStoreNow` 立即落库）；businessPayload / 两处 subscribe / bootstrapStore / reloadStoreFromBackend / flushStoreWrites 全部接入
@@ -293,22 +300,21 @@
 
 ## 交接备注（最近一次会话）
 
-- **日期**：2026-06-19（第二十五次会话·**M1 Step2 章节自动检测 + 卷/前缀处理 + 检测池可配置**）
+- **日期**：2026-06-19（第二十六次会话·**M1 Step2 闭引号收尾修复 + 预览光标人工拆分**）
 - **本次完成**：
-  ① **自动检测**：`split.ts` 新增 `detectChapterPattern`（逐行扫描 + stripDecor 前缀剥除 + 每模式命中计数 + 卷兜底 + confidence 评分 + 抽样标题）；`splitChapters` 升级（stripDecor 剥前缀、`VOLUME_REGEX` 旁路识别卷行单独成章 `isVolume`、卷分支支持 keepPrologue pending）
-  ② **模式池可配置**：`SplitPattern` 加 `flags?`/`builtin?`；`DEFAULT_SPLIT_PATTERNS` 8 模式（新增 第X节/X章/Chapter N(i)/数字顿号）；`compilePatterns` 支持 flags；`types.ts:ImportChapter` 加 `skipClean?`
-  ③ **appStore** `splitPatterns` settings 切片 + `settingsPayload` 抽函数（消除 subscribe/pushSettingsNow/flush 三处重复）+ `setSplitPatterns`/`resetSplitPatterns` actions + bootstrap 合并补 custom 兜底
-  ④ **Step2Split** 重写：lazy useState 初始化检测（无 effect setState，合规 react-hooks/set-state-in-effect）；Radio 用 store 池；检测 Alert + 抽样标题 + 重新检测按钮；卷章紫 Tag；isVolume→skipClean
-  ⑤ **Step3Clean**：skipClean 章自动置 completed+原样保留（useEffect）+ rangeTargets 排除；状态列「卷·跳过清理」Tag
-  ⑥ **设置页**「章节检测模式池」Card（增删改 + regex 试编译校验 + 恢复默认 + 编辑 Modal）
-  ⑦ **smoke** +10 断言（检测 4 模式/前缀/卷成章/无模式兜底），demo 章数断言 7→9（含 2 卷标记）
-  ⑧ **验证**：smoke(23) ✅ / eslint ✅ / build(tsc+vite) ✅ / 后端 typecheck ✅
+  ① **句末标点护栏扩展** `split.ts:SENTENCE_END`：新增 `\u201D`（"中文右引号）和 `\u2019`（'中文右单引号）。修复真实场景 `…幸运观众～"第2章 名为日常的崩坏`——对话以闭引号收尾后紧跟标题，原护栏仅含 ASCII `"`（U+0022）未覆盖中文闭引号，标题被误判正文引用；开引号不加（对话开头非章节边界）
+  ② **预览光标人工拆分** `Step2Split.tsx`：展开章节文本改为可定位光标 textarea（onClick/onSelect → selectionStart 反算 content 偏移），显示「光标位置：第 N 字符」+ 新章标题输入（默认 `原标题（续）`）+ 「在此拆分」按钮。点击后按光标偏移切当前章为两段，前段留原章、后段插为新章，章节数+1
+  ③ **人工覆盖层** `manualOverrides`：拆分后预览用人工结果（不重新跑 splitChapters）；切换模式/正则/序章时通过「渲染期签名对比」自动清空（React 官方 adjust-state-on-prop-change 模式，规避 set-state-in-effect lint 规则）
+  ④ **smoke** +7 断言（闭引号收尾粘连：检测/切分/标题干净/前置正文归序章/后续正文归新章），总计 smoke(30)
+  ⑤ **验证全过**：smoke(30) ✅ / eslint ✅ / tsc --noEmit ✅ / build(tsc+vite) ✅
 - **已知限制/注意**：
   ① **卷成章改变了切分行为**：含卷结构的文本（如 demo）现在卷行会单独成一章（之前并入相邻章）。既有依赖固定章数的逻辑需注意——已同步更新 smoke 断言。若用户不希望卷单独成章，可在 Step2 选「第X卷」模式（此时旁路不触发，卷即正常章）
   ② **装饰前缀剥除范围**：`stripDecor` 剥成对包裹块（`[]`/`【】`/`（）`/`()`/`「」`/`『』`/`《》`）+ 散落符号（`☆★◆●○■□※▪♦♥♠♣①-⑳Ⅰ-Ⅻ` 等）。若遇新前缀形态，可在 `DECOR_BLOCK`/`DECOR_SYMBOLS` 正则补充
   ③ **检测池持久化**：旧 `settings.json` 无 `splitPatterns` 键时 bootstrap 用内置默认；用户改后覆盖。`custom` 模式 key 永远保留（设置页不可删，由用户在 Step2 临时输入正则）
+  ④ **人工拆分覆盖层**：拆分后预览为人工结果，再次切换模式/正则/序章选项会清空人工编辑并重新自动切分（有黄色提示）。`applySplit` 消费 `manualOverrides ?? autoPreview`，人工拆分结果会正确写入 `importSession.chapters`
+  ⑤ **SENTENCE_END 新增闭引号**：`\u201D`（"）/`\u2019`（'）——若未来发现其他高频标点需补充（如 `…` 已有、省略号 `···` U+2027 等），直接往 Set 追加即可
 - **下一步**：
-  ① 实机验证 M1 Step2 自动检测：导入真实小说 raw 文本，看推荐模式是否命中预期；卷结构是否正确单独成章且 Step3 跳过；前缀 `[爱心]第X章` 是否剥除
+  ① 实机验证 M1 Step2：导入真实小说 raw 文本，测试闭引号粘连是否正确切分；展开预览章节测试光标拆分流程
   ② 仍待实机验证（历史项）：文生图 Demo 端到端、书库删除流程、M0 立项不再误报、Electron 开发/打包模式
 
 ## 更新本文档的约定

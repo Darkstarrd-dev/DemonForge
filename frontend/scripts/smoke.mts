@@ -122,7 +122,18 @@ const refSplit = splitChapters(refText, zhangSearch, true)
 check('正文引用不产生额外切分：3 章（序章 + 2）', refSplit.length === 3, `实际 ${refSplit.length}：${refSplit.map((c) => c.title).join(' | ')}`)
 check('正文引用保留在序章', refSplit[0].content.includes('他翻到第三章'), refSplit[0].content)
 
-// 7. 段落格式化（切分时即格式化）
+// 7. 中文闭引号收尾的标题粘连（对话 ～" 紧跟下一章标题）
+const quoteText = '　　"那么，让我稍稍修改下指令，再挑选几位幸运观众～"第2章 名为日常的崩坏\n正文一\n　　"说罢。第3章 新的展开\n正文二'
+const quoteDetect = detectChapterPattern(quoteText, PATTERNS)
+check('闭引号收尾标题粘连 → 推荐 zhang', quoteDetect.patternKey === 'zhang', `实际 ${quoteDetect.patternKey}`)
+check('闭引号收尾标题命中 2 处', quoteDetect.hitCount === 2, `实际 ${quoteDetect.hitCount}`)
+const quoteSplit = splitChapters(quoteText, zhangSearch, true)
+check('闭引号收尾切分：3 章（序章 + 2 标题章）', quoteSplit.length === 3, `实际 ${quoteSplit.length}：${quoteSplit.map((c) => c.title).join(' | ')}`)
+check('第2章标题干净', quoteSplit[1].title === '第2章 名为日常的崩坏', quoteSplit[1].title)
+check('标题前对话归入序章', quoteSplit[0].content.includes('幸运观众'), quoteSplit[0].content)
+check('第2章含其后正文', quoteSplit[1].content.includes('正文一'), quoteSplit[1].content)
+
+// 8. 段落格式化（切分时即格式化）
 check('无空行 → 段间补空行', normalizeParagraphs('第一段。\n第二段。\n第三段。') === '第一段。\n\n第二段。\n\n第三段。', normalizeParagraphs('第一段。\n第二段。\n第三段。'))
 check('多空行 → 压成 1 个', normalizeParagraphs('第一段。\n\n\n\n第二段。') === '第一段。\n\n第二段。', normalizeParagraphs('第一段。\n\n\n\n第二段。'))
 check('已有单空行 → 不动', normalizeParagraphs('第一段。\n\n第二段。') === '第一段。\n\n第二段。', normalizeParagraphs('第一段。\n\n第二段。'))
