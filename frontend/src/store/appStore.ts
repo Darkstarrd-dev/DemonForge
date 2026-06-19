@@ -59,6 +59,8 @@ export interface AppState {
   m1SystemPrompt: string
   /** 资产目录（业务数据 SQLite 库所在）。空串=后端用默认 <repo>/assets */
   assetDir: string
+  /** 是否显示 Electron 原生菜单栏（持久化到 settings.json） */
+  showMenuBar: boolean
   mergeCandidates: MergeCandidate[]
   /** 当前作品（project 书）id，驱动 M3/M4/M5 */
   currentBookId: string
@@ -107,6 +109,7 @@ const seedState = () => ({
   moduleMapping: seedModuleMapping,
   m1SystemPrompt: '',
   assetDir: '',
+  showMenuBar: true,
   mergeCandidates: seedMergeCandidates,
   currentBookId: 'book-proj-1',
   importSession: null,
@@ -233,6 +236,7 @@ export async function bootstrapStore(): Promise<void> {
         currentBookId?: string
         storeInitialized?: boolean
         imageDemoForm?: ImageDemoForm
+        showMenuBar?: boolean
       }
       storeInitialized = d.storeInitialized === true
       const patch: Partial<AppState> = {}
@@ -241,6 +245,7 @@ export async function bootstrapStore(): Promise<void> {
       if (d.moduleMapping) patch.moduleMapping = { ...seedModuleMapping, ...d.moduleMapping }
       if (typeof d.m1SystemPrompt === 'string') patch.m1SystemPrompt = d.m1SystemPrompt
       if (typeof d.assetDir === 'string') patch.assetDir = d.assetDir
+      if (typeof d.showMenuBar === 'boolean') patch.showMenuBar = d.showMenuBar
       if (typeof d.currentBookId === 'string' && d.currentBookId) patch.currentBookId = d.currentBookId
       // 文生图 Demo 表单草稿（旧 settings.json 无此键则沿用 seed 默认）
       if (d.imageDemoForm && typeof d.imageDemoForm === 'object')
@@ -371,7 +376,8 @@ useAppStore.subscribe((s, prev) => {
     s.m1SystemPrompt === prev.m1SystemPrompt &&
     s.assetDir === prev.assetDir &&
     s.currentBookId === prev.currentBookId &&
-    s.imageDemoForm === prev.imageDemoForm
+    s.imageDemoForm === prev.imageDemoForm &&
+    s.showMenuBar === prev.showMenuBar
   ) {
     return
   }
@@ -388,6 +394,7 @@ useAppStore.subscribe((s, prev) => {
         assetDir: st.assetDir,
         currentBookId: st.currentBookId,
         imageDemoForm: st.imageDemoForm,
+        showMenuBar: st.showMenuBar,
       }),
     }).catch(() => {})
   }, 1000)
@@ -423,6 +430,7 @@ export async function flushStoreWrites(): Promise<void> {
         assetDir: st.assetDir,
         currentBookId: st.currentBookId,
         imageDemoForm: st.imageDemoForm,
+        showMenuBar: st.showMenuBar,
       }),
       keepalive: true,
     }).catch(() => {}),

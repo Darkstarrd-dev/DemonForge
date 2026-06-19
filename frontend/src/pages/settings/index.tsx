@@ -40,6 +40,7 @@ export default function SettingsPage() {
   const moduleMapping = useAppStore((s) => s.moduleMapping)
   const m1SystemPrompt = useAppStore((s) => s.m1SystemPrompt)
   const assetDir = useAppStore((s) => s.assetDir)
+  const showMenuBar = useAppStore((s) => s.showMenuBar)
   const setState = useAppStore((s) => s.setState)
   const resetDemo = useAppStore((s) => s.resetDemo)
   const [editing, setEditing] = useState<ProviderNode | null>(null)
@@ -197,6 +198,22 @@ export default function SettingsPage() {
 
   return (
     <Space direction="vertical" size={16} style={{ width: '100%' }}>
+      <Card title="界面设置">
+        <Space>
+          <Typography.Text>显示菜单栏</Typography.Text>
+          <Switch
+            checked={showMenuBar}
+            onChange={(checked) => {
+              setState({ showMenuBar: checked })
+              window.electronAPI?.setMenuBarVisibility(checked)
+            }}
+          />
+        </Space>
+        <Typography.Paragraph type="secondary" style={{ marginTop: 8, marginBottom: 0 }}>
+          控制是否显示 Electron 原生菜单栏（包含文件、编辑等标准菜单项）。关闭后可通过 Alt 键临时唤出。
+        </Typography.Paragraph>
+      </Card>
+
       <Card
         title="Provider 节点池"
         extra={

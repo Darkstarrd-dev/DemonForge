@@ -16,6 +16,7 @@ import {
   PictureOutlined,
 } from '@ant-design/icons'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
+import { useEffect } from 'react'
 import { useAppStore, flushStoreWrites } from '../store/appStore'
 
 const MENU_ITEMS = [
@@ -38,8 +39,14 @@ export default function AppLayout() {
   const location = useLocation()
   const books = useAppStore((s) => s.books)
   const currentBookId = useAppStore((s) => s.currentBookId)
+  const showMenuBar = useAppStore((s) => s.showMenuBar)
   const setState = useAppStore((s) => s.setState)
   const projects = books.filter((b) => b.type === 'project')
+
+  // 同步 showMenuBar 到 Electron 主进程（兜底，确保前端状态与主窗口一致）
+  useEffect(() => {
+    window.electronAPI?.setMenuBarVisibility(showMenuBar)
+  }, [showMenuBar])
 
   const handleExit = async () => {
     // 先冲刷未提交的 debounce 写入（删除/编辑等），再触发后端 shutdown，

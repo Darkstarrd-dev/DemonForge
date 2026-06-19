@@ -10,6 +10,7 @@
 novelhelper/
 ├── electron/              # Electron 主进程
 │   ├── main.ts           # 主入口：进程管理、窗口创建
+│   ├── preload.ts        # 预加载脚本：IPC 桥接（菜单栏控制等）
 │   └── tsconfig.json     # TypeScript 配置
 ├── frontend/             # React 前端（不变）
 ├── server/               # Fastify 后端（不变）
@@ -85,7 +86,7 @@ start-electron.bat
 
 开发模式特性：
 - 自动重载（后端 tsx watch、前端 Vite HMR）
-- 打开 DevTools
+- DevTools 默认关闭（可通过菜单 View → Toggle Developer Tools 或 F12 手动打开）
 - 数据存储在项目目录
 
 ### 打包生产版本
@@ -107,10 +108,14 @@ build-electron.bat
 ### 生产模式特性
 
 - 数据存储在 `~/.novelhelper/`
-- 无 DevTools（可通过菜单启用）
+- 菜单栏默认可见（可在设置页关闭）
 - 优化后的代码（更快启动、更小体积）
 
 ## 配置选项
+
+### 界面设置
+
+- **菜单栏可见性**（`showMenuBar`）：控制 Electron 原生菜单栏（文件、编辑、视图等）是否显示。默认显示，可在系统设置页切换。关闭后可通过 Alt 键临时唤出。设置持久化到 `settings.json`。
 
 ### 打包配置（package.json）
 
@@ -218,7 +223,7 @@ npm rebuild
 
 ### 中期（增强体验）
 
-1. **菜单栏**：文件、编辑、视图、帮助等标准菜单
+1. ~~**菜单栏**~~ ✅ 已实现：默认显示 Electron 原生菜单栏，设置页可切换可见性
 2. **快捷键**：全局快捷键（显示/隐藏窗口）
 3. **多窗口**：支持多作品并行编辑
 4. **主题切换**：深色/浅色模式

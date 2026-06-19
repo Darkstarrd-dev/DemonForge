@@ -1,4 +1,4 @@
-import { app, BrowserWindow } from 'electron'
+import { app, BrowserWindow, ipcMain } from 'electron'
 import { spawn, execSync, ChildProcess } from 'node:child_process'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -291,22 +291,22 @@ function startFrontend(): Promise<void> {
 /**
  * 创建主窗口
  */
-function createWindow() {
+function createWindow(showMenuBar = true) {
   mainWindow = new BrowserWindow({
     width: 1400,
     height: 900,
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
+      preload: join(__dirname, 'preload.js'),
     },
     show: false, // 等待加载完成后再显示
-    autoHideMenuBar: true,
+    autoHideMenuBar: !showMenuBar,
   })
 
   // 加载前端页面
   if (isDev) {
     mainWindow.loadURL(`http://localhost:${FRONTEND_PORT}`)
-    mainWindow.webContents.openDevTools() // 开发模式打开 DevTools
   } else {
     const indexPath = join(process.resourcesPath, 'frontend', 'dist', 'index.html')
     if (existsSync(indexPath)) {
@@ -413,8 +413,26 @@ app.whenReady().then(async () => {
       await startFrontend()
     }
 
+    // 后端已就绪，读取 showMenuBar 设置（默认 true = 显示菜单栏）
+    let showMenuBar = true
+    try {
+      const res = await fetch(`http://127.0.0.1:${BACKEND_PORT}/api/settings`)
+      if (res.ok) {
+        const d = await res.json() as { showMenuBar?: boolean }
+        showMenuBar = d.showMenuBar !== false
+      }
+    } catch {
+      /* 后端读取失败则沿用默认值 */
+    }
+
+    // 注册 IPC：前端可实时切换菜单栏可见性
+    ipcMain.on('set-menu-bar', (_event, visible: boolean) => {
+      mainWindow?.setMenuBarVisibility(visible)
+      mainWindow?.setAutoHideMenuBar(!visible)
+    })
+
     console.log('[App] Creating main window...')
-    createWindow()
+    createWindow(showMenuBar)
 
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) {

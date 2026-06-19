@@ -62,7 +62,8 @@ npm run dev
 
 3. **运行中**
    - 原生窗口（无浏览器地址栏）
-   - DevTools 自动打开（开发模式）
+   - Electron 原生菜单栏默认显示（可在设置页关闭）
+   - DevTools 默认关闭（可通过 F12 或菜单 View → Toggle Developer Tools 手动打开）
    - 控制台显示后端/前端日志
 
 4. **关闭时**
@@ -120,7 +121,8 @@ taskkill /F /IM node.exe
 - 启动方式：`npm run dev`
 - 后端：tsx watch（自动重载）
 - 前端：Vite dev server（HMR）
-- DevTools：自动打开
+- DevTools：默认关闭（可通过 F12 手动打开）
+- 菜单栏：默认显示（可在设置页关闭）
 - 数据目录：`server/data/` + `assets/`
 
 ### 生产模式（打包后）
@@ -128,6 +130,7 @@ taskkill /F /IM node.exe
 - 后端：node dist/index.js
 - 前端：加载 frontend/dist/
 - DevTools：默认关闭
+- 菜单栏：默认显示（可在设置页关闭）
 - 数据目录：`~/.novelhelper/`
 
 ---
