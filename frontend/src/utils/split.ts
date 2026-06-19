@@ -29,6 +29,7 @@ export const DEFAULT_SPLIT_PATTERNS: StoredSplitPattern[] = [
   { key: 'x-zhang', label: 'X章（无「第」字）', regex: '^([0-9零一二三四五六七八九十百千万]+章.*)', builtin: true },
   { key: 'chapter', label: 'Chapter N（英文）', regex: '^(chapter\\s+[0-9ivxlc]+.*)', flags: 'i', builtin: true },
   { key: 'dunhao',  label: '数字+顿号（3、标题）', regex: '^(\\d{1,4}、.*)', builtin: true },
+  { key: 'maohao',  label: '数字+冒号（001：标题）', regex: '^(\\d{1,4}[:：].*)', builtin: true },
   { key: 'custom',  label: '自定义正则', regex: '', builtin: true },
 ]
 

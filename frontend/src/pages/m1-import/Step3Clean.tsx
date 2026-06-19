@@ -76,6 +76,11 @@ export default function Step3Clean() {
   /** 用户对节点参数的运行时修改（覆盖 ProviderNode 默认值） */
   const [overrides, setOverrides] = useState<Record<string, Partial<NodeRuntime>>>({})
 
+  /** 统一设置所有节点三参数（应用后仍可逐节点单独覆盖） */
+  const [bulkConcurrency, setBulkConcurrency] = useState<number | null>(null)
+  const [bulkBatchSize, setBulkBatchSize] = useState<number | null>(null)
+  const [bulkIntervalSec, setBulkIntervalSec] = useState<number | null>(null)
+
   /** 有效节点运行时状态 = ProviderNode 默认值 + 用户覆盖 */
   const nodeRunStates: NodeRuntime[] = useMemo(
     () =>
@@ -305,6 +310,30 @@ export default function Step3Clean() {
     handleRef.current.updateNodes(buildCleanNodes())
   }
 
+  /** 将三个统一参数一次性写入所有已启用节点（写入 overrides，之后仍可逐节点单独覆盖） */
+  const applyBulkToAll = () => {
+    if (bulkConcurrency == null || bulkBatchSize == null || bulkIntervalSec == null) {
+      message.warning('请填写全部三个参数')
+      return
+    }
+    setOverrides((prev) => {
+      const next = { ...prev }
+      for (const rs of nodeRunStates) {
+        next[rs.nodeId] = {
+          ...(prev[rs.nodeId] ?? {}),
+          concurrency: bulkConcurrency,
+          batchSize: bulkBatchSize,
+          intervalSec: bulkIntervalSec,
+        }
+      }
+      return next
+    })
+    if (running) setTimeout(hotUpdateNodes, 0)
+    message.success(
+      `已统一设置 ${nodeRunStates.length} 个节点：${bulkConcurrency} 进程 · ${bulkBatchSize} 章节 · ${bulkIntervalSec}s`,
+    )
+  }
+
   const gotoReview = () =>
     setState({ importSession: { ...useAppStore.getState().importSession!, step: 3 } })
 
@@ -313,91 +342,154 @@ export default function Step3Clean() {
 
   return (
     <Space direction="vertical" size={16} style={{ width: '100%' }}>
-      {/* 节点卡片列表 */}
-      <div>
-        <Typography.Title level={5} style={{ marginBottom: 8 }}>清理节点池</Typography.Title>
-        {nodeRunStates.length === 0 ? (
-          <Alert type="warning" showIcon message="无已启用节点，请先到设置页新增并配置节点" />
-        ) : (
-          <Row gutter={[12, 12]}>
-            {nodeRunStates.map((rs) => {
-              const p = providers.find((x) => x.id === rs.nodeId)
-              const label = p ? `${p.name} · ${p.model || '（未设模型）'}` : rs.nodeId
-              return (
-                <Col key={rs.nodeId} xs={24} sm={12} lg={8} xl={6}>
-                  <Card
-                    size="small"
-                    title={
-                      <Space size={4}>
-                        <Switch
-                          size="small"
-                          checked={rs.participating}
-                          disabled={running}
-                          onChange={(v) => updateNodeSetting(rs.nodeId, { participating: v })}
-                        />
-                        <Typography.Text ellipsis style={{ maxWidth: 160 }}>
-                          {label}
-                        </Typography.Text>
-                      </Space>
-                    }
-                    style={{ borderColor: rs.participating ? '#1677ff' : undefined }}
-                  >
-                    <Space direction="vertical" size={4} style={{ width: '100%' }}>
-                      <Space size={4}>
-                        <Typography.Text type="secondary" style={{ fontSize: 12 }}>核心</Typography.Text>
-                        <InputNumber
-                          size="small"
-                          min={1}
-                          max={32}
-                          value={rs.concurrency}
-                          style={{ width: 56 }}
-                          onChange={(v) => {
-                            updateNodeSetting(rs.nodeId, { concurrency: v ?? 1 })
-                            if (running) setTimeout(hotUpdateNodes, 0)
-                          }}
-                        />
-                        <Typography.Text type="secondary" style={{ fontSize: 12 }}>批次</Typography.Text>
-                        <InputNumber
-                          size="small"
-                          min={1}
-                          max={20}
-                          value={rs.batchSize}
-                          style={{ width: 52 }}
-                          onChange={(v) => {
-                            updateNodeSetting(rs.nodeId, { batchSize: v ?? 1 })
-                            if (running) setTimeout(hotUpdateNodes, 0)
-                          }}
-                        />
-                        <Typography.Text type="secondary" style={{ fontSize: 12 }}>间隔</Typography.Text>
-                        <InputNumber
-                          size="small"
-                          min={0}
-                          max={60}
-                          value={rs.intervalSec}
-                          style={{ width: 52 }}
-                          onChange={(v) => {
-                            updateNodeSetting(rs.nodeId, { intervalSec: v ?? 0 })
-                            if (running) setTimeout(hotUpdateNodes, 0)
-                          }}
-                        />
-                        <Typography.Text type="secondary" style={{ fontSize: 12 }}>s</Typography.Text>
-                      </Space>
-                      {running && rs.participating && (
-                        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                          活跃 {active.filter((t) => {
-                            const nodeP = providers.find((x) => x.id === rs.nodeId)
-                            return t.nodeName === (nodeP?.name ?? '')
-                          }).length} / {rs.concurrency}
-                        </Typography.Text>
-                      )}
-                    </Space>
-                  </Card>
-                </Col>
-              )
-            })}
-          </Row>
-        )}
-      </div>
+      {/* 节点池（可折叠） */}
+      <Collapse
+        defaultActiveKey={['nodes']}
+        items={[
+          {
+            key: 'nodes',
+            label: (
+              <Space>
+                <Typography.Text strong>清理节点池</Typography.Text>
+                <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                  （{nodeRunStates.length} 个节点，参选 {participatingNodes.length}）
+                </Typography.Text>
+              </Space>
+            ),
+            children:
+              nodeRunStates.length === 0 ? (
+                <Alert type="warning" showIcon message="无已启用节点，请先到设置页新增并配置节点" />
+              ) : (
+                <>
+                  {/* 统一设置所有可用节点的三个参数（应用后仍可逐节点单独覆盖） */}
+                  <Space size={8} align="center" wrap style={{ marginBottom: 12 }}>
+                    <Typography.Text type="secondary">统一设置所有节点：</Typography.Text>
+                    <Typography.Text type="secondary" style={{ fontSize: 12 }}>进程</Typography.Text>
+                    <InputNumber
+                      size="small"
+                      min={1}
+                      max={32}
+                      value={bulkConcurrency}
+                      placeholder="如 2"
+                      style={{ width: 64 }}
+                      onChange={(v) => setBulkConcurrency(v)}
+                    />
+                    <Typography.Text type="secondary" style={{ fontSize: 12 }}>章节</Typography.Text>
+                    <InputNumber
+                      size="small"
+                      min={1}
+                      max={20}
+                      value={bulkBatchSize}
+                      placeholder="如 1"
+                      style={{ width: 60 }}
+                      onChange={(v) => setBulkBatchSize(v)}
+                    />
+                    <Typography.Text type="secondary" style={{ fontSize: 12 }}>间隔</Typography.Text>
+                    <InputNumber
+                      size="small"
+                      min={0}
+                      max={60}
+                      value={bulkIntervalSec}
+                      placeholder="如 0"
+                      style={{ width: 60 }}
+                      onChange={(v) => setBulkIntervalSec(v)}
+                    />
+                    <Typography.Text type="secondary" style={{ fontSize: 12 }}>s</Typography.Text>
+                    <Button
+                      size="small"
+                      type="primary"
+                      disabled={bulkConcurrency == null || bulkBatchSize == null || bulkIntervalSec == null}
+                      onClick={applyBulkToAll}
+                    >
+                      统一设置
+                    </Button>
+                    <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                      应用到全部 {nodeRunStates.length} 个节点，之后仍可逐节点单独调整
+                    </Typography.Text>
+                  </Space>
+
+                  <Row gutter={[12, 12]}>
+                    {nodeRunStates.map((rs) => {
+                      const p = providers.find((x) => x.id === rs.nodeId)
+                      const label = p ? `${p.name} · ${p.model || '（未设模型）'}` : rs.nodeId
+                      return (
+                        <Col key={rs.nodeId} xs={24} sm={12} lg={8} xl={6}>
+                          <Card
+                            size="small"
+                            title={
+                              <Space size={4}>
+                                <Switch
+                                  size="small"
+                                  checked={rs.participating}
+                                  disabled={running}
+                                  onChange={(v) => updateNodeSetting(rs.nodeId, { participating: v })}
+                                />
+                                <Typography.Text ellipsis style={{ maxWidth: 160 }}>
+                                  {label}
+                                </Typography.Text>
+                              </Space>
+                            }
+                            style={{ borderColor: rs.participating ? '#1677ff' : undefined }}
+                          >
+                            <Space direction="vertical" size={4} style={{ width: '100%' }}>
+                              <Space size={4}>
+                                <Typography.Text type="secondary" style={{ fontSize: 12 }}>进程</Typography.Text>
+                                <InputNumber
+                                  size="small"
+                                  min={1}
+                                  max={32}
+                                  value={rs.concurrency}
+                                  style={{ width: 56 }}
+                                  onChange={(v) => {
+                                    updateNodeSetting(rs.nodeId, { concurrency: v ?? 1 })
+                                    if (running) setTimeout(hotUpdateNodes, 0)
+                                  }}
+                                />
+                                <Typography.Text type="secondary" style={{ fontSize: 12 }}>章节</Typography.Text>
+                                <InputNumber
+                                  size="small"
+                                  min={1}
+                                  max={20}
+                                  value={rs.batchSize}
+                                  style={{ width: 52 }}
+                                  onChange={(v) => {
+                                    updateNodeSetting(rs.nodeId, { batchSize: v ?? 1 })
+                                    if (running) setTimeout(hotUpdateNodes, 0)
+                                  }}
+                                />
+                                <Typography.Text type="secondary" style={{ fontSize: 12 }}>间隔</Typography.Text>
+                                <InputNumber
+                                  size="small"
+                                  min={0}
+                                  max={60}
+                                  value={rs.intervalSec}
+                                  style={{ width: 52 }}
+                                  onChange={(v) => {
+                                    updateNodeSetting(rs.nodeId, { intervalSec: v ?? 0 })
+                                    if (running) setTimeout(hotUpdateNodes, 0)
+                                  }}
+                                />
+                                <Typography.Text type="secondary" style={{ fontSize: 12 }}>s</Typography.Text>
+                              </Space>
+                              {running && rs.participating && (
+                                <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                                  活跃 {active.filter((t) => {
+                                    const nodeP = providers.find((x) => x.id === rs.nodeId)
+                                    return t.nodeName === (nodeP?.name ?? '')
+                                  }).length} / {rs.concurrency}
+                                </Typography.Text>
+                              )}
+                            </Space>
+                          </Card>
+                        </Col>
+                      )
+                    })}
+                  </Row>
+                </>
+              ),
+          },
+        ]}
+      />
 
       {/* 处理范围 */}
       <Space wrap align="center">
@@ -413,7 +505,7 @@ export default function Step3Clean() {
         {participatingNodes.length ? `${participatingNodes.length} 个节点 · ` : '无参选节点'}
         {participatingNodes.map((s) => {
           const p = providers.find((x) => x.id === s.nodeId)
-          return `${p?.name ?? s.nodeId}(${s.concurrency}核)`
+          return `${p?.name ?? s.nodeId}(${s.concurrency}进程)`
         }).join(', ')}
       </Tag>
 
@@ -464,7 +556,7 @@ export default function Step3Clean() {
       <Row gutter={16} style={{ height: 440 }}>
         <Col span={8} style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
           <Typography.Title level={5} style={{ marginBottom: 8 }}>活跃任务</Typography.Title>
-          <div style={{ flex: 1, overflow: 'auto', border: '1px solid #f0f0f0', borderRadius: 6 }}>
+          <div style={{ flex: 1, minHeight: 0, overflow: 'auto', border: '1px solid #f0f0f0', borderRadius: 6 }}>
             {active.length === 0 ? (
               <Typography.Text type="secondary" style={{ display: 'block', padding: 12 }}>无活跃请求</Typography.Text>
             ) : (
@@ -528,7 +620,9 @@ export default function Step3Clean() {
         </Col>
         <Col span={16} style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
           <Typography.Title level={5} style={{ marginBottom: 8 }}>实时窗口（左：发送原文 / 右：流式输出）</Typography.Title>
-          <Row gutter={8} style={{ flex: 1 }}>
+          {/* minHeight:0 让 flex 子项可收缩到内容以下，配合内部 height:100%+overflow:auto
+              才能固定高度滚动，而不会被长文本撑高（flex 默认 min-height:auto 不缩）。 */}
+          <Row gutter={8} style={{ flex: 1, minHeight: 0 }}>
             <Col span={12} style={{ height: '100%' }}>
               <div className="stream-pane" style={{ background: '#1f2428', height: '100%', overflow: 'auto' }}>
                 {viewingChapter ? viewingChapter.content : '（点击活跃任务查看）'}

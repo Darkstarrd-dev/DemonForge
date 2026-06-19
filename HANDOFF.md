@@ -18,12 +18,13 @@
     ④ 文生图 Demo 完善 ModelScope 服务——可选参数全链路透传 + 调试信息区，用户实机测试通过。
     ⑤ 系统设置·节点池增强 6 项功能 + 入库小说数据恢复（sqlite3 .recover）。
     ⑥ **【最新】数据持久化全面加固 + 设置/备份导入导出**——从根上修复"反复数据丢失"的 6 个缺陷（syncAll 改纯 upsert 永不删除 / settings.json 原子写入+.bak / assetDir 启动缓存 / readAll 逐行容错 / 启动日志增强 / 显式 DELETE 端点），并新增设置导入导出 + 完整备份恢复（版本化 bundle、向后兼容、脱敏选项）作为人工兜底。详见 FIXES.md「2026-06-20」。
+    ⑦ **【本次】M1 Step3 清理节点池 UX 三项增强**（节点池可折叠 + 统一设置所有节点三参数 + 文案改名 核心→进程/批次→章节）+ **实时窗口高度修复**（flexbox min-height:auto 撑高 → minHeight:0 固定高度滚动）+ **Step2 数字冒号模式**（maohao 内置模式 + smoke 7 断言）。
 
 ## 项目状态快照
 
-- **最后更新**：2026-06-20（第三十三次会话·**数据持久化全面加固 + 设置/备份导入导出**）
+- **最后更新**：2026-06-20（第三十四次会话·**M1 Step3 清理节点池 UX 三项增强 + 实时窗口高度修复 + Step2 数字冒号模式**）
 - **阶段**：正式开发——M1 AI 清理端到端跑通；**novel-generator 集成阶段 A~D 全部完成**；**Electron 迁移完成**；M2–M5 仍 mock；业务数据 SQLite 资产库（可配置资产目录），Provider/密钥等设置存用户数据目录
-- **新增**：**数据持久化全面加固**（治本，从根上消灭"反复数据丢失"）—— ① `syncAll` 改纯 upsert（永不删除），新增显式 `DELETE /api/store` 端点（deleteEntities 白名单精确删除 + clearAllBusinessData），前端 deleteBook/deleteImage/resetDemo 改走显式删除；② `settings.json` 原子写入（tmp+rename）+ .bak 备份 + readSettings 失败回退 .bak 并记日志；③ `getAssetDir` 启动期缓存（不再每次 DB 访问重读 settings.json，消除损坏级联路径漂移）+ invalidateAssetDir；④ `readAll` 逐行容错（单行坏不拖垮整库）；⑤ 启动日志增强（.bak 恢复标记 + assetDir + 各表行数）。**设置/备份导入导出**（人工兜底）—— `frontend/src/utils/backup.ts` 版本化 BackupBundle 纯函数模块（buildBundle/parseBundle/migrateBundle/summarizeBusiness），`normalizeProvider` 抽到独立 `provider.ts`；设置页新增「设置导入/导出」「完整备份/恢复」两个 Card，导出含脱敏选项，导入走预览 Modal（兼容性警告 + 数据计数 + 合并/清空恢复双按钮）；**向后兼容**：parseBundle 容错策略——非 JSON 才 fatal，缺 version 当 v0，裸 settings.json 自动适配，providers 坏条目跳过，moduleMapping 合并 seed 补全，多余字段忽略，旧数据导入不报错。**附**：顺带修复 batch-generate 既有隐式 any（callbacks 加 BatchGenCallbacks 类型标注）。详见 FIXES.md「2026-06-20」。
+- **新增**：**M1 Step3 清理节点池 UX 三项增强**——① 节点池改 `Collapse`（默认展开，可折叠腾空间，折叠头带「N 个节点，参选 M」计数）；② 新增「统一设置所有节点」行（进程/章节/间隔 三输入框 + 「统一设置」按钮，一次性写入全部已启用节点的 overrides，应用后仍可逐节点单独覆盖，运行中热推调度器）；③ 文案改名「核心→进程」「批次→章节」（含每节点卡片标签 + 摘要 Tag 单位后缀 `核→进程`）。**实时窗口高度修复**——长文本撑破布局的根因是 flexbox `min-height:auto`（flex 子项默认不缩到内容以下），给实时窗口内层 `<Row flex:1>` 与活跃任务列表 `<div flex:1>` 加 `minHeight:0`，启动任务后两栏固定与左侧活跃任务等高（440px 区内），超出靠各自滚动条翻阅。**M1 Step2 数字冒号模式**——`split.ts` 内置模式池新增 `maohao`（`^(\\d{1,4}[:：].*)`，兼容全角/半角冒号），`smoke.mts` +7 断言（含「卷+数字冒号」混合机制：卷行旁路成章 + 编号标题切分）。
 - **摘要**：在 mock 前端基础上**进入实现阶段**。
   运行方式（三选一）：
   - **【推荐】Electron 模式**：双击 `start-electron.bat`（开发模式）或 `npm run dev`，Electron 窗口自动管理前后端；关窗即自动清理进程
@@ -163,6 +164,13 @@
 
 ### 进行中 / 等待用户
 
+- [x] **M1 Step3 清理节点池 UX 三项增强 + 实时窗口高度修复 + Step2 数字冒号模式**（2026-06-20 第三十四次会话·**已实施，用户实机测试通过**）
+  - [x] **节点池可折叠**（`Step3Clean.tsx`）：原 `<div>` + `Typography.Title` 的「清理节点池」区块改写为 `<Collapse defaultActiveKey={['nodes']}>`（默认展开，保留原可视性；可手动折叠腾空间）。折叠头带计数提示「（N 个节点，参选 M）」。
+  - [x] **统一设置所有节点三参数**（`Step3Clean.tsx`）：折叠面板顶部新增「统一设置所有节点」行——三个 `InputNumber`（进程 1–32 / 章节 1–20 / 间隔 0–60s）+ 「统一设置」按钮（三框都填了才可用）。点击调 `applyBulkToAll()` 把三值一次性写入**全部已启用节点**的 `overrides`（与每张卡片单独调参走同一套机制），所以**统一设置后仍可逐节点单独覆盖**；运行中改动还会热推送给调度器（`hotUpdateNodes`）。
+  - [x] **文案改名**（`Step3Clean.tsx`）：统一设置行的三个标签 + 每张节点卡片的标签 **核心→进程**、**批次→章节**（间隔不变）；摘要 Tag 单位后缀同步 `核→进程`。
+  - [x] **实时窗口高度修复**（`Step3Clean.tsx`）：用户反馈「未启动任务时高度正常，启动任务后实时窗口被流式文本撑高，不再与左侧活跃任务列表等高」。根因是 **flexbox `min-height:auto`**——flex 子项默认不收缩到内容尺寸以下，内层 `<Row flex:1>`（含两块 stream-pane）一旦 `acc`/章节原文变长就按内容撑开突破 440px。修复：给实时窗口内层 `<Row style={{flex:1}}>` 与左侧活跃任务列表 `<div style={{flex:1,overflow:auto}}>` 都加 `minHeight:0`，让其可收缩到内容以下，内部 `height:100%+overflow:auto` 的滚动面板才能拿到有界高度、超出靠滚动条翻阅。启动任务后两栏固定与左侧等高。
+  - [x] **Step2 数字冒号模式**（`split.ts` + `smoke.mts`）：`DEFAULT_SPLIT_PATTERNS` 新增 `maohao` 内置模式（`^(\\d{1,4}[:：].*)`，兼容全角「：」与半角「:」），适配 `001：标题` / `003: 标题` 这类编号+冒号章节行；`smoke.mts` +7 断言（检测推荐 maohao / 命中 3 处 / 切分 3 章 / 标题干净 / 「卷+数字冒号」混合机制：卷行旁路单独成章 + 编号标题切分）。
+  - [x] **验证全过**：eslint ✅ / tsc --noEmit ✅（0 错误）/ vite build ✅（710–765ms，仅既有 chunk 体积警告）/ smoke ✅（含新增 7 断言）。
 - [x] **数据持久化全面加固 + 设置/备份导入导出**（2026-06-20 第三十三次会话·**已实施，待用户实机验证**）
   - [x] **根因定位**：经三层调研（后端 SQLite/settings、前端 store 同步、类型与 UI）锁定"反复数据丢失"的 6 个相互放大的缺陷：① syncAll 全量删除（payload 没出现的 id 全删 → 前端内存空触发同步清库，106 章主书就此丢失）；② settings.json 非原子 writeFileSync（断电截断）；③ readSettings 静默吞错（损坏当首启）；④ getAssetDir 每次 DB 访问重读 settings.json（损坏级联路径漂移）；⑤ readAll 无逐行容错（一行坏整库 500）；⑥ 全代码库零版本字段。详见 FIXES.md「2026-06-20」根因表。
   - [x] **A1 syncAll 改纯 upsert**（`server/src/store/db.ts`）：删除"SELECT existing → DELETE missing"，只做 `INSERT … ON CONFLICT DO UPDATE`。**永不删除**——从根上消灭清库事故。
@@ -355,25 +363,22 @@
 
 ## 交接备注（最近一次会话）
 
-- **日期**：2026-06-20（第三十三次会话·**数据持久化全面加固 + 设置/备份导入导出**）
-- **本次起因**：用户反馈"反复挣扎在数据丢失的窘境中"，要求重新梳理数据读写机制、设计更稳定的持久化系统（中断不丢、升级不丢、丢了能找回）+ 设置导入导出兜底。
+- **日期**：2026-06-20（第三十四次会话·**M1 Step3 清理节点池 UX 三项增强 + 实时窗口高度修复 + Step2 数字冒号模式**）
+- **本次起因**：用户提出清理节点池三项增强需求（① 节点池可折叠 ② 统一设置所有可用节点三参数但保留逐节点单独设置 ③ 文案改名 核心→进程/批次→章节）；随后反馈实时窗口启动任务后被长文本撑高、不再与活跃任务列表等高，要求修复。
 - **本次完成**：
-  - **根因定位**：三层调研锁定"反复数据丢失"的 6 个相互放大缺陷（syncAll 全量删除为真因，详见 FIXES.md 根因表）
-  - **Part A 持久化加固（治本）**：syncAll 改纯 upsert 永不删除 / 显式 DELETE 端点 / settings.json 原子写入+.bak / getAssetDir 启动缓存 / readAll 逐行容错 / 启动日志增强
-  - **Part B 导入导出（兜底）**：backup.ts 版本化纯函数模块 + 设置导入导出 + 完整备份恢复 + 向后兼容（旧数据导入不报错）
-- **改动文件**（10 个）：
-  - 后端：`server/src/store/db.ts`（syncAll/deleteEntities/clearAllBusinessData/readAll/getAssetDir 缓存）、`server/src/routes/store.ts`（DELETE 端点）、`server/src/routes/settings.ts`（原子写+.bak）、`server/src/index.ts`（启动日志）
-  - 前端：`frontend/src/store/appStore.ts`（显式删除+导出 helpers+normalizeProvider 移走）、`frontend/src/utils/backup.ts`（**新**）、`frontend/src/utils/provider.ts`（**新**）、`frontend/src/pages/settings/index.tsx`（两个新 Card+Modal）、`frontend/src/pages/batch-generate/index.tsx`（顺带修隐式 any）、`frontend/scripts/backup-smoke.mts`（**新**，39 断言）
-  - 文档：`FIXES.md`、`HANDOFF.md`
-- **验证全过**：后端 typecheck ✅ / 前端 tsc --noEmit ✅ / tsc -b + vite build ✅(723ms) / eslint ✅ / backup-smoke(39) ✅ / smoke+parse+ruleclean 全不回归 ✅
+  - **节点池可折叠**：`<Collapse defaultActiveKey={['nodes']}>`（默认展开，折叠头带「N 个节点，参选 M」计数）
+  - **统一设置所有节点**：折叠面板顶部新增三 `InputNumber`（进程/章节/间隔）+ 「统一设置」按钮，`applyBulkToAll()` 写全部已启用节点 overrides，仍可逐节点覆盖；运行中热推调度器
+  - **文案改名**：核心→进程、批次→章节（卡片标签 + 统一设置行 + 摘要 Tag 后缀）
+  - **实时窗口高度修复**：根因 flexbox `min-height:auto`（flex 子项默认不缩到内容以下），给内层 `<Row flex:1>` 与活跃任务 `<div flex:1,overflow:auto>` 加 `minHeight:0`，启动任务后两栏固定等高（440px 区内），超出靠滚动条
+  - **Step2 数字冒号模式**：`split.ts` 新增 `maohao` 内置模式（`^(\\d{1,4}[:：].*)` 全角/半角兼容）+ smoke 7 断言（含「卷+数字冒号」混合机制）
+- **改动文件**（3 个，含 2 个会话开始前已有的连贯改动）：
+  - 前端：`frontend/src/pages/m1-import/Step3Clean.tsx`（节点池折叠 + 统一设置行 + 文案改名 + 实时窗口高度修复）、`frontend/src/utils/split.ts`（新增 maohao 内置模式）、`frontend/scripts/smoke.mts`（+7 断言）
+  - 文档：`HANDOFF.md`
+- **验证全过**：eslint ✅ / tsc --noEmit ✅ / vite build ✅（710–765ms）/ smoke ✅（含新增 7 断言）。**用户实机测试通过**。
 - **关键设计决策**：
-  ① **删除必须显式**——syncAll 不再反推删除，是整个方案的关键转折。"前端内存空触发同步清库"这类事故在物理上不再可能发生。
-  ② **导入导出是兜底而非主防线**——主防线是 Part A 的持久化加固；导入导出应对"万一其他环节出问题"。
-  ③ **向后兼容靠 parseBundle 容错**——非 JSON 才 fatal，其余全部尽力解析 + warnings，满足"导入旧数据不报错"。
-- **下一步**：
-  ① 用户实机验证（corrupt settings.json → .bak 恢复；完整备份→清库→导入；旧数据导入；显式删除）
-  ②（可选）打包分发前修复 dist import `.js` 扩展名隐患
-  ③ M2–M5 详细设计与真实化推进
+  ① **统一设置写 overrides 而非改 ProviderNode**——与逐节点单独调参走同一套 `overrides` 机制，所以「统一设置后个别分别设置」自然成立（后调的覆盖先调的），无需额外状态。
+  ② **实时窗口撑高的根因是 flex 而非 height**——`height:100%` + `overflow:auto` 本身没错，但父 flex 子项的 `min-height:auto` 让它先被内容撑开，子项的 100% 才随之撑开。加 `minHeight:0` 才能让收缩链生效。
+- **下一步**：①（可选）将「统一设置所有节点」的能力推广到 batch-generate 页（该页目前无 per-node 调参 UI）；② M2–M5 详细设计与真实化推进
 
 ## 更新本文档的约定
 
