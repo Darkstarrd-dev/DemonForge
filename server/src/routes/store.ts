@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify'
-import { readAll, syncAll } from '../store/db'
+import { readAll, syncAll, deleteEntities, clearAllBusinessData, ENTITY_KEYS } from '../store/db'
 import { addToVectorStore, queryVectorStore, type ChunkMeta } from '../store/vector'
 import type { ProviderConfig } from '../llmClient'
 
@@ -17,7 +17,7 @@ export async function storeRoutes(app: FastifyInstance) {
     }
   })
 
-  // 全量同步业务数据（增量 upsert + 删除缺失行）
+  // 全量同步业务数据（**仅 upsert，永不删除**——见 db.ts 安全契约）。要删走 DELETE。
   app.post('/api/store', async (req, reply) => {
     const body = req.body as Record<string, unknown>
     if (!body || typeof body !== 'object') {
@@ -25,6 +25,40 @@ export async function storeRoutes(app: FastifyInstance) {
     }
     try {
       syncAll(body)
+      return reply.send({ ok: true })
+    } catch (err) {
+      app.log.error(err)
+      return reply.status(500).send({ error: String(err) })
+    }
+  })
+
+  // 显式删除：按实体键 + id 列表精确删除（前端 deleteBook/deleteImage 等走此端点）。
+  // 替代旧 syncAll 的"反推删除"——杜绝"前端内存空触发同步清库"事故。
+  app.delete('/api/store', async (req, reply) => {
+    const body = (req.body ?? {}) as Record<string, unknown>
+    if (!body || typeof body !== 'object') {
+      return reply.status(400).send({ error: 'Invalid body' })
+    }
+    // 仅接受已知实体键；含 clearAll:true 时清空全部业务表（备份恢复前的"纯净恢复"）
+    const wantsClearAll = body.clearAll === true
+    if (wantsClearAll) {
+      try {
+        clearAllBusinessData()
+        return reply.send({ ok: true, cleared: true })
+      } catch (err) {
+        app.log.error(err)
+        return reply.status(500).send({ error: String(err) })
+      }
+    }
+    const filtered: Record<string, unknown> = {}
+    for (const key of ENTITY_KEYS) {
+      if (Array.isArray(body[key])) filtered[key] = body[key]
+    }
+    if (Object.keys(filtered).length === 0) {
+      return reply.status(400).send({ error: '未提供任何有效实体键的 id 列表' })
+    }
+    try {
+      deleteEntities(filtered)
       return reply.send({ ok: true })
     } catch (err) {
       app.log.error(err)

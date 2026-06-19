@@ -16,13 +16,14 @@
     ② **Electron 迁移已完成**——开发/生产模式、进程管理、打包配置就绪，待用户测试验证；
     ③ **3D Demo WASM 崩溃已修复** + **全局 Error Boundary 已添加**——animate 循环异常安全、init 单例化、ErrorBoundary 兜底白屏。
     ④ 文生图 Demo 完善 ModelScope 服务——可选参数全链路透传 + 调试信息区，用户实机测试通过。
-    ⑤ **【最新】系统设置·节点池增强 6 项功能**（Tab 切换文本/文生图、批量测试、上下移调序、复制节点、并发测试、次数限制+每日刷新）+ **入库小说数据恢复**（syncAll 误删 → sqlite3 .recover 从 free pages 重建，主书 106 章完整找回）。详见 FIXES.md「2026-06-19 晚」。
+    ⑤ 系统设置·节点池增强 6 项功能 + 入库小说数据恢复（sqlite3 .recover）。
+    ⑥ **【最新】数据持久化全面加固 + 设置/备份导入导出**——从根上修复"反复数据丢失"的 6 个缺陷（syncAll 改纯 upsert 永不删除 / settings.json 原子写入+.bak / assetDir 启动缓存 / readAll 逐行容错 / 启动日志增强 / 显式 DELETE 端点），并新增设置导入导出 + 完整备份恢复（版本化 bundle、向后兼容、脱敏选项）作为人工兜底。详见 FIXES.md「2026-06-20」。
 
 ## 项目状态快照
 
-- **最后更新**：2026-06-19（第三十二次会话·**节点池增强 + 入库数据恢复**）
+- **最后更新**：2026-06-20（第三十三次会话·**数据持久化全面加固 + 设置/备份导入导出**）
 - **阶段**：正式开发——M1 AI 清理端到端跑通；**novel-generator 集成阶段 A~D 全部完成**；**Electron 迁移完成**；M2–M5 仍 mock；业务数据 SQLite 资产库（可配置资产目录），Provider/密钥等设置存用户数据目录
-- **新增**：**系统设置·节点池增强 6 项功能**——① 标题右侧 `Segmented` 切换「文本生成/文生图」，表格按类型过滤、原「类型」列取消，新增节点按当前 Tab 预设 `nodeType`；② 「批量测试」按钮，并发上限 4 测当前类型已启用节点连通性，实时进度 + 汇总；③ 节点 ↑↓ 上移/下移调序（在 providers 全量数组交换位置，数组顺序即持久化，重启保留）；④ 「复制」按钮，新 id + 同名编号递增（`X`→`X (2)`→`X (3)`），`usageLeft` 不复制；⑤ 「并发测试」按钮（仅文本节点），纯前端二分探测——单发连通 + 逐级提高并发 2→4→8→16，取全部成功的最大 N 为 `maxConcurrency`，单请求耗时/N 估算 `intervalSec`，弹 Modal 展示日志并写回；⑥ 「次数限制」开关 + 每日本地自然日刷新——`ProviderNode` 加 4 字段（`usageLimitEnabled`/`usageLimit`/`usageLeft`/`usageResetDate`），新增 store action `consumeProviderUsage`（跨日重置、到 0 跳过、否则递减），接入 `batch.ts`/`llm.ts` 的 `pickCandidate` 经 `isNodeAvailable` 钩子扣减。类型向后兼容（normalizeProvider 补默认值），tsc + vite build 通过。**另：恢复此前被 `syncAll` 误删的入库小说数据**（`sqlite3 .recover` 从 free pages 重建，主书《综漫，人在实教，幕后开启杀戮都市》106 章正文完整找回，3 本书/113 章/13 卡片/6 大纲），修复 `moduleMapping` 全部指向已删除旧 seed 节点（prov-1/prov-2）改为指向实际 SenseNova 节点。详见 FIXES.md「2026-06-19 晚」。
+- **新增**：**数据持久化全面加固**（治本，从根上消灭"反复数据丢失"）—— ① `syncAll` 改纯 upsert（永不删除），新增显式 `DELETE /api/store` 端点（deleteEntities 白名单精确删除 + clearAllBusinessData），前端 deleteBook/deleteImage/resetDemo 改走显式删除；② `settings.json` 原子写入（tmp+rename）+ .bak 备份 + readSettings 失败回退 .bak 并记日志；③ `getAssetDir` 启动期缓存（不再每次 DB 访问重读 settings.json，消除损坏级联路径漂移）+ invalidateAssetDir；④ `readAll` 逐行容错（单行坏不拖垮整库）；⑤ 启动日志增强（.bak 恢复标记 + assetDir + 各表行数）。**设置/备份导入导出**（人工兜底）—— `frontend/src/utils/backup.ts` 版本化 BackupBundle 纯函数模块（buildBundle/parseBundle/migrateBundle/summarizeBusiness），`normalizeProvider` 抽到独立 `provider.ts`；设置页新增「设置导入/导出」「完整备份/恢复」两个 Card，导出含脱敏选项，导入走预览 Modal（兼容性警告 + 数据计数 + 合并/清空恢复双按钮）；**向后兼容**：parseBundle 容错策略——非 JSON 才 fatal，缺 version 当 v0，裸 settings.json 自动适配，providers 坏条目跳过，moduleMapping 合并 seed 补全，多余字段忽略，旧数据导入不报错。**附**：顺带修复 batch-generate 既有隐式 any（callbacks 加 BatchGenCallbacks 类型标注）。详见 FIXES.md「2026-06-20」。
 - **摘要**：在 mock 前端基础上**进入实现阶段**。
   运行方式（三选一）：
   - **【推荐】Electron 模式**：双击 `start-electron.bat`（开发模式）或 `npm run dev`，Electron 窗口自动管理前后端；关窗即自动清理进程
@@ -162,6 +163,19 @@
 
 ### 进行中 / 等待用户
 
+- [x] **数据持久化全面加固 + 设置/备份导入导出**（2026-06-20 第三十三次会话·**已实施，待用户实机验证**）
+  - [x] **根因定位**：经三层调研（后端 SQLite/settings、前端 store 同步、类型与 UI）锁定"反复数据丢失"的 6 个相互放大的缺陷：① syncAll 全量删除（payload 没出现的 id 全删 → 前端内存空触发同步清库，106 章主书就此丢失）；② settings.json 非原子 writeFileSync（断电截断）；③ readSettings 静默吞错（损坏当首启）；④ getAssetDir 每次 DB 访问重读 settings.json（损坏级联路径漂移）；⑤ readAll 无逐行容错（一行坏整库 500）；⑥ 全代码库零版本字段。详见 FIXES.md「2026-06-20」根因表。
+  - [x] **A1 syncAll 改纯 upsert**（`server/src/store/db.ts`）：删除"SELECT existing → DELETE missing"，只做 `INSERT … ON CONFLICT DO UPDATE`。**永不删除**——从根上消灭清库事故。
+  - [x] **A2 显式 DELETE 端点**（`server/src/store/db.ts` + `routes/store.ts`）：新增 `deleteEntities`（表名+id 白名单精确删除）+ `clearAllBusinessData`（备份恢复用）+ `DELETE /api/store`（含 clearAll:true 分支）。前端 `appStore.ts` 的 `deleteBook`（收集级联 id）/`deleteImage`/`resetDemo` 改走 `pushDeleteNow`，不再依赖 syncAll 反推。
+  - [x] **A3 settings.json 原子化 + .bak**（`server/src/routes/settings.ts`）：writeSettings 三步（copyFileSync 备份 .bak → 写 .tmp → renameSync 原子覆盖）；readSettings 失败回退 .bak（记 warn + `wasLastReadRecovered` 标记），都失败才返回 {}。
+  - [x] **A4 getAssetDir 启动期缓存**（`server/src/store/db.ts`）：模块级 cachedAssetDir 首次计算缓存，避免热路径重读 settings.json；新增 invalidateAssetDir，POST /api/settings 检测 assetDir 变更触发重算。
+  - [x] **A5 readAll 逐行容错**（`server/src/store/db.ts`）：循环 try/catch，单行坏跳过 + warn。
+  - [x] **A6 启动日志增强**（`server/src/index.ts`）：[data-dir] 行加 settings 是否 .bak 恢复 + assetDir + 各表行数概览。db.ts 加 `PRAGMA busy_timeout = 5000`。
+  - [x] **B1 backup.ts 纯函数模块**（`frontend/src/utils/backup.ts`）：BackupBundle 类型（version/exportedAt/app/kind/settings/business?）+ buildBundle/parseBundle/migrateBundle/summarizeBusiness/downloadBundle/readFileAsText/backupFilename。normalizeProvider 抽到 `frontend/src/utils/provider.ts`（无框架依赖，单测可纯 node 跑）。
+  - [x] **B2/B3 设置/完整备份导入导出**（`frontend/src/pages/settings/index.tsx`）：两个新 Card——「设置导入/导出」（脱敏选项 Checkbox）+「完整备份/恢复」；导入走 Upload → parseBundle → 预览 Modal（兼容性警告列表 + 数据计数 + API Key 状态 + 合并/清空恢复双按钮，Popconfirm 二次确认）。
+  - [x] **B4 向后兼容**（`frontend/src/utils/backup.ts` parseBundle）：非 JSON 才 fatal；缺 version 当 v0；裸 settings.json（无 bundle 包装）自动适配；providers 逐条 try/catch 坏条目跳过；moduleMapping 与 seedModuleMapping 合并补全新 ModuleKey；splitPatterns 确保 custom 永在；业务数据多余键忽略、单类非数组忽略。旧数据导入不报错。
+  - [x] **验证全过**：后端 typecheck ✅ / 前端 tsc --noEmit ✅（0 错误）/ tsc -b + vite build ✅（723ms）/ eslint ✅ / **backup-smoke(39) ✅** / smoke(23)+parse(22)+ruleclean(43) 全不回归 ✅。**附**：顺带修复 batch-generate 既有隐式 any（callbacks 加 BatchGenCallbacks 类型标注，让 tsc -b 干净）。
+  - [ ] **待用户实机验证**：① 设置导出 → corrupt settings.json → 重启确认日志"settings from .bak: YES"且配置在；② 完整备份 → 清库 → 导入 → 数据回归；③ 导入旧版裸 settings.json/缺字段文件不报错；④ deleteBook/deleteImage/resetDemo 正常删除
 - [x] **问题1 入库持久化根因修复 + 数据目录单一真相源**（2026-06-19 第二十九次会话·**端到端验证通过**）
   - [x] **真正根因（终于定位）**：前几轮 `pushStoreNow` async 加固只动了"写入时机"，**没动到病根**。真根因是**数据目录在代码版本间漂移 → db 文件分裂散落**：① SQLite 初版（`3cf6618`）用 `REPO_ROOT = dirname×3(HERE)` 把库写到**项目根 `assets/`**；② Electron 迁移（`34405c3`）改 `paths.ts: join(__dirname,'..','data')` → tsx 跑 src 解析到 `server/src/data/`、node 跑 dist 解析到 `server/dist/data/`。**三个不同位置的 db 互相看不到对方数据**——入库写一处、重启读另一处 → 入库内容消失；某次后端解析到根目录（无 settings.json → `storeInitialized` 缺失 + 库空）→ bootstrap 走播种分支 → Mock 重现。
   - [x] **取证实证**（运行中后端实时探测）：POST 标记 `PROBE_*` 到 `/api/settings`，回查落点确认后端用 `server/src/data`；全表 dump 三个 db（根目录旧库全空/旧表结构无 `image_gallery`、`server/src/data` 含诊断脚本污染的 `test-node-book` 且 chapters=0、`server/dist/data` 不存在）；git 历史 confirm 路径逻辑演变。
@@ -341,28 +355,25 @@
 
 ## 交接备注（最近一次会话）
 
-- **日期**：2026-06-19（第三十二次会话·**节点池增强 + 入库数据恢复**）
-- **本次完成**（用户需求：系统设置·节点池增加 6 项功能）：
-  - **Tab 切换**：标题右侧 `Segmented`（文本生成/文生图），表格按 `nodeTypeFilter` 过滤、删除原类型列、新增节点按 Tab 预设 `nodeType`
-  - **批量测试**：并发上限 4 测当前类型已启用节点连通性，实时进度 + 汇总，更新 `lastTestResult`
-  - **上移/下移**：操作列 ↑↓，在 providers 全量数组交换位置，数组顺序即持久化
-  - **复制节点**：新 id + 同名编号递增（`X`→`X (2)`→`X (3)`）
-  - **并发测试**（仅文本节点）：纯前端二分探测 `maxConcurrency` + 估算 `intervalSec`，弹 Modal 写回
-  - **次数限制**：`ProviderNode` 加 4 字段 + `consumeProviderUsage` action（每日本地自然日刷新、到 0 跳过、递减），接入 batch/llm 调度钩子；编辑 Modal 加开关 + 每日额度；表格加「次数(今日)」列
-  - **入库数据恢复**：发现书库为空 → 排查确认数据未真丢（SQLite 行 delete 但数据页未 VACUUM）→ `sqlite3 .recover` + 字节流配对提取 → 直接 upsert 写回（不删除）→ 补 seed 书 + 修复 moduleMapping（prov-1/prov-2 → SenseNova）→ 重启后端。主书《综漫，人在实教，幕后开启杀戮都市》106 章正文完整找回，共 3 本书/113 章/13 卡片/6 大纲
-- **改动文件**（8 个，已提交 `fc9582b` 推送 main）：`frontend/src/services/types.ts`、`frontend/src/store/appStore.ts`、`frontend/src/services/real/batch.ts`、`frontend/src/services/real/llm.ts`、`frontend/src/pages/m1-import/Step3Clean.tsx`、`frontend/src/pages/batch-generate/index.tsx`、`frontend/src/pages/settings/index.tsx`、`FIXES.md`
-- **验证全过**：tsc --noEmit ✅ / vite build ✅（构建期 rolldown 内联第 4 对象参数解析坑，已提取具名 const 规避）/ 后端 API 验证数据可读 ✅
-- **已知限制/注意**：
-  ① **前端需刷新页面（Ctrl+R）**：前端 store 内存里 `moduleMapping` 是旧值（prov-1/prov-2），刷新后从后端重拉正确值（指向 SenseNova）；否则 UI 操作的防抖回写可能把旧值覆盖回去
-  ② **数据恢复后 db 备份**：原 db 备份在 `server/src/data/assets/novelhelper.db.bak-20260619_231156`（gitignore，本地保留）
-  ③ **结构性风险未修**：`syncAll` 全量删除策略在「前端内存为空 + 触发同步」时会清库——建议后续加防护「payload.books 为空但库非空且 storeInitialized 时拒绝删除只 upsert」。本次未改
-  ④ **dist import 缺 `.js` 扩展名隐患**（未修——影响打包版，开发模式 tsx src 不受影响）：留待打包分发阶段处理
-  ⑤ **数据目录单一锚定**（`server/src/data`）：任何持久化异常排查第一步——看后端启动日志的 `[data-dir]` 两行确认实际落点
+- **日期**：2026-06-20（第三十三次会话·**数据持久化全面加固 + 设置/备份导入导出**）
+- **本次起因**：用户反馈"反复挣扎在数据丢失的窘境中"，要求重新梳理数据读写机制、设计更稳定的持久化系统（中断不丢、升级不丢、丢了能找回）+ 设置导入导出兜底。
+- **本次完成**：
+  - **根因定位**：三层调研锁定"反复数据丢失"的 6 个相互放大缺陷（syncAll 全量删除为真因，详见 FIXES.md 根因表）
+  - **Part A 持久化加固（治本）**：syncAll 改纯 upsert 永不删除 / 显式 DELETE 端点 / settings.json 原子写入+.bak / getAssetDir 启动缓存 / readAll 逐行容错 / 启动日志增强
+  - **Part B 导入导出（兜底）**：backup.ts 版本化纯函数模块 + 设置导入导出 + 完整备份恢复 + 向后兼容（旧数据导入不报错）
+- **改动文件**（10 个）：
+  - 后端：`server/src/store/db.ts`（syncAll/deleteEntities/clearAllBusinessData/readAll/getAssetDir 缓存）、`server/src/routes/store.ts`（DELETE 端点）、`server/src/routes/settings.ts`（原子写+.bak）、`server/src/index.ts`（启动日志）
+  - 前端：`frontend/src/store/appStore.ts`（显式删除+导出 helpers+normalizeProvider 移走）、`frontend/src/utils/backup.ts`（**新**）、`frontend/src/utils/provider.ts`（**新**）、`frontend/src/pages/settings/index.tsx`（两个新 Card+Modal）、`frontend/src/pages/batch-generate/index.tsx`（顺带修隐式 any）、`frontend/scripts/backup-smoke.mts`（**新**，39 断言）
+  - 文档：`FIXES.md`、`HANDOFF.md`
+- **验证全过**：后端 typecheck ✅ / 前端 tsc --noEmit ✅ / tsc -b + vite build ✅(723ms) / eslint ✅ / backup-smoke(39) ✅ / smoke+parse+ruleclean 全不回归 ✅
+- **关键设计决策**：
+  ① **删除必须显式**——syncAll 不再反推删除，是整个方案的关键转折。"前端内存空触发同步清库"这类事故在物理上不再可能发生。
+  ② **导入导出是兜底而非主防线**——主防线是 Part A 的持久化加固；导入导出应对"万一其他环节出问题"。
+  ③ **向后兼容靠 parseBundle 容错**——非 JSON 才 fatal，其余全部尽力解析 + warnings，满足"导入旧数据不报错"。
 - **下一步**：
-  ① 用户刷新前端 + 实机验证 6 项新功能 + 数据恢复结果
-  ②（建议）修 syncAll 全量删除的结构性数据安全风险
-  ③（后续）打包分发前修复 dist import 扩展名
-  ④ M2–M5 详细设计与真实化推进
+  ① 用户实机验证（corrupt settings.json → .bak 恢复；完整备份→清库→导入；旧数据导入；显式删除）
+  ②（可选）打包分发前修复 dist import `.js` 扩展名隐患
+  ③ M2–M5 详细设计与真实化推进
 
 ## 更新本文档的约定
 

@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react'
 import { Alert, App, Button, Card, Checkbox, List, Progress, Space, Tag, Typography } from 'antd'
 import { ThunderboltOutlined, PauseOutlined, PlayCircleOutlined, StopOutlined } from '@ant-design/icons'
 import { useAppStore } from '../../store/appStore'
-import { startBatchGenerate, type BatchGenTask, type BatchGenNode, type BatchGenHandle } from '../../services/api'
+import { startBatchGenerate, type BatchGenTask, type BatchGenNode, type BatchGenCallbacks, type BatchGenHandle } from '../../services/api'
 
 type TaskState = {
   id: string
@@ -89,7 +89,7 @@ export default function BatchGeneratePage() {
     setRunning(true)
     setPaused(false)
 
-    const callbacks = {
+    const callbacks: BatchGenCallbacks = {
       onStart: (chapterId, _nodeName, phase) => {
         setTaskStates((prev) => {
           const next = new Map(prev)

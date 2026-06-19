@@ -32,6 +32,8 @@ import {
   seedArchitectures,
 } from '../mocks/seed'
 import { DEFAULT_SPLIT_PATTERNS } from '../utils/split'
+// normalizeProvider 抽到纯工具模块（backup.ts 单测需要，避免依赖 zustand/浏览器环境）
+import { normalizeProvider } from '../utils/provider'
 
 /** 文生图 Demo 表单草稿（轻量，持久化到 settings.json） */
 export interface ImageDemoForm {
@@ -108,21 +110,6 @@ export interface AppState {
   resetDemo: () => void
 }
 
-const normalizeProvider = (p: Partial<ProviderNode> & { id: string; name: string; baseURL: string; model: string }): ProviderNode => ({
-  ...p,
-  nodeType: p.nodeType === 'image' ? 'image' : 'text',
-  maxConcurrency: typeof p.maxConcurrency === 'number' && p.maxConcurrency > 0 ? p.maxConcurrency : 2,
-  batchSize: typeof p.batchSize === 'number' && p.batchSize > 0 ? p.batchSize : 1,
-  intervalSec: typeof p.intervalSec === 'number' && p.intervalSec >= 0 ? p.intervalSec : 0,
-  enabled: p.enabled !== false,
-  apiKey: p.apiKey ?? '',
-  lastTestResult: p.lastTestResult ?? null,
-  usageLimitEnabled: p.usageLimitEnabled === true,
-  usageLimit: typeof p.usageLimit === 'number' && p.usageLimit >= 0 ? p.usageLimit : 0,
-  usageLeft: typeof p.usageLeft === 'number' && p.usageLeft >= 0 ? p.usageLeft : 0,
-  usageResetDate: p.usageResetDate ?? '',
-})
-
 const seedState = () => ({
   books: seedBooks,
   chapters: seedChapters,
@@ -162,16 +149,32 @@ export const useAppStore = create<AppState>()((set) => ({
       issues: s.issues.map((i) => (i.id === id ? { ...i, ...patch } : i)),
     })),
   deleteBook: (id) => {
+    /** 显式删除收集器：syncAll 已改为纯 upsert（永不删除），删除必须走 DELETE 端点。 */
+    const deletes: Record<string, string[]> = {}
+    const addIds = (key: string, ids: string[]) => { if (ids.length) deletes[key] = ids }
     set((s) => {
       // 收集待删 book 下的场景 id 与卡片 id，用于级联清理间接引用的 fragments / mergeCandidates
-      const bookSceneIds = new Set(s.scenes.filter((sc) => sc.bookId === id).map((sc) => sc.id))
-      const bookCardIds = new Set(s.cards.filter((c) => c.bookId === id).map((c) => c.id))
+      const bookScenes = s.scenes.filter((sc) => sc.bookId === id)
+      const bookSceneIds = new Set(bookScenes.map((sc) => sc.id))
+      const bookCards = s.cards.filter((c) => c.bookId === id)
+      const bookCardIds = new Set(bookCards.map((c) => c.id))
       const remainingBooks = s.books.filter((b) => b.id !== id)
       // 删除当前作品时：切到首个剩余 project；无 project 则置空
       const currentBookId =
         s.currentBookId === id
           ? remainingBooks.filter((b) => b.type === 'project')[0]?.id ?? ''
           : s.currentBookId
+      // 收集将被移除的各实体 id（供 DELETE 端点精确删除）
+      addIds('books', [id])
+      addIds('chapters', s.chapters.filter((c) => c.bookId === id).map((c) => c.id))
+      addIds('cards', bookCards.map((c) => c.id))
+      addIds('outline', s.outline.filter((o) => o.bookId === id).map((o) => o.id))
+      addIds('architectures', s.architectures.filter((a) => a.bookId === id).map((a) => a.id))
+      addIds('scenes', bookScenes.map((sc) => sc.id))
+      addIds('fragments', s.fragments.filter((f) => bookSceneIds.has(f.sceneId)).map((f) => f.id))
+      addIds('stateEvents', s.stateEvents.filter((e) => e.bookId === id).map((e) => e.id))
+      addIds('issues', s.issues.filter((i) => i.bookId === id).map((i) => i.id))
+      addIds('mergeCandidates', s.mergeCandidates.filter((m) => bookCardIds.has(m.cardAId) || bookCardIds.has(m.cardBId)).map((m) => m.id))
       return {
         books: remainingBooks,
         chapters: s.chapters.filter((c) => c.bookId !== id),
@@ -188,11 +191,20 @@ export const useAppStore = create<AppState>()((set) => ({
         currentBookId,
       }
     })
-    // 删除是关键操作 → 立即落库（绕过 1s 防抖），避免"删完立刻关窗"竞态丢失写入。
-    pushStoreNow()
+    // 显式删除：精确删除该书的级联 id（后端 syncAll 已不反推删除，必须显式 DELETE）。
+    // 立即触发（绕 debounce），避免"删完立刻关窗"竞态丢失删除写入。
+    pushDeleteNow(deletes)
   },
   // 仅重置业务数据 + 导入会话；保留 providers/moduleMapping/m1SystemPrompt/assetDir（用户配置）
   resetDemo: () => {
+    /** 重置前先把当前业务数据全部显式删除（syncAll 不再反推删除）。 */
+    const cur = useAppStore.getState()
+    const deletes: Record<string, string[]> = {}
+    for (const key of ['books', 'chapters', 'cards', 'outline', 'scenes', 'fragments', 'stateEvents', 'issues', 'architectures', 'mergeCandidates', 'imageGallery'] as const) {
+      const arr = cur[key] as { id: string }[]
+      const ids = arr.map((x) => x.id).filter(Boolean)
+      if (ids.length) deletes[key] = ids
+    }
     set({
       books: seedBooks,
       chapters: seedChapters,
@@ -207,7 +219,8 @@ export const useAppStore = create<AppState>()((set) => ({
       currentBookId: 'book-proj-1',
       importSession: null,
     })
-    // 重置同理立即落库
+    // 先显式删旧业务数据（防残留），再立即 pushStore 落新种子
+    pushDeleteNow(deletes)
     pushStoreNow()
   },
   // ===== 文生图 Demo =====
@@ -216,10 +229,10 @@ export const useAppStore = create<AppState>()((set) => ({
     set((s) => ({ imageGallery: [image, ...s.imageGallery] }))
     pushStoreNow()
   },
-  // 删除即从历史移除 → syncAll 自动删 SQLite 对应行；立即落库避免"删完立刻关窗"竞态。
+  // 删除即从历史移除 → 立即显式删除该图 id（syncAll 已不反推删除）。
   deleteImage: (id: string) => {
     set((s) => ({ imageGallery: s.imageGallery.filter((i) => i.id !== id) }))
-    pushStoreNow()
+    pushDeleteNow({ imageGallery: [id] })
   },
   // ===== 章节检测模式池（设置通道，落 settings.json） =====
   setSplitPatterns: (patterns) => {
@@ -257,7 +270,8 @@ export const useAppStore = create<AppState>()((set) => ({
 
 let storeReady = false
 
-const businessPayload = (s: AppState) => ({
+/** 业务数据载荷构造（11 个实体键）。导出供 backup.ts 组装备份 bundle 复用。 */
+export const businessPayload = (s: AppState) => ({
   books: s.books,
   chapters: s.chapters,
   cards: s.cards,
@@ -276,6 +290,14 @@ const pushStore = (payload: Record<string, unknown>) =>
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
+  })
+
+/** 显式删除请求（DELETE /api/store）。syncAll 已改为纯 upsert，删除走此端点。 */
+const deleteStore = (deletes: Record<string, string[]>) =>
+  fetch('/api/store', {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(deletes),
   })
 
 /** 启动引导：先拉设置，再拉业务数据；后端为空且从未初始化过才用种子播种。 */
@@ -468,6 +490,17 @@ export function pushStoreNow(): Promise<void> {
   return pushStore(businessPayload(useAppStore.getState())).then(() => undefined).catch(() => {})
 }
 
+/**
+ * 立即显式删除指定实体 id（DELETE /api/store）。fire-and-forget（吞错）。
+ * 用途：deleteBook/deleteImage/resetDemo 等删除操作。syncAll 已改为纯 upsert（永不删除），
+ * 故删除必须经此端点。function 声明被提升，store actions 可在定义上方引用。
+ */
+export function pushDeleteNow(deletes: Record<string, string[]>): void {
+  if (!storeReady) return
+  if (Object.keys(deletes).length === 0) return
+  deleteStore(deletes).catch(() => {})
+}
+
 // 关键写入专用：与 pushStoreNow 同样绕防抖立即落库，但**失败抛错**（不吞），供 await + try/catch。
 // 用途：入库等一次性关键写——后端 413（body 超限）/ 5xx / 网络断 等会抛错，避免 message.success 误报。
 export async function pushStoreNowChecked(): Promise<void> {
@@ -494,7 +527,8 @@ export async function pushStoreNowChecked(): Promise<void> {
 
 // 设置回写：providers/moduleMapping/m1SystemPrompt/assetDir/currentBookId/imageDemoForm/
 // showMenuBar/splitPatterns 变化时 debounce POST
-const settingsPayload = (s: AppState) => ({
+/** 设置载荷构造（8 个键）。导出供 backup.ts 组装备份 bundle 复用。 */
+export const settingsPayload = (s: AppState) => ({
   providers: s.providers,
   moduleMapping: s.moduleMapping,
   m1SystemPrompt: s.m1SystemPrompt,
@@ -530,9 +564,9 @@ useAppStore.subscribe((s, prev) => {
   }, 1000)
 })
 
-// 立即把当前设置推送到后端（绕过 1s 防抖）。用于 splitPatterns 编辑/恢复等关键操作。
-// function 声明被提升，故 store actions（定义在上方）可在运行时引用。
-function pushSettingsNow(): void {
+// 立即把当前设置推送到后端（绕过 1s 防抖）。用于 splitPatterns 编辑/恢复/备份导入等关键操作。
+// function 声明被提升，故 store actions（定义在上方）可在运行时引用。导出供 backup.ts 复用。
+export function pushSettingsNow(): void {
   if (!storeReady) return
   if (settingsTimer) {
     clearTimeout(settingsTimer)

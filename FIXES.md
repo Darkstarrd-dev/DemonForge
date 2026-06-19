@@ -255,3 +255,59 @@ taskkill /F /IM node.exe
 ### C. 待办（结构性风险，未修）
 
 `syncAll` 的全量删除策略在「前端内存为空 + 触发同步」时会清库，是数据安全的结构性隐患。建议后续加防护：当 payload 的 books 为空但库非空且 `storeInitialized` 时，拒绝执行删除（只 upsert）。本次未改，留待确认。
+
+## 2026-06-20 — 数据持久化全面加固 + 设置/备份导入导出 ✅
+
+### 背景
+
+用户反馈"反复挣扎在数据丢失的窘境中"。经三层调研（后端 SQLite/settings、前端 store 同步、类型与 UI）定位到 **6 个相互放大的缺陷** 共同导致数据丢失，其中 #1（syncAll 全量删除）正是上一轮丢失 106 章主书的真因。本次从根上修复全部 6 项，并新增导入导出作为"万一再丢"的人工兜底。
+
+### 根因清单（按危害排序）
+
+| # | 缺陷 | 位置 | 后果 |
+|---|---|---|---|
+| 1 | **syncAll 全量删除**：payload 没出现的 id 全删 | db.ts:101-105 | 前端内存空时触发同步 → 整库被清（106 章主书就此丢失） |
+| 2 | **settings.json 非原子写**：直接 writeFileSync | settings.ts:18-21 | 断电/崩溃 → 文件截断 → readSettings 返回 {} → providers/keys/mapping/storeInitialized 全没 |
+| 3 | **readSettings 静默吞错**：损坏与首启无法区分 | settings.ts:13-15 | 损坏被当首启，无任何告警 |
+| 4 | **getAssetDir 每次 DB 访问重读 settings.json** | db.ts:37-43,52 | settings 损坏 → DB 路径漂移到默认空目录 |
+| 5 | **readAll 无逐行容错**：一行坏 → 整库 500 | db.ts:79 | 前端误判空 → 触发 #1 |
+| 6 | **全代码库零版本字段** | 全局 | schema 演化纯靠读时补默认，无法迁移 |
+
+### Part A — 持久化层加固（治本）
+
+- **A1 syncAll 改纯 upsert（永不删除）** `server/src/store/db.ts`：删除"SELECT existing → DELETE missing"逻辑，syncAll 只做 `INSERT … ON CONFLICT DO UPDATE`。**发什么存什么，从不删**。从根上消灭"前端内存空触发同步清库"事故。
+- **A2 显式删除端点** `DELETE /api/store`：新增 `deleteEntities`（按表名+id 列表白名单精确删除，事务包裹）+ `clearAllBusinessData`（备份恢复的"纯净恢复"用）。前端 `deleteBook`/`deleteImage`/`resetDemo` 改走此端点（不再依赖 syncAll 反推删除）。新增 `pushDeleteNow` 辅助。
+- **A3 settings.json 原子写入 + .bak 备份** `server/src/routes/settings.ts`：writeSettings 改三步——① copyFileSync 备份当前为 .bak；② 写 settings.json.tmp；③ renameSync 原子覆盖。readSettings 失败时先回退 .bak（记 warn + `wasLastReadRecovered` 标记），都失败才返回 {}。崩溃只会留下完整旧文件或完整新文件，无截断半成品。
+- **A4 getAssetDir 启动期缓存** `server/src/store/db.ts`：模块级 `cachedAssetDir` 首次计算并缓存，避免每次 DB 访问重读 settings.json；新增 `invalidateAssetDir`，POST /api/settings 检测 assetDir 变更时触发重算。消除 settings 损坏级联成 DB 路径漂移。
+- **A5 readAll 逐行容错** `server/src/store/db.ts`：`rows.map(JSON.parse)` 改循环 try/catch，单行坏跳过 + warn，不拖垮整库。
+- **A6 启动日志增强** `server/src/index.ts`：[data-dir] 行追加 settings 是否从 .bak 恢复、assetDir 缓存值、各业务表行数概览。排查"又丢数据"第一手信息。
+- **附**：db.ts 加 `PRAGMA busy_timeout = 5000`。
+
+### Part B — 设置/备份导入导出（人工兜底）
+
+- **B1 backup.ts 纯函数模块** `frontend/src/utils/backup.ts`：`BackupBundle` 类型（version/exportedAt/app/kind/settings/business?）+ `buildBundle`/`parseBundle`/`migrateBundle`/`summarizeBusiness`/`downloadBundle`/`readFileAsText`/`backupFilename`。normalizeProvider 抽到独立的 `frontend/src/utils/provider.ts`（纯函数无框架依赖，backup.ts 单测不再依赖 zustand/浏览器环境）。
+- **B2 设置导入导出**：设置页新增「设置导入 / 导出」Card。导出含脱敏选项（providers[].apiKey 抹空）；导入走 Upload → parseBundle → 预览 Modal（providers/mapping/模式计数 + API Key 状态 + 兼容性警告）→ 确认后 setState 合并 + pushSettingsNow。
+- **B3 完整备份恢复**：新增「完整备份 / 恢复」Card。备份=GET /api/store + settingsPayload → kind='full' bundle；恢复=解析 → 预览（各类业务数据计数 + 强警告）→ 二次确认（合并导入 / 先清空再恢复）。
+- **B4 向后兼容（核心需求）**：parseBundle 容错策略——非 JSON 才 fatal 阻断；缺 version 当 v0；app 非 novelhelper 仅 warning；裸 settings.json（无 bundle 包装）自动适配；providers 逐条 try/catch 坏条目跳过；moduleMapping 与 seedModuleMapping 合并补全新 ModuleKey；splitPatterns 确保 custom 永在；业务数据多余键忽略、单类非数组忽略。所有非致命问题记 warnings 在预览 Modal 展示，不阻断导入。
+
+### 前端改动
+
+- `appStore.ts`：`deleteBook` 收集级联删除 id 走 pushDeleteNow；`deleteImage`/`resetDemo` 同理；导出 `businessPayload`/`settingsPayload`/`pushStoreNowChecked`/`pushSettingsNow` 供 backup UI 复用；normalizeProvider 移至 provider.ts。
+- `settings/index.tsx`：两个新 Card + 导出脱敏 Checkbox + 导入预览 Modal（兼容性警告列表 + 业务数据计数 + 合并/清空恢复双按钮）。
+
+### 验证全过
+
+- 后端 typecheck ✅
+- 前端 tsc --noEmit ✅（0 错误）
+- 前端 tsc -b + vite build ✅（723ms，顺带修复 batch-generate 既有隐式 any：callbacks 加 BatchGenCallbacks 类型标注）
+- 前端 eslint ✅（改动文件无错）
+- backup-smoke.mts ✅（39 项断言全过：buildBundle/parseBundle/migrateBundle/summarizeBusiness + 圆环 + 裸 settings 适配 + 非 JSON fatal + 坏条目跳过 + 未知 app + 高版本 + 多余业务键忽略）
+- smoke(23) ✅ / parse-smoke(22) ✅ / ruleclean-smoke(43) ✅ 全不回归
+
+### 待用户实机验证
+
+- ① 设置导出 → 故意 corrupt settings.json（改成乱码）→ 重启确认后端日志显示"settings from .bak: YES"且配置仍在
+- ② 完整备份 → 清库 → 导入备份 → 确认数据完整回归
+- ③ 导入旧版裸 settings.json / 缺字段文件 → 确认正常导入不报错、缺失字段补默认
+- ④ deleteBook/deleteImage/resetDemo 确认正常删除（不再依赖 syncAll 反推）
+

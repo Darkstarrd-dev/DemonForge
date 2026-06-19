@@ -6,11 +6,11 @@ import { fileURLToPath } from 'node:url'
 import { tmpdir } from 'node:os'
 import { llmRoutes } from './routes/llm'
 import { creationRoutes } from './routes/creation'
-import { settingsRoutes } from './routes/settings'
+import { settingsRoutes, wasLastReadRecovered } from './routes/settings'
 import { storeRoutes } from './routes/store'
 import { imageRoutes } from './routes/image'
 import { getAppDataDir } from './utils/paths'
-import { getAssetDir } from './store/db'
+import { getAssetDir, readAll } from './store/db'
 
 const PORT = Number(process.env.PORT ?? 8787)
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)))
@@ -64,9 +64,23 @@ app.post('/api/shutdown', async (_req, reply) => {
 
 try {
   await app.listen({ port: PORT, host: '127.0.0.1' })
-  // 启动即打印实际数据目录，便于诊断"入库数据丢失"类问题（数据目录漂移曾导致 db 分裂散落）。
+  // 启动即打印实际数据目录与状态，便于诊断"入库数据丢失"类问题。
+  // 数据目录漂移曾导致 db 分裂散落；settings.json 损坏曾导致全配置静默丢失。
+  const assetDir = getAssetDir()
   app.log.info(`[data-dir] settings/json at: ${getAppDataDir()}`)
-  app.log.info(`[data-dir] asset db dir:   ${getAssetDir()}`)
+  app.log.info(`[data-dir] asset db dir:   ${assetDir}`)
+  app.log.info(`[data-dir] settings from .bak: ${wasLastReadRecovered() ? 'YES (主文件可能损坏)' : 'no'}`)
+  // 各业务表行数概览——排查"书库又空了"的第一手信息
+  let summary: string
+  try {
+    const all = readAll()
+    summary = Object.entries(all)
+      .map(([k, v]) => `${k}=${Array.isArray(v) ? v.length : '?'}`)
+      .join(' / ')
+  } catch (err) {
+    summary = `readAll 失败：${String(err)}`
+  }
+  app.log.info(`[data-dir] tables: ${summary}`)
 } catch (err) {
   app.log.error(err)
   process.exit(1)
