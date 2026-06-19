@@ -23,7 +23,7 @@ import {
   RedoOutlined,
   SyncOutlined,
 } from '@ant-design/icons'
-import { useAppStore, genId, pushStoreNow } from '../../store/appStore'
+import { useAppStore, genId, pushStoreNowChecked } from '../../store/appStore'
 import { alignedDiff, applyLineDecisions } from '../../utils/alignedDiff'
 import DiffView from './DiffView'
 import type { BookType, Chapter, CleanStatus, ImportChapter, LineDecision } from '../../services/types'
@@ -131,12 +131,15 @@ export default function Step4Review() {
       })
       setStoreOpen(false)
       // 入库是关键写操作 → await 立即落库（绕过 1s debounce），确认写完再提示成功。
-      // 必须用 pushStoreNow：仅依赖 debounce 时关窗/重启竞态会让后端读空 → bootstrap 反向清空 → 书丢失。
+      // 用 pushStoreNowChecked（失败抛错，不吞）：后端 413（body 超限）/ 5xx / 断网会抛错，
+      // 避免误报「已入库」实际只活在内存、重启后消失。
       try {
-        await pushStoreNow()
+        await pushStoreNowChecked()
         message.success(`已入库《${title}》共 ${newChapters.length} 章（状态 cleaned）。可到 M2 提取设定、M5 查看章节。`)
-      } catch {
-        message.error('入库写入后端失败，请重试')
+      } catch (e) {
+        message.error(`入库失败：${e instanceof Error ? e.message : String(e)}。数据未保存，请重试或检查章节内容大小。`)
+        // 入库失败 → 撤回内存中的入库操作，避免「看似入库」的假象
+        setState({ books, chapters: allChapters, importSession: session })
       }
     }
     if (notReviewed > 0) {

@@ -15,7 +15,11 @@ import { getAssetDir } from './store/db'
 const PORT = Number(process.env.PORT ?? 8787)
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)))
 
-const app = Fastify({ logger: true })
+// bodyLimit 提至 50MB：业务数据整本 POST（syncAll 一次性提交全部 books + chapters 含完整正文）。
+// Fastify 默认仅 1MB，入库一本真书（章节正文大）会超限 → 413 被拒 → 前端 pushStoreNow 的
+// .catch(() => {}) 吞掉错误、message.success 误报「已入库」→ 书只活内存 → 重启后消失。
+// 50MB 足够任何规模小说（百万字 UTF-8 ≈ 3MB），同时不至于被滥用。
+const app = Fastify({ logger: true, bodyLimit: 50 * 1024 * 1024 })
 
 await app.register(llmRoutes)
 await app.register(creationRoutes)

@@ -417,6 +417,8 @@ useAppStore.subscribe((s, prev) => {
 // function 声明被提升，故 store actions（定义在上方）可在运行时引用。
 // 导出供 Step4 入库等关键写操作立即落库（避免依赖 debounce 在关窗竞态下丢失）。
 // 返回 Promise 以便调用方 await（入库前必须确认落库，再提示成功）。
+// 注意：本函数 catch 吞错（fire-and-forget 安全），await 它**不能**判断写入是否成功——
+// 失败也会 resolve。需要确认结果的关键写入请用 pushStoreNowChecked()。
 export function pushStoreNow(): Promise<void> {
   if (!storeReady) return Promise.resolve()
   if (storeTimer) {
@@ -424,6 +426,30 @@ export function pushStoreNow(): Promise<void> {
     storeTimer = null
   }
   return pushStore(businessPayload(useAppStore.getState())).then(() => undefined).catch(() => {})
+}
+
+// 关键写入专用：与 pushStoreNow 同样绕防抖立即落库，但**失败抛错**（不吞），供 await + try/catch。
+// 用途：入库等一次性关键写——后端 413（body 超限）/ 5xx / 网络断 等会抛错，避免 message.success 误报。
+export async function pushStoreNowChecked(): Promise<void> {
+  if (!storeReady) throw new Error('数据层尚未就绪，请稍候重试')
+  if (storeTimer) {
+    clearTimeout(storeTimer)
+    storeTimer = null
+  }
+  const res = await pushStore(businessPayload(useAppStore.getState()))
+  if (!res.ok) {
+    // 解析后端错误信息（Fastify 413/500 等返回 {message:...}），附 HTTP 状态码
+    const txt = await res.text().catch(() => '')
+    let detail = `HTTP ${res.status}`
+    try {
+      const j = JSON.parse(txt) as { message?: string; error?: string }
+      if (j.message) detail += `：${j.message}`
+      else if (j.error) detail += `：${j.error}`
+    } catch {
+      /* 非 JSON 响应，仅用状态码 */
+    }
+    throw new Error(`写入后端失败（${detail}）`)
+  }
 }
 
 // 设置回写：providers/moduleMapping/m1SystemPrompt/assetDir/currentBookId/imageDemoForm/

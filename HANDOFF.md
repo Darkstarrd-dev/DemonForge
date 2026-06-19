@@ -15,13 +15,13 @@
 3. **当前任务焦点**：① **novel-generator 集成·阶段 A~D 全部完成并通过审核**（数据模型 + sqlite-vec RAG 检索层 + Context Assembler + 起源流程 + 生成管理 + 批量生产）；
     ② **Electron 迁移已完成**——开发/生产模式、进程管理、打包配置就绪，待用户测试验证；
     ③ **3D Demo WASM 崩溃已修复** + **全局 Error Boundary 已添加**——animate 循环异常安全、init 单例化、ErrorBoundary 兜底白屏。
-    ④ **【最新】问题1 入库持久化根因修复**——真正根因是**数据目录在代码版本间漂移导致 db 文件分裂**（初始版写项目根 `assets/`、Electron 迁移后写 `server/src/data/`，且 tsx-src 与 node-dist 解析到不同子目录）。已用 `NOVELHELPER_DATA_DIR` 环境变量作单一真相源、清理散落 db、重建 dist，端到端验证（入库→终止后端→重启→数据完整存活）通过。
+    ④ **【最新】问题1 入库持久化真因二修复**——上轮（数据目录单一真相源）治好了"db 文件分裂散落"，但用户实测**入库真书仍消失**。本轮定位第二个真因：**Fastify 默认 `bodyLimit=1MB`**，真书整本 POST 超 1MB → **413 被后端拒** → 前端 `pushStoreNow` 的 `.catch(()=>{})` **吞错** → `message.success("已入库")` **误报** → 书只活内存 → 重启消失。修复：后端 `bodyLimit=50MB` + 前端 `pushStoreNowChecked()`（不吞错）+ Step4 失败撤回入库并显示真实 HTTP 错误。**大书端到端验证通过**。
 
 ## 项目状态快照
 
-- **最后更新**：2026-06-19（第二十九次会话·**问题1 入库持久化根因修复 + 数据目录单一真相源**）
+- **最后更新**：2026-06-19（第三十次会话·**问题1 真因二：Fastify bodyLimit 超限误报入库成功**）
 - **阶段**：正式开发——M1 AI 清理端到端跑通；**novel-generator 集成阶段 A~D 全部完成**；**Electron 迁移完成**；M2–M5 仍 mock；业务数据 SQLite 资产库（可配置资产目录），Provider/密钥等设置存用户数据目录
-- **新增**：M1 Step2 章节分割由「纯手选模式」升级为「**进入页自动检测推荐 + 手选/正则兜底**」——`detectChapterPattern` 逐行扫描每个模式按命中数评分（MIN_HITS=2，卷模式仅在无章类命中时兜底），进入 Step2 即 lazy 初始化推荐模式 + 抽样标题提示（绿/黄按 confidence）；标题前装饰符号（`[爱心]`/`★`/`【】`等成对包裹块 + 散落符号）自动 `stripDecor` 剥除再匹配；**卷结构单独成章**（内置 `VOLUME_REGEX` 旁路识别，标记 `isVolume`，Step3 `skipClean` 跳过 LLM 原样保留）；**句末标点护栏扩展中文闭引号**（`\u201D` / `\u2019`，修复对话 `～"第2章` 粘连场景）；**预览光标人工拆分**（展开章节文本可定位光标，一键把光标后内容拆为新章，补偿自动切分遗漏）；检测模式池存 `settings.json`，设置页新增「章节检测模式池」Card 可增删改（内置 8 模式：第X章/回/卷/节、X章无「第」字、Chapter N 带 `i` flag、数字+顿号、custom）；`SplitPattern` 类型加 `flags?`/`builtin?`，`ImportChapter` 加 `skipClean?`
+- **新增**：**入库持久化真因最终修复**——上轮（单一真相源）治好了"db 文件分裂散落"，但用户实测真书入库仍消失。本轮定位**第二个真因**：**Fastify 默认 `bodyLimit=1MB`**，入库真书（章节正文大）整本 `syncAll` 一次性 POST 超 1MB → **413 被后端拒** → 前端 `pushStoreNow` 的 `.catch(()=>{})` **静默吞错** → `message.success("已入库")` **误报** → 书只活内存 → 重启消失。修复三处：① 后端 `bodyLimit=50MB`；② 前端新增 `pushStoreNowChecked()`（失败抛错，不吞）；③ Step4 接入 + 失败撤回内存入库、显示真实 HTTP 错误。**实证大书端到端全过**（1.1MB POST→200→杀进程→重启→GET 存活；修复前同操作 413）。
 - **摘要**：在 mock 前端基础上**进入实现阶段**。
   运行方式（三选一）：
   - **【推荐】Electron 模式**：双击 `start-electron.bat`（开发模式）或 `npm run dev`，Electron 窗口自动管理前后端；关窗即自动清理进程
@@ -169,6 +169,12 @@
   - [x] **重建编译**：`server/build`(tsc) ✅ + `build:electron`(dist-electron/main.js) ✅，验证新 dist 含 `imageRoutes`/`image_gallery` 表/`NOVELHELPER_DATA_DIR` 逻辑。
   - [x] **端到端验证（tsx src 模拟 Electron dev）**：传 `NOVELHELPER_DATA_DIR=server/src/data` 启动 → 入库（books=1/chapters=2 含中文）→ PowerShell 终止后端 → 同环境变量重启 → `GET /api/store` **books=1 chapters=2 完整存活**（含中文标题「第一章 开端/第二章 发展」）。启动日志确认数据目录锚定 `server/src/data`。测试数据已清，db 留空供 Electron 启动重建。
   - [ ] **待用户实机验证**：重启 `start-electron.bat` → M1 入库一本真书 → 完全退出 Electron 再进 → 确认入库内容仍在、书库无 Mock 演示书重现。
+- [x] **问题1 真因二（body 超限误报成功）—— Fastify bodyLimit + 入库失败可见性**（2026-06-19 第三十次会话·**端到端验证通过**）
+  - [x] **复现用户场景后定位真因**：用户实测"入库真书 → force reload/重启后消失"，但上一轮的"小测试书端到端"全过——差异在**数据量**。实证（用 Electron dev 同款 `NOVELHELPER_DATA_DIR` 启动后端）：① 后端层持久化**完全正常**（POST 小书→杀进程→直查磁盘 db→重启→GET，数据 100% 存活，db 路径单一锚定已生效）；② 经 vite proxy(5173) 转发也正常；③ **决定性发现**：POST **大 body**（1.1MB，模拟真书章节正文）→ 后端返回 **HTTP 413 `FST_ERR_CTP_BODY_TOO_LARGE`**——**Fastify 默认 `bodyLimit` 仅 1MB**。入库真书（章节正文大）整本 `syncAll` 一次性 POST 所有 books+chapters 轻松超 1MB → **413 被拒** → 前端 `pushStoreNow` 的 `.catch(() => {})` **静默吞错** → `message.success("已入库")` **误报成功** → 书只活在内存 → force reload/重启后消失。完美解释"小书测试过、真书消失"的全部现象。
+  - [x] **修复① 后端提 bodyLimit**（`server/src/index.ts`）：`Fastify({ logger:true, bodyLimit: 50*1024*1024 })`（50MB，足够任何规模小说；百万字 UTF-8 ≈ 3MB）。
+  - [x] **修复② 前端关键写入不吞错**（`appStore.ts`）：新增 `pushStoreNowChecked()`——与 `pushStoreNow` 同样绕防抖立即落库，但**失败抛错**（解析后端 413/5xx 的 `{message}` 附 HTTP 状态码），供 `await` + `try/catch`。保留 `pushStoreNow()`（fire-and-forget 安全，向后兼容 deleteBook/resetDemo 等）。
+  - [x] **修复③ Step4 入库接入**（`Step4Review.tsx`）：`await pushStoreNowChecked()`，catch 块显示真实错误（含 HTTP 状态码 + 后端 message），并**撤回内存中的入库操作**（`setState({books, chapters:allChapters, importSession:session})` 回到入库前快照），杜绝"看似入库"假象。
+  - [x] **验证全过**：后端 typecheck ✅ / 前端 eslint ✅ / build(tsc+vite) ✅ / **大书端到端**（1.1MB POST→200✓→杀进程→直查 db books=1/chapters=15→重启→GET books=1/chapters=15 完整存活，修复前同操作 413）✅。测试数据已清。
 - [x] **问题2 已解决 + 问题1 持久化加固 + 问题3 拆分后自动检测标题**（2026-06-19 第二十八次会话）
   - [x] **问题1 入库持久化**：`pushStoreNow` 返回 `Promise<void>`，`Step4.doStore` 改 `await pushStoreNow()`（写完才提示成功）。端到端诊断脚本 + 真机后端重启测试双重验证持久化链路正常（含后端重启存活）。**用户仍复现 → 硬刷新 Electron 窗口（Ctrl+Shift+R）/ 重启 start-electron.bat**（vite HMR 对 appStore.ts 模块级副作用热替换不稳定）
   - [x] **问题3 拆分后自动检测**：新增 `split.ts:detectLeadingChapterTitle(content, patterns)`（取首条非空行 stripDecor 后 findTitleInLine 测各内置模式，命中返回 `{title, content(剥首行)}`，无命中 null）；`Step2Split.splitAtCursor` 接入（标题优先级：用户输入 > 自动检测 > 「原标题（续）」）；UI 提示更新；smoke +4 断言
@@ -317,22 +323,27 @@
 
 ## 交接备注（最近一次会话）
 
-- **日期**：2026-06-19（第二十九次会话·**问题1 入库持久化根因修复 + 数据目录单一真相源**）
-- **本次完成**（用户反馈：硬刷新后问题1仍复现）：
-  - **彻底定位真根因**（前几轮的 `pushStoreNow` async 加固没动到病根）：**数据目录在代码版本间漂移 → db 文件分裂散落**。SQLite 初版（`3cf6618`）用 `REPO_ROOT=dirname×3(HERE)` 写到**项目根 `assets/`**；Electron 迁移（`34405c3`）改 `paths.ts: join(__dirname,'..','data')`，而 `import.meta.url` 在 tsx(跑 src) 解析到 `server/src/data/`、在 node(跑 dist) 解析到 `server/dist/data/`——**三个不同位置的 db 互相看不到对方数据**。入库写一处、重启读另一处 → 入库内容消失；某次解析到根目录（无 settings.json → `storeInitialized` 缺失 + 库空）→ bootstrap 走播种分支 → Mock 演示书重现。**取证实证**：运行中后端 POST 标记 `PROBE_*` 探测落点 + 全表 dump 三个 db + git 历史对照。
-  - **修复·单一真相源**：① `electron/main.ts:startBackend` spawn 时传 `NOVELHELPER_DATA_DIR`（dev=`ROOT/server/src/data`、prod=`~/.novelhelper`）+ import `homedir`；② `paths.ts:getAppDataDir()` 优先读该环境变量（回退逻辑保留向后兼容，覆盖非 Electron 直跑）；③ `index.ts` 启动即 log `[data-dir] settings/json at:` + `asset db dir:` 便于日后排查。
-  - **清理散落 db**（全部确认无用户珍贵数据后删）：根目录 `assets/`（历史遗留空旧库 + 空 images）、`server/src/data/assets/novelhelper.db*`（诊断脚本污染的 `test-node-book` + WAL）。**保留 `server/src/data/settings.json`** 用户 providers/API keys/moduleMapping 配置，仅清空 `currentBookId`（指向已删幽灵书）+ 删探测残留 `__probe`，`storeInitialized:true` 保持（空库不回填 Mock）。
-  - **重建编译**：`server/build`(tsc) ✅ + `build:electron`(dist-electron) ✅，验证新 dist 含 `imageRoutes` / `image_gallery` 表 / `NOVELHELPER_DATA_DIR` 逻辑。
-  - **端到端验证通过**（tsx src 模拟 Electron dev）：传 `NOVELHELPER_DATA_DIR=server/src/data` 启动 → 入库 books=1/chapters=2（含中文标题）→ PowerShell 终止后端 → 同环境变量重启 → `GET /api/store` **books=1 chapters=2 完整存活**。测试数据已清。
-- **验证全过**：后端 build(tsc) ✅ / build:electron(dist-electron) ✅ / 端到端入库→重启→存活 ✅（启动日志确认数据目录锚定 `server/src/data`）
+- **日期**：2026-06-19（第三十次会话·**问题1 真因二：Fastify bodyLimit 超限误报入库成功**）
+- **本次完成**（用户反馈：上轮（单一真相源）修复后，**小书测试过、但入库真书 → force reload/重启后仍消失**）：
+  - **复现并分层排查**（关键转折：发现"小测试书正常、真书消失"的差异在**数据量**）：
+    - ① **后端层持久化完全正常**：用 Electron dev 同款 `NOVELHELPER_DATA_DIR` 启动后端 → POST 小书（几十字）→ `taskkill /F /IM node.exe` → 直查磁盘 db（books=1）→ 同环境变量重启 → GET /api/store 返回 books=1 完整存活。**db 路径单一锚定已生效，后端层无问题**。
+    - ② **经 vite proxy(5173) 转发也正常**：GET 经前端真实路径返回正确数据。
+    - ③ **决定性发现**：POST **大 body**（1.1MB，15 章 × 75000 字节/章，模拟真书章节正文）→ 后端返回 **HTTP 413 `FST_ERR_CTP_BODY_TOO_LARGE`**。**Fastify 默认 `bodyLimit` 仅 1MB**。入库真书整本 `syncAll` 一次性 POST 所有 books+chapters（含完整正文）轻松超 1MB → **413 被拒** → 前端 `pushStoreNow` 的 `.catch(() => {})` **静默吞错** → `message.success("已入库")` **误报成功** → 书只活在内存 → force reload/重启后消失。**完美解释全部现象**（小书测试过、真书消失）。
+  - **修复三处**：
+    - ① **后端提 bodyLimit**（`server/src/index.ts`）：`Fastify({ logger:true, bodyLimit: 50*1024*1024 })`（50MB，足够任何规模小说；百万字 UTF-8 ≈ 3MB）。
+    - ② **前端关键写入不吞错**（`appStore.ts`）：新增 `pushStoreNowChecked()`——与 `pushStoreNow` 同样绕防抖立即落库，但**失败抛错**（解析后端 413/5xx 的 `{message}` 附 HTTP 状态码），供 `await` + `try/catch`。保留 `pushStoreNow()`（fire-and-forget 安全，向后兼容 deleteBook/resetDemo 等）。
+    - ③ **Step4 入库接入**（`Step4Review.tsx`）：`await pushStoreNowChecked()`，catch 块显示真实错误（含 HTTP 状态码 + 后端 message），并**撤回内存中的入库操作**（`setState({books, chapters:allChapters, importSession:session})` 回到入库前快照），杜绝"看似入库"假象。
+  - **实证大书端到端全过**：POST 1.1MB 大书 → 200 ✓（修复前同操作 413）→ 杀进程 → 直查磁盘 db books=1/chapters=15 → 重启 → GET books=1/chapters=15 完整存活。测试数据已清。
+- **验证全过**：后端 typecheck ✅ / 前端 eslint ✅ / build(tsc+vite,15.8s) ✅ / 大书端到端（POST→杀→重启→GET 存活）✅
 - **已知限制/注意**：
-  ① **前几轮诊断脚本的教训**：上轮"端到端诊断脚本"直接连后端**真实 db** 写入 `test-node-book`（没隔离），污染了 `server/src/data` 库——本次已清。**今后诊断持久化必须用隔离的临时 db 或 mock fetch**，绝不可连生产库。
-  ② **dist import 缺 `.js` 扩展名隐患**（本次发现，**未修**——影响打包版，开发模式 tsx src 不受影响）：`server/tsconfig.json` 用 `moduleResolution: "bundler"`（`34405c3` 引入），tsc 不重写 import 扩展名 → `node dist/index.js` 报 `ERR_MODULE_NOT_FOUND`（如 `Cannot find module .../routes/llm`）。**留待打包分发阶段处理**（候选方案：TS 5.7 `rewriteRelativeImportExtensions` + import 带 `.ts`；或生产模式后端改用 tsx 跑 src；或 esbuild 打包 dist）。**用户当前开发模式无此问题**。
-  ③ **数据目录现已单一锚定**（`server/src/data`）：任何持久化异常排查第一步——看后端启动日志的 `[data-dir]` 两行确认实际落点。
+  ① **前几轮诊断脚本的教训**：上上轮"端到端诊断脚本"直接连后端**真实 db** 写入 `test-node-book`（没隔离），污染了 `server/src/data` 库。**今后诊断持久化必须用隔离的临时 db 或 mock fetch**，绝不可连生产库。
+  ② **本次排查方法论**：根因排查应**复现用户真实场景**（真书 = 大数据量）而非用合成小样本，否则会像前几轮一样"测试全过但用户仍复现"。本轮用"小书正常 vs 真书消失"的对比锁定了数据量差异这个关键线索。
+  ③ **dist import 缺 `.js` 扩展名隐患**（未修——影响打包版，开发模式 tsx src 不受影响）：`server/tsconfig.json` 用 `moduleResolution: "bundler"`（`34405c3` 引入），tsc 不重写 import 扩展名 → `node dist/index.js` 报 `ERR_MODULE_NOT_FOUND`。**留待打包分发阶段处理**。**用户当前开发模式无此问题**。
+  ④ **数据目录单一锚定**（`server/src/data`）：任何持久化异常排查第一步——看后端启动日志的 `[data-dir]` 两行确认实际落点。
 - **下一步**：
-  ① **用户实机验证（核心）**：重启 `start-electron.bat` → M1 入库一本真书 → **完全退出 Electron 再进** → 确认入库内容仍在、书库无 Mock 演示书重现
+  ① **用户实机验证（核心）**：重启 `start-electron.bat` → M1 **入库一本真书**（章节正文较大）→ **完全退出 Electron 再进** → 确认入库内容仍在、书库无 Mock 演示书重现。**此轮修复针对的正是真书入库场景**，应能通过。
   ② 仍待实机验证（历史项）：问题3 拆分后自动检测标题、文生图 Demo 端到端、书库删除流程、M0 立项不再误报
-  ③（后续）打包分发前修复 dist import 扩展名（见已知限制 ②）
+  ③（后续）打包分发前修复 dist import 扩展名（见已知限制 ③）
 
 ## 更新本文档的约定
 
