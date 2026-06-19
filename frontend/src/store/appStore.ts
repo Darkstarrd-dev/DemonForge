@@ -320,6 +320,11 @@ export async function bootstrapStore(): Promise<void> {
         // 已初始化但库为空（用户删光了书 / 切到空目录）→ 必须显式把内存清空，
         // 否则内存里仍是 seedState() 的两本种子书，后续任意 setState（如 currentBookId
         // 改动）触发 storeReady 订阅 → 把这两本假书 pushStore 回后端 → 重启后「自动冒出」。
+        // ⚠️ 关键：清空前先临时关掉 storeReady，避免"内存清空"这一步本身触发订阅把空数组
+        // POST 回后端、反向删除后端未来可能恢复的数据。清空后重新开启 storeReady。
+        // （若刚入库的书因后端瞬时读空走到这里，pushStoreNow 已在入库时即时落库；此处清空
+        // 只影响内存，不影响后端。）
+        storeReady = false
         useAppStore.setState({
           books: [],
           chapters: [],
@@ -333,6 +338,7 @@ export async function bootstrapStore(): Promise<void> {
           mergeCandidates: [],
           imageGallery: [],
         })
+        storeReady = true
       }
     }
   } catch {
@@ -406,16 +412,18 @@ useAppStore.subscribe((s, prev) => {
   }, 1000)
 })
 
-// 立即把当前业务状态推送到后端（绕过 1s 防抖）。用于删除/重置等一次性关键操作：
-// 点击即落库，不依赖 beforeunload（Electron 卸载时机不稳定，1s 内关窗会丢删除）。
+// 立即把当前业务状态推送到后端（绕过 1s 防抖）。用于删除/重置/**入库**等一次性关键操作：
+// 点击即落库，不依赖 beforeunload（Electron 卸载时机不稳定，1s 内关窗会丢写入）。
 // function 声明被提升，故 store actions（定义在上方）可在运行时引用。
-function pushStoreNow(): void {
-  if (!storeReady) return
+// 导出供 Step4 入库等关键写操作立即落库（避免依赖 debounce 在关窗竞态下丢失）。
+// 返回 Promise 以便调用方 await（入库前必须确认落库，再提示成功）。
+export function pushStoreNow(): Promise<void> {
+  if (!storeReady) return Promise.resolve()
   if (storeTimer) {
     clearTimeout(storeTimer)
     storeTimer = null
   }
-  pushStore(businessPayload(useAppStore.getState())).catch(() => {})
+  return pushStore(businessPayload(useAppStore.getState())).then(() => undefined).catch(() => {})
 }
 
 // 设置回写：providers/moduleMapping/m1SystemPrompt/assetDir/currentBookId/imageDemoForm/

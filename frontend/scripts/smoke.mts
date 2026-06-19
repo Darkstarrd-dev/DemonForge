@@ -1,6 +1,6 @@
 // 临时冒烟测试：node --experimental-strip-types 运行，验证核心逻辑
 import { DEMO_RAW_TEXT, mockCleanChapter } from '../src/mocks/demoRaw.ts'
-import { splitChapters, PRESET_PATTERNS, retentionRate, detectChapterPattern, DEFAULT_SPLIT_PATTERNS, compilePatterns, normalizeParagraphs } from '../src/utils/split.ts'
+import { splitChapters, PRESET_PATTERNS, retentionRate, detectChapterPattern, detectLeadingChapterTitle, DEFAULT_SPLIT_PATTERNS, compilePatterns, normalizeParagraphs } from '../src/utils/split.ts'
 import { alignedDiff, applyLineDecisions, diffStats } from '../src/utils/alignedDiff.ts'
 
 let failed = 0
@@ -137,6 +137,20 @@ check('第2章含其后正文', quoteSplit[1].content.includes('正文一'), quo
 check('无空行 → 段间补空行', normalizeParagraphs('第一段。\n第二段。\n第三段。') === '第一段。\n\n第二段。\n\n第三段。', normalizeParagraphs('第一段。\n第二段。\n第三段。'))
 check('多空行 → 压成 1 个', normalizeParagraphs('第一段。\n\n\n\n第二段。') === '第一段。\n\n第二段。', normalizeParagraphs('第一段。\n\n\n\n第二段。'))
 check('已有单空行 → 不动', normalizeParagraphs('第一段。\n\n第二段。') === '第一段。\n\n第二段。', normalizeParagraphs('第一段。\n\n第二段。'))
+
+// 9. 人工拆分后自动检测拆分位置后的章节标题（detectLeadingChapterTitle）
+// 场景：用户光标拆在「正文…第3章 新的展开\n正文」的「第3章」前 → 拆分后内容以标题行开头
+const detectedHit = detectLeadingChapterTitle('第3章 新的展开\n　　正文一\n　　正文二', PATTERNS)
+check('拆分后内容以「第N章」开头 → 自动检测到标题', !!detectedHit && detectedHit.title === '第3章 新的展开', detectedHit?.title ?? 'null')
+check('检测到标题 → content 剥离首行标题', !!detectedHit && detectedHit.content.includes('正文一') && !detectedHit.content.includes('第3章'), detectedHit?.content ?? 'null')
+// 场景：拆分后内容是普通正文（无标题特征）→ 返回 null（调用方回退到「原标题（续）」）
+const noHit = detectLeadingChapterTitle('　　他翻到书页，继续阅读。\n　　第二段。', PATTERNS)
+check('拆分后内容无标题特征 → 返回 null', noHit === null, JSON.stringify(noHit))
+// 场景：首行带装饰前缀（★第4章 暗流）→ stripDecor 后仍能检测
+const decorHit = detectLeadingChapterTitle('★第4章 暗流\n正文', PATTERNS)
+check('首行带装饰前缀 → stripDecor 后检测到标题', !!decorHit && decorHit.title === '第4章 暗流', decorHit?.title ?? 'null')
+// 场景：空内容 → null
+check('空内容 → null', detectLeadingChapterTitle('', PATTERNS) === null)
 
 console.log(failed === 0 ? '\n全部通过' : `\n${failed} 项失败`)
 process.exit(failed === 0 ? 0 : 1)

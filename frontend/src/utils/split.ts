@@ -161,6 +161,53 @@ export function findTitleInLine(line: string, searchRegex: RegExp): TitleHit | n
   }
 }
 
+/**
+ * 检测文本开头是否为章节标题行（用于人工拆分后自动命名新章）。
+ *
+ * 用户在预览里点光标拆分时，拆分位置往往是「没切好的章节边界」——其后的内容本身
+ * 可能就是一段被并到上一章的真实标题行（如 `第3章 新的展开\n正文…`）。此时直接复用
+ * 自动检测算法提取该标题作为新章标题，比默认 `原标题（续）` 更准确。
+ *
+ * 取首条非空行，stripDecor 后对内置模式逐个 findTitleInLine：
+ *  - 命中（首行 index 0 不需要句末标点背书）→ 返回该标题，并把首行剥离后作为 content
+ *  - 首行无命中 → 返回 null（调用方回退到默认 `原标题（续）` 或用户输入）
+ *
+ * 注意：findTitleInLine 已处理「首行 index 0 = 干净标题行」与「句末标点护栏」，
+ *       这里直接复用，保证拆分命名与自动检测口径一致。
+ */
+export function detectLeadingChapterTitle(
+  content: string,
+  stored: StoredSplitPattern[],
+): { title: string; content: string } | null {
+  if (!content) return null
+  const patterns = compilePatterns(stored).filter((p) => p.key !== 'custom' && p.regex)
+  // 取首条非空行（跳过拆分点附近可能残留的空白）
+  const lines = content.split(/\r?\n/)
+  let firstIdx = -1
+  let firstLine = ''
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i].trim() !== '') {
+      firstIdx = i
+      firstLine = lines[i]
+      break
+    }
+  }
+  if (firstIdx < 0) return null
+
+  const stripped = stripDecor(firstLine.trim())
+  for (const p of patterns) {
+    const hit = findTitleInLine(stripped, p.regex!)
+    if (hit) {
+      // 命中标题在首行 index 0（stripDecor 后），整首行就是标题行 → 剥离该行作为新章 content
+      // 若 index > 0 但有句末标点背书，prefix 归入上一章，此处首行仍当标题行处理
+      const restLines = lines.slice(firstIdx + 1)
+      const restContent = restLines.join('\n').replace(/^\n+/, '').replace(/\n+$/, '')
+      return { title: hit.title, content: restContent }
+    }
+  }
+  return null
+}
+
 export interface DetectResult {
   /** 推荐模式 key（无命中时返回 'custom'） */
   patternKey: string

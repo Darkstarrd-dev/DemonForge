@@ -23,7 +23,7 @@ import {
   RedoOutlined,
   SyncOutlined,
 } from '@ant-design/icons'
-import { useAppStore, genId } from '../../store/appStore'
+import { useAppStore, genId, pushStoreNow } from '../../store/appStore'
 import { alignedDiff, applyLineDecisions } from '../../utils/alignedDiff'
 import DiffView from './DiffView'
 import type { BookType, Chapter, CleanStatus, ImportChapter, LineDecision } from '../../services/types'
@@ -112,7 +112,7 @@ export default function Step4Review() {
     const notReviewed = chapters.filter(
       (c) => c.cleanStatus !== 'accepted' && c.cleanStatus !== 'rejected',
     ).length
-    const proceed = () => {
+    const proceed = async () => {
       const bookId = genId('book')
       const now = new Date().toISOString()
       const newChapters: Chapter[] = chapters.map((c, i) => ({
@@ -130,7 +130,14 @@ export default function Step4Review() {
         importSession: null,
       })
       setStoreOpen(false)
-      message.success(`已入库《${title}》共 ${newChapters.length} 章（状态 cleaned）。可到 M2 提取设定、M5 查看章节。`)
+      // 入库是关键写操作 → await 立即落库（绕过 1s debounce），确认写完再提示成功。
+      // 必须用 pushStoreNow：仅依赖 debounce 时关窗/重启竞态会让后端读空 → bootstrap 反向清空 → 书丢失。
+      try {
+        await pushStoreNow()
+        message.success(`已入库《${title}》共 ${newChapters.length} 章（状态 cleaned）。可到 M2 提取设定、M5 查看章节。`)
+      } catch {
+        message.error('入库写入后端失败，请重试')
+      }
     }
     if (notReviewed > 0) {
       modal.confirm({
@@ -139,7 +146,7 @@ export default function Step4Review() {
         onOk: proceed,
       })
     } else {
-      proceed()
+      await proceed()
     }
   }
 

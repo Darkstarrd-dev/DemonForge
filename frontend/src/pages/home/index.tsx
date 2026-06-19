@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { App, Button, Card, Checkbox, Modal, Table, Tag, Typography, Space } from 'antd'
-import { DeleteOutlined } from '@ant-design/icons'
+import { DeleteOutlined, FolderOpenOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import { useAppStore } from '../../store/appStore'
 import type { Book } from '../../services/types'
@@ -55,11 +55,22 @@ export default function HomePage() {
     {
       title: '操作',
       key: 'action',
-      width: 80,
+      width: 140,
       render: (_: unknown, b: Book) => (
-        <Button danger size="small" icon={<DeleteOutlined />} onClick={() => openDelete(b)}>
-          删除
-        </Button>
+        <Space size={4} onClick={(e) => e.stopPropagation()}>
+          <Button
+            size="small"
+            type="primary"
+            ghost
+            icon={<FolderOpenOutlined />}
+            onClick={() => navigate(`/book-reader?bookId=${b.id}`)}
+          >
+            打开
+          </Button>
+          <Button size="small" danger icon={<DeleteOutlined />} onClick={() => openDelete(b)}>
+            删除
+          </Button>
+        </Space>
       ),
     },
   ]
@@ -82,6 +93,10 @@ export default function HomePage() {
           dataSource={books}
           pagination={false}
           size="middle"
+          onRow={(b: Book) => ({
+            style: { cursor: 'pointer' },
+            onClick: () => navigate(`/book-reader?bookId=${b.id}`),
+          })}
           locale={{
             emptyText: (
               <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>

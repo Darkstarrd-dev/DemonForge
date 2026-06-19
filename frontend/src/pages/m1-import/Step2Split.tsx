@@ -17,6 +17,7 @@ import { useAppStore, genId } from '../../store/appStore'
 import {
   compilePatterns,
   detectChapterPattern,
+  detectLeadingChapterTitle,
   splitChapters,
   toSearchRegex,
   type DetectResult,
@@ -53,7 +54,16 @@ export default function Step2Split() {
   const [cursorPos, setCursorPos] = useState<number | null>(null)
   /** 拆分后新章节标题（受控输入，默认带「（续）」后缀） */
   const [splitTitle, setSplitTitle] = useState('')
-  const textareaRef = useRef<HTMLTextAreaElement>(null)
+  /**
+   * antd v6 的 Input.TextArea ref 暴露的是组件实例 { resizableTextArea: { textArea } }，
+   * 不是原生 HTMLTextAreaElement。故用联合类型承接，handleSelectText 里再安全取原生节点。
+   * （结构对齐 antd TextAreaRef / @rc-component/input ResizableTextAreaRef）
+   */
+  type TextAreaInst = {
+    resizableTextArea?: { textArea?: HTMLTextAreaElement }
+    nativeElement?: HTMLElement | null
+  }
+  const textareaRef = useRef<TextAreaInst | HTMLTextAreaElement | null>(null)
 
   // Radio options：内置 + 用户自定义模式，custom 永远在末尾
   const radioOptions = useMemo(() => {
@@ -164,40 +174,77 @@ export default function Step2Split() {
     }
   }
 
-  /** 在展开章节文本里定位光标：从 selectionStart 反算 content 偏移（去掉【标题】\n\n 前缀） */
+  /**
+   * 从 antd Input.TextArea 的 ref（可能是组件实例或原生节点）取原生 HTMLTextAreaElement。
+   * antd v6：ref.current = { resizableTextArea: { textArea } }；兜底 nativeElement。
+   */
+  const getNativeTextArea = (): HTMLTextAreaElement | null => {
+    const ref = textareaRef.current
+    if (!ref) return null
+    if (ref instanceof HTMLTextAreaElement) return ref
+    const ta = ref.resizableTextArea?.textArea
+    if (ta) return ta
+    // nativeElement 兜底（结构上未必是 textarea，但 antd 文档保证可读 selectionStart）
+    const native = ref.nativeElement
+    return native && 'selectionStart' in native ? (native as HTMLTextAreaElement) : null
+  }
+
+  /**
+   * 在展开章节文本里定位光标：从 selectionStart 反算 content 偏移（去掉【标题】\n\n 前缀）。
+   * 点击瞬时浏览器可能尚未更新选区，故用 requestAnimationFrame 等一帧再读最新 selectionStart。
+   */
   const handleSelectText = () => {
-    const ta = textareaRef.current
-    if (!ta) return
-    const start = ta.selectionStart
-    // textarea 内容形如 `【title】\n\n${content}`，前缀长度即标题行偏移
     const cur = selectedIdx !== null && preview ? preview[selectedIdx] : null
     if (!cur) return
     const prefixLen = `【${cur.title}】\n\n`.length
-    const pos = start - prefixLen
-    // 仅当光标落在 content 区间内才记录（点在前缀区不算）
-    if (pos >= 0 && pos <= cur.content.length) {
-      setCursorPos(pos)
-    } else {
-      setCursorPos(null)
-    }
+    // 点选时浏览器选区可能在事件回调时尚未刷新，推迟到下一帧读取最新 selectionStart
+    requestAnimationFrame(() => {
+      const ta = getNativeTextArea()
+      if (!ta) return
+      const start = ta.selectionStart ?? 0
+      const pos = start - prefixLen
+      // 仅当光标落在 content 区间内才记录（点在前缀区不算）
+      setCursorPos(pos >= 0 && pos <= cur.content.length ? pos : null)
+    })
   }
 
   /**
    * 在光标位置拆分当前展开章：光标之后的内容拆为新章插入到下一位置。
    * 前段留在原章（trim 尾部空白），后段作为新章（trim 头部空白）。
-   * 新章标题用 splitTitle（空则用原标题 + 「（续）」）。
+   *
+   * 新章标题来源（按优先级）：
+   *  1. 用户在输入框填了 splitTitle → 用之（用户明确覆盖）
+   *  2. 自动检测：拆分位置后内容若以章节标题行开头（第N章/第N回/…，复用自动检测算法）
+   *     → 直接用该标题，并剥离首行作为新章 content（用户拆分位置常是"没切好的边界"，其后
+   *     本就是被并到上一章的真实标题行，自动命名比"（续）"更准）
+   *  3. 兜底：原标题 + 「（续）」
    */
   const splitAtCursor = () => {
     if (!preview || selectedIdx === null || cursorPos === null) return
     const cur = preview[selectedIdx]
     const pos = Math.max(0, Math.min(cursorPos, cur.content.length))
     const before = cur.content.slice(0, pos).replace(/\s+$/, '')
-    const after = cur.content.slice(pos).replace(/^\s+/, '')
+    let after = cur.content.slice(pos).replace(/^\s+/, '')
     if (!after) {
       message.warning('光标之后没有内容可拆分')
       return
     }
-    const newTitle = splitTitle.trim() || `${cur.title}（续）`
+    const userTitle = splitTitle.trim()
+    let newTitle: string
+    let detected = false
+    if (userTitle) {
+      newTitle = userTitle
+    } else {
+      // 自动检测拆分位置后内容是否以章节标题行开头
+      const detectedHit = detectLeadingChapterTitle(after, splitPatterns)
+      if (detectedHit) {
+        newTitle = detectedHit.title
+        after = detectedHit.content
+        detected = true
+      } else {
+        newTitle = `${cur.title}（续）`
+      }
+    }
     const next: SplitResult[] = preview.map((p, i) => {
       if (i !== selectedIdx) return p
       return { ...p, content: before }
@@ -205,7 +252,9 @@ export default function Step2Split() {
     // 在 selectedIdx 之后插入新章
     next.splice(selectedIdx + 1, 0, { title: newTitle, content: after, isVolume: false })
     setManualOverrides(next)
-    message.success(`已拆分：原章保留 ${before.length} 字，新章「${newTitle}」${after.length} 字`)
+    message.success(
+      `已拆分：原章保留 ${before.length} 字，新章「${newTitle}」${after.length} 字${detected ? '（自动检测到标题）' : ''}`,
+    )
     // 拆分后收起展开区
     setSelectedIdx(null)
     setCursorPos(null)
@@ -311,7 +360,7 @@ export default function Step2Split() {
                 value={`【${preview[selectedIdx].title}】\n\n${preview[selectedIdx].content}`}
                 readOnly
                 autoSize={{ minRows: 6, maxRows: 18 }}
-                style={{ fontFamily: 'monospace', fontSize: 12 }}
+                style={{ fontFamily: 'monospace', fontSize: 12, cursor: 'text' }}
                 onClick={handleSelectText}
                 onKeyUp={handleSelectText}
                 onSelect={handleSelectText}
@@ -323,8 +372,8 @@ export default function Step2Split() {
                   </Typography.Text>
                   <Input
                     size="small"
-                    style={{ width: 200 }}
-                    placeholder={`新章标题（默认「${preview[selectedIdx].title}（续）」）`}
+                    style={{ width: 220 }}
+                    placeholder={`新章标题（留空自动检测，否则用「${preview[selectedIdx].title}（续）」）`}
                     value={splitTitle}
                     onChange={(e) => setSplitTitle(e.target.value)}
                   />
@@ -339,7 +388,8 @@ export default function Step2Split() {
                 </Space>
               ) : (
                 <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                  点击下方文本任意位置（两个字符之间）定位光标，再用「在此拆分」把光标之后部分拆为新章
+                  点击下方文本任意位置（两个字符之间）定位光标，再用「在此拆分」把光标之后部分拆为新章。
+                  若光标后内容以章节标题开头（第N章 等）会自动提取为标题；否则用「原标题（续）」或在上方输入框自定义。
                 </Typography.Text>
               )}
               {manualOverrides && (

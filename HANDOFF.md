@@ -15,11 +15,11 @@
 3. **当前任务焦点**：① **novel-generator 集成·阶段 A~D 全部完成并通过审核**（数据模型 + sqlite-vec RAG 检索层 + Context Assembler + 起源流程 + 生成管理 + 批量生产）；
     ② **Electron 迁移已完成**——开发/生产模式、进程管理、打包配置就绪，待用户测试验证；
     ③ **3D Demo WASM 崩溃已修复** + **全局 Error Boundary 已添加**——animate 循环异常安全、init 单例化、ErrorBoundary 兜底白屏。
-    ④ **【最新】M1 Step2 切分算法持续优化**——闭引号收尾标题粘连修复 + 预览光标人工拆分（补偿自动切分遗漏）。
+    ④ **【最新】用户反馈回访**——问题2 书库阅读页已解决；问题1 入库持久化端到端诊断+真机重启双重验证有效（用户仍复现需硬刷新 Electron 窗口）；问题3 Step2 拆分后自动检测章节标题（复用 detectChapterPattern 算法提取首行标题）。
 
 ## 项目状态快照
 
-- **最后更新**：2026-06-19（第二十六次会话·**M1 Step2 闭引号收尾修复 + 预览光标人工拆分**）
+- **最后更新**：2026-06-19（第二十八次会话·**问题2 已解决 + 问题1 持久化加固 + 问题3 拆分后自动检测标题**）
 - **阶段**：正式开发——M1 AI 清理端到端跑通；**novel-generator 集成阶段 A~D 全部完成**；**Electron 迁移完成**；M2–M5 仍 mock；业务数据 SQLite 资产库（可配置资产目录），Provider/密钥等设置存用户数据目录
 - **新增**：M1 Step2 章节分割由「纯手选模式」升级为「**进入页自动检测推荐 + 手选/正则兜底**」——`detectChapterPattern` 逐行扫描每个模式按命中数评分（MIN_HITS=2，卷模式仅在无章类命中时兜底），进入 Step2 即 lazy 初始化推荐模式 + 抽样标题提示（绿/黄按 confidence）；标题前装饰符号（`[爱心]`/`★`/`【】`等成对包裹块 + 散落符号）自动 `stripDecor` 剥除再匹配；**卷结构单独成章**（内置 `VOLUME_REGEX` 旁路识别，标记 `isVolume`，Step3 `skipClean` 跳过 LLM 原样保留）；**句末标点护栏扩展中文闭引号**（`\u201D` / `\u2019`，修复对话 `～"第2章` 粘连场景）；**预览光标人工拆分**（展开章节文本可定位光标，一键把光标后内容拆为新章，补偿自动切分遗漏）；检测模式池存 `settings.json`，设置页新增「章节检测模式池」Card 可增删改（内置 8 模式：第X章/回/卷/节、X章无「第」字、Chapter N 带 `i` flag、数字+顿号、custom）；`SplitPattern` 类型加 `flags?`/`builtin?`，`ImportChapter` 加 `skipClean?`
 - **摘要**：在 mock 前端基础上**进入实现阶段**。
@@ -161,6 +161,15 @@
 
 ### 进行中 / 等待用户
 
+- [x] **问题2 已解决 + 问题1 持久化加固 + 问题3 拆分后自动检测标题**（2026-06-19 第二十八次会话）
+  - [x] **问题1 入库持久化**：`pushStoreNow` 返回 `Promise<void>`，`Step4.doStore` 改 `await pushStoreNow()`（写完才提示成功）。端到端诊断脚本 + 真机后端重启测试双重验证持久化链路正常（含后端重启存活）。**用户仍复现 → 硬刷新 Electron 窗口（Ctrl+Shift+R）/ 重启 start-electron.bat**（vite HMR 对 appStore.ts 模块级副作用热替换不稳定）
+  - [x] **问题3 拆分后自动检测**：新增 `split.ts:detectLeadingChapterTitle(content, patterns)`（取首条非空行 stripDecor 后 findTitleInLine 测各内置模式，命中返回 `{title, content(剥首行)}`，无命中 null）；`Step2Split.splitAtCursor` 接入（标题优先级：用户输入 > 自动检测 > 「原标题（续）」）；UI 提示更新；smoke +4 断言
+  - [x] **验证全过**：eslint ✅ / build(tsc+vite,725ms) ✅ / smoke(34) ✅ / ruleclean-smoke(43) ✅ / parse-smoke(22) ✅
+- [x] **M1 入库持久化 + 书库阅读页 + Step2 光标拆分修复**（2026-06-19 第二十七次会话）
+  - [x] **问题1 入库重启消失**：根因是 Step4 `doStore` 仅依赖 1s debounce 落库，关窗/重启竞态下后端可能读空 → bootstrap `else` 分支把内存业务数据清空为 `[]` → 订阅把空 POST 回后端反向删除刚入库的书。修复：① `appStore.pushStoreNow` 改 `export`；② `Step4.doStore` 入库即调 `pushStoreNow()`（绕 debounce 立即落库）；③ bootstrap `else` 分支清空内存前先 `storeReady=false` 再恢复，避免清空这一步本身触发订阅把空写回后端
+  - [x] **问题3 Step2 光标拆分按钮缺失**：根因是 antd v6 的 `Input.TextArea` ref 暴露组件实例 `{ resizableTextArea: { textArea } }` 而非原生 `HTMLTextAreaElement`，`textareaRef.current.selectionStart` 恒 `undefined` → `pos=NaN` → `cursorPos` 永远 null → 按钮/输入框永不显示。修复：`getNativeTextArea()` 安全取原生节点；`handleSelectText` 用 `requestAnimationFrame` 等一帧读最新 `selectionStart`（点选瞬时浏览器选区可能未刷新）；ref 类型改联合类型去 `as never`
+  - [x] **问题2 书库阅读/编辑页**：新增 `/book-reader?bookId=xxx` 页（`pages/book-reader/index.tsx`），沿用 M5 `viewing/editText/updateChapter` 范本——左侧章节列表（每章「编辑标题」受控 Input + 保存/取消）+ 右侧正文（只读 `prose-view` 展示，「编辑正文」切 TextArea，「保存」调 `updateChapter` + `pushStoreNow`）；书库概览表格「操作」列加「打开」按钮（primary ghost）+ 整行 `onRow.onClick` 也可打开（按钮区 `stopPropagation`）；`main.tsx` 注册路由
+  - [x] **验证全过**：eslint ✅ / build(tsc+vite,772ms) ✅ / smoke(30) ✅ / ruleclean-smoke(43) ✅ / parse-smoke(22) ✅ / 后端 typecheck ✅
 - [x] **M1 Step2 章节自动检测 + 卷/前缀处理 + 检测池可配置**（2026-06-19 第二十五次会话）
   - [x] **自动检测算法** `split.ts:detectChapterPattern`：逐行扫描，每行先 `stripDecor` 剥装饰前缀再对各模式（非 custom）测命中；`hitCount >= MIN_HITS(2)` 取最大者；卷模式（juan）仅无章类命中时兜底；confidence = best/(best+second)；返回 `{patternKey, hitCount, confidence, reason, sampledTitles(前5)}`
   - [x] **装饰前缀剥除** `stripDecor`：两类交替反复剥——① 成对符号包裹块 `[爱心]`/`【公告】`/`（注）`/`「」`等（内容可含中文，单轮剥一个块）② 散落单个装饰符号 + 空白；最多 10 轮
@@ -300,22 +309,20 @@
 
 ## 交接备注（最近一次会话）
 
-- **日期**：2026-06-19（第二十六次会话·**M1 Step2 闭引号收尾修复 + 预览光标人工拆分**）
-- **本次完成**：
-  ① **句末标点护栏扩展** `split.ts:SENTENCE_END`：新增 `\u201D`（"中文右引号）和 `\u2019`（'中文右单引号）。修复真实场景 `…幸运观众～"第2章 名为日常的崩坏`——对话以闭引号收尾后紧跟标题，原护栏仅含 ASCII `"`（U+0022）未覆盖中文闭引号，标题被误判正文引用；开引号不加（对话开头非章节边界）
-  ② **预览光标人工拆分** `Step2Split.tsx`：展开章节文本改为可定位光标 textarea（onClick/onSelect → selectionStart 反算 content 偏移），显示「光标位置：第 N 字符」+ 新章标题输入（默认 `原标题（续）`）+ 「在此拆分」按钮。点击后按光标偏移切当前章为两段，前段留原章、后段插为新章，章节数+1
-  ③ **人工覆盖层** `manualOverrides`：拆分后预览用人工结果（不重新跑 splitChapters）；切换模式/正则/序章时通过「渲染期签名对比」自动清空（React 官方 adjust-state-on-prop-change 模式，规避 set-state-in-effect lint 规则）
-  ④ **smoke** +7 断言（闭引号收尾粘连：检测/切分/标题干净/前置正文归序章/后续正文归新章），总计 smoke(30)
-  ⑤ **验证全过**：smoke(30) ✅ / eslint ✅ / tsc --noEmit ✅ / build(tsc+vite) ✅
+- **日期**：2026-06-19（第二十八次会话·**问题2 已验证解决 + 问题1 持久化加固 + 问题3 拆分后自动检测标题**）
+- **本次完成**（用户反馈回访）：
+  ① **问题2 已解决**（书库阅读/编辑页）：用户确认 `/book-reader` 双栏编辑页工作正常。
+  ② **问题1 — M1 入库持久化加固**：上一会话的 `pushStoreNow` 修复经端到端诊断脚本（patch fetch 走绝对 URL 跑真实 appStore 模块：bootstrap→import→pushStoreNow→flush→re-bootstrap）+ 真机后端重启测试（杀进程→新进程读 marker）双重验证，**持久化链路完全正常**（含后端重启存活）。进一步加固：`pushStoreNow` 返回 `Promise<void>`，`Step4.doStore` 改 `async proceed` + `await pushStoreNow()`，**写完才提示成功**（失败弹 error），消除"提示成功但写入未完成"的窗口。**用户仍复现丢失 → 几乎可确定是 Electron 窗口仍跑修复前代码**（vite HMR 对 Zustand 模块级订阅副作用的 appStore.ts 热替换不稳定），**需硬刷新窗口（Ctrl+Shift+R）或重启 Electron**。
+  ③ **问题3 — 拆分后自动检测章节标题**：用户拆分位置常是"没切好的章节边界"，其后内容本身就可能是被并到上一章的真实标题行（如 `第3章 新的展开`）。新增 `split.ts:detectLeadingChapterTitle(content, patterns)`：取首条非空行 stripDecor 后用 `findTitleInLine`（复用自动检测算法）测各内置模式，命中→返回 `{title, content(剥离首行)}`，无命中→null。`Step2Split.splitAtCursor` 接入：标题优先级 = 用户输入 > 自动检测 > 「原标题（续）」；命中时 content 剥首行、message 提示「（自动检测到标题）」。UI 提示更新说明该行为。
+- **验证全过**：eslint ✅ / build(tsc+vite,725ms) ✅ / smoke(34：原 30 + 新增 4 detectLeadingChapterTitle 断言) ✅ / ruleclean-smoke(43) ✅ / parse-smoke(22) ✅
 - **已知限制/注意**：
-  ① **卷成章改变了切分行为**：含卷结构的文本（如 demo）现在卷行会单独成一章（之前并入相邻章）。既有依赖固定章数的逻辑需注意——已同步更新 smoke 断言。若用户不希望卷单独成章，可在 Step2 选「第X卷」模式（此时旁路不触发，卷即正常章）
-  ② **装饰前缀剥除范围**：`stripDecor` 剥成对包裹块（`[]`/`【】`/`（）`/`()`/`「」`/`『』`/`《》`）+ 散落符号（`☆★◆●○■□※▪♦♥♠♣①-⑳Ⅰ-Ⅻ` 等）。若遇新前缀形态，可在 `DECOR_BLOCK`/`DECOR_SYMBOLS` 正则补充
-  ③ **检测池持久化**：旧 `settings.json` 无 `splitPatterns` 键时 bootstrap 用内置默认；用户改后覆盖。`custom` 模式 key 永远保留（设置页不可删，由用户在 Step2 临时输入正则）
-  ④ **人工拆分覆盖层**：拆分后预览为人工结果，再次切换模式/正则/序章选项会清空人工编辑并重新自动切分（有黄色提示）。`applySplit` 消费 `manualOverrides ?? autoPreview`，人工拆分结果会正确写入 `importSession.chapters`
-  ⑤ **SENTENCE_END 新增闭引号**：`\u201D`（"）/`\u2019`（'）——若未来发现其他高频标点需补充（如 `…` 已有、省略号 `···` U+2027 等），直接往 Set 追加即可
+  ① **问题1 若用户仍复现** → 让其 Ctrl+Shift+R 硬刷新 Electron 窗口（或重启 start-electron.bat）。诊断已证修复有效，唯一可能是窗口未加载新代码
+  ② **detectLeadingChapterTitle 复用 findTitleInLine**：首行 index 0 直接通过（不需句末标点背书）；index > 0 需句末标点。这与自动检测口径一致。末尾装饰符号（如 `★第4章 暗流★`）会算进标题（`第4章 暗流★`），因预设正则 `.*` 贪婪——属预期（stripDecor 只剥前缀）
+  ③ **问题3 用户输入优先**：若用户在标题输入框填了内容，跳过自动检测直接用之（尊重用户明确覆盖）
 - **下一步**：
-  ① 实机验证 M1 Step2：导入真实小说 raw 文本，测试闭引号粘连是否正确切分；展开预览章节测试光标拆分流程
-  ② 仍待实机验证（历史项）：文生图 Demo 端到端、书库删除流程、M0 立项不再误报、Electron 开发/打包模式
+  ① 让用户硬刷新窗口后重测问题1（导入→入库→重启仍在）
+  ② 实机验证问题3：Step2 展开章节→光标拆在「第N章」前→拆分后新章自动用「第N章 …」标题
+  ③ 仍待实机验证（历史项）：文生图 Demo 端到端、书库删除流程、M0 立项不再误报、Electron 开发/打包模式
 
 ## 更新本文档的约定
 
