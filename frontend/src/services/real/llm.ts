@@ -59,7 +59,10 @@ export interface CleanQueueDebugEvent {
   chapterTitle?: string
   timestamp: number
   nodeName?: string
+  nodeId?: string
   model?: string
+  /** 本次请求实际打包的章节数（1=单章路径，>1=批量路径）。用于排查"章节数 vs 请求数" */
+  batchSize?: number
   contentLength?: number
   requestBody?: Record<string, unknown>
   statusCode?: number
@@ -71,12 +74,14 @@ export interface CleanQueueDebugEvent {
 }
 
 export interface CleanQueueCallbacks {
-  onStart: (chapterId: string, nodeName: string, batchId?: string) => void
+  onStart: (chapterId: string, nodeName: string, batchId?: string, nodeId?: string) => void
   onChunk: (chapterId: string, acc: string) => void
   onDone: (chapterId: string, cleaned: string) => void
   onError: (chapterId: string, message: string) => void
   onFinish: () => void
   onDebug?: (event: CleanQueueDebugEvent) => void
+  /** 节点连续失败达阈值被自动熔断（不再分配新任务）。UI 据此把节点开关切到关闭。 */
+  onNodeDisabled?: (nodeId: string, nodeName: string, reason: string) => void
 }
 
 export interface CleanQueueHandle {
@@ -115,9 +120,10 @@ async function streamSingleChapter(
     baseURL: node.baseURL,
     model: node.model,
     apiKey: node.apiKey ? `${node.apiKey.slice(0, 6)}***` : '(空)',
+    batchSize: 1,
     systemPromptLen: systemPrompt ? systemPrompt.length : 0,
   }
-  cb.onDebug?.({ type: 'request', chapterId, timestamp: Date.now(), nodeName: node.name, model: node.model, contentLength: content.length, requestBody: reqBody })
+  cb.onDebug?.({ type: 'request', chapterId, timestamp: Date.now(), nodeName: node.name, nodeId: node.id, model: node.model, batchSize: 1, contentLength: content.length, requestBody: reqBody })
 
   let res: Response
   try {
@@ -172,7 +178,8 @@ async function streamSingleChapter(
           cb.onChunk(chapterId, acc)
         } else if (event === 'done') {
           const outText = parsed.text ?? acc
-          cb.onDebug?.({ type: 'response', chapterId, timestamp: Date.now(), statusCode: 200, chunksCount, outputLength: outText.length, firstBytesAt, responseBody: outText.slice(0, 500) })
+          // 成功响应不再记录流式正文（responseBody），仅保留诊断字段
+          cb.onDebug?.({ type: 'response', chapterId, timestamp: Date.now(), statusCode: 200, chunksCount, outputLength: outText.length, firstBytesAt })
           cb.onDone(chapterId, outText)
           return
         } else if (event === 'error') {
@@ -222,7 +229,7 @@ async function streamBatch(
     batchSize: batch.length,
     systemPromptLen: systemPrompt ? systemPrompt.length : 0,
   }
-  cb.onDebug?.({ type: 'request', chapterId: firstChapterId, timestamp: Date.now(), nodeName: node.name, model: node.model, contentLength: combinedContent.length, requestBody: reqBody })
+  cb.onDebug?.({ type: 'request', chapterId: firstChapterId, timestamp: Date.now(), nodeName: node.name, nodeId: node.id, model: node.model, batchSize: batch.length, contentLength: combinedContent.length, requestBody: reqBody })
 
   let res: Response
   try {
@@ -264,7 +271,8 @@ async function streamBatch(
         const cleanText = part.replace(/===CHAPTER_ID:[^=]+===/g, '').trim()
         if (cleanText.length >= 10 && chapterId && !completedIds.has(chapterId)) {
           completedIds.add(chapterId)
-          cb.onDebug?.({ type: 'response', chapterId, timestamp: Date.now(), statusCode: 200, chunksCount, outputLength: cleanText.length, firstBytesAt, responseBody: cleanText.slice(0, 500) })
+          // 成功响应不再记录流式正文（responseBody），仅保留诊断字段
+          cb.onDebug?.({ type: 'response', chapterId, timestamp: Date.now(), statusCode: 200, chunksCount, outputLength: cleanText.length, firstBytesAt })
           cb.onDone(chapterId, cleanText)
         }
       }
@@ -279,21 +287,29 @@ async function streamBatch(
     }
   }
 
-  /** done / 流意外结束时，按 SEP 做最终拆分；已 onDone 过的章跳过，过短判失败 */
-  const finalizeBatch = (fullText: string) => {
+  /**
+   * done / 流意外结束时，按 SEP 做最终拆分；已 onDone 过的章跳过。
+   * 返回"过短/未产出"的章节 id——调用方据此抛错，由 executeTask 的 catch 走重试，
+   * 避免"过短只记日志、章节永远停在 processing"的静默卡死。
+   */
+  const finalizeBatch = (fullText: string): string[] => {
     const parts = fullText.split(CHAPTER_SEP)
+    const shortIds: string[] = []
     for (let i = 0; i < batch.length; i++) {
       const entry = batch[i]
       if (completedIds.has(entry.id)) continue
       const raw = parts[i] ?? ''
       const cleanText = raw.replace(/===CHAPTER_ID:[^=]+===/g, '').trim()
       if (cleanText.length < 10) {
-        cb.onDebug?.({ type: 'error', chapterId: entry.id, timestamp: Date.now(), chunksCount, error: `输出过短（${cleanText.length} 字符）`, responseBody: cleanText })
+        shortIds.push(entry.id)
+        cb.onDebug?.({ type: 'error', chapterId: entry.id, timestamp: Date.now(), chunksCount, error: `输出过短（${cleanText.length} 字符）` })
       } else {
-        cb.onDebug?.({ type: 'response', chapterId: entry.id, timestamp: Date.now(), statusCode: 200, chunksCount, outputLength: cleanText.length, firstBytesAt, responseBody: cleanText.slice(0, 500) })
+        // 成功响应不再记录流式正文（responseBody），仅保留诊断字段
+        cb.onDebug?.({ type: 'response', chapterId: entry.id, timestamp: Date.now(), statusCode: 200, chunksCount, outputLength: cleanText.length, firstBytesAt })
         cb.onDone(entry.id, cleanText)
       }
     }
+    return shortIds
   }
 
   try {
@@ -321,7 +337,9 @@ async function streamBatch(
           tryFlushCompleted()
         } else if (event === 'done') {
           const fullText = parsed.text ?? acc
-          finalizeBatch(fullText)
+          const shortIds = finalizeBatch(fullText)
+          // 批量内部分章节过短/未产出 → 抛错走重试（已 onDone 的成功章不受影响）
+          if (shortIds.length) throw new Error(`批量输出不完整：${shortIds.length} 章过短（${shortIds.join(', ')}）`)
           return
         } else if (event === 'error') {
           const msg = parsed.message ?? '清理失败'
@@ -336,7 +354,8 @@ async function streamBatch(
       if (done) break
     }
     // 流意外结束 → 用累积文本做最终拆分
-    finalizeBatch(acc)
+    const shortIdsAtEnd = finalizeBatch(acc)
+    if (shortIdsAtEnd.length) throw new Error(`流意外结束且部分章节过短（${shortIdsAtEnd.join(', ')}）`)
   } catch (e) {
     if (!signal.aborted) {
       batch.forEach((c) => {
@@ -390,6 +409,13 @@ export function startCleanQueue(
   const activeBatches = new Map<string, { ac: AbortController; chapterIds: string[]; nodeId: string }>()
   // 模型切换覆盖：chapterId → 强制节点 id（切换后下轮调度仅匹配该节点）
   const nodeOverrides = new Map<string, string>()
+  // 节点熔断：连续失败 NODE_FAIL_LIMIT 次的节点加入此集合，pickCandidate 永久跳过
+  const disabledNodes = new Set<string>()
+  // 节点连续失败计数（成功即归零）；超过阈值触发 onNodeDisabled + 熔断
+  const NODE_FAIL_LIMIT = 3
+  const nodeConsecFails = new Map<string, number>()
+  // 章节级"避开节点"：某章在某节点失败后，重试时优先避开它（除非只剩它），降低同一坏节点反复重试
+  const chapterAvoidNodes = new Map<string, Set<string>>()
 
   const maybeFinish = () => {
     if (!finished && active === 0 && pendingQueue.length === 0 && retryQueue.length === 0) {
@@ -412,11 +438,12 @@ export function startCleanQueue(
     return result
   }
 
-  /** 选择候选节点——有空闲核心且间隔已过 */
-  const pickCandidate = (): { cfg: CleanNode; state: NodeRuntime } | null => {
+  /** 选择候选节点——有空闲核心且间隔已过；跳过已熔断节点；可选避开指定节点（重试用） */
+  const pickCandidate = (avoidNodeId?: string): { cfg: CleanNode; state: NodeRuntime } | null => {
     const now = Date.now()
     const candidates: { cfg: CleanNode; state: NodeRuntime }[] = []
     for (const cfg of nodeConfigs) {
+      if (disabledNodes.has(cfg.id)) continue // 熔断节点永不参选
       const state = nodeStates.get(cfg.id)
       if (!state) continue
       if (state.activeCount >= cfg.maxConcurrency) continue
@@ -426,16 +453,58 @@ export function startCleanQueue(
       if (isNodeAvailable && !isNodeAvailable(cfg.id)) continue
       candidates.push({ cfg, state })
     }
-    if (!candidates.length) return null
+    // 优先不避开的节点；仅当全部都要避开时才退而求其次（避免无节点可用导致饿死）
+    let pool = candidates
+    if (avoidNodeId && candidates.some((c) => c.cfg.id !== avoidNodeId)) {
+      pool = candidates.filter((c) => c.cfg.id !== avoidNodeId)
+    }
+    if (!pool.length) return null
     // 排序：最久未用 → 最少连接 → 原序号
-    candidates.sort((a, b) => {
+    pool.sort((a, b) => {
       const timeDiff = a.state.lastRequestTime - b.state.lastRequestTime
       if (timeDiff !== 0) return timeDiff
       const countDiff = a.state.activeCount - b.state.activeCount
       if (countDiff !== 0) return countDiff
       return nodeConfigs.indexOf(a.cfg) - nodeConfigs.indexOf(b.cfg)
     })
-    return candidates[0]
+    return pool[0]
+  }
+
+  /** 记录节点成功：连续失败计数归零 */
+  const markNodeSuccess = (nodeId: string) => {
+    nodeConsecFails.set(nodeId, 0)
+  }
+
+  /** 记录节点失败：累加连续失败；达 NODE_FAIL_LIMIT 则熔断该节点并通知 UI */
+  const markNodeFail = (node: CleanNode, reason: string) => {
+    if (disabledNodes.has(node.id)) return // 已熔断不再重复处理
+    const fails = (nodeConsecFails.get(node.id) ?? 0) + 1
+    nodeConsecFails.set(node.id, fails)
+    if (fails >= NODE_FAIL_LIMIT) {
+      disabledNodes.add(node.id)
+      // 进行中的请求若还在该节点上会被自然 abort（见 workerLoop 的候选过滤），这里只通知 UI
+      cb.onNodeDisabled?.(node.id, node.name, `连续 ${NODE_FAIL_LIMIT} 次失败（${reason}），已自动关闭`)
+    }
+  }
+
+  /** 让某章在重试时避开指定节点 */
+  const avoidNodeForChapter = (chapterId: string, nodeId: string) => {
+    let set = chapterAvoidNodes.get(chapterId)
+    if (!set) {
+      set = new Set()
+      chapterAvoidNodes.set(chapterId, set)
+    }
+    set.add(nodeId)
+  }
+
+  /** 取本章应避开的节点（仅一个最强避让，传给 pickCandidate；多个避让时取最近失败的） */
+  const lastAvoidFor = (chapterId: string): string | undefined => {
+    const set = chapterAvoidNodes.get(chapterId)
+    if (!set || !set.size) return undefined
+    // 避让集合里任取一个（这里取 set 末尾迭代值）
+    let last: string | undefined
+    for (const id of set) last = id
+    return last
   }
 
   const executeTask = async (task: ChapterTask, node: CleanNode, nodeState: NodeRuntime) => {
@@ -444,50 +513,59 @@ export function startCleanQueue(
     nodeState.lastRequestTime = Date.now()
     const ac = new AbortController()
     let batchId: string | undefined
+    let batchTasks: ChapterTask[] | undefined
     try {
       if (node.batchSize <= 1) {
-        cb.onStart(task.id, node.name)
+        cb.onStart(task.id, node.name, undefined, node.id)
         await streamSingleChapter(node, task.content, task.id, cb, ac.signal, systemPrompt)
         nodeOverrides.delete(task.id)
+        markNodeSuccess(node.id)
       } else {
         // batch 模式：生成 batchId，取出 batchSize 章
         batchId = `batch-${Date.now()}-${task.id}`
-        const batchTasks = [task, ...dequeueBatch(node.batchSize - 1)]
+        batchTasks = [task, ...dequeueBatch(node.batchSize - 1)]
         const chapterIds = batchTasks.map((t) => t.id)
         activeBatches.set(batchId, { ac, chapterIds, nodeId: node.id })
         batchTasks.forEach((t) => {
-          cb.onStart(t.id, node.name, t === task ? batchId : undefined)
+          cb.onStart(t.id, node.name, t === task ? batchId : undefined, node.id)
         })
         await streamBatch(node, batchTasks.map((t) => ({ id: t.id, content: t.content })), cb, ac.signal, systemPrompt)
         // 清除覆盖
         for (const t of batchTasks) nodeOverrides.delete(t.id)
         activeBatches.delete(batchId)
+        markNodeSuccess(node.id)
       }
     } catch (e) {
+      const errMsg = e instanceof Error ? e.message : String(e)
       if (!stopped) {
-        const enqueueRetry = (t: ChapterTask) => {
+        // 节点级熔断：网关/网络类错误（HTTP 5xx、fetch 失败、SSE error）累计到节点，
+        // 达阈值自动关闭该节点，避免对坏节点无限重试。
+        const isNodeLevel = /HTTP\s*5\d\d|fetch\s*失败|网关错误|signal is aborted/i.test(errMsg)
+        if (isNodeLevel) markNodeFail(node, errMsg)
+
+        // 收集本批所有未完成章（batch 模式含 anchor 之外的章）
+        const failedTasks: ChapterTask[] = batchTasks && batchTasks.length
+          ? batchTasks.map((t) => ({ id: t.id, content: chapters.find((c) => c.id === t.id)?.content ?? t.content }))
+          : [task]
+
+        // batch/节点级失败：让这些章重试时避开当前节点，降低同一坏节点反复接手
+        if (batchId || isNodeLevel) {
+          failedTasks.forEach((t) => avoidNodeForChapter(t.id, node.id))
+        }
+
+        for (const t of failedTasks) {
           const fails = (failCounts.get(t.id) ?? 0) + 1
           failCounts.set(t.id, fails)
-          if (fails < MAX_RETRIES) {
+          // 节点已熔断时，给章节更宽容的重试预算（否则容易被单章 MAX_RETRIES 提前判死）
+          const limit = disabledNodes.has(node.id) ? MAX_RETRIES + 2 : MAX_RETRIES
+          if (fails < limit) {
             retryQueue.push(t)
           } else {
             nodeOverrides.delete(t.id)
-            cb.onError(t.id, `重试 ${MAX_RETRIES} 次后仍失败：${e instanceof Error ? e.message : String(e)}`)
+            cb.onError(t.id, `重试 ${fails} 次后仍失败：${errMsg}`)
           }
         }
-        enqueueRetry(task)
-        // batch 中其他章（非 anchor）也重试——复用同一 task 对象（无 retryCount 字段，计数走 failCounts）
-        if (batchId) {
-          const batchInfo = activeBatches.get(batchId)
-          if (batchInfo) {
-            for (const cid of batchInfo.chapterIds) {
-              if (cid !== task.id) {
-                enqueueRetry({ id: cid, content: chapters.find((c) => c.id === cid)?.content ?? '' })
-              }
-            }
-          }
-          activeBatches.delete(batchId)
-        }
+        if (batchId) activeBatches.delete(batchId)
       }
     } finally {
       nodeState.activeCount = Math.max(0, nodeState.activeCount - 1)
@@ -501,25 +579,36 @@ export function startCleanQueue(
         await sleep(200)
         continue
       }
-      // 读最新节点配置（热更新入口）
-      const candidate = pickCandidate()
+      // 先取一个任务（重试优先），再据其"避让节点"选候选——让失败过的章尽量换节点重试
+      const task = dequeueBatch(1)[0]
+      if (!task) {
+        if (active === 0 && retryQueue.length === 0 && pendingQueue.length === 0) break
+        await sleep(100)
+        continue
+      }
+      // 读最新节点配置（热更新入口）；按本章避让集选候选
+      const avoid = lastAvoidFor(task.id)
+      const candidate = pickCandidate(avoid)
       if (!candidate) {
-        if (retryQueue.length === 0 && pendingQueue.length === 0) {
-          if (active === 0) break
-          await sleep(100)
+        // 全部节点都已熔断（active 也无进行中）→ 剩余任务注定失败，逐个判错并清空队列，
+        // 否则会无限把任务放回 retryQueue 永不结束。
+        if (active === 0 && nodeConfigs.every((n) => disabledNodes.has(n.id))) {
+          for (const t of [task, ...retryQueue.splice(0), ...pendingQueue.splice(0)]) {
+            cb.onError(t.id, '所有节点均已熔断，无法处理')
+          }
           continue
         }
-        // 有任务但无可用节点（都在忙或在冷却）→ 等一会
+        // 无可用节点（全忙/全冷却）→ 放回队首等下一轮。
+        // 若所有候选都被避让集排除（只剩已熔断/被避开节点）→ 清空避让集给最后一搏，避免永久饿死。
+        retryQueue.unshift(task)
+        const liveNodes = nodeConfigs.filter((n) => !disabledNodes.has(n.id))
+        if (liveNodes.length > 0 && liveNodes.every((n) => avoid === n.id || chapterAvoidNodes.get(task.id)?.has(n.id))) {
+          chapterAvoidNodes.delete(task.id)
+        }
         await sleep(100)
         continue
       }
       const { cfg, state } = candidate
-      const task = dequeueBatch(1)[0]
-      if (!task) {
-        if (active === 0) break
-        await sleep(100)
-        continue
-      }
       // 检查节点覆盖：切换模型后章节只由指定节点处理
       const overrideNode = nodeOverrides.get(task.id)
       if (overrideNode && overrideNode !== cfg.id) {
@@ -559,6 +648,11 @@ export function startCleanQueue(
       for (const n of newNodes) {
         if (!nodeStates.has(n.id)) {
           nodeStates.set(n.id, { activeCount: 0, lastRequestTime: 0 })
+        }
+        // 用户把曾被自动熔断的节点重新纳入（开启参与）→ 视为手动恢复：清熔断与计数
+        if (disabledNodes.has(n.id)) {
+          disabledNodes.delete(n.id)
+          nodeConsecFails.set(n.id, 0)
         }
         oldIds.delete(n.id)
       }

@@ -104,3 +104,21 @@ body {
   flex-direction: column;
   height: 100%;
 }
+
+/* M1 清理页 Tabs 高度约束：修复 flex 链在 antd Tabs 内部断开。
+   注意：绝不能给 .ant-tabs-tabpane 设 display:flex——那会覆盖 antd 对"非活动面板"
+   的 display:none 隐藏，导致四个面板同时显示、点击 tab 无法切换。活动面板由 antd
+   自己加 .ant-tabs-tabpane-active 显出，这里只给高度，让面板内部组件自行滚动。 */
+.m1-tabs-panel.ant-tabs {
+  overflow: hidden;
+}
+.m1-tabs-panel .ant-tabs-content-holder {
+  flex: 1;
+  min-height: 0;
+}
+.m1-tabs-panel .ant-tabs-content {
+  height: 100%;
+}
+.m1-tabs-panel .ant-tabs-tabpane {
+  height: 100%;
+}

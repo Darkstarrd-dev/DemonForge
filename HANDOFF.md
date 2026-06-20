@@ -18,13 +18,18 @@
     ④ 文生图 Demo 完善 ModelScope 服务——可选参数全链路透传 + 调试信息区，用户实机测试通过。
     ⑤ 系统设置·节点池增强 6 项功能 + 入库小说数据恢复（sqlite3 .recover）。
     ⑥ **【最新】数据持久化全面加固 + 设置/备份导入导出**——从根上修复"反复数据丢失"的 6 个缺陷（syncAll 改纯 upsert 永不删除 / settings.json 原子写入+.bak / assetDir 启动缓存 / readAll 逐行容错 / 启动日志增强 / 显式 DELETE 端点），并新增设置导入导出 + 完整备份恢复（版本化 bundle、向后兼容、脱敏选项）作为人工兜底。详见 FIXES.md「2026-06-20」。
-    ⑦ **【本次】M1 Step3 清理节点池 UX 三项增强**（节点池可折叠 + 统一设置所有节点三参数 + 文案改名 核心→进程/批次→章节）+ **实时窗口高度修复**（flexbox min-height:auto 撑高 → minHeight:0 固定高度滚动）+ **Step2 数字冒号模式**（maohao 内置模式 + smoke 7 断言）。
+    ⑦ **【本次】M1 Step3 文本清理流水线重构**——按用户实机反馈做四项整改：① **Tabs 四标签可切换列表**（待处理/完成/工作节点/节点任务，按批次会话跟踪节点接手数/完成数，修复 CSS 强制 tabpane `display:flex` 导致点 tab 不切换的真因）；② **节点级熔断**（连续 3 次 5xx/网络错误自动 `onNodeDisabled` + UI 同步关闭，不再对坏节点无限重试；全节点熔断时剩余任务判错退出不死循环）；③ **批处理可观测性 + 失败隔离**（每条请求日志带实际 batchSize；batch 失败后重试避开该节点 `chapterAvoidNodes`，不再饥饿重拉 9 章；成功响应不再记录流式正文 responseBody）；④ **统一设置改部分应用**（原必须三字段全填才生效的静默 bug，现仅填的生效）+ **cleanNodeOverrides 持久化到 settings.json**（原 useState 重挂载丢失 → 回退默认 batchSize=1，是"100 章发 100 请求"的配置层根因）。新增 `scripts/smoke-batch.mts`（16 项批处理+熔断回归测试，实证 100 章/batchSize 20 = 5 请求）。
 
 ## 项目状态快照
 
-- **最后更新**：2026-06-20（第三十四次会话·**M1 Step3 清理节点池 UX 三项增强 + 实时窗口高度修复 + Step2 数字冒号模式**）
+- **最后更新**：2026-06-20（第三十五次会话·**M1 Step3 文本清理流水线重构：Tabs 四标签 + 节点熔断 + 批处理可观测/失败隔离 + 设置持久化**）
 - **阶段**：正式开发——M1 AI 清理端到端跑通；**novel-generator 集成阶段 A~D 全部完成**；**Electron 迁移完成**；M2–M5 仍 mock；业务数据 SQLite 资产库（可配置资产目录），Provider/密钥等设置存用户数据目录
-- **新增**：**M1 Step3 清理节点池 UX 三项增强**——① 节点池改 `Collapse`（默认展开，可折叠腾空间，折叠头带「N 个节点，参选 M」计数）；② 新增「统一设置所有节点」行（进程/章节/间隔 三输入框 + 「统一设置」按钮，一次性写入全部已启用节点的 overrides，应用后仍可逐节点单独覆盖，运行中热推调度器）；③ 文案改名「核心→进程」「批次→章节」（含每节点卡片标签 + 摘要 Tag 单位后缀 `核→进程`）。**实时窗口高度修复**——长文本撑破布局的根因是 flexbox `min-height:auto`（flex 子项默认不缩到内容以下），给实时窗口内层 `<Row flex:1>` 与活跃任务列表 `<div flex:1>` 加 `minHeight:0`，启动任务后两栏固定与左侧活跃任务等高（440px 区内），超出靠各自滚动条翻阅。**M1 Step2 数字冒号模式**——`split.ts` 内置模式池新增 `maohao`（`^(\\d{1,4}[:：].*)`，兼容全角/半角冒号），`smoke.mts` +7 断言（含「卷+数字冒号」混合机制：卷行旁路成章 + 编号标题切分）。
+- **新增**：**M1 Step3 文本清理流水线重构**——按用户实机反馈做四项整改：
+  ① **Tabs 四标签可切换列表**（`Step3Clean.tsx`）：原单一活跃列表 → `Tabs`（待处理/完成/工作节点/节点任务）。节点按**批次会话**生命周期跟踪（`nodeSessions` + `chapterNode` ref）：分配时创建/追加，本批全完成置 idle 变灰，下次再分配替换，运行结束清理。**修复 Tabs 无法切换的真因**——`index.css` 给 `.ant-tabs-tabpane` 强制 `display:flex` 覆盖了 antd 非活动面板的 `display:none`，四面板同时渲染。移除该规则后面板靠 antd 自身 `.ant-tabs-tabpane-active` 显隐。
+  ② **节点级熔断**（`llm.ts`）：`nodeConsecFails` 计连续失败，网关/网络类错误（HTTP 5xx / fetch 失败 / SSE error）累加、成功归零；达 `NODE_FAIL_LIMIT=3` 加入 `disabledNodes`，`pickCandidate` 永久跳过，触发新回调 `onNodeDisabled(nodeId,name,reason)` → UI 把参与开关切关闭 + 红色提示。用户手动重新开启 → `updateNodes` 清熔断状态（手动恢复）。**全节点熔断时**剩余任务一次性判错退出（否则死循环，有回归测试）。
+  ③ **批处理可观测性 + 失败隔离**（`llm.ts`）：每条请求 debug 事件带实际 `batchSize`（顶层 + requestBody，日志每条 REQ 直接看出走单章还是批量）；batch 失败后用 `chapterAvoidNodes` 让该章重试时 `pickCandidate(avoid)` 优先避开坏节点（不再饥饿重拉 9 章）；重试上限对熔断中节点放宽到 `MAX_RETRIES+2`。成功响应不再记录流式正文 `responseBody`（保留诊断字段）；错误路径 rawChunks 保留。
+  ④ **统一设置改部分应用 + 持久化**：`applyBulkToAll` 原必须三字段全填才生效（静默 bug）→ 改为仅已填字段生效；`cleanNodeOverrides` 从 useState 迁到 store（落 `settings.json`），解决重挂载/步骤切换丢设置 → 回退默认 batchSize=1（"100 章发 100 请求"的配置层根因）。后端 settings 路由透传任意键，无需改后端。
+  **新增回归测试** `scripts/smoke-batch.mts`（16 项，node --experimental-strip-types）：实证 100 章/batchSize 20 = **5 请求**（非 100）、10 节点场景同样 5、整除/非整除、单章；熔断场景（坏节点恰在第 3 次 502 后停分配、健康节点接管、单坏节点熔断后判失败不死循环）。
 - **摘要**：在 mock 前端基础上**进入实现阶段**。
   运行方式（三选一）：
   - **【推荐】Electron 模式**：双击 `start-electron.bat`（开发模式）或 `npm run dev`，Electron 窗口自动管理前后端；关窗即自动清理进程
@@ -363,22 +368,24 @@
 
 ## 交接备注（最近一次会话）
 
-- **日期**：2026-06-20（第三十四次会话·**M1 Step3 清理节点池 UX 三项增强 + 实时窗口高度修复 + Step2 数字冒号模式**）
-- **本次起因**：用户提出清理节点池三项增强需求（① 节点池可折叠 ② 统一设置所有可用节点三参数但保留逐节点单独设置 ③ 文案改名 核心→进程/批次→章节）；随后反馈实时窗口启动任务后被长文本撑高、不再与活跃任务列表等高，要求修复。
-- **本次完成**：
-  - **节点池可折叠**：`<Collapse defaultActiveKey={['nodes']}>`（默认展开，折叠头带「N 个节点，参选 M」计数）
-  - **统一设置所有节点**：折叠面板顶部新增三 `InputNumber`（进程/章节/间隔）+ 「统一设置」按钮，`applyBulkToAll()` 写全部已启用节点 overrides，仍可逐节点覆盖；运行中热推调度器
-  - **文案改名**：核心→进程、批次→章节（卡片标签 + 统一设置行 + 摘要 Tag 后缀）
-  - **实时窗口高度修复**：根因 flexbox `min-height:auto`（flex 子项默认不缩到内容以下），给内层 `<Row flex:1>` 与活跃任务 `<div flex:1,overflow:auto>` 加 `minHeight:0`，启动任务后两栏固定等高（440px 区内），超出靠滚动条
-  - **Step2 数字冒号模式**：`split.ts` 新增 `maohao` 内置模式（`^(\\d{1,4}[:：].*)` 全角/半角兼容）+ smoke 7 断言（含「卷+数字冒号」混合机制）
-- **改动文件**（3 个，含 2 个会话开始前已有的连贯改动）：
-  - 前端：`frontend/src/pages/m1-import/Step3Clean.tsx`（节点池折叠 + 统一设置行 + 文案改名 + 实时窗口高度修复）、`frontend/src/utils/split.ts`（新增 maohao 内置模式）、`frontend/scripts/smoke.mts`（+7 断言）
+- **日期**：2026-06-20（第三十五次会话·**M1 Step3 文本清理流水线重构：Tabs 四标签 + 节点熔断 + 批处理可观测/失败隔离 + 设置持久化**）
+- **本次起因**：上一会话完成节点池 UX 增强后，用户实机跑 100 章 / 5 节点 / 每节点 1 进程 / 每批 10 章的场景，反馈三个问题：① 四个 Tab 显示但点哪个都只显示"待处理列表"；② 请求日志显示 MintAPI 节点 batch 从 10 变 9 且反复重试，伴随 502 风暴；③ 要求节点连续 3 次错误后自动关闭而非无限重试。
+- **本次完成**（按根因逐一修复）：
+  - **Tabs 无法切换**（`index.css`）：根因是给 `.ant-tabs-tabpane` 强制 `display:flex`，覆盖了 antd 非活动面板的 `display:none` → 四面板同时渲染。移除该规则，面板内部改 `height:100%` 自滚动。
+  - **节点级熔断**（`llm.ts`）：`nodeConsecFails` + `disabledNodes` + 新回调 `onNodeDisabled`；连续 3 次网关/网络错误自动关闭，`pickCandidate` 跳过，UI 同步切开关。全节点熔断时剩余任务判错退出（防死循环）。手动重新开启 → `updateNodes` 清熔断。
+  - **批处理失败隔离**（`llm.ts`）：`chapterAvoidNodes` 让失败章重试时避开坏节点（`pickCandidate(avoid)`），不再饥饿重拉 9 章；重试上限对熔断节点放宽。**响应按章计入 RES 是正常设计**（`tryFlushCompleted` 逐章 onDone 供实时窗口预览），保留并说明，未改。
+  - **可观测性**（`llm.ts`）：每条 REQ debug 事件带实际 `batchSize`（顶层 + requestBody）；成功响应不再记流式正文 `responseBody`（保留诊断字段）。
+  - **统一设置部分应用**（`Step3Clean.tsx`）：`applyBulkToAll` 原必须三字段全填才生效 → 改仅填的生效。
+  - **设置持久化**（`appStore.ts`）：`cleanNodeOverrides` 落 `settings.json`（修复 useState 重挂载丢失 → 回退默认 batchSize=1，"100 请求"的配置层根因）。
+- **改动文件**（5 个）：
+  - 前端：`frontend/src/services/real/llm.ts`（nodeId 入参 / batchSize 日志 / 清成功 responseBody / finalizeBatch 过短走重试 / 节点熔断 / chapterAvoidNodes / 全熔断退出）、`frontend/src/pages/m1-import/Step3Clean.tsx`（Tabs 四标签 + 节点会话 + 实时窗口联动 + 运行中动态开关 + 统一部分应用 + 失败重跑 + onNodeDisabled 接线 + overrides 迁 store）、`frontend/src/store/appStore.ts`（cleanNodeOverrides 持久化字段 + bootstrap/settingsPayload/subscribe）、`frontend/src/index.css`（移除 tabpane display:flex）、`frontend/scripts/smoke-batch.mts`（新增，16 项批处理+熔断回归测试）
   - 文档：`HANDOFF.md`
-- **验证全过**：eslint ✅ / tsc --noEmit ✅ / vite build ✅（710–765ms）/ smoke ✅（含新增 7 断言）。**用户实机测试通过**。
+- **验证全过**：tsc --noEmit ✅ / eslint（改动文件）✅ / vite build ✅（~760ms）/ smoke.mts ✅（25 项）/ smoke-batch.mts ✅（16 项：含"100 章/batchSize 20 = 5 请求"、熔断恰在第 3 次 502 后停分配、健康节点接管、单坏节点判失败不死循环）。
 - **关键设计决策**：
-  ① **统一设置写 overrides 而非改 ProviderNode**——与逐节点单独调参走同一套 `overrides` 机制，所以「统一设置后个别分别设置」自然成立（后调的覆盖先调的），无需额外状态。
-  ② **实时窗口撑高的根因是 flex 而非 height**——`height:100%` + `overflow:auto` 本身没错，但父 flex 子项的 `min-height:auto` 让它先被内容撑开，子项的 100% 才随之撑开。加 `minHeight:0` 才能让收缩链生效。
-- **下一步**：①（可选）将「统一设置所有节点」的能力推广到 batch-generate 页（该页目前无 per-node 调参 UI）；② M2–M5 详细设计与真实化推进
+  ① **"100 章发 100 请求"是配置层 bug 非调度层**——代码追踪 + smoke 实证：当 `batchSize>1` 时调度正确合并（100/20=5 请求）。真因是 `applyBulkToAll` 必须三字段全填的静默失败 + overrides 存 useState 重挂载丢失 → 回退默认 1。两项配置 bug 已修。
+  ② **节点熔断按"批次会话"语义**——节点被分配时创建会话，本批全完成置 idle，下次再分配替换（重置计数），符合用户"完成所有工作后移除、下次再从底部加入"的需求。
+  ③ **响应按章 RES 保留**——同 batch 的 10 章逐章 onDone 是实时窗口逐章预览所需，非 bug；用户感知的"异常"实为 502 风暴，已由熔断根治。
+- **下一步**：① 用户实机验证熔断在真实 502 场景下的行为；②（可选）将节点熔断/会话视图推广到 batch-generate 页；③ M2–M5 详细设计与真实化推进
 
 ## 更新本文档的约定
 

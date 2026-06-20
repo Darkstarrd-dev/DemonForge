@@ -84,6 +84,13 @@ export interface AppState {
   imageDemoForm: ImageDemoForm
   /** M1 章节检测模式池（持久化到 settings.json，设置页可增删改） */
   splitPatterns: SplitPattern[]
+  /**
+   * M1 Step3 清理节点运行时覆盖（持久化到 settings.json）。
+   * key = 节点 id，value = 该节点本次运行的参与/进程/批量/间隔覆盖。
+   * 原 Step3 用 useState 存此值，重挂载/步骤切换即丢失 → 回退 provider 默认 batchSize=1，
+   * 曾导致"100 章发 100 请求"。迁到 store 后随设置落盘，避免静默回退。
+   */
+  cleanNodeOverrides: Record<string, Partial<{ participating: boolean; concurrency: number; batchSize: number; intervalSec: number }>>
 
   setState: (patch: Partial<AppState>) => void
   updateChapter: (id: string, patch: Partial<Chapter>) => void
@@ -131,6 +138,7 @@ const seedState = () => ({
   imageGallery: [] as GeneratedImage[],
   imageDemoForm: { provider: 'modelscope', nodeId: undefined, prompt: '', resolution: '1024x1024' },
   splitPatterns: DEFAULT_SPLIT_PATTERNS.map((p) => ({ ...p })),
+  cleanNodeOverrides: {} as Record<string, Partial<{ participating: boolean; concurrency: number; batchSize: number; intervalSec: number }>>,
 })
 
 export const useAppStore = create<AppState>()((set) => ({
@@ -318,6 +326,7 @@ export async function bootstrapStore(): Promise<void> {
         imageDemoForm?: ImageDemoForm
         showMenuBar?: boolean
         splitPatterns?: SplitPattern[]
+        cleanNodeOverrides?: Record<string, Partial<{ participating: boolean; concurrency: number; batchSize: number; intervalSec: number }>>
       }
       storeInitialized = d.storeInitialized === true
       const patch: Partial<AppState> = {}
@@ -335,6 +344,10 @@ export async function bootstrapStore(): Promise<void> {
       if (Array.isArray(d.splitPatterns) && d.splitPatterns.length) {
         const hasCustom = d.splitPatterns.some((p) => p.key === 'custom')
         patch.splitPatterns = hasCustom ? d.splitPatterns : [...d.splitPatterns, { key: 'custom', label: '自定义正则', regex: '', builtin: true }]
+      }
+      // M1 Step3 清理节点覆盖（旧 settings.json 无此键则沿用空对象）
+      if (d.cleanNodeOverrides && typeof d.cleanNodeOverrides === 'object') {
+        patch.cleanNodeOverrides = d.cleanNodeOverrides
       }
       if (Object.keys(patch).length) useAppStore.setState(patch)
     }
@@ -526,8 +539,8 @@ export async function pushStoreNowChecked(): Promise<void> {
 }
 
 // 设置回写：providers/moduleMapping/m1SystemPrompt/assetDir/currentBookId/imageDemoForm/
-// showMenuBar/splitPatterns 变化时 debounce POST
-/** 设置载荷构造（8 个键）。导出供 backup.ts 组装备份 bundle 复用。 */
+// showMenuBar/splitPatterns/cleanNodeOverrides 变化时 debounce POST
+/** 设置载荷构造（9 个键）。导出供 backup.ts 组装备份 bundle 复用。 */
 export const settingsPayload = (s: AppState) => ({
   providers: s.providers,
   moduleMapping: s.moduleMapping,
@@ -537,6 +550,7 @@ export const settingsPayload = (s: AppState) => ({
   imageDemoForm: s.imageDemoForm,
   showMenuBar: s.showMenuBar,
   splitPatterns: s.splitPatterns,
+  cleanNodeOverrides: s.cleanNodeOverrides,
 })
 
 let settingsTimer: ReturnType<typeof setTimeout> | null = null
@@ -550,7 +564,8 @@ useAppStore.subscribe((s, prev) => {
     s.currentBookId === prev.currentBookId &&
     s.imageDemoForm === prev.imageDemoForm &&
     s.showMenuBar === prev.showMenuBar &&
-    s.splitPatterns === prev.splitPatterns
+    s.splitPatterns === prev.splitPatterns &&
+    s.cleanNodeOverrides === prev.cleanNodeOverrides
   ) {
     return
   }
