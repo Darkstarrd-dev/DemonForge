@@ -44,11 +44,7 @@ export interface ImageDemoForm {
   steps?: number
   guidance?: number
   seed?: number
-}
-
-/** 文生图 Demo 表单默认值（与 appStore seedState 一致）。 */
-const DEFAULT_IMAGE_DEMO_FORM: ImageDemoForm = {
-  provider: 'modelscope', nodeId: undefined, prompt: '', resolution: '1024x1024',
+  imageInputMode?: 'base64' | 'catbox' | 'litterbox' | '0x0' | 'telegraph'
 }
 
 /** 当前 bundle 格式版本。未来字段重命名/结构调整时递增，并在 migrateBundle 加降级分支。 */
@@ -62,8 +58,14 @@ export interface SettingsPayload {
   assetDir?: string
   currentBookId?: string
   imageDemoForm?: ImageDemoForm
+  imageDemoGlobalForm?: { provider: string; nodeId?: string }
+  imageDemoFormPerNode?: Record<string, Partial<ImageDemoForm>>
   showMenuBar?: boolean
   splitPatterns?: SplitPattern[]
+  cleanNodeOverrides?: Record<string, Partial<{ participating: boolean; concurrency: number; batchSize: number; intervalSec: number }>>
+  m1AutoRetry?: boolean
+  m1TitleTemplate?: string
+  m1TestText?: string
 }
 
 /** 全部业务数据键（与 appStore businessPayload 对齐）。 */
@@ -101,7 +103,9 @@ export const BUSINESS_KEYS = [
 /** settings 的所有合法键（导入时按此白名单过滤）。 */
 export const SETTINGS_KEYS = [
   'providers', 'moduleMapping', 'm1SystemPrompt', 'assetDir',
-  'currentBookId', 'imageDemoForm', 'showMenuBar', 'splitPatterns',
+  'currentBookId', 'imageDemoForm', 'imageDemoGlobalForm', 'imageDemoFormPerNode',
+  'showMenuBar', 'splitPatterns', 'cleanNodeOverrides',
+  'm1AutoRetry', 'm1TitleTemplate', 'm1TestText',
 ] as const
 
 /**
@@ -270,9 +274,13 @@ function normalizeSettings(raw: Record<string, unknown>, warnings: string[]): Se
   }
   if (typeof raw.currentBookId === 'string') out.currentBookId = raw.currentBookId
   if (raw.imageDemoForm && typeof raw.imageDemoForm === 'object') {
-    out.imageDemoForm = { ...DEFAULT_IMAGE_DEMO_FORM, ...(raw.imageDemoForm as Partial<ImageDemoForm>) }
-  } else {
-    out.imageDemoForm = { ...DEFAULT_IMAGE_DEMO_FORM }
+    out.imageDemoForm = raw.imageDemoForm as ImageDemoForm
+  }
+  if (raw.imageDemoGlobalForm && typeof raw.imageDemoGlobalForm === 'object') {
+    out.imageDemoGlobalForm = raw.imageDemoGlobalForm as { provider: string; nodeId?: string }
+  }
+  if (raw.imageDemoFormPerNode && typeof raw.imageDemoFormPerNode === 'object') {
+    out.imageDemoFormPerNode = raw.imageDemoFormPerNode as Record<string, Partial<ImageDemoForm>>
   }
   if (typeof raw.showMenuBar === 'boolean') out.showMenuBar = raw.showMenuBar
   if (Array.isArray(raw.splitPatterns)) {
@@ -290,6 +298,12 @@ function normalizeSettings(raw: Record<string, unknown>, warnings: string[]): Se
   } else {
     out.splitPatterns = DEFAULT_SPLIT_PATTERNS.map((p) => ({ ...p }))
   }
+  if (raw.cleanNodeOverrides && typeof raw.cleanNodeOverrides === 'object') {
+    out.cleanNodeOverrides = raw.cleanNodeOverrides as Record<string, Partial<{ participating: boolean; concurrency: number; batchSize: number; intervalSec: number }>>
+  }
+  if (typeof raw.m1AutoRetry === 'boolean') out.m1AutoRetry = raw.m1AutoRetry
+  if (typeof raw.m1TitleTemplate === 'string') out.m1TitleTemplate = raw.m1TitleTemplate
+  if (typeof raw.m1TestText === 'string') out.m1TestText = raw.m1TestText
   return out
 }
 

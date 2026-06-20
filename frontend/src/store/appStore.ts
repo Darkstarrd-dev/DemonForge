@@ -16,6 +16,7 @@ import type {
   NovelArchitecture,
   GeneratedImage,
   SplitPattern,
+  ImageInputMode,
 } from '../services/types'
 import {
   seedBooks,
@@ -52,6 +53,8 @@ export interface ImageDemoForm {
   guidance?: number
   /** 随机种子（seed），留空则随机 */
   seed?: number
+  /** 图片输入方式（base64 / catbox / litterbox / 0x0 / telegraph） */
+  imageInputMode?: ImageInputMode
 }
 
 /** M1 Step3 清理当前进行中任务（不持久化，仅内存）。用于跨 Step 页面保持任务控制权。
@@ -109,8 +112,10 @@ export interface AppState {
   importSession: ImportSession | null
   /** 文生图 Demo 生成历史（持久化到 image_gallery 表，dataUrl 为 base64） */
   imageGallery: GeneratedImage[]
-  /** 文生图 Demo 表单草稿（持久化到 settings.json） */
-  imageDemoForm: ImageDemoForm
+  /** 文生图 Demo 全局参数（provider + nodeId，持久化到 settings.json） */
+  imageDemoGlobalForm: { provider: string; nodeId?: string }
+  /** 文生图 Demo 每节点独立参数（持久化到 settings.json） */
+  imageDemoFormPerNode: Record<string, Partial<ImageDemoForm>>
   /** M1 章节检测模式池（持久化到 settings.json，设置页可增删改） */
   splitPatterns: SplitPattern[]
   /**
@@ -175,7 +180,8 @@ const seedState = () => ({
   currentBookId: '',
   importSession: null,
   imageGallery: [] as GeneratedImage[],
-  imageDemoForm: { provider: 'modelscope', nodeId: undefined, prompt: '', resolution: '1024x1024' },
+  imageDemoGlobalForm: { provider: 'modelscope', nodeId: undefined },
+  imageDemoFormPerNode: {} as Record<string, Partial<ImageDemoForm>>,
   splitPatterns: DEFAULT_SPLIT_PATTERNS.map((p) => ({ ...p })),
   cleanNodeOverrides: {} as Record<string, Partial<{ participating: boolean; concurrency: number; batchChars: number; intervalSec: number }>>,
   m1AutoRetry: true,
@@ -410,6 +416,8 @@ export async function bootstrapStore(): Promise<void> {
         currentBookId?: string
         storeInitialized?: boolean
         imageDemoForm?: ImageDemoForm
+        imageDemoGlobalForm?: { provider: string; nodeId?: string }
+        imageDemoFormPerNode?: Record<string, Partial<ImageDemoForm>>
         showMenuBar?: boolean
         splitPatterns?: SplitPattern[]
         cleanNodeOverrides?: Record<string, Partial<{ participating: boolean; concurrency: number; batchSize: number; intervalSec: number }>>
@@ -426,9 +434,17 @@ export async function bootstrapStore(): Promise<void> {
       if (typeof d.assetDir === 'string') patch.assetDir = d.assetDir
       if (typeof d.showMenuBar === 'boolean') patch.showMenuBar = d.showMenuBar
       if (typeof d.currentBookId === 'string' && d.currentBookId) patch.currentBookId = d.currentBookId
-      // 文生图 Demo 表单草稿（旧 settings.json 无此键则沿用 seed 默认）
-      if (d.imageDemoForm && typeof d.imageDemoForm === 'object')
-        patch.imageDemoForm = { ...useAppStore.getState().imageDemoForm, ...d.imageDemoForm }
+      // 文生图 Demo 表单：优先新结构，兼容旧 imageDemoForm 自动迁移
+      if (d.imageDemoGlobalForm && typeof d.imageDemoGlobalForm === 'object')
+        patch.imageDemoGlobalForm = { ...useAppStore.getState().imageDemoGlobalForm, ...d.imageDemoGlobalForm }
+      if (d.imageDemoFormPerNode && typeof d.imageDemoFormPerNode === 'object')
+        patch.imageDemoFormPerNode = d.imageDemoFormPerNode
+      // 旧 settings.json 只有 imageDemoForm 时自动迁移到新结构
+      if (d.imageDemoForm && typeof d.imageDemoForm === 'object' && !d.imageDemoFormPerNode) {
+        const { nodeId, provider, ...params } = d.imageDemoForm
+        patch.imageDemoGlobalForm = { provider: provider || 'modelscope', nodeId }
+        patch.imageDemoFormPerNode = nodeId ? { [nodeId]: params } : {}
+      }
       // 章节检测模式池（旧 settings.json 无此键则沿用内置默认池；确保 custom 永在）
       if (Array.isArray(d.splitPatterns) && d.splitPatterns.length) {
         const hasCustom = d.splitPatterns.some((p) => p.key === 'custom')
@@ -642,7 +658,8 @@ export const settingsPayload = (s: AppState) => ({
   m1SystemPrompt: s.m1SystemPrompt,
   assetDir: s.assetDir,
   currentBookId: s.currentBookId,
-  imageDemoForm: s.imageDemoForm,
+  imageDemoGlobalForm: s.imageDemoGlobalForm,
+  imageDemoFormPerNode: s.imageDemoFormPerNode,
   showMenuBar: s.showMenuBar,
   splitPatterns: s.splitPatterns,
   cleanNodeOverrides: s.cleanNodeOverrides,
@@ -660,7 +677,8 @@ useAppStore.subscribe((s, prev) => {
     s.m1SystemPrompt === prev.m1SystemPrompt &&
     s.assetDir === prev.assetDir &&
     s.currentBookId === prev.currentBookId &&
-    s.imageDemoForm === prev.imageDemoForm &&
+    s.imageDemoGlobalForm === prev.imageDemoGlobalForm &&
+    s.imageDemoFormPerNode === prev.imageDemoFormPerNode &&
     s.showMenuBar === prev.showMenuBar &&
     s.splitPatterns === prev.splitPatterns &&
     s.cleanNodeOverrides === prev.cleanNodeOverrides &&

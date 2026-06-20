@@ -21,51 +21,31 @@
          ⑦ M1 Step3 文本清理流水线重构
      ⑧ M1 处理范围语义重构 + 节点溯源标签 + 审核批量操作
       ⑨ **【本次】数值输入卡顿修复 + 调度器 per-node 重构 + 工作节点分进程显示 + 拒绝节点去重**——按用户实机反馈做四项整改：① **Tabs 四标签可切换列表**（待处理/完成/工作节点/节点任务，按批次会话跟踪节点接手数/完成数，修复 CSS 强制 tabpane `display:flex` 导致点 tab 不切换的真因）；② **节点级熔断**（连续 3 次 5xx/网络错误自动 `onNodeDisabled` + UI 同步关闭，不再对坏节点无限重试；全节点熔断时剩余任务判错退出不死循环）；③ **批处理可观测性 + 失败隔离**（每条请求日志带实际 batchSize；batch 失败后重试避开该节点 `chapterAvoidNodes`，不再饥饿重拉 9 章；成功响应不再记录流式正文 responseBody）；④ **统一设置改部分应用**（原必须三字段全填才生效的静默 bug，现仅填的生效）+ **cleanNodeOverrides 持久化到 settings.json**（原 useState 重挂载丢失 → 回退默认 batchSize=1，是"100 章发 100 请求"的配置层根因）。新增 `scripts/smoke-batch.mts`（16 项批处理+熔断回归测试，实证 100 章/batchSize 20 = 5 请求）。
-      ⑩ **【本次】participating 过滤修复**——用户反馈「节点池 7 节点，关闭 4 个，开始任务后 7 个全在工作」：`buildCleanNodes` 仅过滤 `p.enabled` 和 `baseURL`/`model` 有效性，完全忽略 overrides 中的 `participating` 标志（该标志只在 UI 层的 `nodeRunStates`/`participatingNodes` 中用于摘要显示，从未传给调度器）。修复：`.filter((p) => p.enabled)` 后新增 `.filter((p) => (nowOverrides[p.id] ?? {}).participating !== false)`，一行修复覆盖启动前关闭与运行中关闭两个场景。
+       ⑩ **【本次】participating 过滤修复**——用户反馈「节点池 7 节点，关闭 4 个，开始任务后 7 个全在工作」：`buildCleanNodes` 仅过滤 `p.enabled` 和 `baseURL`/`model` 有效性，完全忽略 overrides 中的 `participating` 标志（该标志只在 UI 层的 `nodeRunStates`/`participatingNodes` 中用于摘要显示，从未传给调度器）。修复：`.filter((p) => p.enabled)` 后新增 `.filter((p) => (nowOverrides[p.id] ?? {}).participating !== false)`，一行修复覆盖启动前关闭与运行中关闭两个场景。
+       ⑪ **【本次】文生图增强 + 节点池优化 6 项**（2026-06-21 第四十七次会话·**全部完成**）：
+         - 1a 生成历史保存输入图片（`imageInputs`/`imageInputMode`）
+         - 1b per-node 参数独立持久化（`imageDemoFormPerNode` + `imageDemoGlobalForm`，旧 `imageDemoForm` 自动迁移）
+         - 1c 点击历史图片回填参数（含图生图提示）
+         - 2 单节点分组统一显示标题+折叠
+         - 3 新增节点批量输入（TextArea autoSize + 中英文逗号拆分+去重）
+         - 4 图床输入方式选择（新建 `imageHost.ts`，Catbox/Litterbox/0x0.st/Telegraph，UI 选择器 + 条件上传）
 
 ## 项目状态快照
 
-- **最后更新**：2026-06-20（第四十六次会话·**文生图图片编辑功能完成**）
+- **最后更新**：2026-06-21（第四十七次会话·**文生图增强 + 节点池优化 6 项全部完成**）
 - **阶段**：正式开发——M1 AI 清理端到端跑通；**novel-generator 集成阶段 A~D 全部完成**；**Electron 迁移完成**；M2–M5 仍 mock；业务数据 SQLite 资产库（可配置资产目录），Provider/密钥等设置存用户数据目录
-- **新增**：**文生图图片编辑功能 + UI重构完成** ✅（详见下方本轮新增）：
-  ① 节点池增加"图片编辑"开关 ✅
-  ② 文生图Demo支持图片输入（粘贴/上传/多图/预览） ✅
-  ③ 文生图Demo UI完全重构（参考freegen画廊式布局） ✅
-- **验证**：前端 build ✅（14.89s）/ 后端 build ✅
-- **摘要**：本次会话完成文生图Demo图片编辑功能全栈实现 + UI完全重构，影响5个文件：
-  - **节点池增强**：文生图节点新增"图片编辑"开关（`supportsImageEdit`），开启后可进行Image2Image
-  - **图片输入支持**：
-    - 支持 Ctrl+V 粘贴剪贴板图片（自动提取 ClipboardData）
-    - 支持点击按钮打开文件浏览器（Upload 组件）
-    - 支持多张图片（预览缩略图 + 单独删除）
-    - 前端转 Base64 data URL，通过 `imageInputs` 参数传给后端
-    - 后端拼入 ModelScope `image_url` 字段（数组格式）
-  - **UI完全重构**：参考 freegen 项目（`C:\Users\Houpy\Desktop\Zed\# OnePageApps\Pages\freegen`）
-    - 画廊式全屏布局：主图居中 + 右侧设置面板 + 底部缩略图栏
-    - GitHub Dark 配色（`#0d1117` / `#161b22` / `#30363d`）
-    - 生成中显示半透明蒙层 + 旋转动画
-    - 移除不需要的元素（注册/获取Key/API KEY输入/导入导出设置按钮）
-    - 保留核心功能（节点选择/参数/历史管理/调试信息）
-  - **详细文档**：新增 `docs/image_edit_feature.md`（使用说明/数据流/技术实现/测试建议）
-     **本轮新增（第四十六次会话·文生图图片编辑）**：
-     - ① **节点池"图片编辑"开关** ✅（`types.ts` + `settings/index.tsx`）：`ProviderNode` 新增 `supportsImageEdit?: boolean` 字段；节点编辑 Modal 中，当 `nodeType === 'image'` 时显示"图片编辑" Switch（extra 说明："开启后该节点可进行图片编辑（Image2Image）"）。normalizeProvider 自动补默认值 `false`。
-     - ② **文生图Demo图片输入** ✅（`image-demo/index.tsx` + `real/image.ts` + `imageClient.ts`）：
-       - 前端：新增 `selectedImages: File[]` state；document 全局粘贴监听（提取 `clipboardData.items` 中 `image/*` 类型）；Upload 组件 `beforeUpload` 返回 false 仅收集文件；预览区显示缩略图（80×80，右上角删除按钮）；生成时 FileReader 转 Base64 data URL；仅当 `selectedNode.supportsImageEdit === true` 时显示图片输入区。
-       - 类型：`ImageGenParams` / `ImageGenConfig` 新增 `imageInputs?: string[]` 字段（Base64 data URL 数组）。
-       - 后端：`imageClient.ts` 提交任务时判断 `cfg.imageInputs?.length > 0`，拼入 `submitBody.image_url = cfg.imageInputs`（ModelScope 接受数组格式）。
-     - ③ **文生图Demo UI完全重构** ✅（`image-demo/index.tsx` 480行完全重写）：
-       - **布局结构**：左右分栏（主画廊区 flex:1 + 右侧设置面板 320px），主画廊区垂直分层（顶部选择器 / 主图展示 flex:1 / 输入区 / 底部缩略图栏）。
-       - **顶部选择器**：节点下拉（支持编辑的节点名后显示 🖼️）+ 分辨率下拉（仅 ModelScope），灰色背景 `#161b22`，边框 `#30363d`。
-       - **主图展示区**：居中对齐，`maxWidth/maxHeight: 70vh`，圆角 12px，阴影 `0 10px 40px rgba(0,0,0,0.5)`；生成中显示半透明蒙层（`background: rgba(0,0,0,0.7)`）+ 旋转 loading 动画（40×40，边框渐变 `#58a6ff`）+ 提示文字。
-       - **图片预览区**：仅图片编辑模式显示（`supportsEdit && selectedImages.length > 0`），灰色面板 `#161b22`，横向 Space 布局，每张图 80×80 缩略图 + 右上角删除按钮（半透明黑底）。
-       - **输入区**：横向 flex 布局，上传按钮（仅图片编辑模式）+ textarea（flex:1，2行，背景 `#0d1117`）+ 生成/取消按钮（高度 56px）；下方显示进度状态（灰色小字）和错误信息（红色面板）。
-       - **底部缩略图栏**：横向滚动（`overflowX: auto`），每张 80×80，点击切换主图，当前图蓝色边框 `#58a6ff`。
-       - **右侧设置面板**：垂直分三区（参数设置 / 调试信息 / 生成历史），独立滚动（`overflowY: auto`），底部历史区固定（`borderTop` 分隔）。参数设置：反向提示词 textarea + 步数/引导/种子 number input（深色背景 `#0d1117`，边框 `#30363d`）。调试信息：Payload/Response 两个 pre 块（monospace，`maxHeight` 限高）。生成历史：最多显示 10 条，每条含缩略图 40×40 + 文字摘要 + 下载/删除按钮。
-       - **配色方案**：完全对齐 GitHub Dark（背景 `#0d1117` / 面板 `#161b22` / 边框 `#30363d` / 文字 `#c9d1d9` / 次要文字 `#8b949e` / 强调蓝 `#58a6ff` / 危险红 `#da3633`）。
-       - **移除元素**：注册/获取Key按钮 ❌、API KEY输入框 ❌、导入导出设置按钮 ❌（按需求明确移除）。
-       - **保留功能**：节点选择 ✅、参数设置 ✅、主图展示 ✅、缩略图栏 ✅、历史管理 ✅、调试信息 ✅。
-     - ④ **新增文档** ✅（`docs/image_edit_feature.md`）：完整实现文档，包含使用说明（创建节点/上传图片/查看结果）、数据流图（前端→后端→ModelScope）、技术细节（粘贴监听/Base64转换）、测试建议（5个场景）、文件清单、技术亮点、向后兼容、已知限制。
-     **历史新增（第四十五次会话·5项UI优化）**：
+- **本次新增**：**文生图增强 + 节点池优化 6 项** ✅（详见下方本轮新增）：
+- **验证**：前端 build + eslint + tsc --noEmit ✅（0 新增错误）/ 后端 build ✅
+- **摘要**：本次会话完成文生图增强 + 节点池优化 6 项全栈实现，影响 6 个文件：
+   - **1a 生成历史保存输入图片**：`GeneratedImage` 新增 `imageInputs?: string[]` / `imageInputMode?: ImageInputMode` 字段；生成时条件性保存，历史项支持图生图标签
+   - **1b per-node 参数独立持久化**：`imageDemoForm` 全局单例重构为 `imageDemoFormPerNode: Record<string, Partial<ImageDemoForm>>` + `imageDemoGlobalForm: { provider; nodeId? }`；切换节点时参数自动隔离，`settings.json` 持久化，旧 `imageDemoForm` 字段 bootstrap 自动迁移
+   - **1c 点击历史图片回填参数**：`handleClickImage()` 统一处理——回填 prompt/resolution/steps/guidance/seed/imageInputMode 到当前节点表单；图生图历史额外提示输入图片数量及不可恢复说明
+   - **2 单节点分组统一显示**：移除 `isSingleNode` 跳过逻辑，所有分组（含单节点）统一显示 `[▼] 组名 · baseURL · 共 N 个节点` 并支持折叠/展开
+   - **3 新增节点批量输入**：模型名输入框从 `Input` 改为 `Input.TextArea`（autoSize minRows=1 maxRows=4）；`saveEdit` 按中英文逗号拆分模型名、Set 去重；新增模式批量创建节点（自动 `名称 (model)` 后缀），编辑模式仅用第一个模型并提示忽略
+   - **4 图床输入方式选择**：新建 `services/imageHost.ts`（Catbox/Litterbox/0x0.st/Telegraph 四个图床的 `upload(file) => URL`）；`ImageDemoForm` 新增 `imageInputMode` 字段；UI 右侧面板新增「图片输入方式」下拉（Base64 直传 / 图床中转 OptGroup）；`handleGenerate` 按模式条件执行 base64 编码或图床上传+进度提示
+   - **文件清单**：`types.ts` / `imageHost.ts`(新) / `appStore.ts` / `image-demo/index.tsx` / `settings/index.tsx` / `backup.ts`
+    - 编译通过 ✅ / lint 仅预存不规则空白（seed 数据中文全角符）✅
+      **历史新增（第四十五次会话·5项UI优化）**：
      - ① **测试弹窗清理提示词显示问题** ✅（`settings/index.tsx`）：测试节点 Modal 中清理提示词 TextArea，`value` 从 `m1SystemPrompt` 改为 `m1SystemPrompt || '（当前为空，将使用后端内置默认提示词）'`，空值时显示灰色占位文字（`color: m1SystemPrompt ? 'inherit' : 'var(--ant-color-text-tertiary)'`）。解决空白文本框困惑问题。
      - ② **节点池同baseURL节点折叠展开功能** ✅（`settings/index.tsx`）：新增 `groupExpanded` state（`Record<string, boolean>`，默认空对象 = 全部展开）；`groupedProviders` 按 `baseURL` 分组（`reduce`）；`toggleGroup` 函数切换展开/折叠；Table 渲染改为按分组循环：每组显示分组标题（灰色背景、点击切换展开、显示节点数 Tag）+ 节点列表（展开时或单节点时显示）。单节点不显示分组标题直接渲染。同URL多节点可折叠节省空间。
      - ③ **页面响应式布局改善** ✅（`settings/index.tsx`）：
@@ -332,8 +312,16 @@
   - [x] **次数限制 + 每日刷新**：`ProviderNode` 加 `usageLimitEnabled`/`usageLimit`/`usageLeft`/`usageResetDate`（normalizeProvider 补默认值，向后兼容）；新增 store action `consumeProviderUsage(nodeId)`——未开启返回 true，跨本地自然日（`YYYY-MM-DD`）重置 `usageLeft=usageLimit`，到 0 返回 false（调度器跳过），否则递减写回；接入 `batch.ts`/`llm.ts` `pickCandidate` 经 `opts.isNodeAvailable` 钩子（由 Step3Clean/batch-generate 启动队列时传入）；编辑 Modal 加「次数限制」Switch + 条件「每日额度」InputNumber；表格加「次数(今日)」列展示 `剩余/额度`，用尽标红
   - [x] **入库数据恢复**：本次功能开发后发现书库为空——排查确认数据未真丢（SQLite 行 delete 但数据页未 VACUUM，残留 db 字节流）。清空发生在本次改动之前（db 22:10 被改写，早于 settings 22:58），与本次功能无关；根因是 `syncAll` 全量删除策略 + 前端内存为空触发同步。恢复过程：备份 db → 停后端 → `sqlite3 .recover` 重建 lost_and_found（处理跨页）+ db 字节流大括号配对（补 recover 漏的短 book 行）→ 直接 upsert 写回（纯插入/更新绝不删除）→ 补回被覆盖的 seed 书行（book-ref-1/book-proj-1）+ seed 大纲 → 修复 moduleMapping（prov-1/prov-2 → SenseNova）→ 重启后端。验证：3 本书/113 章/13 卡片/6 大纲，主书 106 章正文完整
   - [x] **验证全过**：tsc --noEmit ✅ / vite build ✅（构建期遇 rolldown 无法解析内联第 4 对象参数，已将 batch-generate 回调提取为具名 const `callbacks` 规避）
-  - [ ] **待用户实机验证**：刷新前端页面（Ctrl+R）让内存 moduleMapping 从后端重拉（否则旧值防抖回写可能覆盖）；各新功能点（Tab/批量测试/上下移/复制/并发测试/次数限制）实机走一遍
-  - [ ] **结构性风险待修（建议）**：`syncAll` 全量删除策略在「前端内存为空 + 触发同步」时会清库——建议加防护「payload.books 为空但库非空且 storeInitialized 时拒绝删除只 upsert」。本次未改，留待确认
+   - [ ] **待用户实机验证**：刷新前端页面（Ctrl+R）让内存 moduleMapping 从后端重拉（否则旧值防抖回写可能覆盖）；各新功能点（Tab/批量测试/上下移/复制/并发测试/次数限制）实机走一遍
+   - [ ] **结构性风险待修（建议）**：`syncAll` 全量删除策略在「前端内存为空 + 触发同步」时会清库——建议加防护「payload.books 为空但库非空且 storeInitialized 时拒绝删除只 upsert」。本次未改，留待确认
+- [x] **文生图增强 + 节点池优化 6 项**（2026-06-21 第四十七次会话·**全部完成**）
+  - [x] **1a 生成历史保存输入图片**：`GeneratedImage` 扩展 `imageInputs`/`imageInputMode`；`addImage()` 条件性保存；历史面板「图生图」标签
+  - [x] **1b per-node 参数独立持久化**：`imageDemoForm` → `imageDemoFormPerNode` + `imageDemoGlobalForm`，bootstrap/backup 自动迁移
+  - [x] **1c 点击历史图片回填参数**：`handleClickImage()` 回填 prompt/resolution/steps/guidance/seed/imageInputMode
+  - [x] **2 单节点分组统一显示**：移除 `isSingleNode` 跳过逻辑，全部统一标题+折叠
+  - [x] **3 新增节点批量输入**：`Input.TextArea` + 中英文逗号拆分 + Set 去重 + 批量创建
+  - [x] **4 图床输入方式选择**：`imageHost.ts`（4 图床）+ UI 下拉 + `handleGenerate` 条件上传
+- [x] 编译验证：tsc --noEmit ✅ / eslint（仅预存不规则空白）✅
 - [x] **问题2 已解决 + 问题1 持久化加固 + 问题3 拆分后自动检测标题**（2026-06-19 第二十八次会话）
   - [x] **问题1 入库持久化**：`pushStoreNow` 返回 `Promise<void>`，`Step4.doStore` 改 `await pushStoreNow()`（写完才提示成功）。端到端诊断脚本 + 真机后端重启测试双重验证持久化链路正常（含后端重启存活）。**用户仍复现 → 硬刷新 Electron 窗口（Ctrl+Shift+R）/ 重启 start-electron.bat**（vite HMR 对 appStore.ts 模块级副作用热替换不稳定）
   - [x] **问题3 拆分后自动检测**：新增 `split.ts:detectLeadingChapterTitle(content, patterns)`（取首条非空行 stripDecor 后 findTitleInLine 测各内置模式，命中返回 `{title, content(剥首行)}`，无命中 null）；`Step2Split.splitAtCursor` 接入（标题优先级：用户输入 > 自动检测 > 「原标题（续）」）；UI 提示更新；smoke +4 断言
@@ -482,35 +470,24 @@
 
 ## 交接备注（最近一次会话）
 
-- **日期**：2026-06-20（第四十六次会话·**文生图图片编辑功能完成**）
-- **本次起因**：用户提出三个需求：① 节点池新增"图片编辑"开关；② 文生图Demo支持图片输入（粘贴/上传/多图）；③ 参考 freegen 项目重构文生图Demo布局（画廊式，移除注册/API KEY/导入导出按钮）。
-- **本次完成**（全栈实现 + UI完全重构）：
-  - ① **节点池"图片编辑"开关**：`ProviderNode` 类型新增 `supportsImageEdit?: boolean` 字段；节点编辑 Modal 中，当节点类型为"文生图"时显示 Switch 开关，label="图片编辑"，extra 说明文字"开启后该节点可进行图片编辑（Image2Image）"。向后兼容：旧数据 `undefined` 视为 `false`。
-  - ② **文生图Demo图片输入支持**：
-    - **粘贴功能**：useEffect 监听 document 全局 `paste` 事件，提取 `clipboardData.items` 中所有 `image/*` 类型 item，调用 `getAsFile()` 收集到 `selectedImages` state，弹 `message.success` 反馈。
-    - **上传功能**：Upload 组件 `beforeUpload` 返回 `false` 阻止自动上传，仅收集文件到 state。
-    - **多图预览**：当 `supportsEdit && selectedImages.length > 0` 时显示预览区（灰色面板 `#161b22`），Space wrap 布局，每张图 80×80 缩略图 + 右上角删除按钮（半透明黑底 `rgba(0,0,0,0.6)`）。
-    - **Base64转换**：生成时遍历 `selectedImages`，用 FileReader 读取每张图转为 data URL（`reader.readAsDataURL(file)`），收集到 `imageInputs: string[]` 数组。
-    - **后端透传**：`ImageGenParams` / `ImageGenConfig` 新增 `imageInputs?: string[]` 字段；`imageClient.ts` 提交任务时判断 `cfg.imageInputs?.length > 0`，拼入 `submitBody.image_url = cfg.imageInputs`（ModelScope 接受 Base64 data URL 数组，格式 `["data:image/png;base64,...", ...]`）。
-    - **条件显示**：仅当 `selectedNode.supportsImageEdit === true` 时显示"上传图片"按钮和图片预览区；Prompt 占位符动态变化（有图时提示"描述你想对图片做的修改... (支持粘贴图片 Ctrl+V)"，无图时为默认文字）。
-  - ③ **文生图Demo UI完全重构**（参考 `C:\Users\Houpy\Desktop\Zed\# OnePageApps\Pages\freegen\index.html`）：
-    - **布局结构**：左右分栏（主画廊区 flex:1 + 右侧设置面板 320px），主画廊区垂直分五层（顶部选择器 / 主图展示区 flex:1 / 图片预览区 / 输入区 / 底部缩略图栏）。
-    - **视觉风格**：GitHub Dark 配色（`#0d1117` 背景 / `#161b22` 面板 / `#30363d` 边框 / `#c9d1d9` 主文字 / `#8b949e` 次要文字 / `#58a6ff` 强调蓝 / `#da3633` 危险红）。
-    - **主图展示**：居中对齐，`maxWidth/maxHeight: 70vh`，圆角 12px，阴影 `0 10px 40px rgba(0,0,0,0.5)`；生成中显示半透明蒙层 + 旋转 loading 动画（CSS `@keyframes spin`，40×40 圆环，边框渐变 `#58a6ff`）+ 提示文字"正在生成新画面..."。
-    - **输入区**：横向 flex 布局，上传按钮（仅图片编辑模式）+ textarea（flex:1，2行，深色背景 `#0d1117`，边框 `#30363d`）+ 生成/取消按钮（高度 56px，主按钮蓝色 `#1f6feb`）；下方显示进度状态（灰色小字）和错误提示（红色面板 `#da3633`）。
-    - **底部缩略图栏**：横向滚动（`overflowX: auto`），每张 80×80，点击切换主图，当前图蓝色边框 2px `#58a6ff`。
-    - **右侧设置面板**：垂直分三区（参数设置 / 调试信息 / 生成历史），独立滚动；参数设置：反向提示词 textarea + 步数/引导/种子 number input（深色背景，边框 `#30363d`）；调试信息：Payload/Response 两个 pre 块（monospace，灰色背景 `#0d1117`，maxHeight 限高滚动）；生成历史：最多显示 10 条，每条含缩略图 40×40 + 摘要（30字+省略号）+ 下载/删除按钮。
-    - **移除元素**（按需求）：注册按钮 ❌、获取Key按钮 ❌、API KEY输入框 ❌、导入导出设置按钮 ❌。
-    - **保留功能**：节点选择 ✅、分辨率选择 ✅、参数设置（反向提示词/步数/引导/种子）✅、主图展示 ✅、缩略图栏 ✅、历史管理（下载/删除/清空）✅、调试信息（Payload/Response）✅。
-  - ④ **新增文档**：`docs/image_edit_feature.md`（9 个章节：概述/三个需求详解/数据流图/使用说明/测试建议/文件清单/技术亮点/向后兼容/已知限制）。
-- **改动文件**（5 个）：
-  - `frontend/src/services/types.ts`（`ProviderNode` 新增 `supportsImageEdit` 字段）
-  - `frontend/src/services/real/image.ts`（`ImageGenParams` 新增 `imageInputs` 字段）
-  - `frontend/src/pages/settings/index.tsx`（节点编辑 Modal 新增"图片编辑" Switch，1187-1195行）
-  - `server/src/imageClient.ts`（`ImageGenConfig` 新增 `imageInputs` 字段，提交任务时拼 `image_url`，77-80行）
-  - `frontend/src/pages/image-demo/index.tsx`（**完全重写**，480行，画廊式布局 + 图片输入 + GitHub Dark 配色）
-- **验证全过**：前端 build(tsc+vite,14.89s) ✅ / 后端 build(tsc) ✅ / 无类型错误 ✅
-- **下一步**：用户实机验证三个功能：① 节点编辑时"图片编辑"开关显示正常；② 文生图Demo粘贴/上传图片功能正常（支持多图，预览可删除，调试信息显示 `image_url` 字段）；③ 新布局在不同分辨率下响应式正常（主图自适应，右侧面板滚动，底部缩略图横向滚动）
+- **日期**：2026-06-21（第四十七次会话·**文生图增强 + 节点池优化 6 项全部完成**）
+- **本次起因**：用户提出四个模块共 6 项需求：① 图生图输入图片保存 + 参数回填 + per-node 参数独立 ② 节点池单节点分组显示 ③ 批量输入 ④ 图床输入方式
+- **本次完成**（全栈实现，影响 6 个文件）：
+  - **1a 生成历史保存输入图片**：`GeneratedImage` 新增 `imageInputs?: string[]` / `imageInputMode?: ImageInputMode`；`addImage()` 条件性保存；历史面板项显示「图生图」标签
+  - **1b per-node 参数独立持久化**：`imageDemoForm` 全局单例 → `imageDemoFormPerNode: Record<string, Partial<ImageDemoForm>>` + `imageDemoGlobalForm`；bootstrap 自动迁移旧 `imageDemoForm`；`settingsPayload` / `SettingsPayload` / `normalizeSettings` / 导入确认全部适配
+  - **1c 点击历史图片回填参数**：`handleClickImage()` 统一处理——缩略图点击 + 历史面板单击均回填到当前节点表单；按钮区 `stopPropagation` 防误触；图生图历史额外提示输入图片数量
+  - **2 单节点分组统一显示**：移除 `!isSingleNode` 条件，所有分组统一显示 `[▼] 组名 · baseURL · 共 N 个节点` + 折叠/展开
+  - **3 新增节点批量输入**：`Input.TextArea`(autoSize) + `saveEdit` 按中英文逗号拆分+Set 去重；新增模式批量创建（自动 `名称 (model)` 后缀），编辑模式仅用第一个
+  - **4 图床输入方式选择**：新建 `services/imageHost.ts`（Catbox/Litterbox/0x0.st/Telegraph）；`ImageDemoForm.imageInputMode`；UI 下拉 + `handleGenerate` 条件上传（图床模式显示进度/错误提示）
+- **改动文件**（6 个）：
+  - `frontend/src/services/types.ts`（`GeneratedImage` 扩 2 字段 + `ImageInputMode` 类型）
+  - `frontend/src/services/imageHost.ts`（**新建**，4 图床上传）
+  - `frontend/src/store/appStore.ts`（状态重构 + 旧格式迁移 + 设置通道适配）
+  - `frontend/src/pages/image-demo/index.tsx`（per-node 派生状态 + 回填 + 图床 UI + 上传逻辑）
+  - `frontend/src/pages/settings/index.tsx`（批量输入 + 分组显示 + 导入适配）
+  - `frontend/src/utils/backup.ts`（`SettingsPayload` 扩展 + `normalizeSettings` 新字段）
+- **验证全过**：tsc --noEmit ✅ / eslint 仅预存不规则空白（seed 中文全角符，非本轮引入）✅
+- **下一步**：用户实机验证 6 项功能——① 生成图生图后 history 含「图生图」标签 ② 换节点参数隔离不丢失 ③ 点历史图片回填参数 ④ 单节点分组显示标题 ⑤ 批量输入创建多节点 ⑥ 图床上传+生成
 
 ## 更新本文档的约定
 

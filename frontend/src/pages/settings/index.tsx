@@ -326,24 +326,67 @@ export default function SettingsPage() {
 
   const saveEdit = async () => {
     const values = await form.validateFields()
-    const merged = { ...editing!, ...values } as ProviderNode
-    // 次数限制：开启时若额度变更或剩余未初始化，重置 usageLeft = usageLimit
-    if (merged.usageLimitEnabled) {
-      const old = providers.find((p) => p.id === merged.id)
-      const limitChanged = old?.usageLimit !== merged.usageLimit
-      if (limitChanged || !merged.usageResetDate) {
-        merged.usageLeft = merged.usageLimit ?? 0
-        merged.usageResetDate = ''
-      }
+    const { model, ...baseFields } = values
+
+    // 拆分模型名（支持中英文逗号，去重，过滤空串）
+    const modelList = [...new Set(
+      model
+        .replace(/，/g, ',')
+        .split(',')
+        .map((m: string) => m.trim())
+        .filter((m: string) => m.length > 0)
+    )]
+
+    if (modelList.length === 0) {
+      message.error('请至少输入一个模型名')
+      return
     }
-    const exists = providers.some((p) => p.id === merged.id)
-    setState({
-      providers: exists
-        ? providers.map((p) => (p.id === merged.id ? merged : p))
-        : [...providers, merged],
-    })
+
+    const exists = providers.some((p) => p.id === editing!.id)
+
+    if (exists) {
+      // 编辑模式：只使用第一个模型
+      if (modelList.length > 1) {
+        message.warning('编辑模式只使用第一个模型，其他已忽略')
+      }
+      const merged = { ...editing!, ...baseFields, model: modelList[0] } as ProviderNode
+      if (merged.usageLimitEnabled) {
+        const old = providers.find((p) => p.id === merged.id)
+        const limitChanged = old?.usageLimit !== merged.usageLimit
+        if (limitChanged || !merged.usageResetDate) {
+          merged.usageLeft = merged.usageLimit ?? 0
+          merged.usageResetDate = ''
+        }
+      }
+      setState({
+        providers: providers.map((p) => (p.id === merged.id ? merged : p)),
+      })
+      message.success('节点已保存')
+    } else {
+      // 新增模式：批量创建
+      const newNodes: ProviderNode[] = modelList.map((m) => ({
+        ...baseFields,
+        id: genId('prov'),
+        name: modelList.length > 1
+          ? `${baseFields.name} (${m})`
+          : baseFields.name,
+        model: m,
+        enabled: true,
+        lastTestResult: null,
+        maxConcurrency: baseFields.maxConcurrency ?? 2,
+        batchChars: baseFields.batchChars ?? 10000,
+        intervalSec: baseFields.intervalSec ?? 0,
+        usageLimitEnabled: baseFields.usageLimitEnabled ?? false,
+        usageLimit: baseFields.usageLimit ?? 0,
+        usageLeft: baseFields.usageLimitEnabled ? baseFields.usageLimit ?? 0 : 0,
+        usageResetDate: '',
+      }))
+      setState({ providers: [...providers, ...newNodes] })
+      message.success(`已添加 ${newNodes.length} 个节点`)
+    }
+
     setEditing(null)
-    message.success('节点已保存（当前存于本地，后续随数据层迁移入库）')
+    form.resetFields()
   }
 
   /** 批量测试当前 Tab 且 enabled 的节点连通性（并发上限 4） */
@@ -526,8 +569,20 @@ export default function SettingsPage() {
       if (s.moduleMapping) patch.moduleMapping = s.moduleMapping
       if (typeof s.m1SystemPrompt === 'string') patch.m1SystemPrompt = s.m1SystemPrompt
       if (typeof s.showMenuBar === 'boolean') patch.showMenuBar = s.showMenuBar
-      if (s.imageDemoForm) patch.imageDemoForm = s.imageDemoForm
+      // 文生图 Demo 表单：优先新结构，兼容旧 imageDemoForm
+      if (s.imageDemoGlobalForm) patch.imageDemoGlobalForm = s.imageDemoGlobalForm
+      if (s.imageDemoFormPerNode) patch.imageDemoFormPerNode = s.imageDemoFormPerNode
+      // 旧格式迁移
+      if (s.imageDemoForm && !s.imageDemoFormPerNode) {
+        const { nodeId, provider, ...params } = s.imageDemoForm as Record<string, unknown> & { nodeId?: string; provider?: string }
+        patch.imageDemoGlobalForm = { provider: (provider as string) || 'modelscope', nodeId: nodeId as string | undefined }
+        patch.imageDemoFormPerNode = nodeId ? { [nodeId]: params } : {}
+      }
       if (Array.isArray(s.splitPatterns)) patch.splitPatterns = s.splitPatterns
+      if (s.cleanNodeOverrides) patch.cleanNodeOverrides = s.cleanNodeOverrides
+      if (typeof s.m1AutoRetry === 'boolean') patch.m1AutoRetry = s.m1AutoRetry
+      if (typeof s.m1TitleTemplate === 'string') patch.m1TitleTemplate = s.m1TitleTemplate
+      if (typeof s.m1TestText === 'string') patch.m1TestText = s.m1TestText
       // assetDir 不自动应用（来源机器路径多半无效），仅当用户显式想用时手动改
       useAppStore.setState(patch)
       pushSettingsNow()
@@ -785,37 +840,34 @@ export default function SettingsPage() {
                 {/* 节点池分组渲染 */}
                 {Object.entries(groupedProviders).map(([baseURL, { groupName, nodes }]) => {
                   const isExpanded = groupExpanded[baseURL] ?? true
-                  const isSingleNode = nodes.length === 1
                   return (
                     <div key={baseURL} style={{ marginBottom: 16 }}>
-                      {/* 分组标题（仅多节点时显示） */}
-                      {!isSingleNode && (
-                        <div
-                          style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            padding: '8px 12px',
-                            background: 'var(--ant-color-fill-quaternary)',
-                            borderRadius: 4,
-                            cursor: 'pointer',
-                            marginBottom: 8,
-                          }}
-                          onClick={() => toggleGroup(baseURL)}
-                        >
-                          <Space>
-                            {isExpanded ? <DownOutlined style={{ fontSize: 12 }} /> : <UpOutlined style={{ fontSize: 12, transform: 'rotate(180deg)' }} />}
-                            <Typography.Text strong style={{ fontSize: 13 }}>
-                              {groupName}
-                            </Typography.Text>
-                            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                              {baseURL}
-                            </Typography.Text>
-                            <Tag color="blue">{nodes.length} 个节点</Tag>
-                          </Space>
-                        </div>
-                      )}
-                      {/* 节点列表（展开时或单节点时显示） */}
-                      {(isExpanded || isSingleNode) && (
+                      {/* 分组标题（统一显示，单节点也显示并支持折叠） */}
+                      <div
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          padding: '8px 12px',
+                          background: 'var(--ant-color-fill-quaternary)',
+                          borderRadius: 4,
+                          cursor: 'pointer',
+                          marginBottom: 8,
+                        }}
+                        onClick={() => toggleGroup(baseURL)}
+                      >
+                        <Space>
+                          {isExpanded ? <DownOutlined style={{ fontSize: 12 }} /> : <UpOutlined style={{ fontSize: 12, transform: 'rotate(180deg)' }} />}
+                          <Typography.Text strong style={{ fontSize: 13 }}>
+                            {groupName}
+                          </Typography.Text>
+                          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                            {baseURL}
+                          </Typography.Text>
+                          <Tag color="blue">{nodes.length} 个节点</Tag>
+                        </Space>
+                      </div>
+                      {/* 节点列表（展开时显示） */}
+                      {isExpanded && (
                         <Table
                           rowKey="id"
                           columns={columns}
@@ -1207,9 +1259,13 @@ export default function SettingsPage() {
           <Form.Item name="apiKey" label="API Key">
             <Input.Password placeholder="本地节点可留空" />
           </Form.Item>
-          <Form.Item name="model" label="默认模型" rules={[{ required: true }]}>
+          <Form.Item name="model" label="默认模型" rules={[{ required: true }]} extra="支持多个模型，用逗号分隔（如 gpt-4, gpt-3.5-turbo）">
             <Space.Compact style={{ width: '100%' }}>
-              <Input placeholder="模型名" style={{ flex: 1 }} />
+              <Input.TextArea
+                placeholder="模型名（多个用逗号分隔）"
+                autoSize={{ minRows: 1, maxRows: 4 }}
+                style={{ flex: 1 }}
+              />
               <Button
                 loading={fetchingModels}
                 disabled={!form.getFieldValue('baseURL')}

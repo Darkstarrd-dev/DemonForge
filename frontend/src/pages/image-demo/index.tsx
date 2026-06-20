@@ -4,7 +4,9 @@ import { DownloadOutlined, DeleteOutlined, PictureOutlined, CloseOutlined, Uploa
 import { useAppStore } from '../../store/appStore'
 import { generateImage } from '../../services/api'
 import { genId } from '../../store/appStore'
+import { imageHosts } from '../../services/imageHost'
 import type { ProviderNode } from '../../services/types'
+import type { ImageDemoForm } from '../../store/appStore'
 
 const RESOLUTIONS = [
   { value: '1024x1024', label: '1024×1024（1:1）' },
@@ -28,7 +30,8 @@ export default function ImageDemoPage() {
   const { message } = App.useApp()
   const providers = useAppStore((s) => s.providers)
   const imageGallery = useAppStore((s) => s.imageGallery)
-  const imageDemoForm = useAppStore((s) => s.imageDemoForm)
+  const imageDemoFormPerNode = useAppStore((s) => s.imageDemoFormPerNode)
+  const imageDemoGlobalForm = useAppStore((s) => s.imageDemoGlobalForm)
   const setState = useAppStore((s) => s.setState)
   const addImage = useAppStore((s) => s.addImage)
   const deleteImage = useAppStore((s) => s.deleteImage)
@@ -50,13 +53,38 @@ export default function ImageDemoPage() {
 
   useEffect(() => () => acRef.current?.abort(), [])
 
-  const selectedNode: ProviderNode | undefined = imageNodes.find((n) => n.id === imageDemoForm.nodeId)
-  const effectiveNodeId = selectedNode ? imageDemoForm.nodeId : undefined
+  const effectiveNodeId = imageDemoGlobalForm.nodeId
+  const selectedNode: ProviderNode | undefined = effectiveNodeId
+    ? imageNodes.find((n) => n.id === effectiveNodeId)
+    : undefined
+
+  // 派生当前节点的表单参数（含默认值）
+  const nodeParams = effectiveNodeId ? imageDemoFormPerNode[effectiveNodeId] : {}
+  const imageDemoForm: ImageDemoForm = {
+    provider: imageDemoGlobalForm.provider,
+    nodeId: effectiveNodeId,
+    prompt: nodeParams?.prompt ?? '',
+    resolution: nodeParams?.resolution ?? '1024x1024',
+    negativePrompt: nodeParams?.negativePrompt ?? '',
+    steps: nodeParams?.steps,
+    guidance: nodeParams?.guidance,
+    seed: nodeParams?.seed,
+    imageInputMode: nodeParams?.imageInputMode,
+  }
+
   const isModelScope = imageDemoForm.provider === 'modelscope'
   const supportsEdit = selectedNode?.supportsImageEdit ?? false
 
-  const setForm = (patch: Partial<typeof imageDemoForm>) =>
-    setState({ imageDemoForm: { ...imageDemoForm, ...patch } })
+  const setForm = (patch: Partial<ImageDemoForm>) => {
+    const nid = imageDemoGlobalForm.nodeId
+    if (!nid) return
+    setState({
+      imageDemoFormPerNode: {
+        ...imageDemoFormPerNode,
+        [nid]: { ...imageDemoFormPerNode[nid], ...patch },
+      },
+    })
+  }
 
   // 粘贴图片监听
   useEffect(() => {
@@ -102,20 +130,40 @@ export default function ImageDemoPage() {
 
     const size = isModelScope ? imageDemoForm.resolution : undefined
 
-    // 转换图片为 Base64
+    // 转换图片为 Base64 或上传图床
     const imageInputs: string[] = []
+    const usedImageMode: string = imageDemoForm.imageInputMode || 'base64'
     if (supportsEdit && selectedImages.length > 0) {
-      for (const file of selectedImages) {
+      if (usedImageMode === 'base64') {
+        for (const file of selectedImages) {
+          try {
+            const dataUrl = await new Promise<string>((resolve, reject) => {
+              const reader = new FileReader()
+              reader.onload = () => resolve(reader.result as string)
+              reader.onerror = reject
+              reader.readAsDataURL(file)
+            })
+            imageInputs.push(dataUrl)
+          } catch (e) {
+            message.error(`图片读取失败：${e instanceof Error ? e.message : String(e)}`)
+            return
+          }
+        }
+      } else {
+        const host = imageHosts[usedImageMode]
+        if (!host || usedImageMode === 'base64') {
+          message.error('未知图床')
+          return
+        }
+        message.loading({ content: `正在上传到 ${host.name}...`, key: 'upload' })
         try {
-          const dataUrl = await new Promise<string>((resolve, reject) => {
-            const reader = new FileReader()
-            reader.onload = () => resolve(reader.result as string)
-            reader.onerror = reject
-            reader.readAsDataURL(file)
-          })
-          imageInputs.push(dataUrl)
+          for (const file of selectedImages) {
+            const url = await host.upload(file)
+            imageInputs.push(url)
+          }
+          message.success({ content: '图片上传成功', key: 'upload', duration: 2 })
         } catch (e) {
-          message.error(`图片读取失败：${e instanceof Error ? e.message : String(e)}`)
+          message.error({ content: `上传失败：${e instanceof Error ? e.message : String(e)}`, key: 'upload', duration: 3 })
           return
         }
       }
@@ -159,6 +207,7 @@ export default function ImageDemoPage() {
               ...(typeof imageDemoForm.steps === 'number' && imageDemoForm.steps > 0 ? { steps: imageDemoForm.steps } : {}),
               ...(typeof imageDemoForm.guidance === 'number' ? { guidance: imageDemoForm.guidance } : {}),
               ...(typeof imageDemoForm.seed === 'number' ? { seed: imageDemoForm.seed } : {}),
+              ...(imageInputs.length > 0 ? { imageInputs, imageInputMode: usedImageMode } : {}),
               createdAt: new Date().toISOString(),
             })
           },
@@ -196,6 +245,28 @@ export default function ImageDemoPage() {
     setStatusText('')
   }
 
+  const handleClickImage = (img: typeof imageGallery[number]) => {
+    setCurrentImage(img.dataUrl)
+    setForm({
+      prompt: img.prompt,
+      resolution: img.size || imageDemoForm.resolution,
+      negativePrompt: img.negativePrompt || '',
+      steps: img.steps ?? imageDemoForm.steps,
+      guidance: img.guidance ?? imageDemoForm.guidance,
+      seed: img.seed ?? imageDemoForm.seed,
+      ...(img.imageInputMode ? { imageInputMode: img.imageInputMode } : {}),
+    })
+    if (img.imageInputs && img.imageInputs.length > 0) {
+      const modeName = img.imageInputMode
+        ? imageHosts[img.imageInputMode]?.name ?? img.imageInputMode
+        : 'Base64 直传'
+      message.info(
+        `此图为图生图模式生成，使用 ${modeName} 输入了 ${img.imageInputs.length} 张图片（输入图片已不可恢复）`,
+        3,
+      )
+    }
+  }
+
   const downloadImage = (dataUrl: string, name: string) => {
     const a = document.createElement('a')
     a.href = dataUrl
@@ -229,7 +300,7 @@ export default function ImageDemoPage() {
               <Select
                 style={{ width: 240 }}
                 value={effectiveNodeId}
-                onChange={(v) => setForm({ nodeId: v })}
+                onChange={(v) => setState({ imageDemoGlobalForm: { ...imageDemoGlobalForm, nodeId: v } })}
                 placeholder="选择文生图节点"
                 options={imageNodes.map((p) => ({
                   value: p.id,
@@ -397,7 +468,7 @@ export default function ImageDemoPage() {
                   borderRadius: 6,
                   overflow: 'hidden',
                 }}
-                onClick={() => setCurrentImage(img.dataUrl)}
+                onClick={() => handleClickImage(img)}
               >
                 <img src={img.dataUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
               </div>
@@ -432,6 +503,25 @@ export default function ImageDemoPage() {
               }}
             />
           </div>
+
+          {supportsEdit && (
+            <div style={{ marginBottom: 16 }}>
+              <Typography.Text style={{ color: '#8b949e', fontSize: 12, display: 'block', marginBottom: 4 }}>图片输入方式</Typography.Text>
+              <Select
+                value={imageDemoForm.imageInputMode || 'base64'}
+                onChange={(mode) => setForm({ imageInputMode: mode })}
+                style={{ width: '100%' }}
+              >
+                <Select.Option value="base64">Base64 直传（推荐）</Select.Option>
+                <Select.OptGroup label="临时图床中转（适合大图片）">
+                  <Select.Option value="catbox">Catbox（永久保留，≤200MB）</Select.Option>
+                  <Select.Option value="litterbox">Litterbox（1-72小时，≤1GB）</Select.Option>
+                  <Select.Option value="0x0">0x0.st（约30天，数十MB）</Select.Option>
+                  <Select.Option value="telegraph">Telegraph（长期，≤5MB）</Select.Option>
+                </Select.OptGroup>
+              </Select>
+            </div>
+          )}
 
           {isModelScope && (
             <>
@@ -565,39 +655,64 @@ export default function ImageDemoPage() {
           {imageGallery.length === 0 ? (
             <Typography.Text style={{ color: '#8b949e', fontSize: 12 }}>尚未生成图片</Typography.Text>
           ) : (
-            <div style={{ maxHeight: 200, overflowY: 'auto' }}>
-              <Space direction="vertical" size={8} style={{ width: '100%' }}>
-                {imageGallery.slice(0, 10).map((img) => (
-                  <div key={img.id} style={{ display: 'flex', gap: 8, alignItems: 'center', padding: 8, background: '#0d1117', borderRadius: 6, border: '1px solid #30363d' }}>
-                    <img src={img.dataUrl} alt="" style={{ width: 40, height: 40, objectFit: 'cover', borderRadius: 4 }} />
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <Typography.Text ellipsis style={{ color: '#c9d1d9', fontSize: 12, display: 'block' }}>
-                        {img.prompt.slice(0, 30)}...
-                      </Typography.Text>
-                      <Typography.Text style={{ color: '#8b949e', fontSize: 11 }}>
-                        {img.size || '默认'}
-                      </Typography.Text>
+              <div style={{ maxHeight: 200, overflowY: 'auto' }}>
+                <Space direction="vertical" size={8} style={{ width: '100%' }}>
+                  {imageGallery.slice(0, 10).map((img) => (
+                    <div
+                      key={img.id}
+                      onClick={() => handleClickImage(img)}
+                      style={{
+                        display: 'flex',
+                        gap: 8,
+                        alignItems: 'center',
+                        padding: 8,
+                        background: '#0d1117',
+                        borderRadius: 6,
+                        border: '1px solid #30363d',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <img src={img.dataUrl} alt="" style={{ width: 40, height: 40, objectFit: 'cover', borderRadius: 4 }} />
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                          <Typography.Text ellipsis style={{ color: '#c9d1d9', fontSize: 12, display: 'block' }}>
+                            {img.prompt.slice(0, 30)}...
+                          </Typography.Text>
+                          {img.imageInputs && img.imageInputs.length > 0 && (
+                            <Typography.Text style={{ color: '#58a6ff', fontSize: 10, flexShrink: 0 }}>图生图</Typography.Text>
+                          )}
+                        </div>
+                        <Typography.Text style={{ color: '#8b949e', fontSize: 11 }}>
+                          {img.size || '默认'}
+                        </Typography.Text>
+                      </div>
+                      <Space size={4}>
+                        <Button
+                          size="small"
+                          type="text"
+                          icon={<DownloadOutlined />}
+                          onClick={(e) => { e.stopPropagation(); downloadImage(img.dataUrl, `image-${img.id}`) }}
+                          style={{ color: '#8b949e' }}
+                        />
+                        <Popconfirm
+                          title="删除？"
+                          okText="删除"
+                          okButtonProps={{ danger: true }}
+                          cancelText="取消"
+                          onConfirm={() => deleteImage(img.id)}
+                        >
+                          <Button
+                            size="small"
+                            type="text"
+                            danger
+                            icon={<DeleteOutlined />}
+                            onClick={(e) => e.stopPropagation()}
+                            style={{ color: '#da3633' }}
+                          />
+                        </Popconfirm>
+                      </Space>
                     </div>
-                    <Space size={4}>
-                      <Button
-                        size="small"
-                        type="text"
-                        icon={<DownloadOutlined />}
-                        onClick={() => downloadImage(img.dataUrl, `image-${img.id}`)}
-                        style={{ color: '#8b949e' }}
-                      />
-                      <Popconfirm
-                        title="删除？"
-                        okText="删除"
-                        okButtonProps={{ danger: true }}
-                        cancelText="取消"
-                        onConfirm={() => deleteImage(img.id)}
-                      >
-                        <Button size="small" type="text" danger icon={<DeleteOutlined />} style={{ color: '#da3633' }} />
-                      </Popconfirm>
-                    </Space>
-                  </div>
-                ))}
+                  ))}
               </Space>
             </div>
           )}

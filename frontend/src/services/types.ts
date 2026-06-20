@@ -119,8 +119,14 @@ export interface GeneratedImage {
   guidance?: number
   /** 随机种子 */
   seed?: number
+  /** 图生图时使用的输入图片（Base64 data URL 或图床 URL） */
+  imageInputs?: string[]
+  /** 图片输入方式（base64 / catbox / litterbox / 0x0 / telegraph） */
+  imageInputMode?: ImageInputMode
   createdAt: string
 }
+
+export type ImageInputMode = 'base64' | 'catbox' | 'litterbox' | '0x0' | 'telegraph'
 
 /** M3 推演场景：同一场景可轮流推演多个角色 */
 export interface SimScene {
