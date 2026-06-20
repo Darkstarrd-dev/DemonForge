@@ -135,7 +135,6 @@ export default function SettingsPage() {
   const [draftDir, setDraftDir] = useState<string>(assetDir)
   const [applyingDir, setApplyingDir] = useState(false)
   const [loadingPrompt, setLoadingPrompt] = useState(false)
-  const [testingId, setTestingId] = useState<string | null>(null)
   const [testResult, setTestResult] = useState<{
     node: ProviderNode
     ok: boolean
@@ -146,6 +145,16 @@ export default function SettingsPage() {
   // 章节检测模式编辑
   const [editingPattern, setEditingPattern] = useState<SplitPattern | null>(null)
   const [patternForm] = Form.useForm<SplitPattern>()
+  // 需求8：节点池获取模型多选批量添加
+  const [fetchingModels, setFetchingModels] = useState(false)
+  const [availableModels, setAvailableModels] = useState<string[]>([])
+  const [selectedModels, setSelectedModels] = useState<string[]>([])
+  const [modelSelectOpen, setModelSelectOpen] = useState(false)
+  // 需求9：节点测试改为真实调用
+  const [testingNode, setTestingNode] = useState<ProviderNode | null>(null)
+  const [testStreaming, setTestStreaming] = useState(false)
+  const [testStreamLeft, setTestStreamLeft] = useState('')
+  const [testStreamRight, setTestStreamRight] = useState('')
   // 设置导入导出 + 完整备份恢复
   const [exportRedact, setExportRedact] = useState(false)
   const [importPreview, setImportPreview] = useState<{
@@ -175,6 +184,120 @@ export default function SettingsPage() {
     }
     setEditing(target)
     form.setFieldsValue(target)
+  }
+
+  /** 需求8：获取模型列表 */
+  const fetchModels = async () => {
+    const baseURL = form.getFieldValue('baseURL')
+    const apiKey = form.getFieldValue('apiKey')
+    if (!baseURL) {
+      message.warning('请先填写 Base URL')
+      return
+    }
+    setFetchingModels(true)
+    try {
+      const result = await testProvider({ baseURL, apiKey: apiKey || '', model: '' })
+      if (result.ok && result.models.length > 0) {
+        setAvailableModels(result.models)
+        setSelectedModels([])
+        setModelSelectOpen(true)
+      } else {
+        message.error(result.error || '获取模型列表失败')
+      }
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : '请求失败')
+    } finally {
+      setFetchingModels(false)
+    }
+  }
+
+  /** 需求8：批量添加节点 */
+  const batchAddNodes = () => {
+    if (selectedModels.length === 0) {
+      message.warning('请至少选择一个模型')
+      return
+    }
+    const base = form.getFieldsValue()
+    const baseName = base.name || 'Node'
+    const newNodes: ProviderNode[] = selectedModels.map((model) => ({
+      ...base,
+      id: genId('prov'),
+      name: `${baseName} (${model})`,
+      model,
+      enabled: true,
+      lastTestResult: null,
+      usageLeft: base.usageLimitEnabled ? base.usageLimit ?? 0 : 0,
+      usageResetDate: '',
+    }))
+    setState({ providers: [...providers, ...newNodes] })
+    message.success(`已添加 ${newNodes.length} 个节点`)
+    setModelSelectOpen(false)
+    setEditing(null)
+  }
+
+  /** 需求9：真实调用测试 */
+  const startRealTest = async () => {
+    if (!testingNode) return
+    setTestStreaming(true)
+    setTestStreamLeft(m1TestText)
+    setTestStreamRight('')
+
+    try {
+      const res = await fetch('/api/llm/clean', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          baseURL: testingNode.baseURL,
+          apiKey: testingNode.apiKey,
+          model: testingNode.model,
+          content: m1TestText,
+          systemPrompt: m1SystemPrompt,
+        }),
+      })
+
+      if (!res.ok) {
+        message.error(`测试失败：HTTP ${res.status}`)
+        setTestStreaming(false)
+        return
+      }
+      if (!res.body) {
+        message.error('响应无 body')
+        setTestStreaming(false)
+        return
+      }
+
+      const reader = res.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+      let acc = ''
+
+      for (;;) {
+        const { done, value } = await reader.read()
+        const text = value ? decoder.decode(value, { stream: !done }) : ''
+        buffer += text
+        const events = buffer.split('\n\n')
+        buffer = events.pop() ?? ''
+
+        for (const evt of events) {
+          if (!evt.trim()) continue
+          let data = ''
+          for (const line of evt.split('\n')) {
+            if (line.startsWith('data:')) data += line.slice(5).trim()
+          }
+          if (!data) continue
+          const parsed = JSON.parse(data) as { delta?: string; text?: string }
+          acc += parsed.delta ?? parsed.text ?? ''
+          setTestStreamRight(acc)
+        }
+        if (done) break
+      }
+
+      message.success('测试完成')
+    } catch (e) {
+      message.error(`测试异常：${e instanceof Error ? e.message : String(e)}`)
+    } finally {
+      setTestStreaming(false)
+    }
   }
 
   /** 复制节点：新 id，名称按已有同名编号递增（X → X(2) → X(3)） */
@@ -219,18 +342,6 @@ export default function SettingsPage() {
     })
     setEditing(null)
     message.success('节点已保存（当前存于本地，后续随数据层迁移入库）')
-  }
-
-  const runTest = async (node: ProviderNode) => {
-    setTestingId(node.id)
-    const result = await testProvider({ baseURL: node.baseURL, apiKey: node.apiKey, model: node.model })
-    setState({
-      providers: useAppStore
-        .getState()
-        .providers.map((p) => (p.id === node.id ? { ...p, lastTestResult: result.ok ? 'ok' : 'fail' } : p)),
-    })
-    setTestingId(null)
-    setTestResult({ node, ...result })
   }
 
   /** 批量测试当前 Tab 且 enabled 的节点连通性（并发上限 4） */
@@ -595,7 +706,11 @@ export default function SettingsPage() {
       width: 300,
       render: (_: unknown, node: ProviderNode) => (
         <Space size="small" wrap>
-          <Button size="small" loading={testingId === node.id} onClick={() => runTest(node)}>
+          <Button size="small" onClick={() => {
+            setTestingNode(node)
+            setTestStreamLeft('')
+            setTestStreamRight('')
+          }}>
             测试
           </Button>
           {node.nodeType === 'text' && (
@@ -1021,7 +1136,16 @@ export default function SettingsPage() {
             <Input.Password placeholder="本地节点可留空" />
           </Form.Item>
           <Form.Item name="model" label="默认模型" rules={[{ required: true }]}>
-            <Input placeholder="模型名" />
+            <Space.Compact style={{ width: '100%' }}>
+              <Input placeholder="模型名" style={{ flex: 1 }} />
+              <Button
+                loading={fetchingModels}
+                disabled={!form.getFieldValue('baseURL')}
+                onClick={fetchModels}
+              >
+                获取模型
+              </Button>
+            </Space.Compact>
           </Form.Item>
           <Row gutter={16}>
             <Col span={8}>
@@ -1065,6 +1189,39 @@ export default function SettingsPage() {
             }
           </Form.Item>
         </Form>
+      </Modal>
+
+      {/* 需求8：模型多选批量添加 */}
+      <Modal
+        title="选择模型批量添加"
+        open={modelSelectOpen}
+        onOk={batchAddNodes}
+        onCancel={() => setModelSelectOpen(false)}
+        okText="批量添加"
+        width={600}
+      >
+        <Alert
+          type="info"
+          showIcon
+          message={`从 ${form.getFieldValue('baseURL')} 获取到 ${availableModels.length} 个模型`}
+          style={{ marginBottom: 16 }}
+        />
+        <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
+          选择要添加的模型（将为每个模型创建一个节点，共享 Base URL 和 API Key）：
+        </Typography.Text>
+        <Checkbox.Group
+          style={{ width: '100%' }}
+          value={selectedModels}
+          onChange={setSelectedModels}
+        >
+          <Space direction="vertical" style={{ width: '100%' }}>
+            {availableModels.map((model) => (
+              <Checkbox key={model} value={model}>
+                {model}
+              </Checkbox>
+            ))}
+          </Space>
+        </Checkbox.Group>
       </Modal>
 
       <Modal
@@ -1128,6 +1285,64 @@ export default function SettingsPage() {
         ) : (
           <Alert type="error" showIcon message="连接失败" description={testResult?.error} />
         )}
+      </Modal>
+
+      {/* 需求9：节点真实调用测试 */}
+      <Modal
+        title={`测试节点：${testingNode?.name ?? ''}`}
+        open={!!testingNode}
+        onCancel={() => setTestingNode(null)}
+        width={1200}
+        footer={[
+          <Button key="close" onClick={() => setTestingNode(null)}>关闭</Button>,
+          <Button
+            key="test"
+            type="primary"
+            loading={testStreaming}
+            onClick={startRealTest}
+          >
+            开始测试
+          </Button>,
+        ]}
+      >
+        <Space direction="vertical" style={{ width: '100%' }} size="large">
+          <div>
+            <Typography.Text strong>清理提示词：</Typography.Text>
+            <Input.TextArea
+              value={m1SystemPrompt}
+              readOnly
+              autoSize={{ minRows: 3, maxRows: 6 }}
+              style={{ marginTop: 8, fontFamily: 'monospace', fontSize: 12 }}
+            />
+          </div>
+          <div>
+            <Typography.Text strong>测试文本：</Typography.Text>
+            <Input.TextArea
+              value={m1TestText}
+              readOnly
+              autoSize={{ minRows: 4, maxRows: 8 }}
+              style={{ marginTop: 8, fontFamily: 'monospace', fontSize: 12 }}
+            />
+          </div>
+          {testStreamLeft && (
+            <Row gutter={16}>
+              <Col span={12}>
+                <Card size="small" title="原文" style={{ height: 400 }}>
+                  <div style={{ height: 350, overflow: 'auto', whiteSpace: 'pre-wrap', fontFamily: 'monospace', fontSize: 12 }}>
+                    {testStreamLeft}
+                  </div>
+                </Card>
+              </Col>
+              <Col span={12}>
+                <Card size="small" title="清理结果" style={{ height: 400 }}>
+                  <div style={{ height: 350, overflow: 'auto', whiteSpace: 'pre-wrap', fontFamily: 'monospace', fontSize: 12 }}>
+                    {testStreamRight || (testStreaming ? '等待响应...' : '')}
+                  </div>
+                </Card>
+              </Col>
+            </Row>
+          )}
+        </Space>
       </Modal>
 
       <Modal
