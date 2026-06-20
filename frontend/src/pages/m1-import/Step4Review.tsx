@@ -3,6 +3,7 @@ import {
   App,
   Badge,
   Button,
+  Checkbox,
   Col,
   Form,
   Input,
@@ -48,6 +49,8 @@ export default function Step4Review() {
   const [storeOpen, setStoreOpen] = useState(false)
   const [editDraft, setEditDraft] = useState<{ field: 'content' | 'cleanedContent'; text: string } | null>(null)
   const [form] = Form.useForm<{ title: string; type: BookType }>()
+  const [rejectNodeOpen, setRejectNodeOpen] = useState(false)
+  const [rejectNodeIds, setRejectNodeIds] = useState<string[]>([])
 
   const chapters = session?.chapters ?? []
   const current = chapters.find((c) => c.id === selectedId) ?? chapters[0] ?? null
@@ -97,6 +100,65 @@ export default function Step4Review() {
       lineDecisions: {},
     })
     message.info('已标记重新处理：返回上一步将优先清理该章')
+  }
+
+  const acceptAll = () => {
+    const cur = useAppStore.getState().importSession
+    if (!cur) return
+    let count = 0
+    setState({
+      importSession: {
+        ...cur,
+        chapters: cur.chapters.map((c) => {
+          if (c.cleanStatus === 'completed' && c.cleanedContent) {
+            count++
+            return { ...c, cleanStatus: 'accepted' as const, finalText: computeFinal(c) }
+          }
+          return c
+        }),
+      },
+    })
+    message.success(`已全部接受 ${count} 章`)
+  }
+
+  const rejectAll = () => {
+    const cur = useAppStore.getState().importSession
+    if (!cur) return
+    let count = 0
+    setState({
+      importSession: {
+        ...cur,
+        chapters: cur.chapters.map((c) => {
+          if (c.cleanStatus === 'completed') {
+            count++
+            return { ...c, cleanStatus: 'rejected' as const, cleanedContent: undefined, finalText: undefined, lineDecisions: {}, processedByNode: undefined }
+          }
+          return c
+        }),
+      },
+    })
+    message.success(`已全部拒绝 ${count} 章`)
+  }
+
+  const rejectByNode = () => {
+    const cur = useAppStore.getState().importSession
+    if (!cur) return
+    let count = 0
+    setState({
+      importSession: {
+        ...cur,
+        chapters: cur.chapters.map((c) => {
+          if (c.cleanStatus === 'completed' && c.processedByNode && rejectNodeIds.includes(c.processedByNode.nodeId)) {
+            count++
+            return { ...c, cleanStatus: 'rejected' as const, cleanedContent: undefined, finalText: undefined, lineDecisions: {}, processedByNode: undefined }
+          }
+          return c
+        }),
+      },
+    })
+    setRejectNodeOpen(false)
+    setRejectNodeIds([])
+    message.success(`已拒绝 ${count} 章（${rejectNodeIds.length} 个节点）`)
   }
 
   const onDecide = (rowIdx: number, decision: LineDecision | null) => {
@@ -163,6 +225,9 @@ export default function Step4Review() {
           <Button type="primary" size="small" icon={<DatabaseOutlined />} onClick={() => setStoreOpen(true)}>
             全部入库
           </Button>
+          <Button size="small" onClick={acceptAll}>全部接受</Button>
+          <Button size="small" onClick={rejectAll}>全部拒绝</Button>
+          <Button size="small" onClick={() => setRejectNodeOpen(true)}>拒绝指定节点</Button>
         </Space>
         <List
           size="small"
@@ -182,9 +247,16 @@ export default function Step4Review() {
                     {c.title}
                   </Typography.Text>
                 </Space>
-                <Tag icon={meta.icon} color={meta.color} style={{ marginLeft: 'auto' }}>
+              <div style={{ marginLeft: 'auto', display: 'flex', gap: 4 }}>
+                {c.processedByNode && (
+                  <Tag color="purple" style={{ fontSize: 11 }}>
+                    {c.processedByNode.nodeName}
+                  </Tag>
+                )}
+                <Tag icon={meta.icon} color={meta.color}>
                   {meta.text}
                 </Tag>
+              </div>
               </List.Item>
             )
           }}
@@ -310,6 +382,36 @@ export default function Step4Review() {
             已接受章节使用「清理结果 + 行级决策」生成的最终文本；其余章节以原文入库。章节状态均为 cleaned。
           </Typography.Text>
         </Form>
+      </Modal>
+
+      <Modal
+        title="拒绝指定节点"
+        open={rejectNodeOpen}
+        onOk={rejectByNode}
+        onCancel={() => {
+          setRejectNodeOpen(false)
+          setRejectNodeIds([])
+        }}
+        okText="确认拒绝"
+        okButtonProps={{ disabled: rejectNodeIds.length === 0 }}
+      >
+        <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 12 }}>
+          勾选要拒绝的节点，这些节点处理的所有「待审核」章节将被标记为拒绝（以原文入库）。
+        </Typography.Text>
+        <Checkbox.Group
+          value={rejectNodeIds}
+          onChange={(v) => setRejectNodeIds(v as string[])}
+          options={(() => {
+            const seen = new Set<string>()
+            return chapters
+              .filter((c) => c.processedByNode && c.cleanStatus === 'completed' && !seen.has(c.processedByNode.nodeId))
+              .map((c) => {
+                seen.add(c.processedByNode!.nodeId)
+                const count = chapters.filter((x) => x.processedByNode?.nodeId === c.processedByNode!.nodeId && x.cleanStatus === 'completed').length
+                return { label: `${c.processedByNode!.nodeName}（${count} 章）`, value: c.processedByNode!.nodeId }
+              })
+          })()}
+        />
       </Modal>
     </Row>
   )

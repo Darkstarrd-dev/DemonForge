@@ -120,7 +120,7 @@ export default function Step3Clean() {
     [enabledNodes, overrides],
   )
 
-  const [rangeStart, setRangeStart] = useState(1)
+  const [rangeStart, setRangeStart] = useState<number | null>(1)
   const [rangeEnd, setRangeEnd] = useState<number | null>(null)
   const [running, setRunning] = useState(false)
   const [paused, setPaused] = useState(false)
@@ -175,7 +175,12 @@ export default function Step3Clean() {
   if (!session) return null
   const chapters = session.chapters
   const total = chapters.length
-  const end = rangeEnd ?? total
+  const pendingNotProcessing = chapters.filter(
+    (c) => c.cleanStatus === 'pending' || c.cleanStatus === 'needsReprocess' || c.cleanStatus === 'failed',
+  )
+  const pendingCount = pendingNotProcessing.length
+  const start = Math.max(1, Math.min(rangeStart ?? 1, pendingCount))
+  const end = Math.min(rangeEnd ?? pendingCount, pendingCount)
   const doneCount = chapters.filter((c) => c.cleanStatus === 'completed' || c.cleanStatus === 'accepted').length
 
   /** 参选节点（participating 为 true） */
@@ -193,11 +198,11 @@ export default function Step3Clean() {
   }
 
   const rangeTargets = () => {
-    const inRange = chapters.slice(rangeStart - 1, end).filter((c) => !c.skipClean)
+    const slice = pendingNotProcessing.slice(start - 1, end)
     return [
-      ...inRange.filter((c) => c.cleanStatus === 'needsReprocess'),
-      ...inRange.filter((c) => c.cleanStatus === 'failed'),
-      ...inRange.filter((c) => c.cleanStatus === 'pending'),
+      ...slice.filter((c) => c.cleanStatus === 'needsReprocess'),
+      ...slice.filter((c) => c.cleanStatus === 'failed'),
+      ...slice.filter((c) => c.cleanStatus === 'pending'),
     ]
   }
 
@@ -279,7 +284,10 @@ export default function Step3Clean() {
       cleanNodes,
       {
         onStart: (chapterId, nodeName, batchId, nodeId) => {
-          patchChapter(chapterId, { cleanStatus: 'processing' })
+          patchChapter(chapterId, {
+            cleanStatus: 'processing',
+            ...(nodeId ? { processedByNode: { nodeId, nodeName } } : {}),
+          })
           trackAssign(chapterId, nodeName, nodeId)
           const isAnchor = !!batchId
           setActive((prev) => [...prev, { chapterId, nodeName, nodeId, acc: '', batchId, isBatchAnchor: isAnchor }])
@@ -309,14 +317,6 @@ export default function Step3Clean() {
           chapterNode.current = new Map()
           setSelectedNode(null)
           message.success('清理完成，请进入审核步骤')
-          // 自动前移 rangeStart 跳过已完成章节
-          const curSession = useAppStore.getState().importSession
-          if (curSession) {
-            const nextIdx = curSession.chapters.findIndex(
-              (c) => c.cleanStatus === 'pending' || c.cleanStatus === 'needsReprocess',
-            )
-            if (nextIdx >= 0) setRangeStart(nextIdx + 1)
-          }
         },
         onNodeDisabled: (nodeId, nodeName, reason) => {
           // 调度器熔断该节点 → 同步把参与开关切到关闭（写入 store 覆盖），并提示
@@ -432,9 +432,10 @@ export default function Step3Clean() {
   const retryFailed = () => {
     const cur = useAppStore.getState().importSession
     if (!cur) return
-    const failed = cur.chapters
-      .slice(rangeStart - 1, end)
-      .filter((c) => c.cleanStatus === 'failed' && !c.skipClean)
+    const curPending = cur.chapters.filter(
+      (c) => c.cleanStatus === 'pending' || c.cleanStatus === 'needsReprocess' || c.cleanStatus === 'failed',
+    )
+    const failed = curPending.slice(start - 1, end).filter((c) => c.cleanStatus === 'failed')
     if (!failed.length) {
       message.info('范围内没有失败章节')
       return
@@ -443,7 +444,7 @@ export default function Step3Clean() {
       importSession: {
         ...cur,
         chapters: cur.chapters.map((c) =>
-          c.cleanStatus === 'failed' && !c.skipClean ? { ...c, cleanStatus: 'pending' } : c,
+          c.cleanStatus === 'failed' ? { ...c, cleanStatus: 'pending' } : c,
         ),
       },
     })
@@ -628,13 +629,30 @@ export default function Step3Clean() {
         ]}
       />
 
-      {/* 处理范围 */}
+      {/* 处理范围：相对待处理列表 */}
       <Space wrap align="center">
         <Typography.Text>处理范围：第</Typography.Text>
-        <InputNumber min={1} max={total} value={rangeStart} onChange={(v) => setRangeStart(v ?? 1)} />
+        <InputNumber
+          min={1}
+          max={Math.max(1, rangeEnd ?? pendingCount)}
+          value={rangeStart}
+          onChange={(v) => {
+            setRangeStart(v)
+            if (v != null && rangeEnd != null && v > rangeEnd) setRangeEnd(null)
+          }}
+          style={{ width: 70 }}
+          placeholder="1"
+        />
         <Typography.Text>—</Typography.Text>
-        <InputNumber min={rangeStart} max={total} value={end} onChange={(v) => setRangeEnd(v)} />
-        <Typography.Text>章（共 {total} 章）</Typography.Text>
+        <InputNumber
+          min={rangeStart ?? 1}
+          max={pendingCount}
+          value={rangeEnd}
+          onChange={(v) => setRangeEnd(v)}
+          style={{ width: 70 }}
+          placeholder={String(pendingCount)}
+        />
+        <Typography.Text>章（待处理 {pendingCount} · 已处理 {doneCount} · 共 {total}）</Typography.Text>
       </Space>
 
       {/* 摘要 */}
@@ -683,7 +701,7 @@ export default function Step3Clean() {
 
       <Progress percent={total ? Math.round((doneCount / total) * 100) : 0} />
       <Typography.Text type="secondary">
-        已完成 {doneCount} / {total} 章 · 待处理 {pendingChapters.length} · 活跃请求 {active.length}
+        共 {total} 章 · 已处理 {doneCount} · 待处理 {pendingCount} · 活跃 {active.length}
       </Typography.Text>
 
       {running && paused && (
@@ -976,7 +994,7 @@ export default function Step3Clean() {
 // ── 子组件：章节列表格 ──
 
 interface ChapterListPaneProps {
-  chapters: Array<{ id: string; title: string; cleanStatus: string; cleanedContent?: string; content: string }>
+  chapters: Array<{ id: string; title: string; cleanStatus: string; cleanedContent?: string; content: string; processedByNode?: { nodeId: string; nodeName: string } }>
   emptyText: string
   selectedTask: string | null
   activeIds: Set<string>
@@ -1011,6 +1029,11 @@ function ChapterListPane({ chapters, emptyText, selectedTask, activeIds, onPick,
                 {c.title}
               </Typography.Text>
               <Space size={4}>
+                {c.processedByNode && (
+                  <Tag color="purple" style={{ margin: 0, fontSize: 10 }}>
+                    {c.processedByNode.nodeName}
+                  </Tag>
+                )}
                 <Tag color={statusColor(c.cleanStatus)} style={{ margin: 0, fontSize: 11 }}>
                   {isActive ? '处理中' : c.cleanStatus === 'completed' ? '已完成' : c.cleanStatus === 'accepted' ? '已采纳' : c.cleanStatus === 'failed' ? '失败' : c.cleanStatus === 'needsReprocess' ? '待重做' : '待处理'}
                 </Tag>

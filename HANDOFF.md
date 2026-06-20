@@ -18,18 +18,23 @@
     ④ 文生图 Demo 完善 ModelScope 服务——可选参数全链路透传 + 调试信息区，用户实机测试通过。
     ⑤ 系统设置·节点池增强 6 项功能 + 入库小说数据恢复（sqlite3 .recover）。
     ⑥ **【最新】数据持久化全面加固 + 设置/备份导入导出**——从根上修复"反复数据丢失"的 6 个缺陷（syncAll 改纯 upsert 永不删除 / settings.json 原子写入+.bak / assetDir 启动缓存 / readAll 逐行容错 / 启动日志增强 / 显式 DELETE 端点），并新增设置导入导出 + 完整备份恢复（版本化 bundle、向后兼容、脱敏选项）作为人工兜底。详见 FIXES.md「2026-06-20」。
-    ⑦ **【本次】M1 Step3 文本清理流水线重构**——按用户实机反馈做四项整改：① **Tabs 四标签可切换列表**（待处理/完成/工作节点/节点任务，按批次会话跟踪节点接手数/完成数，修复 CSS 强制 tabpane `display:flex` 导致点 tab 不切换的真因）；② **节点级熔断**（连续 3 次 5xx/网络错误自动 `onNodeDisabled` + UI 同步关闭，不再对坏节点无限重试；全节点熔断时剩余任务判错退出不死循环）；③ **批处理可观测性 + 失败隔离**（每条请求日志带实际 batchSize；batch 失败后重试避开该节点 `chapterAvoidNodes`，不再饥饿重拉 9 章；成功响应不再记录流式正文 responseBody）；④ **统一设置改部分应用**（原必须三字段全填才生效的静默 bug，现仅填的生效）+ **cleanNodeOverrides 持久化到 settings.json**（原 useState 重挂载丢失 → 回退默认 batchSize=1，是"100 章发 100 请求"的配置层根因）。新增 `scripts/smoke-batch.mts`（16 项批处理+熔断回归测试，实证 100 章/batchSize 20 = 5 请求）。
+         ⑦ M1 Step3 文本清理流水线重构
+     ⑧ **【本次】M1 处理范围 + 节点溯源 + 审核批量操作**——按用户实机反馈做四项整改：① **Tabs 四标签可切换列表**（待处理/完成/工作节点/节点任务，按批次会话跟踪节点接手数/完成数，修复 CSS 强制 tabpane `display:flex` 导致点 tab 不切换的真因）；② **节点级熔断**（连续 3 次 5xx/网络错误自动 `onNodeDisabled` + UI 同步关闭，不再对坏节点无限重试；全节点熔断时剩余任务判错退出不死循环）；③ **批处理可观测性 + 失败隔离**（每条请求日志带实际 batchSize；batch 失败后重试避开该节点 `chapterAvoidNodes`，不再饥饿重拉 9 章；成功响应不再记录流式正文 responseBody）；④ **统一设置改部分应用**（原必须三字段全填才生效的静默 bug，现仅填的生效）+ **cleanNodeOverrides 持久化到 settings.json**（原 useState 重挂载丢失 → 回退默认 batchSize=1，是"100 章发 100 请求"的配置层根因）。新增 `scripts/smoke-batch.mts`（16 项批处理+熔断回归测试，实证 100 章/batchSize 20 = 5 请求）。
 
 ## 项目状态快照
 
-- **最后更新**：2026-06-20（第三十五次会话·**M1 Step3 文本清理流水线重构：Tabs 四标签 + 节点熔断 + 批处理可观测/失败隔离 + 设置持久化**）
+- **最后更新**：2026-06-20（第三十六次会话·**M1 处理范围语义重构 + 节点溯源标签 + 审核批量接受/拒绝/按节点拒绝**）
 - **阶段**：正式开发——M1 AI 清理端到端跑通；**novel-generator 集成阶段 A~D 全部完成**；**Electron 迁移完成**；M2–M5 仍 mock；业务数据 SQLite 资产库（可配置资产目录），Provider/密钥等设置存用户数据目录
 - **新增**：**M1 Step3 文本清理流水线重构**——按用户实机反馈做四项整改：
   ① **Tabs 四标签可切换列表**（`Step3Clean.tsx`）：原单一活跃列表 → `Tabs`（待处理/完成/工作节点/节点任务）。节点按**批次会话**生命周期跟踪（`nodeSessions` + `chapterNode` ref）：分配时创建/追加，本批全完成置 idle 变灰，下次再分配替换，运行结束清理。**修复 Tabs 无法切换的真因**——`index.css` 给 `.ant-tabs-tabpane` 强制 `display:flex` 覆盖了 antd 非活动面板的 `display:none`，四面板同时渲染。移除该规则后面板靠 antd 自身 `.ant-tabs-tabpane-active` 显隐。
   ② **节点级熔断**（`llm.ts`）：`nodeConsecFails` 计连续失败，网关/网络类错误（HTTP 5xx / fetch 失败 / SSE error）累加、成功归零；达 `NODE_FAIL_LIMIT=3` 加入 `disabledNodes`，`pickCandidate` 永久跳过，触发新回调 `onNodeDisabled(nodeId,name,reason)` → UI 把参与开关切关闭 + 红色提示。用户手动重新开启 → `updateNodes` 清熔断状态（手动恢复）。**全节点熔断时**剩余任务一次性判错退出（否则死循环，有回归测试）。
   ③ **批处理可观测性 + 失败隔离**（`llm.ts`）：每条请求 debug 事件带实际 `batchSize`（顶层 + requestBody，日志每条 REQ 直接看出走单章还是批量）；batch 失败后用 `chapterAvoidNodes` 让该章重试时 `pickCandidate(avoid)` 优先避开坏节点（不再饥饿重拉 9 章）；重试上限对熔断中节点放宽到 `MAX_RETRIES+2`。成功响应不再记录流式正文 `responseBody`（保留诊断字段）；错误路径 rawChunks 保留。
   ④ **统一设置改部分应用 + 持久化**：`applyBulkToAll` 原必须三字段全填才生效（静默 bug）→ 改为仅已填字段生效；`cleanNodeOverrides` 从 useState 迁到 store（落 `settings.json`），解决重挂载/步骤切换丢设置 → 回退默认 batchSize=1（"100 章发 100 请求"的配置层根因）。后端 settings 路由透传任意键，无需改后端。
-  **新增回归测试** `scripts/smoke-batch.mts`（16 项，node --experimental-strip-types）：实证 100 章/batchSize 20 = **5 请求**（非 100）、10 节点场景同样 5、整除/非整除、单章；熔断场景（坏节点恰在第 3 次 502 后停分配、健康节点接管、单坏节点熔断后判失败不死循环）。
+   **新增回归测试** `scripts/smoke-batch.mts`（16 项，node --experimental-strip-types）：实证 100 章/batchSize 20 = **5 请求**（非 100）、10 节点场景同样 5、整除/非整除、单章；熔断场景（坏节点恰在第 3 次 502 后停分配、健康节点接管、单坏节点熔断后判失败不死循环）。
+   **本轮新增（第三十六次会话·处理范围 + 节点溯源 + 审核批量）**：
+   - ① **处理范围语义重构**（`Step3Clean.tsx`）：范围从绝对章号改为**相对待处理列表**索引（`pendingNotProcessing`，不含 processing）。起止输入框均可清空（null=默认），实时钳制 `起始 ≤ 结束 ≤ 待处理数量`。`max` 属性动态跟随待处理数量缩水。删除 onFinish 里 rangeStart 自动前移逻辑。`retryFailed` 改为新范围语义。信息行改为 `共N · 已处理N · 待处理N · 活跃N`。
+   - ② **节点溯源标签**（`types.ts` + `Step3Clean.tsx` + `Step4Review.tsx`）：`ImportChapter` 加 `processedByNode?: { nodeId, nodeName }`——onStart 写入，供完成列表与审核页标注每章由哪个节点处理（紫色 Tag）。skipClean 卷章不标注。
+   - ③ **审核页批量操作**（`Step4Review.tsx`）：「全部入库」右侧新增三个按钮——全部接受（completed → accepted + finalText）、全部拒绝（completed → rejected）、拒绝指定节点（Modal + Checkbox 列出章节中出现的节点及章数，勾选后该节点的 completed 章置 rejected）。三者均只作用于 completed（待审核）状态，已 accepted/rejected 的保持不动。
 - **摘要**：在 mock 前端基础上**进入实现阶段**。
   运行方式（三选一）：
   - **【推荐】Electron 模式**：双击 `start-electron.bat`（开发模式）或 `npm run dev`，Electron 窗口自动管理前后端；关窗即自动清理进程
@@ -368,24 +373,16 @@
 
 ## 交接备注（最近一次会话）
 
-- **日期**：2026-06-20（第三十五次会话·**M1 Step3 文本清理流水线重构：Tabs 四标签 + 节点熔断 + 批处理可观测/失败隔离 + 设置持久化**）
-- **本次起因**：上一会话完成节点池 UX 增强后，用户实机跑 100 章 / 5 节点 / 每节点 1 进程 / 每批 10 章的场景，反馈三个问题：① 四个 Tab 显示但点哪个都只显示"待处理列表"；② 请求日志显示 MintAPI 节点 batch 从 10 变 9 且反复重试，伴随 502 风暴；③ 要求节点连续 3 次错误后自动关闭而非无限重试。
-- **本次完成**（按根因逐一修复）：
-  - **Tabs 无法切换**（`index.css`）：根因是给 `.ant-tabs-tabpane` 强制 `display:flex`，覆盖了 antd 非活动面板的 `display:none` → 四面板同时渲染。移除该规则，面板内部改 `height:100%` 自滚动。
-  - **节点级熔断**（`llm.ts`）：`nodeConsecFails` + `disabledNodes` + 新回调 `onNodeDisabled`；连续 3 次网关/网络错误自动关闭，`pickCandidate` 跳过，UI 同步切开关。全节点熔断时剩余任务判错退出（防死循环）。手动重新开启 → `updateNodes` 清熔断。
-  - **批处理失败隔离**（`llm.ts`）：`chapterAvoidNodes` 让失败章重试时避开坏节点（`pickCandidate(avoid)`），不再饥饿重拉 9 章；重试上限对熔断节点放宽。**响应按章计入 RES 是正常设计**（`tryFlushCompleted` 逐章 onDone 供实时窗口预览），保留并说明，未改。
-  - **可观测性**（`llm.ts`）：每条 REQ debug 事件带实际 `batchSize`（顶层 + requestBody）；成功响应不再记流式正文 `responseBody`（保留诊断字段）。
-  - **统一设置部分应用**（`Step3Clean.tsx`）：`applyBulkToAll` 原必须三字段全填才生效 → 改仅填的生效。
-  - **设置持久化**（`appStore.ts`）：`cleanNodeOverrides` 落 `settings.json`（修复 useState 重挂载丢失 → 回退默认 batchSize=1，"100 请求"的配置层根因）。
-- **改动文件**（5 个）：
-  - 前端：`frontend/src/services/real/llm.ts`（nodeId 入参 / batchSize 日志 / 清成功 responseBody / finalizeBatch 过短走重试 / 节点熔断 / chapterAvoidNodes / 全熔断退出）、`frontend/src/pages/m1-import/Step3Clean.tsx`（Tabs 四标签 + 节点会话 + 实时窗口联动 + 运行中动态开关 + 统一部分应用 + 失败重跑 + onNodeDisabled 接线 + overrides 迁 store）、`frontend/src/store/appStore.ts`（cleanNodeOverrides 持久化字段 + bootstrap/settingsPayload/subscribe）、`frontend/src/index.css`（移除 tabpane display:flex）、`frontend/scripts/smoke-batch.mts`（新增，16 项批处理+熔断回归测试）
-  - 文档：`HANDOFF.md`
-- **验证全过**：tsc --noEmit ✅ / eslint（改动文件）✅ / vite build ✅（~760ms）/ smoke.mts ✅（25 项）/ smoke-batch.mts ✅（16 项：含"100 章/batchSize 20 = 5 请求"、熔断恰在第 3 次 502 后停分配、健康节点接管、单坏节点判失败不死循环）。
-- **关键设计决策**：
-  ① **"100 章发 100 请求"是配置层 bug 非调度层**——代码追踪 + smoke 实证：当 `batchSize>1` 时调度正确合并（100/20=5 请求）。真因是 `applyBulkToAll` 必须三字段全填的静默失败 + overrides 存 useState 重挂载丢失 → 回退默认 1。两项配置 bug 已修。
-  ② **节点熔断按"批次会话"语义**——节点被分配时创建会话，本批全完成置 idle，下次再分配替换（重置计数），符合用户"完成所有工作后移除、下次再从底部加入"的需求。
-  ③ **响应按章 RES 保留**——同 batch 的 10 章逐章 onDone 是实时窗口逐章预览所需，非 bug；用户感知的"异常"实为 502 风暴，已由熔断根治。
-- **下一步**：① 用户实机验证熔断在真实 502 场景下的行为；②（可选）将节点熔断/会话视图推广到 batch-generate 页；③ M2–M5 详细设计与真实化推进
+- **日期**：2026-06-20（第三十六次会话·**M1 处理范围语义重构 + 节点溯源标签 + 审核批量接受/拒绝/按节点拒绝**）
+- **本次起因**：用户反馈三个问题：① 处理范围输入框无法完全删除（rangeStart 的 `v ?? 1` 强制回 1）；② 希望处理范围始终从 1 开始、不做自动前移，并增加"已处理/待处理/共"统计；③ 希望标注每章由哪个节点处理（完成列表+审核页），并增加批量接受/拒绝/按节点拒绝的操作。
+- **本次完成**（三项全部落地）：
+  - **处理范围语义重构**（`Step3Clean.tsx`）：范围从绝对章号改为相对待处理列表（`pendingNotProcessing`，不含 processing/已完成/卷章）。起止均可清空（`number|null`，onChange 直接透传），钳制 `起始 ≤ 结束 ≤ 待处理数量`。删除 onFinish 里 rangeStart 自动前移。retryFailed 改为新范围语义。信息行改为 `共N · 已处理N · 待处理N · 活跃N`。
+  - **节点溯源标签**（`types.ts` + `Step3Clean.tsx` + `Step4Review.tsx`）：`ImportChapter` 加 `processedByNode?: { nodeId, nodeName }`——onStart 写入（重试换节点覆盖，最终保留成功节点的标注），skipClean 卷章不标。Step3 完成/待处理列表 + Step4 审核列表均以紫色 Tag 显示节点名。
+  - **审核页批量操作**（`Step4Review.tsx`）：「全部入库」右侧新增三个按钮——① 全部接受：completed → accepted + finalText；② 全部拒绝：completed → rejected；③ 拒绝指定节点：Modal + Checkbox 列出章节中所有节点的去重列表（带章数），勾选确认后该节点的 completed 章置 rejected。三者均只作用于 completed（待审核）状态。
+- **改动文件**（3 个）：
+  - 前端：`frontend/src/services/types.ts`（ImportChapter.processedByNode）、`frontend/src/pages/m1-import/Step3Clean.tsx`（rangeStart/End → null 可清空 + pendingNotProcessing/pendingCount + rangeTargets/retryFailed 新语义 + 删除 onFinish 前移 + onStart 写 processedByNode + ChapterListPane 标签 + 信息行）、`frontend/src/pages/m1-import/Step4Review.tsx`（列表节点 Tag + 三个批量按钮 + rejectByNode Modal）
+- **验证全过**：tsc --noEmit ✅（0 错误）/ eslint ✅ / vite build ✅（14.9s）/ smoke(55) ✅ / ruleclean(43) ✅ / parse(22) ✅ / smoke-batch(16) ✅
+- **下一步**：① 用户实机验证处理范围可清空、钳制行为；② 实机验证批量接受/拒绝/按节点拒绝的批量操作；③（可选）将节点溯源推广到 batch-generate 页
 
 ## 更新本文档的约定
 

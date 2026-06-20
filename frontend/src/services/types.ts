@@ -256,6 +256,8 @@ export interface ImportChapter {
   retryCount: number
   /** 卷/特殊标记章，Step3 跳过 LLM 调用，原样保留 */
   skipClean?: boolean
+  /** 最终成功处理该章的节点（供完成列表/审核页溯源、按节点筛选拒绝） */
+  processedByNode?: { nodeId: string; nodeName: string }
 }
 
 /** 章节检测模式（持久化形态：regex 为字符串，便于用户编辑 + settings.json 存储） */
