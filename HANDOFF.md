@@ -24,7 +24,7 @@
 
 ## 项目状态快照
 
-- **最后更新**：2026-06-20（第三十七次会话·**数值输入卡顿修复 + 调度器 per-node 重构 + 工作节点分进程显示 + 拒绝节点去重**）
+- **最后更新**：2026-06-20（第三十八次会话·**日志节点信息 + 防抖状态同步修复 + batchSeq 独立 session + max 放开**）
 - **阶段**：正式开发——M1 AI 清理端到端跑通；**novel-generator 集成阶段 A~D 全部完成**；**Electron 迁移完成**；M2–M5 仍 mock；业务数据 SQLite 资产库（可配置资产目录），Provider/密钥等设置存用户数据目录
 - **新增**：**M1 Step3 文本清理流水线重构**——按用户实机反馈做四项整改：
   ① **Tabs 四标签可切换列表**（`Step3Clean.tsx`）：原单一活跃列表 → `Tabs`（待处理/完成/工作节点/节点任务）。节点按**批次会话**生命周期跟踪（`nodeSessions` + `chapterNode` ref）：分配时创建/追加，本批全完成置 idle 变灰，下次再分配替换，运行结束清理。**修复 Tabs 无法切换的真因**——`index.css` 给 `.ant-tabs-tabpane` 强制 `display:flex` 覆盖了 antd 非活动面板的 `display:none`，四面板同时渲染。移除该规则后面板靠 antd 自身 `.ant-tabs-tabpane-active` 显隐。
@@ -41,6 +41,11 @@
     - ② **调度器 per-node-per-slot 专用 worker**（`llm.ts`）：从匿名 worker 免费竞争模型改为每节点每并发槽位一个专用 worker（round-robin 创建：slot0→N1#1, N2#1, N3#1; slot1→N1#2, N2#2, N3#2）。worker 绑定节点 `await` 执行，全 batch 原子取队。删 `pickCandidate`；新增 `executeBatch`（接收预成型 batch + `workerId`）和 `workerLoopForNode`（node 禁用/删除→break；并发降低→多余 worker 退出；全退出→drain 队列判错）。`onStart` 签名 +`workerId`。per-node 下 avoid-set 检查移除（由 circuit breaker 自然处理）。
     - ③ **工作节点分进程显示**（`Step3Clean.tsx`）：`NodeSession` 加 `workerId`，以 workerId 为键独立展示，每进程单独条目。`chapterNode` ref 改 `Map<chapterId, workerId>`。「工作节点」Tab 显示「节点名 #1」「节点名 #2」等，每进程独立统计接手/完成/进行中。
     - ④ **拒绝节点去重 fix**（`Step4Review.tsx`）：`filter`/`map` 链 with `seen` Set 经典 bug（filter 执行时 seen 恒空→全过）→ pre-compute `useMemo` + `Map` 去重；移除 `（N 章）` 后缀。
+    **本轮新增（第三十八次会话·日志节点信息 + 防抖状态同步 + batchSeq + max）**：
+    - ① **日志补节点信息**（`llm.ts` + `Step3Clean.tsx`）：`streamSingleChapter`/`streamBatch` 所有 `response`/`error` 的 `onDebug` 补 `nodeName`/`nodeId`（共 15 处）；UI 节点 Tag 移出 `type === 'request'` 条件，所有日志类型均显示。
+    - ② **DebouncedInputNumber 状态同步修复**（`Step3Clean.tsx`）：原 `key={value}` trick 无效——key 在子 InputNumber 上，但 InputNumber 的 value 来自父 `local` state，外部 value 变化时 `local` 不更新。改用 React 官方 derived state with reset 模式（`if (value !== tracked) { setTracked(value); setLocal(value) }`），根除统一设置不更新分控值、修改分控值不更新显示等所有显示同步问题。
+    - ③ **batchSeq 批独立 session**（`llm.ts` + `Step3Clean.tsx`）：调度器 `executeBatch` 维护 per-worker 递增 `batchSeq`，传入 `onStart`。UI session key 从 `workerId` 改为 `${workerId}:${batchSeq}`。`trackAssign` 不再查 `idle` state（根除跨批累积的 React 时序竞态）——每批天然新 session，创建时自动移除同 worker 旧 idle session（「完成后从队列中移除」）。
+    - ④ **batchSize max 从 20→100**（`Step3Clean.tsx`）：bulk + per-node 共 2 处，支持大批量（如 30 章/batch）。
 - **摘要**：在 mock 前端基础上**进入实现阶段**。
   运行方式（三选一）：
   - **【推荐】Electron 模式**：双击 `start-electron.bat`（开发模式）或 `npm run dev`，Electron 窗口自动管理前后端；关窗即自动清理进程
@@ -379,22 +384,22 @@
 
 ## 交接备注（最近一次会话）
 
-- **日期**：2026-06-20（第三十七次会话·**数值输入卡顿修复 + 调度器 per-node 重构 + 工作节点分进程显示 + 拒绝节点去重**）
-- **本次起因**：用户反馈 4 个问题：① 所有数字输入框输入时有明显卡顿；② 工作节点合并显示（同节点多进程混为一条 20 章）；③ 任务分发非顺序（N1P2 接手 31~34,40~45 非连续）；④ 拒绝指定节点弹窗选项重复（每章一条而非每节点一条）。
-- **本次完成**（4 项全部落地）：
-  - **DebouncedInputNumber**（`Step3Clean.tsx`）：新建防抖输入组件——本地 state 即时显示，失焦才 `onCommit`。替换全部 9 个 InputNumber（3 批量 + N×3 每节点 + 2 范围）。根除每按键写 zustand store（per-node）/ 全组件重渲染（1099 行组件 diff）的 lag。
-  - **调度器 per-node-per-slot 专用 worker**（`llm.ts`）：删 `pickCandidate`；新建 `workerLoopForNode(node, slot)` + `executeBatch(batch, node, workerId)`。worker 创建 round-robin：slot 0→N1#1,N2#1,N3#1; slot 1→N1#2,N2#2,N3#2（保证初始分配 N1P1→1-10, N2P1→11-20, ...）。worker 绑定节点、await 执行、全 batch 原子取队。per-node 下 avoid-set 检查移除（circuit breaker 自然处理重试）。全退出时 drain 队列判错。
-  - **工作节点分进程显示**（`Step3Clean.tsx`）：`NodeSession` 加 `workerId`，以 workerId 为键独立展示每个进程。`chapterNode` ref 改 `Map<chapterId, workerId>`。显示「节点名 #1」「节点名 #2」。
-  - **拒绝节点去重**（`Step4Review.tsx`）：`filter`/`map` with `seen` Set 经典 bug（filter 先执行→seen 恒空→全过）→ pre-compute `useMemo`+`Map` 去重；移除 `（N 章）` 后缀。
-- **改动文件**（4 个）：
-  - 前端：`frontend/src/services/real/llm.ts`（删 pickCandidate/executeTask/workerLoop/worker创建 → 新建 executeBatch/workerLoopForNode/round-robin创建/activeWorkers计数；onStart +workerId）、`frontend/src/pages/m1-import/Step3Clean.tsx`（新建 DebouncedInputNumber；替换全部 InputNumber；NodeSession 加 workerId/改键；trackAssign/trackComplete 按 workerId）、`frontend/src/pages/m1-import/Step4Review.tsx`（rejectNodeOptions useMemo+Map 去重）
-  - 文档：`HANDOFF.md`
-- **验证全过**：tsc 0 错误 / eslint 0 错误 0 警告 / vite build ✅（704ms）/ smoke(55) ✅ / smoke-batch(16) ✅（含熔断回归） / ruleclean-smoke(43) ✅ / parse-smoke(22) ✅
+- **日期**：2026-06-20（第三十八次会话·**日志节点信息 + 防抖状态同步修复 + batchSeq + max**）
+- **本次起因**：用户反馈上一轮四个修复仍有残留问题：① 响应日志 error/response 类型没有节点标签；② 工作节点分进程后仍存在 session 跨批累积（idle state 竞态）；③ 统一设置与分控显示数字不一致（DebouncedInputNumber key trick 无效）；④ 分控修改值不反映到实际设置。
+- **本次完成**（4 项）：
+  - **日志补节点信息**（`llm.ts` + `Step3Clean.tsx`）：`streamSingleChapter`/`streamBatch` 全部 15 处 `response`/`error` `onDebug` 补 `nodeName: node.name, nodeId: node.id`；UI 节点 Tag 从 `type === 'request'` 条件块移出到所有类型。
+  - **DebouncedInputNumber 根治**（`Step3Clean.tsx`）：原 `key={value}` trick 完全无效——key 在子 InputNumber（不重设父 DebouncedInputNumber 的 `useState`），且 InputNumber value 来自 `local` 非 `value` prop。改用 derived state with reset 模式（`if (value !== tracked) { setTracked(value); setLocal(value) }`），外部 prop 变化时同步重置 `local`。根除统一设置不更新分控显示、分控修改不保存等全部问题。
+  - **batchSeq 独立 session**（`llm.ts` + `Step3Clean.tsx`）：`executeBatch` 维护 `workerBatchSeq: Map<workerId, number>` 递增，传入 `onStart`。UI session key 改为 `workerId:batchSeq`。`trackAssign` 不再查 `idle` state——每批天然新 session，创建时自动 filter 掉同 worker 旧 idle session（完成后移除 → 新 batch 入队尾）。
+  - **batchSize max 20→100**（`Step3Clean.tsx`）：bulk + per-node 两类输入放开上限。
+- **改动文件**（3 个）：
+  - `frontend/src/services/real/llm.ts`（onStart+batchSeq / executeBatch workerBatchSeq / 15 处 debug +nodeName+nodeId）
+  - `frontend/src/pages/m1-import/Step3Clean.tsx`（DebouncedInputNumber derived state 重写 / NodeSession +sessionKey / trackAssign 无 idle / NodeListPane sessionKey / 日志 Tag 全局化 / max=100×2）
+  - `HANDOFF.md`
+- **验证全过**：tsc 0 / eslint 0 / vite build 728ms ✅ / smoke(55) ✅ / smoke-batch(16) ✅ / ruleclean(43) ✅ / parse(22) ✅
 - **关键设计决策**：
-  ① **per-node 模型**：每节点每并发槽一个专用 worker（await 执行，非 fire-and-forget）。优势：分布确定可预测、每进程可观测、全 batch 原子取队。代价：利用率略降（某节点慢时其他节点 worker 不接管）— 用户场景本地少量节点，可预测性优先。
-  ② **avoid-set 在 per-node 下移除**：worker 绑定节点，若避让会导致同章永远不被该节点重试 → circuit breaker 无法触发。移除后 circuit breaker 自然工作（连续 3 次失败→禁用→其他节点 worker 接管）。
-  ③ **DebouncedInputNumber key 机制**：用 `key={String(value)}` 同步外部值变更（父组件改值时重挂载重置本地 state），避免 useEffect+setState 的 lint 警告和 cascading renders。
-- **下一步**：① 用户实机验证数字输入不卡顿、工作节点分进程显示、顺序分布；② 实机验证拒绝指定节点选项无重复；③（可选）per-node worker 支持运行时新增节点动态创建 worker
+  ① **derived state 替代 key trick**：key 重挂载方案在子组件 value 来自父 state 时天然无效（挂载态用 stale state → 显示不同步）。React 官方 derived state with reset pattern (`if (prev !== curr) setState(curr)` in render) 是正确方案——无额外渲染，无 useEffect lint 警告。
+  ② **batchSeq 分离「worker 身份」与「批次身份」**：原 session key=workerId 把多批硬压缩到一条——需靠 idle state 分流，无法保证时序。分开后 sessionKey 天然唯一，`trackAssign` 零竞态；新 batch 创建时 filter 掉同 worker 旧 idle。
+- **下一步**：① 用户实机验证日志中 error/response 有节点标签；② 验证统一设置后分控数字同步更新；③ 验证分控修改后实际生效（运行中热更新）；④ 验证 worker 多批后旧 session 自动移除、新 batch 独立显示
 
 ## 更新本文档的约定
 

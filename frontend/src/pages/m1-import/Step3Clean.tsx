@@ -68,11 +68,11 @@ interface NodeRuntime {
   intervalSec: number
 }
 
-/** 工作节点的一次会话（按批次生命周期）：节点被分配任务时创建，本批全部完成后置 idle。
- *  下次再被分配→新建会话替换（重置计数、置底部）；运行结束/被关闭→硬删除。 */
+/** 工作节点的一次会话（按批次生命周期）：每 batch 创建新 session，完成后自动被新 session 替换。
+ *  key 为 sessionKey = `${workerId}:${batchSeq}`。同一 worker 的旧 idle session 在新 session 创建时移除。 */
 interface NodeSession {
-  /** 唯一进程标识：nodeId#slot（如 mint-1#1、mint-1#2），同节点不同进程各自独立 */
-  workerId: string
+  /** 会话唯一键：workerId:batchSeq（如 mint-1#1:2） */
+  sessionKey: string
   nodeId: string
   /** 显示名：节点名 #slot */
   name: string
@@ -80,7 +80,7 @@ interface NodeSession {
   assigned: string[]
   /** 本会话已完成的章节 id */
   done: Set<string>
-  /** 本会话所有接手章均已完成（变灰，等待被替换/移除） */
+  /** 本会话所有接手章均已完成（变灰） */
   idle: boolean
 }
 
@@ -138,11 +138,11 @@ export default function Step3Clean() {
 
   /** 列表视图切换：待处理 / 完成 / 工作节点 / 节点任务 */
   const [listTab, setListTab] = useState<'pending' | 'done' | 'nodes' | 'nodeTasks'>('pending')
-  const [selectedNode, setSelectedNode] = useState<string | null>(null) // workerId
+  const [selectedNode, setSelectedNode] = useState<string | null>(null) // sessionKey
 
   /** 工作节点会话（有序数组，底部=最新） */
   const [nodeSessions, setNodeSessions] = useState<NodeSession[]>([])
-  /** chapterId → 当前所属会话的 workerId（onStart 写入，onDone/onError 读） */
+  /** chapterId → sessionKey（onStart 写入，onDone/onError 读） */
   const chapterNode = useRef<Map<string, string>>(new Map())
 
   // 挂载时加载内置默认 prompt
@@ -226,36 +226,36 @@ export default function Step3Clean() {
     }).filter((n) => n.baseURL.trim() && n.model.trim())
   }
 
-  /** onStart：记录 chapterId → workerId，并维护节点会话（按批次生命周期） */
-  const trackAssign = (chapterId: string, nodeName: string, nodeId?: string, workerId?: string) => {
-    if (!nodeId || !workerId) return
-    chapterNode.current.set(chapterId, workerId)
+  /** onStart：记录 chapterId → sessionKey，并创建/追加会话（每 batch 独立 session） */
+  const trackAssign = (chapterId: string, nodeName: string, nodeId?: string, workerId?: string, batchSeq?: number) => {
+    if (!nodeId || !workerId || batchSeq == null) return
+    const sessionKey = `${workerId}:${batchSeq}`
+    chapterNode.current.set(chapterId, sessionKey)
     setNodeSessions((prev) => {
-      const idx = prev.findIndex((s) => s.workerId === workerId)
-      // 已有会话且未 idle → 直接追加；已 idle → 视为新一批，替换（重置计数、置底部）
-      if (idx >= 0 && !prev[idx].idle) {
+      const idx = prev.findIndex((s) => s.sessionKey === sessionKey)
+      // 已有同 batch session → 追加章节（batch 内随后章节的 onStart）
+      if (idx >= 0) {
         const next = [...prev]
-        const s = { ...next[idx], assigned: [...next[idx].assigned, chapterId] }
-        next[idx] = s
+        next[idx] = { ...next[idx], assigned: [...next[idx].assigned, chapterId] }
         return next
       }
+      // 新 batch → 创建新 session，同时移除同 worker 的旧 idle session
       const slotNum = workerId.split('#')[1] || '?'
-      const fresh: NodeSession = { workerId, nodeId, name: `${nodeName} #${slotNum}`, assigned: [chapterId], done: new Set(), idle: false }
-      if (idx >= 0) {
-        // idle 会话被替换
-        const next = prev.filter((s) => s.workerId !== workerId)
-        return [...next, fresh]
-      }
-      return [...prev, fresh]
+      const fresh: NodeSession = { sessionKey, nodeId, name: `${nodeName} #${slotNum}`, assigned: [chapterId], done: new Set(), idle: false }
+      const cleaned = prev.filter((s) => {
+        if (s.idle && s.sessionKey.startsWith(`${workerId}:`)) return false
+        return true
+      })
+      return [...cleaned, fresh]
     })
   }
 
   /** onDone/onError：标记会话内该章完成；本会话全部完成则置 idle */
   const trackComplete = (chapterId: string) => {
-    const workerId = chapterNode.current.get(chapterId)
-    if (!workerId) return
+    const sessionKey = chapterNode.current.get(chapterId)
+    if (!sessionKey) return
     setNodeSessions((prev) => {
-      const idx = prev.findIndex((s) => s.workerId === workerId)
+      const idx = prev.findIndex((s) => s.sessionKey === sessionKey)
       if (idx < 0) return prev
       const s = prev[idx]
       const done = new Set(s.done).add(chapterId)
@@ -287,12 +287,12 @@ export default function Step3Clean() {
       targets.map((c) => ({ id: c.id, content: c.content })),
       cleanNodes,
       {
-        onStart: (chapterId, nodeName, batchId, nodeId, workerId) => {
+        onStart: (chapterId, nodeName, batchId, nodeId, workerId, batchSeq) => {
           patchChapter(chapterId, {
             cleanStatus: 'processing',
             ...(nodeId ? { processedByNode: { nodeId, nodeName } } : {}),
           })
-          trackAssign(chapterId, nodeName, nodeId, workerId)
+          trackAssign(chapterId, nodeName, nodeId, workerId, batchSeq)
           const isAnchor = !!batchId
           setActive((prev) => [...prev, { chapterId, nodeName, nodeId, acc: '', batchId, isBatchAnchor: isAnchor }])
           setSelectedTask((sel) => sel ?? chapterId)
@@ -466,7 +466,7 @@ export default function Step3Clean() {
     c.cleanStatus === 'pending' || c.cleanStatus === 'processing' || c.cleanStatus === 'needsReprocess' || c.cleanStatus === 'failed',
   )
   const doneChapters = chapters.filter((c) => c.cleanStatus === 'completed' || c.cleanStatus === 'accepted')
-  const selectedSession = nodeSessions.find((s) => s.workerId === selectedNode) ?? null
+  const selectedSession = nodeSessions.find((s) => s.sessionKey === selectedNode) ?? null
 
   /** 选中节点任务列表里的章节（完成的不移除，直到该会话结束） */
   const nodeTaskChapters = selectedSession
@@ -521,7 +521,7 @@ export default function Step3Clean() {
                     <DebouncedInputNumber
                       size="small"
                       min={1}
-                      max={20}
+                      max={100}
                       value={bulkBatchSize}
                       placeholder="如 1"
                       style={{ width: 60 }}
@@ -591,7 +591,7 @@ export default function Step3Clean() {
                                 <DebouncedInputNumber
                                   size="small"
                                   min={1}
-                                  max={20}
+                                  max={100}
                                   value={rs.batchSize}
                                   style={{ width: 52 }}
                                   onCommit={(v) => {
@@ -899,9 +899,11 @@ export default function Step3Clean() {
                               <Typography.Text strong style={{ fontSize: 12 }}>
                                 {e.title}
                               </Typography.Text>
+                              {e.nodeName && (
+                                <Tag style={{ margin: 0 }}>{e.nodeName}</Tag>
+                              )}
                               {e.type === 'request' && (
                                 <>
-                                  <Tag style={{ margin: 0 }}>{e.nodeName}</Tag>
                                   {e.batchSize != null && (
                                     <Tag color={e.batchSize > 1 ? 'geekblue' : 'default'} style={{ margin: 0 }}>
                                       {e.batchSize > 1 ? `批量 ${e.batchSize} 章` : '单章'}
@@ -1004,11 +1006,14 @@ function DebouncedInputNumber({
 }: React.ComponentProps<typeof InputNumber> & {
   onCommit: (v: number | null) => void
 }) {
-  // key={value} 让父组件改值时组件重挂载，本地状态自然重置为新值（规避 useEffect+setState 的 lint 警告）
   const [local, setLocal] = useState<number | null>(value)
+  const [tracked, setTracked] = useState<number | null>(value)
+  if (value !== tracked) {
+    setTracked(value)
+    setLocal(value)
+  }
   return (
     <InputNumber
-      key={String(value ?? 'null')}
       {...rest}
       value={local}
       onChange={(v) => setLocal(v)}
@@ -1082,7 +1087,7 @@ interface NodeListPaneProps {
   sessions: NodeSession[]
   providers: { id: string; name: string; model?: string }[]
   selectedNode: string | null
-  onPick: (workerId: string) => void
+  onPick: (sessionKey: string) => void
 }
 
 function NodeListPane({ sessions, selectedNode, onPick }: NodeListPaneProps) {
@@ -1095,13 +1100,13 @@ function NodeListPane({ sessions, selectedNode, onPick }: NodeListPaneProps) {
           const inFlight = s.assigned.length - s.done.size
           return (
             <div
-              key={s.workerId}
-              onClick={() => onPick(s.workerId)}
+              key={s.sessionKey}
+              onClick={() => onPick(s.sessionKey)}
               style={{
                 cursor: 'pointer',
                 padding: '8px 10px',
                 borderBottom: '1px solid #f0f0f0',
-                background: selectedNode === s.workerId ? '#e6f4ff' : undefined,
+                background: selectedNode === s.sessionKey ? '#e6f4ff' : undefined,
                 opacity: s.idle ? 0.6 : 1,
               }}
             >

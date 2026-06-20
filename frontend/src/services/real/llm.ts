@@ -74,7 +74,7 @@ export interface CleanQueueDebugEvent {
 }
 
 export interface CleanQueueCallbacks {
-  onStart: (chapterId: string, nodeName: string, batchId?: string, nodeId?: string, workerId?: string) => void
+  onStart: (chapterId: string, nodeName: string, batchId?: string, nodeId?: string, workerId?: string, batchSeq?: number) => void
   onChunk: (chapterId: string, acc: string) => void
   onDone: (chapterId: string, cleaned: string) => void
   onError: (chapterId: string, message: string) => void
@@ -134,16 +134,16 @@ async function streamSingleChapter(
       signal,
     })
   } catch (e) {
-    cb.onDebug?.({ type: 'error', chapterId, timestamp: Date.now(), error: `fetch 失败：${e instanceof Error ? e.message : String(e)}` })
+    cb.onDebug?.({ type: 'error', chapterId, timestamp: Date.now(), nodeName: node.name, nodeId: node.id, error: `fetch 失败：${e instanceof Error ? e.message : String(e)}` })
     throw e
   }
   if (!res.ok) {
     const text = await res.text().catch(() => '(无法读取响应体)')
-    cb.onDebug?.({ type: 'error', chapterId, timestamp: Date.now(), statusCode: res.status, responseBody: text.slice(0, 2000), error: `HTTP ${res.status}` })
+    cb.onDebug?.({ type: 'error', chapterId, timestamp: Date.now(), nodeName: node.name, nodeId: node.id, statusCode: res.status, responseBody: text.slice(0, 2000), error: `HTTP ${res.status}` })
     throw new Error(`网关错误 HTTP ${res.status}${text ? `：${text.slice(0, 200)}` : ''}`)
   }
   if (!res.body) {
-    cb.onDebug?.({ type: 'error', chapterId, timestamp: Date.now(), statusCode: res.status, error: '响应无 body' })
+    cb.onDebug?.({ type: 'error', chapterId, timestamp: Date.now(), nodeName: node.name, nodeId: node.id, statusCode: res.status, error: '响应无 body' })
     throw new Error('响应无 body')
   }
 
@@ -179,12 +179,12 @@ async function streamSingleChapter(
         } else if (event === 'done') {
           const outText = parsed.text ?? acc
           // 成功响应不再记录流式正文（responseBody），仅保留诊断字段
-          cb.onDebug?.({ type: 'response', chapterId, timestamp: Date.now(), statusCode: 200, chunksCount, outputLength: outText.length, firstBytesAt })
+          cb.onDebug?.({ type: 'response', chapterId, timestamp: Date.now(), nodeName: node.name, nodeId: node.id, model: node.model, statusCode: 200, chunksCount, outputLength: outText.length, firstBytesAt })
           cb.onDone(chapterId, outText)
           return
         } else if (event === 'error') {
           const msg = parsed.message ?? '清理失败'
-          cb.onDebug?.({ type: 'error', chapterId, timestamp: Date.now(), statusCode: 200, chunksCount, firstBytesAt, responseBody: msg, error: msg })
+          cb.onDebug?.({ type: 'error', chapterId, timestamp: Date.now(), nodeName: node.name, nodeId: node.id, statusCode: 200, chunksCount, firstBytesAt, responseBody: msg, error: msg })
           sseReported = true
           throw new Error(msg)
         }
@@ -194,12 +194,12 @@ async function streamSingleChapter(
   } catch (e) {
     if (!sseReported && !signal.aborted) {
       const errMsg = e instanceof Error ? e.message : String(e)
-      cb.onDebug?.({ type: 'error', chapterId, timestamp: Date.now(), chunksCount, error: errMsg, responseBody: rawChunks.slice(0, 2000) })
+      cb.onDebug?.({ type: 'error', chapterId, timestamp: Date.now(), nodeName: node.name, nodeId: node.id, chunksCount, error: errMsg, responseBody: rawChunks.slice(0, 2000) })
     }
     throw e
   }
   const endMsg = '流式响应意外结束'
-  cb.onDebug?.({ type: 'error', chapterId, timestamp: Date.now(), chunksCount, error: endMsg, responseBody: rawChunks.slice(0, 2000) })
+  cb.onDebug?.({ type: 'error', chapterId, timestamp: Date.now(), nodeName: node.name, nodeId: node.id, chunksCount, error: endMsg, responseBody: rawChunks.slice(0, 2000) })
   throw new Error(endMsg)
 }
 
@@ -240,16 +240,16 @@ async function streamBatch(
       signal,
     })
   } catch (e) {
-    batch.forEach((c) => cb.onDebug?.({ type: 'error', chapterId: c.id, timestamp: Date.now(), error: `fetch 失败：${e instanceof Error ? e.message : String(e)}` }))
+    batch.forEach((c) => cb.onDebug?.({ type: 'error', chapterId: c.id, timestamp: Date.now(), nodeName: node.name, nodeId: node.id, error: `fetch 失败：${e instanceof Error ? e.message : String(e)}` }))
     throw e
   }
   if (!res.ok) {
     const text = await res.text().catch(() => '(无法读取响应体)')
-    batch.forEach((c) => cb.onDebug?.({ type: 'error', chapterId: c.id, timestamp: Date.now(), statusCode: res.status, responseBody: text.slice(0, 2000), error: `HTTP ${res.status}` }))
+    batch.forEach((c) => cb.onDebug?.({ type: 'error', chapterId: c.id, timestamp: Date.now(), nodeName: node.name, nodeId: node.id, statusCode: res.status, responseBody: text.slice(0, 2000), error: `HTTP ${res.status}` }))
     throw new Error(`网关错误 HTTP ${res.status}${text ? `：${text.slice(0, 200)}` : ''}`)
   }
   if (!res.body) {
-    batch.forEach((c) => cb.onDebug?.({ type: 'error', chapterId: c.id, timestamp: Date.now(), statusCode: res.status, error: '响应无 body' }))
+    batch.forEach((c) => cb.onDebug?.({ type: 'error', chapterId: c.id, timestamp: Date.now(), nodeName: node.name, nodeId: node.id, statusCode: res.status, error: '响应无 body' }))
     throw new Error('响应无 body')
   }
 
@@ -272,7 +272,7 @@ async function streamBatch(
         if (cleanText.length >= 10 && chapterId && !completedIds.has(chapterId)) {
           completedIds.add(chapterId)
           // 成功响应不再记录流式正文（responseBody），仅保留诊断字段
-          cb.onDebug?.({ type: 'response', chapterId, timestamp: Date.now(), statusCode: 200, chunksCount, outputLength: cleanText.length, firstBytesAt })
+          cb.onDebug?.({ type: 'response', chapterId, timestamp: Date.now(), nodeName: node.name, nodeId: node.id, model: node.model, statusCode: 200, chunksCount, outputLength: cleanText.length, firstBytesAt })
           cb.onDone(chapterId, cleanText)
         }
       }
@@ -302,10 +302,10 @@ async function streamBatch(
       const cleanText = raw.replace(/===CHAPTER_ID:[^=]+===/g, '').trim()
       if (cleanText.length < 10) {
         shortIds.push(entry.id)
-        cb.onDebug?.({ type: 'error', chapterId: entry.id, timestamp: Date.now(), chunksCount, error: `输出过短（${cleanText.length} 字符）` })
+        cb.onDebug?.({ type: 'error', chapterId: entry.id, timestamp: Date.now(), nodeName: node.name, nodeId: node.id, chunksCount, error: `输出过短（${cleanText.length} 字符）` })
       } else {
         // 成功响应不再记录流式正文（responseBody），仅保留诊断字段
-        cb.onDebug?.({ type: 'response', chapterId: entry.id, timestamp: Date.now(), statusCode: 200, chunksCount, outputLength: cleanText.length, firstBytesAt })
+        cb.onDebug?.({ type: 'response', chapterId: entry.id, timestamp: Date.now(), nodeName: node.name, nodeId: node.id, model: node.model, statusCode: 200, chunksCount, outputLength: cleanText.length, firstBytesAt })
         cb.onDone(entry.id, cleanText)
       }
     }
@@ -345,7 +345,7 @@ async function streamBatch(
           const msg = parsed.message ?? '清理失败'
           batch.forEach((c) => {
             if (!completedIds.has(c.id)) {
-              cb.onDebug?.({ type: 'error', chapterId: c.id, timestamp: Date.now(), statusCode: 200, chunksCount, firstBytesAt, responseBody: msg, error: msg })
+              cb.onDebug?.({ type: 'error', chapterId: c.id, timestamp: Date.now(), nodeName: node.name, nodeId: node.id, statusCode: 200, chunksCount, firstBytesAt, responseBody: msg, error: msg })
             }
           })
           throw new Error(msg)
@@ -360,7 +360,7 @@ async function streamBatch(
     if (!signal.aborted) {
       batch.forEach((c) => {
         if (!completedIds.has(c.id)) {
-          cb.onDebug?.({ type: 'error', chapterId: c.id, timestamp: Date.now(), chunksCount, error: e instanceof Error ? e.message : String(e), responseBody: rawChunks.slice(0, 2000) })
+          cb.onDebug?.({ type: 'error', chapterId: c.id, timestamp: Date.now(), nodeName: node.name, nodeId: node.id, chunksCount, error: e instanceof Error ? e.message : String(e), responseBody: rawChunks.slice(0, 2000) })
         }
       })
     }
@@ -416,6 +416,8 @@ export function startCleanQueue(
   const nodeConsecFails = new Map<string, number>()
   // 章节级"避开节点"：某章在某节点失败后，重试时优先避开它（除非只剩它），降低同一坏节点反复重试
   const chapterAvoidNodes = new Map<string, Set<string>>()
+  // per-worker batch 序号：每 executeBatch 递增，供 UI 区分同一 worker 的多批
+  const workerBatchSeq = new Map<string, number>()
 
   const maybeFinish = () => {
     if (!finished && active === 0 && pendingQueue.length === 0 && retryQueue.length === 0) {
@@ -467,11 +469,13 @@ export function startCleanQueue(
 
   const executeBatch = async (batch: ChapterTask[], node: CleanNode, workerId: string) => {
     const ac = new AbortController()
+    const batchSeq = (workerBatchSeq.get(workerId) ?? 0) + 1
+    workerBatchSeq.set(workerId, batchSeq)
     let batchId: string | undefined
     try {
       if (batch.length === 1) {
         const task = batch[0]
-        cb.onStart(task.id, node.name, undefined, node.id, workerId)
+        cb.onStart(task.id, node.name, undefined, node.id, workerId, batchSeq)
         await streamSingleChapter(node, task.content, task.id, cb, ac.signal, systemPrompt)
         nodeOverrides.delete(task.id)
         markNodeSuccess(node.id)
@@ -480,7 +484,7 @@ export function startCleanQueue(
         const chapterIds = batch.map((t) => t.id)
         activeBatches.set(batchId, { ac, chapterIds, nodeId: node.id })
         batch.forEach((t) => {
-          cb.onStart(t.id, node.name, t === batch[0] ? batchId : undefined, node.id, workerId)
+          cb.onStart(t.id, node.name, t === batch[0] ? batchId : undefined, node.id, workerId, batchSeq)
         })
         await streamBatch(node, batch.map((t) => ({ id: t.id, content: t.content })), cb, ac.signal, systemPrompt)
         for (const t of batch) nodeOverrides.delete(t.id)
