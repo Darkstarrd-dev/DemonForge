@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import {
   App,
+  Alert,
   Badge,
   Button,
   Checkbox,
@@ -44,6 +45,7 @@ export default function Step4Review() {
   const session = useAppStore((s) => s.importSession)
   const books = useAppStore((s) => s.books)
   const allChapters = useAppStore((s) => s.chapters)
+  const cleanRunning = useAppStore((s) => s.cleanRun?.running ?? false)
   const setState = useAppStore((s) => s.setState)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [storeOpen, setStoreOpen] = useState(false)
@@ -228,7 +230,16 @@ export default function Step4Review() {
   }
 
   return (
-    <Row gutter={16}>
+    <>
+      {cleanRunning && (
+        <Alert
+          type="info"
+          showIcon
+          message="文本清理任务正在后台运行，章节状态会实时更新"
+          style={{ marginBottom: 12 }}
+        />
+      )}
+      <Row gutter={16}>
       <Col span={7}>
         <Space style={{ marginBottom: 8 }}>
           <Typography.Title level={5} style={{ margin: 0 }}>
@@ -417,6 +428,7 @@ export default function Step4Review() {
         />
       </Modal>
     </Row>
+    </>
   )
 }
 

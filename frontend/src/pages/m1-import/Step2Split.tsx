@@ -4,6 +4,7 @@ import {
   App,
   Button,
   Checkbox,
+  Collapse,
   Input,
   List,
   Radio,
@@ -20,6 +21,7 @@ import {
   detectLeadingChapterTitle,
   splitChapters,
   toSearchRegex,
+  applyTitleTemplate,
   type DetectResult,
   type SplitResult,
 } from '../../utils/split'
@@ -47,6 +49,9 @@ export default function Step2Split() {
   })
   const [customRegex, setCustomRegex] = useState('^(第.+章.*)')
   const [keepPrologue, setKeepPrologue] = useState(true)
+  const m1TitleTemplate = useAppStore((s) => s.m1TitleTemplate)
+  const [titleTemplate, setTitleTemplate] = useState(m1TitleTemplate)
+  const [renamePreview, setRenamePreview] = useState<{ old: string; new: string }[]>([])
   const [aiSplitting, setAiSplitting] = useState<string | null>(null)
   /** 点击展开的预览章节索引（再次点击同项收起） */
   const [selectedIdx, setSelectedIdx] = useState<number | null>(null)
@@ -261,6 +266,87 @@ export default function Step2Split() {
     setSplitTitle('')
   }
 
+  // ── 批量重命名 ──
+  const doRenamePreview = () => {
+    const source = (applied ? session.chapters.map((c) => ({ title: c.title, isVolume: c.skipClean })) : preview) as { title: string; isVolume?: boolean }[] | null
+    if (!source || !titleTemplate.trim()) return
+    const renamed = applyTitleTemplate(source, titleTemplate)
+    const items: { old: string; new: string }[] = []
+    const orig = applied ? session.chapters : preview!
+    for (let i = 0; i < Math.min(renamed.length, 3); i++) {
+      if (renamed[i].title !== orig[i].title) {
+        items.push({ old: orig[i].title, new: renamed[i].title })
+      }
+    }
+    setRenamePreview(items.length ? items : [{ old: '(无变化)', new: '(无变化)' }])
+  }
+
+  const doRenameApply = () => {
+    if (!titleTemplate.trim()) {
+      message.warning('请输入模板')
+      return
+    }
+    if (applied) {
+      const mapped = session.chapters.map((c) => ({ title: c.title, isVolume: c.skipClean }))
+      const renamed = applyTitleTemplate(mapped, titleTemplate)
+      const chapters = session.chapters.map((c, i) => ({ ...c, title: renamed[i].title }))
+      setState({ importSession: { ...useAppStore.getState().importSession!, chapters } })
+      message.success(`已重命名 ${chapters.filter((c, i) => c.title !== session.chapters[i].title).length} 个章节`)
+    } else if (preview) {
+      const renamed = applyTitleTemplate(preview, titleTemplate)
+      setManualOverrides(renamed)
+      message.success(`已重命名 ${renamed.filter((r, i) => r.title !== preview[i].title).length} 个章节`)
+    }
+    setState({ m1TitleTemplate: titleTemplate })
+    setRenamePreview([])
+  }
+
+  /** 批量重命名折叠面板 */
+  const renamePanel = (
+    <Collapse
+      size="small"
+      style={{ marginBottom: 8 }}
+      items={[
+        {
+          key: 'rename',
+          label: '批量重命名',
+          children: (
+            <Space direction="vertical" size={8} style={{ width: '100%' }}>
+              <Space>
+                <Input
+                  size="small"
+                  style={{ width: 280 }}
+                  value={titleTemplate}
+                  onChange={(e) => setTitleTemplate(e.target.value)}
+                  placeholder="模板，如: 第{0n}章 {title}"
+                  onPressEnter={() => doRenamePreview()}
+                />
+                <Button size="small" onClick={doRenamePreview}>预览</Button>
+                <Button size="small" type="primary" onClick={doRenameApply}>应用</Button>
+                <Button size="small" onClick={() => setTitleTemplate(m1TitleTemplate)}>重置</Button>
+              </Space>
+              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                变量：{'{n}'}=序号 {'{0n}'}=补零序号 {'{title}'}=纯章名 {'{raw}'}=原标题
+              </Typography.Text>
+              {renamePreview.length > 0 && (
+                <Space direction="vertical" size={2}>
+                  <Typography.Text type="secondary" style={{ fontSize: 11 }}>预览（前 3 条）：</Typography.Text>
+                  {renamePreview.map((r, i) => (
+                    <Space key={i} size={6} style={{ fontSize: 12 }}>
+                      <Tag style={{ margin: 0 }}>{r.old}</Tag>
+                      <span>→</span>
+                      <Tag color="blue" style={{ margin: 0 }}>{r.new}</Tag>
+                    </Space>
+                  ))}
+                </Space>
+              )}
+            </Space>
+          ),
+        },
+      ]}
+    />
+  )
+
   return (
     <Space direction="vertical" size={16} style={{ width: '100%' }}>
       {detect && (
@@ -314,6 +400,7 @@ export default function Step2Split() {
 
       {preview && (
         <>
+          {renamePanel}
           <Alert
             type={preview.length > 1 ? 'success' : 'warning'}
             showIcon
@@ -407,6 +494,7 @@ export default function Step2Split() {
 
       {applied && (
         <>
+          {renamePanel}
           <Typography.Title level={5} style={{ marginBottom: 0 }}>
             已切分章节（{session.chapters.length}）
           </Typography.Title>

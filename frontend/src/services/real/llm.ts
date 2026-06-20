@@ -380,11 +380,11 @@ export function startCleanQueue(
   chapters: { id: string; content: string }[],
   nodes: CleanNode[],
   cb: CleanQueueCallbacks,
-  opts: { systemPrompt?: string; isNodeAvailable?: (nodeId: string) => boolean } = {},
+  opts: { systemPrompt?: string; isNodeAvailable?: (nodeId: string) => boolean; autoRetry?: boolean } = {},
 ): CleanQueueHandle {
   if (!nodes.length) throw new Error('无可用节点')
 
-  const { systemPrompt, isNodeAvailable } = opts
+  const { systemPrompt, isNodeAvailable, autoRetry } = opts
 
   let paused = false
   let stopped = false
@@ -518,7 +518,20 @@ export function startCleanQueue(
           failCounts.set(t.id, fails)
           // 节点已熔断时，给章节更宽容的重试预算（否则容易被单章 MAX_RETRIES 提前判死）
           const limit = disabledNodes.has(node.id) ? MAX_RETRIES + 2 : MAX_RETRIES
-          if (fails < limit) {
+          if (autoRetry) {
+            // 自动重试模式：失败章节放回任务池，由其他空闲节点接管（无次数上限）。
+            // chapterAvoidNodes 已累加当前节点，下次 dequeueBatch 优先避开它。
+            // 兜底：若无可用的节点（全节点熔断或全被该章避开）→ 判终态失败。
+            const allAvailNodes = nodeConfigs.filter((n) => !disabledNodes.has(n.id))
+            const avoids = chapterAvoidNodes.get(t.id)
+            const noNodeLeft = allAvailNodes.length === 0 || (avoids != null && allAvailNodes.every((n) => avoids.has(n.id)))
+            if (noNodeLeft) {
+              nodeOverrides.delete(t.id)
+              cb.onError(t.id, allAvailNodes.length === 0 ? '无可重试节点（所有节点均已熔断）' : `无可重试节点（已避开所有 ${allAvailNodes.length} 个可用节点）：${errMsg}`)
+            } else {
+              retryQueue.push(t)
+            }
+          } else if (fails < limit) {
             retryQueue.push(t)
           } else {
             nodeOverrides.delete(t.id)

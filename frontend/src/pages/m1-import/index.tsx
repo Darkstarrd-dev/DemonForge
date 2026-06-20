@@ -8,8 +8,9 @@ import Step3Clean from './Step3Clean'
 import Step4Review from './Step4Review'
 
 export default function M1ImportPage() {
-  const { modal } = App.useApp()
+  const { modal, message } = App.useApp()
   const session = useAppStore((s) => s.importSession)
+  const cleanRun = useAppStore((s) => s.cleanRun)
   const setState = useAppStore((s) => s.setState)
   const step = session?.step ?? 0
   const recovered = useRef(false)
@@ -45,7 +46,13 @@ export default function M1ImportPage() {
       })
       return
     }
-    if (target < step) setState({ importSession: { ...session, step: target } })
+    if (target < step) {
+      setState({ importSession: { ...session, step: target } })
+      // 切回 Step3 时若清理任务仍在后台运行，提示用户
+      if (target <= 2 && cleanRun?.running) {
+        message.info('文本清理任务仍在后台运行，切回 Step3 可继续控制')
+      }
+    }
   }
 
   return (

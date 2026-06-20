@@ -413,3 +413,76 @@ export function retentionRate(before: string, after: string): number {
   if (a === 0) return 1
   return b / a
 }
+
+/**
+ * 章节标记前缀剥离正则（按优先级依次尝试）。
+ * 每个正则的捕获组 1 为前缀（章号标记），剥离后余下为纯章名。
+ */
+const MARKER_PATTERNS: RegExp[] = [
+  /^(第[0-9零一二三四五六七八九十百千万]+[章节回卷]\s*)/,
+  /^(\d{1,4}[:：]\s*)/,
+  /^(\d{1,4}、\s*)/,
+  /^([0-9零一二三四五六七八九十百千万]+章\s*)/,
+  /^(chapter\s+\d+[ivxlc]*\s*)/i,
+]
+
+/**
+ * 从章节标题中剥除章号标记，返回纯章名。
+ * 如 "第3章 接受现实" → "接受现实"、"001：开端" → "开端"、"3、旧案重提" → "旧案重提"。
+ * 未命中任何模式则返回原标题。
+ */
+export function stripChapterMarker(title: string): string {
+  if (!title) return title
+  for (const re of MARKER_PATTERNS) {
+    const m = title.match(re)
+    if (m) {
+      const rest = title.slice(m[0].length).trim()
+      return rest || title
+    }
+  }
+  return title
+}
+
+/**
+ * 对切分结果批量应用章节标题模板。
+ *
+ * 模板变量：
+ * - `{n}`    — 递增序号（从 opts.start 开始，默认 1；卷章跳过时不计入）
+ * - `{0n}`   — 补零序号（按总章数位数自动补零，如 120 章 → 001）
+ * - `{title}`— 剥除章号标记后的纯章名
+ * - `{raw}`  — 原始完整标题
+ *
+ * @param results  切分结果（预览阶段 SplitResult[] 或 ImportChapter[] 均可）
+ * @param template 模板字符串，如 "第{0n}章 {title}"
+ * @param opts.start      起始序号，默认 1
+ * @param opts.skipVolume 卷章跳过替换，默认 true
+ */
+export function applyTitleTemplate<T extends { title: string; isVolume?: boolean }>(
+  results: T[],
+  template: string,
+  opts: { start?: number; skipVolume?: boolean } = {},
+): T[] {
+  const { start = 1, skipVolume = true } = opts
+  if (!template) return results
+  const nonVolumeCount = skipVolume
+    ? results.filter((r) => !r.isVolume).length
+    : results.length
+  const padLen = Math.max(String(nonVolumeCount).length, 2)
+  let seqIdx = start - 1
+
+  return results.map((r) => {
+    if (skipVolume && r.isVolume) return r
+    seqIdx++
+    const pureTitle = stripChapterMarker(r.title)
+    const n = String(seqIdx)
+    const n0 = n.padStart(padLen, '0')
+
+    const newTitle = template
+      .replace(/\{0n\}/g, n0)
+      .replace(/\{n\}/g, n)
+      .replace(/\{title\}/g, pureTitle)
+      .replace(/\{raw\}/g, r.title)
+
+    return { ...r, title: newTitle }
+  })
+}

@@ -25,7 +25,7 @@
 
 ## 项目状态快照
 
-- **最后更新**：2026-06-20（第四十一次会话·**participating 过滤修复**）
+- **最后更新**：2026-06-20（第四十二次会话·**M1 四项增强**）
 - **阶段**：正式开发——M1 AI 清理端到端跑通；**novel-generator 集成阶段 A~D 全部完成**；**Electron 迁移完成**；M2–M5 仍 mock；业务数据 SQLite 资产库（可配置资产目录），Provider/密钥等设置存用户数据目录
 - **新增**：**M1 Step3 文本清理流水线重构**——按用户实机反馈做四项整改：
   ① **Tabs 四标签可切换列表**（`Step3Clean.tsx`）：原单一活跃列表 → `Tabs`（待处理/完成/工作节点/节点任务）。节点按**批次会话**生命周期跟踪（`nodeSessions` + `chapterNode` ref）：分配时创建/追加，本批全完成置 idle 变灰，下次再分配替换，运行结束清理。**修复 Tabs 无法切换的真因**——`index.css` 给 `.ant-tabs-tabpane` 强制 `display:flex` 覆盖了 antd 非活动面板的 `display:none`，四面板同时渲染。移除该规则后面板靠 antd 自身 `.ant-tabs-tabpane-active` 显隐。
@@ -55,8 +55,14 @@
     - ① **根除热更新闭包陈旧**（`Step3Clean.tsx`）：`buildCleanNodes` 改为从 `useAppStore.getState()` 直读 `providers` + `cleanNodeOverrides`，不再依赖组件渲染周期闭包变量（`participatingNodes`/`overrides`）。原 `setTimeout(hotUpdateNodes,0)` 捕获旧渲染周期的函数引用 → 推给调度器的是旧 batchSize/intervalSec → 运行中修改参数实际不生效。
     - ② **maxConcurrency 增大动态 spawn worker**（`llm.ts`）：新增 `spawnedSlots` Map 追踪每节点已 spawn 的 slot 数；`updateNodes` 方法检测 `maxConcurrency > spawned` 时调用 `workerLoopForNode` 创建新 worker、`activeWorkers += 新增数`、`workerPromises.push`。减小方向由 worker 循环 `if (slot >= node.maxConcurrency) break` 自行退出，无需干预。
     - ③ **导入会话持久化**（全栈）：后端新增 `server/src/routes/importSession.ts` 三端点（GET/POST/DELETE），`import-session.json` 原子写入（.bak→.tmp→rename）；前端 `appStore.ts` 加 `importSession` 订阅（1.5s debounce POST） + `pushImportSessionNow()` + `flushStoreWrites` 并入；M1 入口 `index.tsx` 挂载时 GET 恢复，`processing` 章节回退为 `pending` 重跑；`Step4Review.tsx` 入库成功后 DELETE 清理。
-    **本轮新增（第四十一次会话·participating 过滤修复）**：
-    - ① **buildCleanNodes 过滤 participating**（`Step3Clean.tsx`）：`.filter((p) => p.enabled)` 后新增 `.filter((p) => (nowOverrides[p.id] ?? {}).participating !== false)`。根因：`buildCleanNodes` 只过滤 `p.enabled` + `baseURL`/`model` 有效性，完全忽略 `overrides` 中的 `participating` 标志。该标志仅在 UI 层 `nodeRunStates`/`participatingNodes` 用于摘要显示，从未传给调度器 → 关闭节点仍参选。一行修复覆盖启动前关闭与运行中关闭两个场景。
+     **本轮新增（第四十一次会话·participating 过滤修复）**：
+     - ① **buildCleanNodes 过滤 participating**（`Step3Clean.tsx`）：`.filter((p) => p.enabled)` 后新增 `.filter((p) => (nowOverrides[p.id] ?? {}).participating !== false)`。根因：`buildCleanNodes` 只过滤 `p.enabled` + `baseURL`/`model` 有效性，完全忽略 `overrides` 中的 `participating` 标志。该标志仅在 UI 层 `nodeRunStates`/`participatingNodes` 用于摘要显示，从未传给调度器 → 关闭节点仍参选。一行修复覆盖启动前关闭与运行中关闭两个场景。
+     **本轮新增（第四十二次会话·M1 四项增强）**：
+     - ① **M1 Step2 章节名称替换**（`utils/split.ts` + `Step2Split.tsx`）：新增 `stripChapterMarker()` 剥除章号前缀、`applyTitleTemplate()` 应用模板批量替换标题。模板变量：`{n}` 递增序号 / `{0n}` 补零 / `{title}` 纯章名 / `{raw}` 原标题。模板持久化到 `settings.json`（`m1TitleTemplate`，默认 `第{0n}章 {title}`）。UI 入口：预览阶段 + 已应用 Table 上方各一个「批量重命名」Collapse 面板。smoke.mts +13 断言全过。
+     - ② **M1 Step3 任务态迁移到 store**（`appStore.ts` + `Step3Clean.tsx` + `Step4Review.tsx` + `index.tsx`）：新增 `CleanRunState` 类型与 `cleanRun` 字段（不持久化），`handle`/`running`/`paused`/`active`/`nodeSessions` 从 component-local useState 迁入 store。跨 Step 页面保持任务控制权：切到 Step4 审核页不中断清理，回到 Step3 可继续 pause/stop/看实时窗口。Step4 头部新增「清理中」Alert。
+     - ③ **M1 Step3 失败章节自动重试开关**（`llm.ts` + `Step3Clean.tsx` + `appStore.ts`）：`startCleanQueue` opts 新增 `autoRetry` 参数（默认 false）。开关开启时，失败章节放回 retryQueue 而非调 onError，由其他空闲节点接管（配合 `chapterAvoidNodes` 避开失败节点）；仅全节点熔断/全被避开时才 onError 判终态失败。UI：「重试失败章」按钮右侧新增 `<Switch checkedChildren="自动重试" />`，默认开启。持久化到 `m1AutoRetry`（settings.json）。smoke-batch.mts +3 断言全过。
+     - ④ **M1 Step3 Tab 标签重命名**（`Step3Clean.tsx`）：待处理列表/完成列表/工作节点/节点任务 → 待处理/完成/节点/章节。第 4 个 Tab 保留节点名前缀（如 `N1 #1（N）`），未选中时 fallback 为 `章节`。
+     - ⑤ **DebouncedInputNumber 类型修复**（`Step3Clean.tsx`）：`value` 从 `ValueType` 归一化为 `number | null`，消除 tsc -b 的 5 个类型错误。
 - **摘要**：在 mock 前端基础上**进入实现阶段**。
   运行方式（三选一）：
   - **【推荐】Electron 模式**：双击 `start-electron.bat`（开发模式）或 `npm run dev`，Electron 窗口自动管理前后端；关窗即自动清理进程

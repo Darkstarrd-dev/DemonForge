@@ -38,6 +38,9 @@
 | 本轮实现范围 | **novel-generator 四阶段全部完成**：A（地基·数据模型+RAG）+ B（起源·arch/blueprint+M0页）+ C（生成/管理·draft/finalize/consistency）+ D（批量·调度器+UI）；M0/M1/M4/M5 已接真实后端，M2/M3 仍 mock |
 | Electron 迁移 | **框架迁移完成**（2026-06-18）：主进程管理前后端服务器、窗口关闭清理、打包配置（NSIS 安装包+便携版）；数据目录策略（开发/生产分离）；详见 `ELECTRON.md` |
 | 启动方式 | ① **Electron 模式**（推荐）：`npm run dev` 或 `start-electron.bat`，原生窗口、自动清理；② Chrome 应用模式：`start.vbs`（旧方式，仍可用）；③ 打包版：`npm run dist` 或 `build-electron.bat` 生成安装包/便携版 |
+| M1 章节名称替换 | **已实现**（2026-06-20）：模板变量 `{n}`/`{0n}`/`{title}`/`{raw}`，工具函数 `stripChapterMarker`/`applyTitleTemplate`（`utils/split.ts`），UI 入口 Step2 预览+应用后两处批量重命名面板，模板默认 `第{0n}章 {title}`，持久化到 `settings.json`（`m1TitleTemplate`） |
+| M1 任务态跨页面 | **已实现**（2026-06-20）：`cleanRun` 字段迁入 appStore（不持久化），切到审核页不中断清理，回到 Step3 可继续控制（pause/stop/实时窗口） |
+| M1 自动重试 | **已实现**（2026-06-20）：`autoRetry` 开关（默认开启），失败章放回任务池由其他节点接管（非同一节点反复重试），全节点熔断时终态失败；持久化到 `settings.json`（`m1AutoRetry`） |
 
 ## 工作方式
 

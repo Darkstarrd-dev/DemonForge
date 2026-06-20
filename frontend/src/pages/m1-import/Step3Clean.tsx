@@ -27,17 +27,8 @@ import {
   PlusOutlined,
   ReloadOutlined,
 } from '@ant-design/icons'
-import { useAppStore } from '../../store/appStore'
+import { useAppStore, type CleanRunNodeSession } from '../../store/appStore'
 import { startCleanQueue, getDefaultPrompt, type CleanNode, type CleanQueueHandle, type CleanQueueDebugEvent } from '../../services/api'
-
-interface ActiveTask {
-  chapterId: string
-  nodeName: string
-  nodeId?: string
-  acc: string
-  batchId?: string
-  isBatchAnchor?: boolean
-}
 
 interface DebugEntry {
   chapterId: string
@@ -68,27 +59,13 @@ interface NodeRuntime {
   intervalSec: number
 }
 
-/** 工作节点的一次会话（按批次生命周期）：每 batch 创建新 session，完成后自动被新 session 替换。
- *  key 为 sessionKey = `${workerId}:${batchSeq}`。同一 worker 的旧 idle session 在新 session 创建时移除。 */
-interface NodeSession {
-  /** 会话唯一键：workerId:batchSeq（如 mint-1#1:2） */
-  sessionKey: string
-  nodeId: string
-  /** 显示名：节点名 #slot */
-  name: string
-  /** 本会话接手的章节 id（含已完成，按接手顺序） */
-  assigned: string[]
-  /** 本会话已完成的章节 id */
-  done: Set<string>
-  /** 本会话所有接手章均已完成（变灰） */
-  idle: boolean
-}
-
 export default function Step3Clean() {
   const { message } = App.useApp()
   const session = useAppStore((s) => s.importSession)
   const providers = useAppStore((s) => s.providers)
   const m1SystemPrompt = useAppStore((s) => s.m1SystemPrompt)
+  const m1AutoRetry = useAppStore((s) => s.m1AutoRetry)
+  const cleanRun = useAppStore((s) => s.cleanRun)
   const setState = useAppStore((s) => s.setState)
   /** 节点运行时覆盖——持久化到 store（settings.json），避免 Step3 重挂载/步骤切换丢失 */
   const overrides = useAppStore((s) => s.cleanNodeOverrides)
@@ -125,9 +102,10 @@ export default function Step3Clean() {
 
   const [rangeStart, setRangeStart] = useState<number | null>(1)
   const [rangeEnd, setRangeEnd] = useState<number | null>(null)
-  const [running, setRunning] = useState(false)
-  const [paused, setPaused] = useState(false)
-  const [active, setActive] = useState<ActiveTask[]>([])
+  const running = cleanRun?.running ?? false
+  const paused = cleanRun?.paused ?? false
+  const active = cleanRun?.active ?? []
+  const nodeSessions = useMemo(() => cleanRun?.nodeSessions ?? [], [cleanRun?.nodeSessions])
   const [selectedTask, setSelectedTask] = useState<string | null>(null)
   const [debugEntries, setDebugEntries] = useState<DebugEntry[]>([])
   const [logFilter, setLogFilter] = useState<'all' | 'request' | 'response' | 'error'>('all')
@@ -136,12 +114,38 @@ export default function Step3Clean() {
   const debugIdRef = useRef(0)
   const handleRef = useRef<CleanQueueHandle | null>(null)
 
-  /** 列表视图切换：待处理 / 完成 / 工作节点 / 节点任务 */
+  // 挂载时从 store 恢复 handle（Step4 切回 Step3 时 cleanRun 已有值）
+  useEffect(() => {
+    const cr = useAppStore.getState().cleanRun
+    if (cr?.handle && cr.running) {
+      handleRef.current = cr.handle as CleanQueueHandle
+    }
+  }, [])
+
+  // 运行中清理：cleanRun 中的 handle 变化时同步到 handleRef
+  useEffect(() => {
+    if (cleanRun?.handle) {
+      handleRef.current = cleanRun.handle as CleanQueueHandle
+    } else if (!cleanRun) {
+      handleRef.current = null
+    }
+  }, [cleanRun?.handle, cleanRun])
+
+  /** 写 cleanRun 到 store（部分合并）。调用处直接传 patch。 */
+  const patchRun = (patch: Partial<{ handle: unknown; running: boolean; paused: boolean; active: typeof active; nodeSessions: typeof nodeSessions; startedAt: number }>) => {
+    const cr = useAppStore.getState().cleanRun
+    useAppStore.getState().setState({
+      cleanRun: cr ? { ...cr, ...patch } : { handle: null, running: false, paused: false, active: [], nodeSessions: [], startedAt: 0, ...patch },
+    })
+  }
+  const clearRun = () => {
+    useAppStore.getState().setState({ cleanRun: null })
+  }
+
+  /** 列表视图切换：待处理 / 完成 / 节点 / 章节 */
   const [listTab, setListTab] = useState<'pending' | 'done' | 'nodes' | 'nodeTasks'>('pending')
   const [selectedNode, setSelectedNode] = useState<string | null>(null) // sessionKey
 
-  /** 工作节点会话（有序数组，底部=最新） */
-  const [nodeSessions, setNodeSessions] = useState<NodeSession[]>([])
   /** chapterId → sessionKey（onStart 写入，onDone/onError 读） */
   const chapterNode = useRef<Map<string, string>>(new Map())
 
@@ -238,38 +242,36 @@ export default function Step3Clean() {
     if (!nodeId || !workerId || batchSeq == null) return
     const sessionKey = `${workerId}:${batchSeq}`
     chapterNode.current.set(chapterId, sessionKey)
-    setNodeSessions((prev) => {
-      const idx = prev.findIndex((s) => s.sessionKey === sessionKey)
-      // 已有同 batch session → 追加章节（batch 内随后章节的 onStart）
-      if (idx >= 0) {
-        const next = [...prev]
-        next[idx] = { ...next[idx], assigned: [...next[idx].assigned, chapterId] }
-        return next
-      }
-      // 新 batch → 创建新 session，同时移除同 worker 的旧 idle session
-      const slotNum = workerId.split('#')[1] || '?'
-      const fresh: NodeSession = { sessionKey, nodeId, name: `${nodeName} #${slotNum}`, assigned: [chapterId], done: new Set(), idle: false }
-      // per-node 模型下 worker 串行处理 batch，新 onStart 时旧 batch 必已结束（成功/失败/重试）
-      // 移除该 worker 的所有旧 session（含失败的孤儿），保证每进程同时只有一条
-      const cleaned = prev.filter((s) => !s.sessionKey.startsWith(`${workerId}:`))
-      return [...cleaned, fresh]
-    })
+    const cr = useAppStore.getState().cleanRun
+    const prev = cr?.nodeSessions ?? []
+    const idx = prev.findIndex((s) => s.sessionKey === sessionKey)
+    if (idx >= 0) {
+      const next = [...prev]
+      next[idx] = { ...next[idx], assigned: [...next[idx].assigned, chapterId] }
+      useAppStore.getState().setState({ cleanRun: { ...cr!, nodeSessions: next } })
+      return
+    }
+    // 新 batch → 创建新 session，同时移除同 worker 的旧 idle session
+    const slotNum = workerId.split('#')[1] || '?'
+    const fresh: CleanRunNodeSession = { sessionKey, nodeId, name: `${nodeName} #${slotNum}`, assigned: [chapterId], done: [], idle: false }
+    const cleaned = prev.filter((s) => !s.sessionKey.startsWith(`${workerId}:`))
+    useAppStore.getState().setState({ cleanRun: { ...cr!, nodeSessions: [...cleaned, fresh] } })
   }
 
   /** onDone/onError：标记会话内该章完成；本会话全部完成则置 idle */
   const trackComplete = (chapterId: string) => {
     const sessionKey = chapterNode.current.get(chapterId)
     if (!sessionKey) return
-    setNodeSessions((prev) => {
-      const idx = prev.findIndex((s) => s.sessionKey === sessionKey)
-      if (idx < 0) return prev
-      const s = prev[idx]
-      const done = new Set(s.done).add(chapterId)
-      const allDone = s.assigned.every((cid) => done.has(cid))
-      const next = [...prev]
-      next[idx] = { ...s, done, idle: allDone }
-      return next
-    })
+    const cr = useAppStore.getState().cleanRun
+    const prev = cr?.nodeSessions ?? []
+    const idx = prev.findIndex((s) => s.sessionKey === sessionKey)
+    if (idx < 0) return
+    const s = prev[idx]
+    const done = [...s.done, chapterId]
+    const allDone = s.assigned.every((cid) => done.includes(cid))
+    const next = [...prev]
+    next[idx] = { ...s, done, idle: allDone }
+    useAppStore.getState().setState({ cleanRun: { ...cr!, nodeSessions: next } })
   }
 
   const startAi = () => {
@@ -283,13 +285,10 @@ export default function Step3Clean() {
       message.info('范围内没有待清理章节（已清理章节如需重做请先在审核步标记重新处理）')
       return
     }
-    setRunning(true)
-    setPaused(false)
-    // 重置节点会话视图（每次启动清空旧会话）
-    setNodeSessions([])
+    patchRun({ running: true, paused: false, active: [], nodeSessions: [], startedAt: Date.now() })
     chapterNode.current = new Map()
     targets.forEach((c) => patchChapter(c.id, { cleanStatus: 'pending' }))
-    handleRef.current = startCleanQueue(
+    const handle = startCleanQueue(
       targets.map((c) => ({ id: c.id, content: c.content })),
       cleanNodes,
       {
@@ -300,41 +299,49 @@ export default function Step3Clean() {
           })
           trackAssign(chapterId, nodeName, nodeId, workerId, batchSeq)
           const isAnchor = !!batchId
-          setActive((prev) => [...prev, { chapterId, nodeName, nodeId, acc: '', batchId, isBatchAnchor: isAnchor }])
+          const cr = useAppStore.getState().cleanRun
+          const nextActive = [...(cr?.active ?? []), { chapterId, nodeName, nodeId, acc: '', batchId, isBatchAnchor: isAnchor }]
+          useAppStore.getState().setState({ cleanRun: { ...cr!, active: nextActive } })
           setSelectedTask((sel) => sel ?? chapterId)
         },
         onChunk: (chapterId, acc) => {
-          setActive((prev) => prev.map((t) => (t.chapterId === chapterId ? { ...t, acc } : t)))
+          const cr = useAppStore.getState().cleanRun
+          const nextActive = (cr?.active ?? []).map((t) => (t.chapterId === chapterId ? { ...t, acc } : t))
+          useAppStore.getState().setState({ cleanRun: { ...cr!, active: nextActive } })
         },
         onDone: (chapterId, cleaned) => {
           patchChapter(chapterId, { cleanStatus: 'completed', cleanedContent: cleaned, lineDecisions: {} })
           trackComplete(chapterId)
-          setActive((prev) => prev.filter((t) => t.chapterId !== chapterId))
+          const cr = useAppStore.getState().cleanRun
+          const nextActive = (cr?.active ?? []).filter((t) => t.chapterId !== chapterId)
+          useAppStore.getState().setState({ cleanRun: { ...cr!, active: nextActive } })
           setSelectedTask((sel) => (sel === chapterId ? null : sel))
         },
         onError: (chapterId, msg) => {
           patchChapter(chapterId, { cleanStatus: 'failed' })
           trackComplete(chapterId)
-          setActive((prev) => prev.filter((t) => t.chapterId !== chapterId))
+          const cr = useAppStore.getState().cleanRun
+          const nextActive = (cr?.active ?? []).filter((t) => t.chapterId !== chapterId)
+          useAppStore.getState().setState({ cleanRun: { ...cr!, active: nextActive } })
           setSelectedTask((sel) => (sel === chapterId ? null : sel))
           message.error(`「${chapters.find((c) => c.id === chapterId)?.title ?? chapterId}」清理失败：${msg}`)
         },
         onFinish: () => {
-          setRunning(false)
-          setActive([])
-          // 运行结束：清空所有节点会话视图（节点任务列表随之清空）
-          setNodeSessions([])
+          clearRun()
           chapterNode.current = new Map()
           setSelectedNode(null)
+          setSelectedTask(null)
           message.success('清理完成，请进入审核步骤')
         },
         onNodeDisabled: (nodeId, nodeName, reason) => {
-          // 调度器熔断该节点 → 同步把参与开关切到关闭（写入 store 覆盖），并移除该节点的工作会话
           setOverrides((prev) => ({
             ...prev,
             [nodeId]: { ...(prev[nodeId] ?? {}), participating: false },
           }))
-          setNodeSessions((prev) => prev.filter((s) => s.nodeId !== nodeId))
+          const cr = useAppStore.getState().cleanRun
+          if (cr) {
+            useAppStore.getState().setState({ cleanRun: { ...cr, nodeSessions: cr.nodeSessions.filter((s) => s.nodeId !== nodeId) } })
+          }
           message.error(`节点「${nodeName}」已自动关闭：${reason}`)
         },
         onDebug: (evt: CleanQueueDebugEvent) => {
@@ -366,23 +373,25 @@ export default function Step3Clean() {
           })
         },
       },
-      { systemPrompt: overridePrompt.trim() || m1SystemPrompt || undefined, isNodeAvailable: (id) => useAppStore.getState().consumeProviderUsage(id) },
+      { systemPrompt: overridePrompt.trim() || m1SystemPrompt || undefined, isNodeAvailable: (id) => useAppStore.getState().consumeProviderUsage(id), autoRetry: m1AutoRetry },
     )
+    handleRef.current = handle
+    // 同步 handle 到 store（跨页面访问）
+    const cr = useAppStore.getState().cleanRun
+    if (cr) useAppStore.getState().setState({ cleanRun: { ...cr, handle: handle as unknown } })
   }
 
   const pause = () => {
     handleRef.current?.pause()
-    setPaused(true)
+    patchRun({ paused: true })
   }
   const resume = () => {
     handleRef.current?.resume()
-    setPaused(false)
+    patchRun({ paused: false })
   }
   const stop = () => {
     handleRef.current?.stop()
-    setRunning(false)
-    setActive([])
-    setNodeSessions([])
+    clearRun()
     chapterNode.current = new Map()
     const cur = useAppStore.getState().importSession
     if (cur)
@@ -698,6 +707,12 @@ export default function Step3Clean() {
           </Button>
         )}
         <Button icon={<ReloadOutlined />} onClick={retryFailed}>重试失败章</Button>
+        <Switch
+          checkedChildren="自动重试"
+          unCheckedChildren="自动重试"
+          checked={m1AutoRetry}
+          onChange={(v) => setState({ m1AutoRetry: v })}
+        />
         <Button disabled={doneCount === 0} onClick={gotoReview}>
           进入审核 →
         </Button>
@@ -731,7 +746,7 @@ export default function Step3Clean() {
             items={[
               {
                 key: 'pending',
-                label: `待处理列表（${pendingChapters.length}）`,
+                label: `待处理（${pendingChapters.length}）`,
                 children: (
                   <ChapterListPane
                     chapters={pendingChapters}
@@ -745,7 +760,7 @@ export default function Step3Clean() {
               },
               {
                 key: 'done',
-                label: `完成列表（${doneChapters.length}）`,
+                label: `完成（${doneChapters.length}）`,
                 children: (
                   <ChapterListPane
                     chapters={doneChapters}
@@ -759,7 +774,7 @@ export default function Step3Clean() {
               },
               {
                 key: 'nodes',
-                label: `工作节点（${nodeSessions.length}）`,
+                label: `节点（${nodeSessions.length}）`,
                 children: (
                   <NodeListPane
                     sessions={nodeSessions}
@@ -774,7 +789,7 @@ export default function Step3Clean() {
               },
               {
                 key: 'nodeTasks',
-                label: selectedSession ? `${selectedSession.name} 任务（${selectedSession.assigned.length}）` : '节点任务',
+                label: selectedSession ? `${selectedSession.name}（${selectedSession.assigned.length}）` : '章节',
                 children: (
                   <ChapterListPane
                     chapters={nodeTaskChapters as typeof pendingChapters}
@@ -783,7 +798,7 @@ export default function Step3Clean() {
                     activeIds={new Set(active.map((a) => a.chapterId))}
                     onPick={previewChapter}
                     statusColor={statusColor}
-                    doneSet={selectedSession?.done}
+                    doneSet={selectedSession ? new Set(selectedSession.done) : undefined}
                   />
                 ),
               },
@@ -1013,17 +1028,18 @@ function DebouncedInputNumber({
 }: React.ComponentProps<typeof InputNumber> & {
   onCommit: (v: number | null) => void
 }) {
-  const [local, setLocal] = useState<number | null>(value)
-  const [tracked, setTracked] = useState<number | null>(value)
-  if (value !== tracked) {
-    setTracked(value)
-    setLocal(value)
+  const numValue = (typeof value === 'number' ? value : null) as number | null
+  const [local, setLocal] = useState<number | null>(numValue)
+  const [tracked, setTracked] = useState<number | null>(numValue)
+  if (numValue !== tracked) {
+    setTracked(numValue)
+    setLocal(numValue)
   }
   return (
     <InputNumber
       {...rest}
       value={local}
-      onChange={(v) => setLocal(v)}
+      onChange={(v) => setLocal(typeof v === 'number' ? v : null)}
       onBlur={() => onCommit(local)}
     />
   )
@@ -1091,7 +1107,7 @@ function ChapterListPane({ chapters, emptyText, selectedTask, activeIds, onPick,
 // ── 子组件：工作节点列表 ──
 
 interface NodeListPaneProps {
-  sessions: NodeSession[]
+  sessions: CleanRunNodeSession[]
   providers: { id: string; name: string; model?: string }[]
   selectedNode: string | null
   onPick: (sessionKey: string) => void
@@ -1104,7 +1120,7 @@ function NodeListPane({ sessions, selectedNode, onPick }: NodeListPaneProps) {
         <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="无工作中的节点" style={{ marginTop: 40 }} />
       ) : (
         sessions.map((s) => {
-          const inFlight = s.assigned.length - s.done.size
+          const inFlight = s.assigned.length - s.done.length
           return (
             <div
               key={s.sessionKey}
@@ -1125,7 +1141,7 @@ function NodeListPane({ sessions, selectedNode, onPick }: NodeListPaneProps) {
                   {s.idle ? '本批完成' : '工作中'}
                 </Tag>
                 <Typography.Text type="secondary" style={{ fontSize: 11 }}>
-                  接手 {s.assigned.length} · 完成 {s.done.size} · 进行中 {inFlight}
+                  接手 {s.assigned.length} · 完成 {s.done.length} · 进行中 {inFlight}
                 </Typography.Text>
               </Space>
             </div>

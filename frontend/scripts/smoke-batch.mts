@@ -66,7 +66,7 @@ function stubFetch(expectedIds: Set<string>) {
 function runQueue(
   chapters: { id: string; content: string }[],
   nodes: CleanNode[],
-  opts: { systemPrompt?: string; onNodeDisabled?: (nodeId: string, nodeName: string, reason: string) => void } = {},
+  opts: { systemPrompt?: string; autoRetry?: boolean; onNodeDisabled?: (nodeId: string, nodeName: string, reason: string) => void } = {},
 ): Promise<{ done: string[]; errored: string[] }> {
   return new Promise((resolve) => {
     const done: string[] = []
@@ -80,7 +80,7 @@ function runQueue(
       onDebug: () => {},
       onNodeDisabled: opts.onNodeDisabled,
     }
-    startCleanQueue(chapters, nodes, cb, { systemPrompt: opts.systemPrompt })
+    startCleanQueue(chapters, nodes, cb, { systemPrompt: opts.systemPrompt, autoRetry: opts.autoRetry })
   })
 }
 
@@ -176,6 +176,27 @@ const mkChapters = (n: number) =>
   check('单坏节点：3 次 502 后熔断', disabledNodeId === 'SOLO', `实际 ${disabledNodeId}`)
   check('单坏节点：无完成章节', done.length === 0, `意外完成 ${done.length}`)
   check('单坏节点：所有章节最终判失败（不死循环）', errored.length === 4, `失败 ${errored.length}`)
+}
+
+// ── 场景 7：自动重试开关（autoRetry=true）—— 失败章放回队列重试，
+// 单节点多次失败后熔断 → 全节点不可用 → 章节终态失败（非死循环）。
+// 与场景 6 对比：autoRetry=true 不会因 MAX_RETRIES 提前判死，
+// 而是等所有节点都不可用才 onError。
+{
+  const chapters = mkChapters(2)
+  globalThis.fetch = async () => new Response('Bad Gateway', { status: 502 })
+  const { done, errored } = await runQueue(chapters, [mkNode('SOLO', 1)], { autoRetry: true })
+  check('自动重试=开：全节点熔断后终态失败（不因 MAX_RETRIES 提前判死）', errored.length === 2, `错误 ${errored.length}`)
+  check('自动重试=开：无完成章节', done.length === 0, `意外完成 ${done.length}`)
+}
+
+// ── 场景 8：自动重试开关关闭（autoRetry=false）—— 失败章 onError，行为与旧版一致 ──
+{
+  const chapters = mkChapters(2)
+  globalThis.fetch = async () => new Response('Bad Gateway', { status: 502 })
+  const { done, errored } = await runQueue(chapters, [mkNode('SOLO', 1)], { autoRetry: false })
+  check('自动重试=关：失败章走 onError（与旧版一致）', errored.length > 0, `错误 ${errored.length}`)
+  check('自动重试=关：无完成章节', done.length === 0, `意外完成 ${done.length}`)
 }
 
 console.log(failed === 0 ? '\n全部通过' : `\n${failed} 项失败`)

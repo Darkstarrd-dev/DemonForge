@@ -54,6 +54,35 @@ export interface ImageDemoForm {
   seed?: number
 }
 
+/** M1 Step3 清理运行状态（不持久化，仅内存）。用于跨 Step 页面保持任务控制权。 */
+export interface CleanRunActiveTask {
+  chapterId: string
+  nodeName: string
+  nodeId?: string
+  acc: string
+  batchId?: string
+  isBatchAnchor?: boolean
+}
+
+/** M1 Step3 工作节点会话（按批次生命周期） */
+export interface CleanRunNodeSession {
+  sessionKey: string
+  nodeId: string
+  name: string
+  assigned: string[]
+  done: string[]
+  idle: boolean
+}
+
+export interface CleanRunState {
+  handle: unknown
+  running: boolean
+  paused: boolean
+  active: CleanRunActiveTask[]
+  nodeSessions: CleanRunNodeSession[]
+  startedAt: number
+}
+
 export interface AppState {
   books: Book[]
   chapters: Chapter[]
@@ -91,8 +120,16 @@ export interface AppState {
    * 曾导致"100 章发 100 请求"。迁到 store 后随设置落盘，避免静默回退。
    */
   cleanNodeOverrides: Record<string, Partial<{ participating: boolean; concurrency: number; batchSize: number; intervalSec: number }>>
+  /** M1 Step3 失败章节自动重试开关（持久化到 settings.json，默认开启） */
+  m1AutoRetry: boolean
+  /** M1 Step2 章节名称替换模板（持久化到 settings.json），如 "第{0n}章 {title}" */
+  m1TitleTemplate: string
+  /** M1 Step3 清理运行状态（不持久化，仅内存）。跨 Step 页面保持任务控制权。 */
+  cleanRun: CleanRunState | null
 
   setState: (patch: Partial<AppState>) => void
+  /** M1 Step3 清洗运行状态合并写入（部分更新）。不持久化。 */
+  setCleanRun: (patch: Partial<CleanRunState> | null) => void
   updateChapter: (id: string, patch: Partial<Chapter>) => void
   updateCard: (id: string, patch: Partial<EntityCard>) => void
   updateIssue: (id: string, patch: Partial<ConsistencyIssue>) => void
@@ -139,11 +176,18 @@ const seedState = () => ({
   imageDemoForm: { provider: 'modelscope', nodeId: undefined, prompt: '', resolution: '1024x1024' },
   splitPatterns: DEFAULT_SPLIT_PATTERNS.map((p) => ({ ...p })),
   cleanNodeOverrides: {} as Record<string, Partial<{ participating: boolean; concurrency: number; batchSize: number; intervalSec: number }>>,
+  m1AutoRetry: true,
+  m1TitleTemplate: '第{0n}章 {title}',
+  cleanRun: null,
 })
 
 export const useAppStore = create<AppState>()((set) => ({
   ...seedState(),
   setState: (patch) => set(patch),
+  setCleanRun: (patch) =>
+    set((s) => ({
+      cleanRun: patch === null ? null : { ...(s.cleanRun ?? { handle: null, running: false, paused: false, active: [], nodeSessions: [], startedAt: 0 }), ...patch },
+    })),
   updateChapter: (id, patch) =>
     set((s) => ({
       chapters: s.chapters.map((c) => (c.id === id ? { ...c, ...patch } : c)),
@@ -327,6 +371,8 @@ export async function bootstrapStore(): Promise<void> {
         showMenuBar?: boolean
         splitPatterns?: SplitPattern[]
         cleanNodeOverrides?: Record<string, Partial<{ participating: boolean; concurrency: number; batchSize: number; intervalSec: number }>>
+        m1AutoRetry?: boolean
+        m1TitleTemplate?: string
       }
       storeInitialized = d.storeInitialized === true
       const patch: Partial<AppState> = {}
@@ -349,6 +395,10 @@ export async function bootstrapStore(): Promise<void> {
       if (d.cleanNodeOverrides && typeof d.cleanNodeOverrides === 'object') {
         patch.cleanNodeOverrides = d.cleanNodeOverrides
       }
+      // M1 Step3 失败章节自动重试开关（旧 settings.json 无此键则默认 true）
+      if (typeof d.m1AutoRetry === 'boolean') patch.m1AutoRetry = d.m1AutoRetry
+      // M1 Step2 章节标题模板（旧 settings.json 无此键则默认 "第{0n}章 {title}"）
+      if (typeof d.m1TitleTemplate === 'string') patch.m1TitleTemplate = d.m1TitleTemplate
       if (Object.keys(patch).length) useAppStore.setState(patch)
     }
   } catch {
@@ -539,8 +589,8 @@ export async function pushStoreNowChecked(): Promise<void> {
 }
 
 // 设置回写：providers/moduleMapping/m1SystemPrompt/assetDir/currentBookId/imageDemoForm/
-// showMenuBar/splitPatterns/cleanNodeOverrides 变化时 debounce POST
-/** 设置载荷构造（9 个键）。导出供 backup.ts 组装备份 bundle 复用。 */
+// showMenuBar/splitPatterns/cleanNodeOverrides/m1AutoRetry/m1TitleTemplate 变化时 debounce POST
+/** 设置载荷构造（11 个键）。导出供 backup.ts 组装备份 bundle 复用。 */
 export const settingsPayload = (s: AppState) => ({
   providers: s.providers,
   moduleMapping: s.moduleMapping,
@@ -551,6 +601,8 @@ export const settingsPayload = (s: AppState) => ({
   showMenuBar: s.showMenuBar,
   splitPatterns: s.splitPatterns,
   cleanNodeOverrides: s.cleanNodeOverrides,
+  m1AutoRetry: s.m1AutoRetry,
+  m1TitleTemplate: s.m1TitleTemplate,
 })
 
 let settingsTimer: ReturnType<typeof setTimeout> | null = null
@@ -565,7 +617,9 @@ useAppStore.subscribe((s, prev) => {
     s.imageDemoForm === prev.imageDemoForm &&
     s.showMenuBar === prev.showMenuBar &&
     s.splitPatterns === prev.splitPatterns &&
-    s.cleanNodeOverrides === prev.cleanNodeOverrides
+    s.cleanNodeOverrides === prev.cleanNodeOverrides &&
+    s.m1AutoRetry === prev.m1AutoRetry &&
+    s.m1TitleTemplate === prev.m1TitleTemplate
   ) {
     return
   }

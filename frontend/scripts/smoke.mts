@@ -1,6 +1,6 @@
 // 临时冒烟测试：node --experimental-strip-types 运行，验证核心逻辑
 import { DEMO_RAW_TEXT, mockCleanChapter } from '../src/mocks/demoRaw.ts'
-import { splitChapters, PRESET_PATTERNS, retentionRate, detectChapterPattern, detectLeadingChapterTitle, DEFAULT_SPLIT_PATTERNS, compilePatterns, normalizeParagraphs } from '../src/utils/split.ts'
+import { splitChapters, PRESET_PATTERNS, retentionRate, detectChapterPattern, detectLeadingChapterTitle, DEFAULT_SPLIT_PATTERNS, compilePatterns, normalizeParagraphs, stripChapterMarker, applyTitleTemplate } from '../src/utils/split.ts'
 import { alignedDiff, applyLineDecisions, diffStats } from '../src/utils/alignedDiff.ts'
 
 let failed = 0
@@ -181,6 +181,49 @@ const decorHit = detectLeadingChapterTitle('★第4章 暗流\n正文', PATTERNS
 check('首行带装饰前缀 → stripDecor 后检测到标题', !!decorHit && decorHit.title === '第4章 暗流', decorHit?.title ?? 'null')
 // 场景：空内容 → null
 check('空内容 → null', detectLeadingChapterTitle('', PATTERNS) === null)
+
+// ── 10. 章节名称替换：stripChapterMarker ──
+check('第3章 接受现实 → 接受现实', stripChapterMarker('第3章 接受现实') === '接受现实')
+check('001：开端 → 开端', stripChapterMarker('001：开端') === '开端')
+check('3、旧案重提 → 旧案重提', stripChapterMarker('3、旧案重提') === '旧案重提')
+check('第一卷 夜起（卷标记也被剥离）→ 夜起', stripChapterMarker('第一卷 夜起') === '夜起', stripChapterMarker('第一卷 夜起'))
+check('无章号标题 → 原样', stripChapterMarker('普通序言') === '普通序言')
+check('空标题 → 原样', stripChapterMarker('') === '')
+
+// ── 11. 章节名称替换：applyTitleTemplate ──
+const renSrc = [
+  { title: '第1章 开端' },
+  { title: '第2章 发展' },
+  { title: '第一卷 夜起', isVolume: true },
+  { title: '第3章 转折' },
+]
+
+const ren1 = applyTitleTemplate(renSrc, '第{0n}章 {title}')
+check('模板 第{0n}章 {title}：序章 → 第01章 开端', ren1[0].title === '第01章 开端', ren1[0].title)
+check('模板 第{0n}章 {title}：发展 → 第02章 发展', ren1[1].title === '第02章 发展', ren1[1].title)
+check('模板 第{0n}章 {title}：卷章跳过（原样）', ren1[2].title === '第一卷 夜起', ren1[2].title)
+check('模板 第{0n}章 {title}：转折 → 第03章 转折', ren1[3].title === '第03章 转折', ren1[3].title)
+
+const ren2 = applyTitleTemplate(renSrc, '{n}')
+check('模板 {n}：序号递增', ren2[0].title === '1' && ren2[1].title === '2' && ren2[3].title === '3')
+
+const ren3 = applyTitleTemplate(renSrc, '{raw}')
+check('模板 {raw}：原样（幂等）', ren3[0].title === '第1章 开端' && ren3[1].title === '第2章 发展' && ren3[3].title === '第3章 转折')
+
+const ren4 = applyTitleTemplate(renSrc, '第{0n}章 {title}', { start: 10 })
+check('start=10：从 10 开始编号', ren4[0].title === '第10章 开端' && ren4[1].title === '第11章 发展' && ren4[3].title === '第12章 转折')
+
+const ren5 = applyTitleTemplate(renSrc, '第{0n}章 {title}', { skipVolume: false })
+check('skipVolume=false：卷章也替换', ren5[2].title !== '第一卷 夜起', ren5[2].title)
+
+const ren6 = applyTitleTemplate(renSrc, '')
+check('空模板：全部原样（不替换）', ren6[0].title === '第1章 开端' && ren6[1].title === '第2章 发展')
+
+// 补零：大量章节自动推断位数
+const manyChapters = Array.from({ length: 120 }, (_, i) => ({ title: `第${i + 1}章 序号` }))
+const ren7 = applyTitleTemplate(manyChapters, '第{0n}章 {title}')
+check('120 章补零为 3 位：第001章', ren7[0].title === '第001章 序号', ren7[0].title)
+check('120 章补零为 3 位：第120章', ren7[119].title === '第120章 序号', ren7[119].title)
 
 console.log(failed === 0 ? '\n全部通过' : `\n${failed} 项失败`)
 process.exit(failed === 0 ? 0 : 1)
