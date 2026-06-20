@@ -216,6 +216,7 @@ export default function Step3Clean() {
     const nowProviders = s.providers
     return nowProviders
       .filter((p) => p.enabled)
+      .filter((p) => (nowOverrides[p.id] ?? {}).participating !== false)
       .map((p) => {
         const o = nowOverrides[p.id] ?? {}
         return {

@@ -20,11 +20,12 @@
     ⑥ **【最新】数据持久化全面加固 + 设置/备份导入导出**——从根上修复"反复数据丢失"的 6 个缺陷（syncAll 改纯 upsert 永不删除 / settings.json 原子写入+.bak / assetDir 启动缓存 / readAll 逐行容错 / 启动日志增强 / 显式 DELETE 端点），并新增设置导入导出 + 完整备份恢复（版本化 bundle、向后兼容、脱敏选项）作为人工兜底。详见 FIXES.md「2026-06-20」。
          ⑦ M1 Step3 文本清理流水线重构
      ⑧ M1 处理范围语义重构 + 节点溯源标签 + 审核批量操作
-     ⑨ **【本次】数值输入卡顿修复 + 调度器 per-node 重构 + 工作节点分进程显示 + 拒绝节点去重**——按用户实机反馈做四项整改：① **Tabs 四标签可切换列表**（待处理/完成/工作节点/节点任务，按批次会话跟踪节点接手数/完成数，修复 CSS 强制 tabpane `display:flex` 导致点 tab 不切换的真因）；② **节点级熔断**（连续 3 次 5xx/网络错误自动 `onNodeDisabled` + UI 同步关闭，不再对坏节点无限重试；全节点熔断时剩余任务判错退出不死循环）；③ **批处理可观测性 + 失败隔离**（每条请求日志带实际 batchSize；batch 失败后重试避开该节点 `chapterAvoidNodes`，不再饥饿重拉 9 章；成功响应不再记录流式正文 responseBody）；④ **统一设置改部分应用**（原必须三字段全填才生效的静默 bug，现仅填的生效）+ **cleanNodeOverrides 持久化到 settings.json**（原 useState 重挂载丢失 → 回退默认 batchSize=1，是"100 章发 100 请求"的配置层根因）。新增 `scripts/smoke-batch.mts`（16 项批处理+熔断回归测试，实证 100 章/batchSize 20 = 5 请求）。
+      ⑨ **【本次】数值输入卡顿修复 + 调度器 per-node 重构 + 工作节点分进程显示 + 拒绝节点去重**——按用户实机反馈做四项整改：① **Tabs 四标签可切换列表**（待处理/完成/工作节点/节点任务，按批次会话跟踪节点接手数/完成数，修复 CSS 强制 tabpane `display:flex` 导致点 tab 不切换的真因）；② **节点级熔断**（连续 3 次 5xx/网络错误自动 `onNodeDisabled` + UI 同步关闭，不再对坏节点无限重试；全节点熔断时剩余任务判错退出不死循环）；③ **批处理可观测性 + 失败隔离**（每条请求日志带实际 batchSize；batch 失败后重试避开该节点 `chapterAvoidNodes`，不再饥饿重拉 9 章；成功响应不再记录流式正文 responseBody）；④ **统一设置改部分应用**（原必须三字段全填才生效的静默 bug，现仅填的生效）+ **cleanNodeOverrides 持久化到 settings.json**（原 useState 重挂载丢失 → 回退默认 batchSize=1，是"100 章发 100 请求"的配置层根因）。新增 `scripts/smoke-batch.mts`（16 项批处理+熔断回归测试，实证 100 章/batchSize 20 = 5 请求）。
+      ⑩ **【本次】participating 过滤修复**——用户反馈「节点池 7 节点，关闭 4 个，开始任务后 7 个全在工作」：`buildCleanNodes` 仅过滤 `p.enabled` 和 `baseURL`/`model` 有效性，完全忽略 overrides 中的 `participating` 标志（该标志只在 UI 层的 `nodeRunStates`/`participatingNodes` 中用于摘要显示，从未传给调度器）。修复：`.filter((p) => p.enabled)` 后新增 `.filter((p) => (nowOverrides[p.id] ?? {}).participating !== false)`，一行修复覆盖启动前关闭与运行中关闭两个场景。
 
 ## 项目状态快照
 
-- **最后更新**：2026-06-20（第四十次会话·**运行中热更新生效 + 导入会话持久化**）
+- **最后更新**：2026-06-20（第四十一次会话·**participating 过滤修复**）
 - **阶段**：正式开发——M1 AI 清理端到端跑通；**novel-generator 集成阶段 A~D 全部完成**；**Electron 迁移完成**；M2–M5 仍 mock；业务数据 SQLite 资产库（可配置资产目录），Provider/密钥等设置存用户数据目录
 - **新增**：**M1 Step3 文本清理流水线重构**——按用户实机反馈做四项整改：
   ① **Tabs 四标签可切换列表**（`Step3Clean.tsx`）：原单一活跃列表 → `Tabs`（待处理/完成/工作节点/节点任务）。节点按**批次会话**生命周期跟踪（`nodeSessions` + `chapterNode` ref）：分配时创建/追加，本批全完成置 idle 变灰，下次再分配替换，运行结束清理。**修复 Tabs 无法切换的真因**——`index.css` 给 `.ant-tabs-tabpane` 强制 `display:flex` 覆盖了 antd 非活动面板的 `display:none`，四面板同时渲染。移除该规则后面板靠 antd 自身 `.ant-tabs-tabpane-active` 显隐。
@@ -54,6 +55,8 @@
     - ① **根除热更新闭包陈旧**（`Step3Clean.tsx`）：`buildCleanNodes` 改为从 `useAppStore.getState()` 直读 `providers` + `cleanNodeOverrides`，不再依赖组件渲染周期闭包变量（`participatingNodes`/`overrides`）。原 `setTimeout(hotUpdateNodes,0)` 捕获旧渲染周期的函数引用 → 推给调度器的是旧 batchSize/intervalSec → 运行中修改参数实际不生效。
     - ② **maxConcurrency 增大动态 spawn worker**（`llm.ts`）：新增 `spawnedSlots` Map 追踪每节点已 spawn 的 slot 数；`updateNodes` 方法检测 `maxConcurrency > spawned` 时调用 `workerLoopForNode` 创建新 worker、`activeWorkers += 新增数`、`workerPromises.push`。减小方向由 worker 循环 `if (slot >= node.maxConcurrency) break` 自行退出，无需干预。
     - ③ **导入会话持久化**（全栈）：后端新增 `server/src/routes/importSession.ts` 三端点（GET/POST/DELETE），`import-session.json` 原子写入（.bak→.tmp→rename）；前端 `appStore.ts` 加 `importSession` 订阅（1.5s debounce POST） + `pushImportSessionNow()` + `flushStoreWrites` 并入；M1 入口 `index.tsx` 挂载时 GET 恢复，`processing` 章节回退为 `pending` 重跑；`Step4Review.tsx` 入库成功后 DELETE 清理。
+    **本轮新增（第四十一次会话·participating 过滤修复）**：
+    - ① **buildCleanNodes 过滤 participating**（`Step3Clean.tsx`）：`.filter((p) => p.enabled)` 后新增 `.filter((p) => (nowOverrides[p.id] ?? {}).participating !== false)`。根因：`buildCleanNodes` 只过滤 `p.enabled` + `baseURL`/`model` 有效性，完全忽略 `overrides` 中的 `participating` 标志。该标志仅在 UI 层 `nodeRunStates`/`participatingNodes` 用于摘要显示，从未传给调度器 → 关闭节点仍参选。一行修复覆盖启动前关闭与运行中关闭两个场景。
 - **摘要**：在 mock 前端基础上**进入实现阶段**。
   运行方式（三选一）：
   - **【推荐】Electron 模式**：双击 `start-electron.bat`（开发模式）或 `npm run dev`，Electron 窗口自动管理前后端；关窗即自动清理进程
@@ -392,37 +395,16 @@
 
 ## 交接备注（最近一次会话）
 
-- **日期**：2026-06-20（第四十次会话·**运行中热更新生效 + 导入会话持久化**）
-- **本次起因**：
-  ① 运行时修改节点参数不生效：3节点1进程5章节运行中统一调整 batchSize 5→10，下一批仍用5（闭包陈旧）；maxConcurrency 增大不 spawn 新 worker。
-  ② 退出 App / Force Reload 后清理进度全部丢失——importSession 完全不持久化。
-- **根因分析**：
-  - **闭包陈旧**（Fix A）：`setTimeout(hotUpdateNodes,0)` 捕获旧渲染周期的 `hotUpdateNodes` 函数引用 → 闭包内 `buildCleanNodes` 读闭包变量 `participatingNodes`（旧 `overrides`）→ 推旧参数给调度器。`useAppStore.getState()` 可绕过此限制。
-  - **maxConcurrency 只减不增**（Fix B）：worker 仅在 `startCleanQueue` 启动时创建，`updateNodes` 只替换 `nodeConfigs` 不 spawn worker。worker 循环 `slot >= maxConcurrency → break` 只减。
-  - **importSession 零持久化**（Fix C）：不在任何订阅/载荷/落库路径中，纯内存。
-- **本次完成**（5 项）：
-  - ① **buildCleanNodes 直读 store**（`Step3Clean.tsx`）：改从 `useAppStore.getState()` 读 `providers` + `cleanNodeOverrides`，不再依赖闭包变量。`setTimeout` 执行时保证读到最新值。
-  - ② **updateNodes 动态 spawn worker**（`llm.ts`）：新增 `spawnedSlots` Map；检测 `maxConcurrency > spawned` 时 `workerLoopForNode` + `activeWorkers++` + `workerPromises.push` + `wPromise.then(maybeFinish)`。
-  - ③ **后端 importSession 端点**（`server/src/routes/importSession.ts` 新增）：GET/POST/DELETE，`import-session.json` 原子写入（.bak→.tmp→rename）。
-  - ④ **前端持久化管线**（`appStore.ts`）：订阅 `importSession` 变化 → 1.5s debounce POST；`pushImportSessionNow()` 即时推送；`flushStoreWrites` 并入。
-  - ⑤ **恢复与清理**：M1 `index.tsx` 挂载时 GET 恢复，`processing`→`pending` 回退；`Step4Review.tsx` 入库成功后 DELETE 清理文件。
-- **改动文件**（8 个）：
-  - `frontend/src/pages/m1-import/Step3Clean.tsx`（buildCleanNodes 直读 store）
-  - `frontend/src/services/real/llm.ts`（spawnedSlots + updateNodes spawn）
-  - `server/src/routes/importSession.ts`（**新增**：三端点 + 原子写入）
-  - `server/src/index.ts`（注册 importSessionRoutes）
-  - `frontend/src/store/appStore.ts`（importSession 订阅 + pushImportSessionNow + flush）
-  - `frontend/src/pages/m1-import/index.tsx`（挂载恢复 + processing→pending）
-  - `frontend/src/pages/m1-import/Step4Review.tsx`（入库后 DELETE）
+- **日期**：2026-06-20（第四十一次会话·**participating 过滤修复**）
+- **本次起因**：用户反馈「节点池 7 节点，关闭 4 个，开始任务后 7 个全在工作」——`buildCleanNodes` 仅过滤 `p.enabled` 和 `baseURL`/`model` 有效性，完全忽略 overrides 中的 `participating` 标志。
+- **根因分析**：`participating` 标志只存在于 UI 层（`nodeRunStates`/`participatingNodes` 仅用于摘要显示），`buildCleanNodes` → `startCleanQueue` / `updateNodes` 的整条调度器输入链路未读该标志。
+- **本次完成**（1 项）：
+  - ① **buildCleanNodes 过滤 participating**（`Step3Clean.tsx`：`:218`）：在 `.filter((p) => p.enabled)` 后新增 `.filter((p) => (nowOverrides[p.id] ?? {}).participating !== false)`。默认 `true`（未设覆盖的节点不受影响），仅排除显式 `false` 的节点。单行修复覆盖启动前关闭与运行中关闭两个场景。
+- **改动文件**（2 个）：
+  - `frontend/src/pages/m1-import/Step3Clean.tsx`（buildCleanNodes 加 participating 过滤）
   - `HANDOFF.md`
-- **验证全过**：tsc(server) 0 / tsc(frontend) 0 / eslint 0 / vite build 704ms ✅ / smoke-batch(16) ✅
-- **关键设计决策**：
-  ① **store.getState() 绕过闭包**：`buildCleanNodes` 不需要 `useCallback`/`useEffect`，直接读 zustand store 的最新快照。无依赖追踪问题。
-  ② **新 worker spawn 安全**：worker 循环开头 `nodeConfigs.find` + `slot >= maxConcurrency – break` 保护。增减反复改时多余 worker 自清理。
-  ③ **新 worker finish 兜底**：`wPromise.then(() => maybeFinish())` 确保所有 worker 退出时不会被遗漏。
-  ④ **importSession 写完删文件**：`importSession=null` 时订阅立即 DELETE，不残留旧数据。入库后也 DELETE。
-  ⑤ **processing→pending 不丢成果**：已完成（completed）的章保留；进行中（processing）回退重跑——LLM SSE 断点无法恢复中间态，安全选择。
-- **下一步**：用户实机验证：① 清理运行中修改 batchSize/intervalSec → 下批生效；② 运行中增加进程数 → 新 worker 立即接任务；③ 清理若干章后 Force Reload → 状态恢复、可继续；④ 入库后文件被清理
+- **验证全过**：tsc(frontend) 0 ✅ / eslint 0 ✅ / vite build 730ms ✅
+- **下一步**：用户实机验证「节点池关闭节点不再参选」
 
 ## 更新本文档的约定
 
