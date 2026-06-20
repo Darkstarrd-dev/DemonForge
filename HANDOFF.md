@@ -24,7 +24,7 @@
 
 ## 项目状态快照
 
-- **最后更新**：2026-06-20（第三十九次会话·**孤儿 session 清除 + 熔断节点清理 + 在途 batch abort**）
+- **最后更新**：2026-06-20（第四十次会话·**运行中热更新生效 + 导入会话持久化**）
 - **阶段**：正式开发——M1 AI 清理端到端跑通；**novel-generator 集成阶段 A~D 全部完成**；**Electron 迁移完成**；M2–M5 仍 mock；业务数据 SQLite 资产库（可配置资产目录），Provider/密钥等设置存用户数据目录
 - **新增**：**M1 Step3 文本清理流水线重构**——按用户实机反馈做四项整改：
   ① **Tabs 四标签可切换列表**（`Step3Clean.tsx`）：原单一活跃列表 → `Tabs`（待处理/完成/工作节点/节点任务）。节点按**批次会话**生命周期跟踪（`nodeSessions` + `chapterNode` ref）：分配时创建/追加，本批全完成置 idle 变灰，下次再分配替换，运行结束清理。**修复 Tabs 无法切换的真因**——`index.css` 给 `.ant-tabs-tabpane` 强制 `display:flex` 覆盖了 antd 非活动面板的 `display:none`，四面板同时渲染。移除该规则后面板靠 antd 自身 `.ant-tabs-tabpane-active` 显隐。
@@ -50,6 +50,10 @@
     - ① **trackAssign 不再限 idle**（`Step3Clean.tsx`）：filter 从 `s.idle && startsWith(workerId)` 改为 `!startsWith(workerId)`——同一 worker 新 batch 开始时移除其**所有**旧 session（含失败的孤儿），根除跨批累积的根本原因：失败 batch 的章节进入 retryQueue 时未调 `onError`/`onDone`，`trackComplete` 不执行，session 永远 idle=false，旧 filter 不过滤。
     - ② **onNodeDisabled 清理 sessions**（`Step3Clean.tsx`）：熔断通知中追加 `setNodeSessions(filter(nodeId))`，被禁用节点的所有工作会话立即从列表移除（含孤儿），不再永久残留。
     - ③ **markNodeFail 立即 abort 在途 batch**（`llm.ts`）：达熔断阈值后遍历 `activeBatches`，中止该节点所有在途请求 → catch 块将章节放入 `retryQueue` → 其他节点立即接管，不再等待 HTTP 超时。
+    **本轮新增（第四十次会话·运行中热更新生效 + 导入会话持久化）**：
+    - ① **根除热更新闭包陈旧**（`Step3Clean.tsx`）：`buildCleanNodes` 改为从 `useAppStore.getState()` 直读 `providers` + `cleanNodeOverrides`，不再依赖组件渲染周期闭包变量（`participatingNodes`/`overrides`）。原 `setTimeout(hotUpdateNodes,0)` 捕获旧渲染周期的函数引用 → 推给调度器的是旧 batchSize/intervalSec → 运行中修改参数实际不生效。
+    - ② **maxConcurrency 增大动态 spawn worker**（`llm.ts`）：新增 `spawnedSlots` Map 追踪每节点已 spawn 的 slot 数；`updateNodes` 方法检测 `maxConcurrency > spawned` 时调用 `workerLoopForNode` 创建新 worker、`activeWorkers += 新增数`、`workerPromises.push`。减小方向由 worker 循环 `if (slot >= node.maxConcurrency) break` 自行退出，无需干预。
+    - ③ **导入会话持久化**（全栈）：后端新增 `server/src/routes/importSession.ts` 三端点（GET/POST/DELETE），`import-session.json` 原子写入（.bak→.tmp→rename）；前端 `appStore.ts` 加 `importSession` 订阅（1.5s debounce POST） + `pushImportSessionNow()` + `flushStoreWrites` 并入；M1 入口 `index.tsx` 挂载时 GET 恢复，`processing` 章节回退为 `pending` 重跑；`Step4Review.tsx` 入库成功后 DELETE 清理。
 - **摘要**：在 mock 前端基础上**进入实现阶段**。
   运行方式（三选一）：
   - **【推荐】Electron 模式**：双击 `start-electron.bat`（开发模式）或 `npm run dev`，Electron 窗口自动管理前后端；关窗即自动清理进程
@@ -388,35 +392,37 @@
 
 ## 交接备注（最近一次会话）
 
-- **日期**：2026-06-20（第三十九次会话·**孤儿 session 清除 + 熔断节点清理 + abort**）
-- **本次起因**：用户实机验证上一轮修复后仍存残留问题：① 5 节点 × 1 进程 × 30 章 → 列表显示 7 条，2 条重复执行相同任务，运行后增到 9 条（与「每进程同时只一条」要求不符）；② 报错的节点未释放任务、未从列表移除。
+- **日期**：2026-06-20（第四十次会话·**运行中热更新生效 + 导入会话持久化**）
+- **本次起因**：
+  ① 运行时修改节点参数不生效：3节点1进程5章节运行中统一调整 batchSize 5→10，下一批仍用5（闭包陈旧）；maxConcurrency 增大不 spawn 新 worker。
+  ② 退出 App / Force Reload 后清理进度全部丢失——importSession 完全不持久化。
 - **根因分析**：
-  - **孤儿 session**：`executeBatch` 失败重试时（`fails < MAX_RETRIES`）不入 `retryQueue` 而不调 `onError`/`onDone` → `trackComplete` 不执行 → session 永远 `idle=false` → 旧 filter `s.idle && startsWith(...)` 不过滤。新 batch 创建新 session → 同一 worker 同时有两条（旧孤儿+新活跃）。跨 worker 重试时两 session 显示相同章节。
-  - **熔断节点残留**：`onNodeDisabled` 只设 `participating=false`，未清理 `nodeSessions`。
-  - **在途请求不中止**：熔断时机到 `markNodeFail` 仅加 `disabledNodes` 集合，不 abort 在途 batch，章节要等超时才释放。
-- **本次完成**（3 项）：
-  - **trackAssign filter 不限 idle**（`Step3Clean.tsx`）：移除条件 `s.idle &&`，同一 workerId 新批次开始时移除其所有旧 session（成功/失败/孤儿全清）。
-  - **onNodeDisabled 清理 UI**（`Step3Clean.tsx`）：追加 `setNodeSessions(prev => prev.filter(s => s.nodeId !== nodeId))`，熔断节点即时从列表消失。
-  - **markNodeFail abort 在途 batch**（`llm.ts`）：遍历 `activeBatches`，abort 所有该节点的请求 → `executeBatch` catch 块入 `retryQueue` → 其他节点立即接管。
-- **改动文件**（3 个）：
-  - `frontend/src/pages/m1-import/Step3Clean.tsx`（trackAssign filter 移除 idle 条件 / onNodeDisabled 加 session 清理）
-  - `frontend/src/services/real/llm.ts`（markNodeFail 加 abort 循环）
+  - **闭包陈旧**（Fix A）：`setTimeout(hotUpdateNodes,0)` 捕获旧渲染周期的 `hotUpdateNodes` 函数引用 → 闭包内 `buildCleanNodes` 读闭包变量 `participatingNodes`（旧 `overrides`）→ 推旧参数给调度器。`useAppStore.getState()` 可绕过此限制。
+  - **maxConcurrency 只减不增**（Fix B）：worker 仅在 `startCleanQueue` 启动时创建，`updateNodes` 只替换 `nodeConfigs` 不 spawn worker。worker 循环 `slot >= maxConcurrency → break` 只减。
+  - **importSession 零持久化**（Fix C）：不在任何订阅/载荷/落库路径中，纯内存。
+- **本次完成**（5 项）：
+  - ① **buildCleanNodes 直读 store**（`Step3Clean.tsx`）：改从 `useAppStore.getState()` 读 `providers` + `cleanNodeOverrides`，不再依赖闭包变量。`setTimeout` 执行时保证读到最新值。
+  - ② **updateNodes 动态 spawn worker**（`llm.ts`）：新增 `spawnedSlots` Map；检测 `maxConcurrency > spawned` 时 `workerLoopForNode` + `activeWorkers++` + `workerPromises.push` + `wPromise.then(maybeFinish)`。
+  - ③ **后端 importSession 端点**（`server/src/routes/importSession.ts` 新增）：GET/POST/DELETE，`import-session.json` 原子写入（.bak→.tmp→rename）。
+  - ④ **前端持久化管线**（`appStore.ts`）：订阅 `importSession` 变化 → 1.5s debounce POST；`pushImportSessionNow()` 即时推送；`flushStoreWrites` 并入。
+  - ⑤ **恢复与清理**：M1 `index.tsx` 挂载时 GET 恢复，`processing`→`pending` 回退；`Step4Review.tsx` 入库成功后 DELETE 清理文件。
+- **改动文件**（8 个）：
+  - `frontend/src/pages/m1-import/Step3Clean.tsx`（buildCleanNodes 直读 store）
+  - `frontend/src/services/real/llm.ts`（spawnedSlots + updateNodes spawn）
+  - `server/src/routes/importSession.ts`（**新增**：三端点 + 原子写入）
+  - `server/src/index.ts`（注册 importSessionRoutes）
+  - `frontend/src/store/appStore.ts`（importSession 订阅 + pushImportSessionNow + flush）
+  - `frontend/src/pages/m1-import/index.tsx`（挂载恢复 + processing→pending）
+  - `frontend/src/pages/m1-import/Step4Review.tsx`（入库后 DELETE）
   - `HANDOFF.md`
-- **验证全过**：tsc 0 / eslint 0 / vite build 815ms ✅ / smoke-batch(16) ✅
+- **验证全过**：tsc(server) 0 / tsc(frontend) 0 / eslint 0 / vite build 704ms ✅ / smoke-batch(16) ✅
 - **关键设计决策**：
-  ① **不限 idle 的全清除安全**：per-node 模型下 `await executeBatch` 串行，新 `onStart` 触发时旧 batch 必已结束——无论成功/失败/重试。因此可放心清除该 worker 的**所有**旧 session。
-  ② **startsWith(`${workerId}:`)**：冒号后缀防误匹配（`N1#1` 不匹配 `N1#10`）。
-  ③ **abort 无递归**：abort 导致的 catch 会再调 `markNodeFail`，但 `disabledNodes.has(node.id)` 提前返回，不会死循环。章节由 `retryQueue` 接管，其他 worker 处理。
-- **下一步**：用户实机验证：① 5 节点 × 1 进程运行时列表始终 ≤5 条；② 节点报错后立即消失，任务释放给其他节点；③ 人为关掉 LLM 服务看熔断→清理→接管全流程
-- **改动文件**（3 个）：
-  - 前端：`frontend/src/pages/m1-import/Step3Clean.tsx`（DebouncedInputNumber derived state 重写 / NodeSession +sessionKey / trackAssign 无 idle / NodeListPane sessionKey / 日志 Tag 全局化 / max=100×2）
-  - 前端：`frontend/src/services/real/llm.ts`（llm.ts（onStart+batchSeq / executeBatch workerBatchSeq / 15 处 debug +nodeName+nodeId）
-  - 文档：`HANDOFF.md`
-- **验证全过**：tsc 0 / eslint 0 / vite build 728ms ✅ / smoke(55) ✅ / smoke-batch(16) ✅ / ruleclean(43) ✅ / parse(22) ✅
-- **关键设计决策**：
-  ① **derived state 替代 key trick**：key 重挂载方案在子组件 value 来自父 state 时天然无效（挂载态用 stale state → 显示不同步）。React 官方 derived state with reset pattern (`if (prev !== curr) setState(curr)` in render) 是正确方案——无额外渲染，无 useEffect lint 警告。
-  ② **batchSeq 分离「worker 身份」与「批次身份」**：原 session key=workerId 把多批硬压缩到一条——需靠 idle state 分流，无法保证时序。分开后 sessionKey 天然唯一，`trackAssign` 零竞态；新 batch 创建时 filter 掉同 worker 旧 idle。
-- **下一步**：① 用户实机验证日志中 error/response 有节点标签；② 验证统一设置后分控数字同步更新；③ 验证分控修改后实际生效（运行中热更新）；④ 验证 worker 多批后旧 session 自动移除、新 batch 独立显示
+  ① **store.getState() 绕过闭包**：`buildCleanNodes` 不需要 `useCallback`/`useEffect`，直接读 zustand store 的最新快照。无依赖追踪问题。
+  ② **新 worker spawn 安全**：worker 循环开头 `nodeConfigs.find` + `slot >= maxConcurrency – break` 保护。增减反复改时多余 worker 自清理。
+  ③ **新 worker finish 兜底**：`wPromise.then(() => maybeFinish())` 确保所有 worker 退出时不会被遗漏。
+  ④ **importSession 写完删文件**：`importSession=null` 时订阅立即 DELETE，不残留旧数据。入库后也 DELETE。
+  ⑤ **processing→pending 不丢成果**：已完成（completed）的章保留；进行中（processing）回退重跑——LLM SSE 断点无法恢复中间态，安全选择。
+- **下一步**：用户实机验证：① 清理运行中修改 batchSize/intervalSec → 下批生效；② 运行中增加进程数 → 新 worker 立即接任务；③ 清理若干章后 Force Reload → 状态恢复、可继续；④ 入库后文件被清理
 
 ## 更新本文档的约定
 

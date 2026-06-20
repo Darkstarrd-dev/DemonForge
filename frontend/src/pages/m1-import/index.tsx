@@ -1,5 +1,7 @@
 import { App, Card, Steps } from 'antd'
+import { useEffect, useRef } from 'react'
 import { useAppStore } from '../../store/appStore'
+import type { ImportSession } from '../../services/types'
 import Step1Import from './Step1Import'
 import Step2Split from './Step2Split'
 import Step3Clean from './Step3Clean'
@@ -10,6 +12,26 @@ export default function M1ImportPage() {
   const session = useAppStore((s) => s.importSession)
   const setState = useAppStore((s) => s.setState)
   const step = session?.step ?? 0
+  const recovered = useRef(false)
+
+  // 恢复持久化的导入会话（退出/刷新后不丢进度）：将中途中断的 processing 章回退为 pending
+  useEffect(() => {
+    if (recovered.current || session) return
+    recovered.current = true
+    fetch('/api/import-session')
+      .then((r) => r.ok ? r.json() : null)
+      .then((d: { session: ImportSession | null } | null) => {
+        if (!d?.session) return
+        const saved = d.session
+        // 正在清理的章节 → 回退为 pending 重跑（LLM 断点无法恢复中间态）
+        const fixedChapters = saved.chapters.map((c) =>
+          c.cleanStatus === 'processing' ? { ...c, cleanStatus: 'pending' as const } : c,
+        )
+        setState({ importSession: { ...saved, chapters: fixedChapters } })
+      })
+      .catch(() => {})
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const gotoStep = (target: number) => {
     if (!session || target === step) return

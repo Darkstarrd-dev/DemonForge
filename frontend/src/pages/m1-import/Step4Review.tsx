@@ -207,6 +207,8 @@ export default function Step4Review() {
       // 避免误报「已入库」实际只活在内存、重启后消失。
       try {
         await pushStoreNowChecked()
+        // 入库成功 → 清理持久化的导入会话文件（进度数据已转为正式章节）
+        fetch('/api/import-session', { method: 'DELETE' }).catch(() => {})
         message.success(`已入库《${title}》共 ${newChapters.length} 章（状态 cleaned）。可到 M2 提取设定、M5 查看章节。`)
       } catch (e) {
         message.error(`入库失败：${e instanceof Error ? e.message : String(e)}。数据未保存，请重试或检查章节内容大小。`)

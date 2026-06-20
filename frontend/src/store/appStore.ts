@@ -579,6 +579,45 @@ useAppStore.subscribe((s, prev) => {
   }, 1000)
 })
 
+// M1 导入会话持久化：importSession 变化时 debounce POST，退出/刷新不丢清理进度
+let importSessionTimer: ReturnType<typeof setTimeout> | null = null
+useAppStore.subscribe((s, prev) => {
+  if (!storeReady) return
+  if (s.importSession === prev.importSession) return
+  if (importSessionTimer) clearTimeout(importSessionTimer)
+  if (!s.importSession) {
+    fetch('/api/import-session', { method: 'DELETE', keepalive: true }).catch(() => {})
+    return
+  }
+  importSessionTimer = setTimeout(() => {
+    fetch('/api/import-session', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(useAppStore.getState().importSession),
+    }).catch(() => {})
+  }, 1500)
+})
+
+/** 立即推送当前 importSession 到后端（关窗时绕过 debounce） */
+export function pushImportSessionNow(): void {
+  if (!storeReady) return
+  if (importSessionTimer) {
+    clearTimeout(importSessionTimer)
+    importSessionTimer = null
+  }
+  const ses = useAppStore.getState().importSession
+  if (!ses) {
+    fetch('/api/import-session', { method: 'DELETE', keepalive: true }).catch(() => {})
+    return
+  }
+  fetch('/api/import-session', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(ses),
+    keepalive: true,
+  }).catch(() => {})
+}
+
 // 立即把当前设置推送到后端（绕过 1s 防抖）。用于 splitPatterns 编辑/恢复/备份导入等关键操作。
 // function 声明被提升，故 store actions（定义在上方）可在运行时引用。导出供 backup.ts 复用。
 export function pushSettingsNow(): void {
@@ -606,6 +645,10 @@ export async function flushStoreWrites(): Promise<void> {
     clearTimeout(settingsTimer)
     settingsTimer = null
   }
+  if (importSessionTimer) {
+    clearTimeout(importSessionTimer)
+    importSessionTimer = null
+  }
   const st = useAppStore.getState()
   await Promise.all([
     fetch('/api/store', {
@@ -620,6 +663,18 @@ export async function flushStoreWrites(): Promise<void> {
       body: JSON.stringify(settingsPayload(st)),
       keepalive: true,
     }).catch(() => {}),
+    (async () => {
+      if (!st.importSession) {
+        await fetch('/api/import-session', { method: 'DELETE', keepalive: true }).catch(() => {})
+        return
+      }
+      await fetch('/api/import-session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(st.importSession),
+        keepalive: true,
+      }).catch(() => {})
+    })(),
   ])
 }
 

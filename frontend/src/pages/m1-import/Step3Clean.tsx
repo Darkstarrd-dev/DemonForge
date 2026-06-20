@@ -209,21 +209,27 @@ export default function Step3Clean() {
     ]
   }
 
-  /** 构建 CleanNode 列表（带热更新后的参数） */
+  /** 构建 CleanNode 列表（直读 store，不依赖闭包，根除 setTimeout 陈旧值） */
   const buildCleanNodes = (): CleanNode[] => {
-    return participatingNodes.map((rs) => {
-      const p = providers.find((x) => x.id === rs.nodeId)
-      return {
-        id: rs.nodeId,
-        name: p?.name ?? rs.nodeId,
-        baseURL: p?.baseURL ?? '',
-        apiKey: p?.apiKey?.trim() || undefined,
-        model: p?.model ?? '',
-        maxConcurrency: rs.concurrency,
-        batchSize: rs.batchSize,
-        intervalSec: rs.intervalSec,
-      }
-    }).filter((n) => n.baseURL.trim() && n.model.trim())
+    const s = useAppStore.getState()
+    const nowOverrides = s.cleanNodeOverrides
+    const nowProviders = s.providers
+    return nowProviders
+      .filter((p) => p.enabled)
+      .map((p) => {
+        const o = nowOverrides[p.id] ?? {}
+        return {
+          id: p.id,
+          name: p.name,
+          baseURL: p.baseURL,
+          apiKey: p.apiKey?.trim() || undefined,
+          model: p.model,
+          maxConcurrency: o.concurrency ?? p.maxConcurrency,
+          batchSize: o.batchSize ?? p.batchSize,
+          intervalSec: o.intervalSec ?? p.intervalSec,
+        }
+      })
+      .filter((n) => n.baseURL.trim() && n.model.trim())
   }
 
   /** onStart：记录 chapterId → sessionKey，并创建/追加会话（每 batch 独立 session） */

@@ -418,6 +418,8 @@ export function startCleanQueue(
   const chapterAvoidNodes = new Map<string, Set<string>>()
   // per-worker batch 序号：每 executeBatch 递增，供 UI 区分同一 worker 的多批
   const workerBatchSeq = new Map<string, number>()
+  // 已 spawn 的 slot 数：updateNodes 时检测 maxConcurrency 增大并动态 spawn 新 worker
+  const spawnedSlots = new Map<string, number>()
 
   const maybeFinish = () => {
     if (!finished && active === 0 && pendingQueue.length === 0 && retryQueue.length === 0) {
@@ -615,6 +617,10 @@ export function startCleanQueue(
       }
     }
   }
+  // 记录初始每个节点的 worker 数，供 updateNodes 检测增量
+  for (const node of nodeConfigs) {
+    spawnedSlots.set(node.id, node.maxConcurrency)
+  }
 
   // 后台兜底：所有 worker 结束时触发 onFinish
   Promise.all(workerPromises).then(() => maybeFinish())
@@ -648,6 +654,20 @@ export function startCleanQueue(
         if (s && s.activeCount === 0) nodeStates.delete(id)
       }
       nodeConfigs = newNodes
+      // maxConcurrency 增大 → 为新增 slot 动态 spawn worker（减小由worker循环自行break）
+      for (const n of newNodes) {
+        const spawned = spawnedSlots.get(n.id) ?? 0
+        if (n.maxConcurrency > spawned) {
+          for (let slot = spawned; slot < n.maxConcurrency; slot++) {
+            activeWorkers++
+            const wPromise = workerLoopForNode(n, slot)
+            workerPromises.push(wPromise)
+            // 兜底：新 worker 最终退出时也要检查 maybeFinish
+            wPromise.then(() => maybeFinish())
+          }
+        }
+        spawnedSlots.set(n.id, n.maxConcurrency)
+      }
     },
     switchBatchNode: (batchId: string, newNodeId: string) => {
       const batch = activeBatches.get(batchId)
