@@ -163,6 +163,8 @@ export default function SettingsPage() {
     filename: string
   } | null>(null)
   const [importBusy, setImportBusy] = useState(false)
+  // 节点池分组折叠状态：key = baseURL, value = 是否展开
+  const [groupExpanded, setGroupExpanded] = useState<Record<string, boolean>>({})
 
   const openEdit = (node?: ProviderNode) => {
     const target: ProviderNode = node ?? {
@@ -618,11 +620,29 @@ export default function SettingsPage() {
   // 当前 Tab 过滤后的节点（用于上移/下移首尾禁用判断）
   const filteredProviders = providers.filter((p) => p.nodeType === nodeTypeFilter)
 
+  // 节点池按 baseURL 分组，并提取组名称
+  const groupedProviders = filteredProviders.reduce((acc, node) => {
+    const key = node.baseURL
+    if (!acc[key]) {
+      // 提取组名称：取该URL下第一个节点的名称前缀（去掉模型后缀）
+      const groupName = node.name.replace(/\s*\([^)]*\)\s*$/, '').trim() || node.baseURL
+      acc[key] = { groupName, nodes: [] }
+    }
+    acc[key].nodes.push(node)
+    return acc
+  }, {} as Record<string, { groupName: string; nodes: ProviderNode[] }>)
+
+  // 切换分组展开/折叠
+  const toggleGroup = (baseURL: string) => {
+    setGroupExpanded((prev) => ({ ...prev, [baseURL]: !(prev?.[baseURL] ?? true) }))
+  }
+
   const columns = [
     {
       title: '排序',
       key: 'order',
       width: 70,
+      fixed: 'left' as const,
       render: (_: unknown, node: ProviderNode) => {
         const idxInList = filteredProviders.findIndex((p) => p.id === node.id)
         return (
@@ -649,23 +669,11 @@ export default function SettingsPage() {
         )
       },
     },
-    { title: '名称', dataIndex: 'name' },
-    { title: 'Base URL', dataIndex: 'baseURL', ellipsis: true },
-    { title: '模型', dataIndex: 'model' },
+    { title: '模型', dataIndex: 'model', width: 150, ellipsis: true },
     {
-      title: '并发 / 批次 / 间隔',
-      key: 'concurrency',
-      width: 140,
-      render: (_: unknown, node: ProviderNode) => (
-        <Typography.Text style={{ fontSize: 12 }}>
-          {node.maxConcurrency}核 · {Math.round(node.batchChars/1000)}K字 · {node.intervalSec}s
-        </Typography.Text>
-      ),
-    },
-    {
-      title: '次数(今日)',
+      title: '次数',
       key: 'usage',
-      width: 100,
+      width: 90,
       render: (_: unknown, node: ProviderNode) => {
         if (!node.usageLimitEnabled) return <Typography.Text type="secondary">不限</Typography.Text>
         const left = node.usageLeft ?? 0
@@ -680,7 +688,7 @@ export default function SettingsPage() {
     {
       title: '启用',
       dataIndex: 'enabled',
-      width: 70,
+      width: 60,
       render: (v: boolean, node: ProviderNode) => (
         <Switch
           size="small"
@@ -694,16 +702,17 @@ export default function SettingsPage() {
       ),
     },
     {
-      title: '连通性',
+      title: '状态',
       dataIndex: 'lastTestResult',
-      width: 90,
+      width: 80,
       render: (v: ProviderNode['lastTestResult']) =>
-        v === 'ok' ? <Tag color="green">正常</Tag> : v === 'fail' ? <Tag color="red">失败</Tag> : <Tag>未测试</Tag>,
+        v === 'ok' ? <Tag color="green">正常</Tag> : v === 'fail' ? <Tag color="red">失败</Tag> : <Tag>未测</Tag>,
     },
     {
       title: '操作',
       key: 'actions',
-      width: 300,
+      width: 280,
+      fixed: 'right' as const,
       render: (_: unknown, node: ProviderNode) => (
         <Space size="small" wrap>
           <Button size="small" onClick={() => {
@@ -719,7 +728,7 @@ export default function SettingsPage() {
               loading={concurrencyTesting === node.id}
               onClick={() => runConcurrencyTest(node)}
             >
-              并发测试
+              并发
             </Button>
           )}
           <Button size="small" onClick={() => duplicateNode(node)}>
@@ -743,6 +752,7 @@ export default function SettingsPage() {
 
   return (
     <>
+    <div style={{ padding: '16px 24px', maxWidth: 1600, margin: '0 auto', height: 'calc(100vh - 80px)', overflow: 'auto' }}>
       <Tabs
         defaultActiveKey="nodes"
         items={[
@@ -772,7 +782,53 @@ export default function SettingsPage() {
                   </Space>
                 }
               >
-                <Table rowKey="id" columns={columns} dataSource={filteredProviders} pagination={false} size="middle" />
+                {/* 节点池分组渲染 */}
+                {Object.entries(groupedProviders).map(([baseURL, { groupName, nodes }]) => {
+                  const isExpanded = groupExpanded[baseURL] ?? true
+                  const isSingleNode = nodes.length === 1
+                  return (
+                    <div key={baseURL} style={{ marginBottom: 16 }}>
+                      {/* 分组标题（仅多节点时显示） */}
+                      {!isSingleNode && (
+                        <div
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            padding: '8px 12px',
+                            background: 'var(--ant-color-fill-quaternary)',
+                            borderRadius: 4,
+                            cursor: 'pointer',
+                            marginBottom: 8,
+                          }}
+                          onClick={() => toggleGroup(baseURL)}
+                        >
+                          <Space>
+                            {isExpanded ? <DownOutlined style={{ fontSize: 12 }} /> : <UpOutlined style={{ fontSize: 12, transform: 'rotate(180deg)' }} />}
+                            <Typography.Text strong style={{ fontSize: 13 }}>
+                              {groupName}
+                            </Typography.Text>
+                            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                              {baseURL}
+                            </Typography.Text>
+                            <Tag color="blue">{nodes.length} 个节点</Tag>
+                          </Space>
+                        </div>
+                      )}
+                      {/* 节点列表（展开时或单节点时显示） */}
+                      {(isExpanded || isSingleNode) && (
+                        <Table
+                          rowKey="id"
+                          columns={columns}
+                          dataSource={nodes}
+                          pagination={false}
+                          size="middle"
+                          style={{ marginBottom: 0 }}
+                          scroll={{ x: 750 }}
+                        />
+                      )}
+                    </div>
+                  )
+                })}
                 <Typography.Paragraph type="secondary" style={{ marginTop: 12, marginBottom: 0 }}>
                   统一 OpenAI 兼容格式；测试经本地后端 Provider 抽象层调用（/api/llm/test → GET /v1/models）。节点选择策略（最久未用 + 最少连接、429 冷却恢复）待后续完善。
                 </Typography.Paragraph>
@@ -783,20 +839,22 @@ export default function SettingsPage() {
                   rowKey="key"
                   pagination={false}
                   size="middle"
+                  scroll={{ x: 800 }}
                   dataSource={(Object.keys(MODULE_LABELS) as ModuleKey[]).map((key) => ({
                     key,
                     label: MODULE_LABELS[key],
                     ...moduleMapping[key],
                   }))}
                   columns={[
-                    { title: '模块', dataIndex: 'label', width: 200 },
+                    { title: '模块', dataIndex: 'label', width: 160, fixed: 'left' as const },
                     {
                       title: '节点（模型随节点配置）',
                       dataIndex: 'nodeId',
+                      width: 300,
                       render: (v: string | null, row: { key: ModuleKey }) => {
                         return (
                           <Select
-                            style={{ minWidth: 280 }}
+                            style={{ minWidth: 200, width: '100%' }}
                             value={v ?? undefined}
                             placeholder="选择节点"
                             options={providers
@@ -817,7 +875,7 @@ export default function SettingsPage() {
                     {
                       title: '将使用模型',
                       key: 'model',
-                      width: 240,
+                      width: 200,
                       // eslint-disable-next-line @typescript-eslint/no-explicit-any
                       render: (_: unknown, row: any) => {
                         const node = providers.find((p) => p.id === row.nodeId)
@@ -972,12 +1030,14 @@ export default function SettingsPage() {
                   rowKey="key"
                   pagination={false}
                   size="middle"
+                  scroll={{ x: 800 }}
                   dataSource={splitPatterns}
                   columns={[
-                    { title: '名称', dataIndex: 'label', width: 200 },
+                    { title: '名称', dataIndex: 'label', width: 160, fixed: 'left' as const },
                     {
                       title: '正则',
                       dataIndex: 'regex',
+                      ellipsis: true,
                       render: (v: string, row: SplitPattern) =>
                         row.key === 'custom' ? (
                           <Typography.Text type="secondary">（用户在 M1 Step2 输入）</Typography.Text>
@@ -988,13 +1048,14 @@ export default function SettingsPage() {
                     {
                       title: '内置',
                       dataIndex: 'builtin',
-                      width: 70,
+                      width: 80,
                       render: (v?: boolean) => (v ? <Tag>内置</Tag> : <Tag color="blue">自定义</Tag>),
                     },
                     {
                       title: '操作',
                       key: 'actions',
-                      width: 150,
+                      width: 140,
+                      fixed: 'right' as const,
                       render: (_: unknown, p: SplitPattern) => (
                         <Space size="small">
                           <Button size="small" onClick={() => openPatternEdit(p)}>
@@ -1109,6 +1170,7 @@ export default function SettingsPage() {
         },
       ]}
     />
+    </div>
 
     <Modal
       title={providers.some((p) => p.id === editing?.id) ? '编辑节点' : '新增节点'}
@@ -1116,6 +1178,7 @@ export default function SettingsPage() {
       onOk={saveEdit}
       onCancel={() => setEditing(null)}
       destroyOnHidden
+      width={Math.min(800, window.innerWidth - 48)}
     >
         <Form form={form} layout="vertical" style={{ marginTop: 8 }}>
           <Form.Item name="name" label="名称" rules={[{ required: true }]}>
@@ -1198,7 +1261,7 @@ export default function SettingsPage() {
         onOk={batchAddNodes}
         onCancel={() => setModelSelectOpen(false)}
         okText="批量添加"
-        width={600}
+        width={Math.min(600, window.innerWidth - 48)}
       >
         <Alert
           type="info"
@@ -1230,6 +1293,7 @@ export default function SettingsPage() {
         onOk={savePatternEdit}
         onCancel={() => setEditingPattern(null)}
         destroyOnHidden
+        width={Math.min(600, window.innerWidth - 48)}
       >
         <Form form={patternForm} layout="vertical" style={{ marginTop: 8 }}>
           <Form.Item name="label" label="名称" rules={[{ required: true }]}>
@@ -1251,6 +1315,7 @@ export default function SettingsPage() {
         open={!!testResult}
         onCancel={() => setTestResult(null)}
         footer={<Button onClick={() => setTestResult(null)}>关闭</Button>}
+        width={Math.min(600, window.innerWidth - 48)}
       >
         {testResult?.ok ? (
           <Space direction="vertical" style={{ width: '100%' }}>
@@ -1292,7 +1357,7 @@ export default function SettingsPage() {
         title={`测试节点：${testingNode?.name ?? ''}`}
         open={!!testingNode}
         onCancel={() => setTestingNode(null)}
-        width={1200}
+        width={Math.min(1200, window.innerWidth - 48)}
         footer={[
           <Button key="close" onClick={() => setTestingNode(null)}>关闭</Button>,
           <Button
@@ -1309,10 +1374,10 @@ export default function SettingsPage() {
           <div>
             <Typography.Text strong>清理提示词：</Typography.Text>
             <Input.TextArea
-              value={m1SystemPrompt}
+              value={m1SystemPrompt || '（当前为空，将使用后端内置默认提示词）'}
               readOnly
               autoSize={{ minRows: 3, maxRows: 6 }}
-              style={{ marginTop: 8, fontFamily: 'monospace', fontSize: 12 }}
+              style={{ marginTop: 8, fontFamily: 'monospace', fontSize: 12, color: m1SystemPrompt ? 'inherit' : 'var(--ant-color-text-tertiary)' }}
             />
           </div>
           <div>
@@ -1326,14 +1391,14 @@ export default function SettingsPage() {
           </div>
           {testStreamLeft && (
             <Row gutter={16}>
-              <Col span={12}>
+              <Col xs={24} lg={12}>
                 <Card size="small" title="原文" style={{ height: 400 }}>
                   <div style={{ height: 350, overflow: 'auto', whiteSpace: 'pre-wrap', fontFamily: 'monospace', fontSize: 12 }}>
                     {testStreamLeft}
                   </div>
                 </Card>
               </Col>
-              <Col span={12}>
+              <Col xs={24} lg={12}>
                 <Card size="small" title="清理结果" style={{ height: 400 }}>
                   <div style={{ height: 350, overflow: 'auto', whiteSpace: 'pre-wrap', fontFamily: 'monospace', fontSize: 12 }}>
                     {testStreamRight || (testStreaming ? '等待响应...' : '')}
@@ -1349,6 +1414,7 @@ export default function SettingsPage() {
         title={`并发测试 — ${concurrencyResult?.node.name ?? ''}`}
         open={!!concurrencyResult}
         onCancel={() => setConcurrencyResult(null)}
+        width={Math.min(700, window.innerWidth - 48)}
         footer={
           <Space>
             <Button onClick={() => setConcurrencyResult(null)}>关闭</Button>
@@ -1405,7 +1471,7 @@ export default function SettingsPage() {
         }
         open={!!importPreview}
         onCancel={() => setImportPreview(null)}
-        width={620}
+        width={Math.min(620, window.innerWidth - 48)}
         destroyOnHidden
         footer={
           importPreview ? (

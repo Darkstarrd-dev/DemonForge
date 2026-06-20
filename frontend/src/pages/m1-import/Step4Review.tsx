@@ -332,7 +332,7 @@ export default function Step4Review() {
   }
 
   return (
-    <>
+    <div style={{ height: 'calc(100vh - 200px)', overflow: 'auto', padding: '0 16px' }}>
       {cleanRunning && (
         <Alert
           type="info"
@@ -342,8 +342,8 @@ export default function Step4Review() {
         />
       )}
       <Row gutter={16}>
-      <Col span={7}>
-        <Space style={{ marginBottom: 8 }}>
+      <Col xs={24} lg={7} style={{ marginBottom: 16 }}>
+        <Space style={{ marginBottom: 8 }} wrap>
           <Typography.Title level={5} style={{ margin: 0 }}>
             章节（{chapters.length}）
           </Typography.Title>
@@ -387,7 +387,7 @@ export default function Step4Review() {
           }}
         />
       </Col>
-      <Col span={17}>
+      <Col xs={24} lg={17}>
         {current ? (
           <>
             <Space style={{ marginBottom: 8 }} wrap>
@@ -504,6 +504,7 @@ export default function Step4Review() {
           <Typography.Text type="secondary">左侧选择章节</Typography.Text>
         )}
       </Col>
+      </Row>
 
       <Modal
         title="入库"
@@ -511,6 +512,7 @@ export default function Step4Review() {
         onOk={doStore}
         onCancel={() => setStoreOpen(false)}
         okText="确认入库"
+        width={Math.min(600, window.innerWidth - 48)}
       >
         <Form
           form={form}
@@ -543,6 +545,7 @@ export default function Step4Review() {
         }}
         okText="确认拒绝"
         okButtonProps={{ disabled: rejectNodeIds.length === 0 }}
+        width={Math.min(600, window.innerWidth - 48)}
       >
         <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 12 }}>
           勾选要拒绝的节点，这些节点处理的所有「待审核」章节将被标记为拒绝（以原文入库）。
@@ -553,8 +556,7 @@ export default function Step4Review() {
           options={rejectNodeOptions}
         />
       </Modal>
-    </Row>
-    </>
+    </div>
   )
 }
 

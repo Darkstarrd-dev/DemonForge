@@ -272,9 +272,13 @@ export default function Step3Clean() {
       .filter((p) => (nowOverrides[p.id] ?? {}).participating !== false)
       .map((p) => {
         const o = nowOverrides[p.id] ?? {}
+        // 提取组名称：去掉模型后缀
+        const groupName = p.name.replace(/\s*\([^)]*\)\s*$/, '').trim() || 'Node'
+        // 节点显示名称：组名称 + 模型
+        const displayName = `${groupName} ${p.model}`
         return {
           id: p.id,
-          name: p.name,
+          name: displayName,
           baseURL: p.baseURL,
           apiKey: p.apiKey?.trim() || undefined,
           model: p.model,

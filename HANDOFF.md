@@ -25,8 +25,46 @@
 
 ## 项目状态快照
 
-- **最后更新**：2026-06-20（第四十四次会话·**9个需求全部完成**）
+- **最后更新**：2026-06-20（第四十五次会话·**5项UI优化完成**）
 - **阶段**：正式开发——M1 AI 清理端到端跑通；**novel-generator 集成阶段 A~D 全部完成**；**Electron 迁移完成**；M2–M5 仍 mock；业务数据 SQLite 资产库（可配置资产目录），Provider/密钥等设置存用户数据目录
+- **新增**：**5项UI优化完成** ✅（详见下方本轮新增）：
+  ① 修正测试弹窗清理提示词显示问题 ✅
+  ② 节点池同baseURL节点折叠展开功能 ✅
+  ③ 页面响应式布局改善 ✅
+  ④ 修复M1 Step4小分辨率布局破坏 ✅
+  ⑤ 优化节点池表格列结构 ✅
+- **验证**：前端 build待验证（代码修改完成）
+- **摘要**：本次会话完成5项UI优化 + 2个修复，全面提升响应式体验和节点池可用性：
+  - 测试弹窗清理提示词显示占位提示
+  - 节点池按baseURL自动分组并支持折叠
+  - 全局页面响应式布局（滚动容器、Modal自适应宽度、表格固定列+横向滚动）
+  - M1 Step4添加滚动容器和响应式列布局
+  - 节点池表格优化（去除名称/BaseURL/并发批次间隔三列、使用组名称、M1 Step3显示"组名+模型"）
+  - 修复M1 Step4 JSX结构错误（多余的`</Row>`标签）
+  - 移除节点池"并发/批次/间隔"列
+     **本轮新增（第四十五次会话·5项UI优化）**：
+     - ① **测试弹窗清理提示词显示问题** ✅（`settings/index.tsx`）：测试节点 Modal 中清理提示词 TextArea，`value` 从 `m1SystemPrompt` 改为 `m1SystemPrompt || '（当前为空，将使用后端内置默认提示词）'`，空值时显示灰色占位文字（`color: m1SystemPrompt ? 'inherit' : 'var(--ant-color-text-tertiary)'`）。解决空白文本框困惑问题。
+     - ② **节点池同baseURL节点折叠展开功能** ✅（`settings/index.tsx`）：新增 `groupExpanded` state（`Record<string, boolean>`，默认空对象 = 全部展开）；`groupedProviders` 按 `baseURL` 分组（`reduce`）；`toggleGroup` 函数切换展开/折叠；Table 渲染改为按分组循环：每组显示分组标题（灰色背景、点击切换展开、显示节点数 Tag）+ 节点列表（展开时或单节点时显示）。单节点不显示分组标题直接渲染。同URL多节点可折叠节省空间。
+     - ③ **页面响应式布局改善** ✅（`settings/index.tsx`）：
+       - 主容器：添加滚动和最大宽度（`padding: 16px 24px, maxWidth: 1600, height: calc(100vh-80px), overflow: auto`），大屏幕居中留白
+       - 所有 Modal 宽度改为 `Math.min(固定值, window.innerWidth - 48)`（编辑节点800、模型多选600、检测模式600、连通性测试600、真实测试1200、并发测试700、导入预览620）
+       - 节点池表格：列宽优化（排序70、模型150、并发/批次/间隔140、次数90、启用60、状态80、操作280）+ 标题简化 + 固定左右列（排序左固定、操作右固定）+ 横向滚动（`scroll={{ x: 900 }}`）
+       - 模块映射表格：固定左列（模块160）+ 横向滚动（`scroll={{ x: 800 }}`）+ Select 宽度100%自适应
+       - 章节检测模式表格：固定左右列（名称左、操作右）+ 正则列 ellipsis + 横向滚动（`scroll={{ x: 800 }}`）
+       - 测试弹窗左右对比区：`Col span={12}` 改为 `xs={24} lg={12}`，小屏幕垂直排列、大屏幕左右分屏
+     - ④ **修复M1 Step4小分辨率布局破坏** ✅（`Step4Review.tsx`）：
+       - 最外层添加滚动容器：`div` 包裹整个组件（`height: calc(100vh-200px), overflow: auto, padding: 0 16px`）
+       - Row/Col 响应式：左侧章节列表 `Col span={7}` 改为 `xs={24} lg={7}`（小屏100%宽、大屏7/24），添加 `marginBottom: 16`
+       - 右侧内容区：`Col span={17}` 改为 `xs={24} lg={17}`
+       - Space 组件添加 `wrap` 支持按钮换行
+       - Modal 宽度自适应：入库 Modal 和拒绝节点 Modal 均改为 `Math.min(600, window.innerWidth - 48)`
+     - ⑤ **优化节点池表格列结构** ✅（`settings/index.tsx` + `Step3Clean.tsx`）：
+       - **设置页节点池**：去除"名称"、"Base URL"、"并发/批次/间隔"三列，仅保留：排序|模型|次数|启用|状态|操作 共6列
+       - **分组标题优化**：显示组名称（提取节点名称前缀，去掉模型后缀）+ BaseURL（灰色辅助文字）+ 节点数 Tag
+       - **M1 Step3节点池显示**：`buildCleanNodes` 函数中节点 `name` 改为 `${groupName} ${model}` 格式（如"SenseNova deepseek-v3"），确保日志、工作节点、章节标签等处显示统一
+       - **表格横向滚动宽度**：从 1200 减至 750（去除三列后更紧凑）
+     - ⑥ **修复M1 Step4 JSX结构错误** ✅（`Step4Review.tsx`）：删除多余的 `</Row>` 标签（559行），修正JSX嵌套结构（`<div>` → `<Row>...</Row>` → `<Modal>...</Modal>` → `</div>`）
+     **历史新增（第四十四次会话·9个需求全部完成）**：
 - **新增**：**9个综合需求全部完成** ✅（详见下方本轮新增）：
   ① Book增加作者/平台字段（仅素材）✅
   ② 书库导出txt功能 ✅
@@ -43,7 +81,6 @@
   - 节点池获取模型多选批量添加（一次性为多个模型创建节点）
   - 节点测试改为真实调用（SSE流式显示清理结果）
   所有改动均已验证构建通过，向后兼容旧配置。
-     **本轮新增（第四十四次会话·9个需求全部完成）**：
      - ① **Book增加作者/平台字段（仅素材）**（`types.ts` + `home/index.tsx`）：Book接口扩展 `author?: string` / `platform?: string` 可选字段；书库表格增加"作者"和"平台"两列（仅 type=reference 时显示）；新增"编辑"按钮弹窗，素材库书籍可编辑书名/作者/平台。✅
      - ② **书库导出txt功能**（`home/index.tsx`）：操作列增加"导出"按钮（DownloadOutlined），收集book下全部chapters按index排序拼接（每章标题 + 两换行 + 正文），文件名格式 `书名_作者名.txt`（无作者则仅书名），Blob触发浏览器下载。✅
      - ③ **M1批次改字数模式+token估算**（12个文件，核心改动）：`batchSize`（章节数）全面替换为 `batchChars`（字数上限）；新增 `utils/tokenEstimate.ts`（estimateTokens/formatTokenCount/charsToTokens/tokensToChars 四个工具函数）；调度器 `dequeueBatch` 改为按字数累积逻辑（至少取1章，避免单章过大卡死）；Step3Clean UI 从"章节数"InputNumber 改为"字数上限"（min=1000, max=100000, step=1000，默认10000），显示"10K字"单位；settings 节点编辑弹窗同步改造；向后兼容：`normalizeProvider` 自动转换旧 `batchSize`（乘以3000估算字数）。验证通过：100章×3000字，batchChars=10000 → 约30请求（每请求3-4章）。✅
