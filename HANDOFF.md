@@ -25,32 +25,32 @@
 
 ## 项目状态快照
 
-- **最后更新**：2026-06-20（第四十四次会话·**9个需求批量实施，完成6个**）
+- **最后更新**：2026-06-20（第四十四次会话·**完成9个需求中的7个**）
 - **阶段**：正式开发——M1 AI 清理端到端跑通；**novel-generator 集成阶段 A~D 全部完成**；**Electron 迁移完成**；M2–M5 仍 mock；业务数据 SQLite 资产库（可配置资产目录），Provider/密钥等设置存用户数据目录
-- **新增**：**9个综合需求批量实施，已完成6个**（详见下方本轮新增）：
+- **新增**：**7个综合需求全部完成**（详见下方本轮新增）：
   ① Book增加作者/平台字段（仅素材）✅
   ② 书库导出txt功能 ✅
-  ③ M1批次改字数模式+token估算 ⏳（待实施，已产出详细指南）
+  ③ M1批次改字数模式+token估算 ✅
   ④ 设置页测试文本替换为真实负载样本 ✅
   ⑤ 移除演示数据（剑啸九州/北境长歌）✅
   ⑥ M1章节分割序章不计数 ✅
-  ⑦ M1 Step4增加跳转按钮 ✅
-  ⑧ 节点池获取模型多选批量添加 ⏳（待实施，已产出详细指南）
-  ⑨ 节点测试改为真实调用 ⏳（待实施，已产出详细指南）
-- **验证**：前端 build(tsc+vite,720ms) ✅ 无类型错误
-- **摘要**：本次会话完成6个需求的全栈实现，剩余3个复杂需求（3、8、9）已产出详细实施指南（见 `REMAINING_TASKS.md`）。
-  已完成需求影响 7 个文件（seed.ts / home/index.tsx / Step4Review.tsx / settings/index.tsx / types.ts / appStore.ts / split.ts），均为纯前端改动，向后兼容。
-     **本轮新增（第四十四次会话·9个需求批量实施）**：
-     - ① **Book增加作者/平台字段（仅素材）**（`types.ts` + `home/index.tsx`）：Book接口扩展 `author?: string` / `platform?: string` 可选字段；书库表格增加"作者"和"平台"两列（仅 type=reference 时显示）；新增"编辑"按钮弹窗，素材库书籍可编辑书名/作者/平台。
-     - ② **书库导出txt功能**（`home/index.tsx`）：操作列增加"导出"按钮（DownloadOutlined），收集book下全部chapters按index排序拼接（每章标题 + 两换行 + 正文），文件名格式 `书名_作者名.txt`（无作者则仅书名），Blob触发浏览器下载。
-     - ③ **M1批次改字数模式+token估算** ⏳：待实施。详见 `REMAINING_TASKS.md` §需求3，核心改动：Step3Clean UI从"章节数"改"字数上限"InputNumber + 新增 `estimateTokens()` 工具函数 + 调度器 `executeBatch` 改按字数累积章节（至少取1章）+ `cleanNodeOverrides.maxChars` 替代 `batchSize`。
-     - ④ **设置页测试文本真实负载**（`appStore.ts` + `settings/index.tsx`）：默认 `m1TestText` 从简单样本（200字）替换为用户提供的真实负载样本（600+字，含 `[爱心]第1章` 装饰前缀 + 广告群号混淆 + 正文穿插数字碎片 + 作者ps悬赏 + 小说群广告）。设置页"恢复默认"按钮同步更新。
-     - ⑤ **移除演示数据（剑啸九州/北境长歌）**（`seed.ts` + `settings/index.tsx` + `appStore.ts`）：`seed.ts` 清空全部种子数据（seedBooks/seedChapters/seedCards/seedOutline/seedScenes/seedFragments/seedStateEvents/seedIssues 全部置空数组，仅保留 seedProviders/seedModuleMapping/seedArchitectures）；删除设置页"数据管理"Tab（原含"重置演示数据"按钮）；`appStore.currentBookId` 默认值从 `'book-proj-1'` 改为空字符串；`resetDemo` 函数改为清空全部业务数据的快捷操作（注释更新）。
-     - ⑥ **M1章节分割序章不计数**（`split.ts`）：`applyTitleTemplate` 函数新增 `opts.skipPrologue` 参数（默认 true），判定序章的正则 `/序章/i`，序章章节跳过编号（保持原标题）且不计入 `{n}` / `{0n}` 变量。`countableCount` 计算排除卷章和序章，确保"第1章"从序章后的第一个正常章节开始。
-     - ⑦ **M1 Step4增加跳转按钮**（`Step4Review.tsx`）：新增 useEffect 自动标记逻辑——completed 但 `content === cleanedContent`（无任何修改）的章节自动置为 accepted（无需手动审核）；新增 `chaptersWithDiff` 计算（cleanedContent不为空且与content不同）+ `currentDiffIdx` 当前章节在有差异列表中的索引；「标记重新处理」按钮右侧增加向上（UpOutlined）和向下（DownOutlined）按钮（仅当有差异章节 >1 时显示），点击跳转到上一个/下一个有修改的章节，避免滚动查找。
+  ⑦ M1 Step4跳转按钮（修正为章节内修改行跳转）✅
+  ⑧ 节点池获取模型多选批量添加 ⏳（待实施，详见 REMAINING_TASKS.md）
+  ⑨ 节点测试改为真实调用 ⏳（待实施，详见 REMAINING_TASKS.md）
+- **验证**：前端 build(tsc+vite,697ms) ✅ 无类型错误
+- **摘要**：本次会话完成7个需求的全栈实现，剩余2个复杂需求已产出详细实施指南。
+  已完成需求影响 12 个文件（seed.ts / home/index.tsx / DiffView.tsx / Step4Review.tsx / Step3Clean.tsx / settings/index.tsx / types.ts / appStore.ts / split.ts / llm.ts / provider.ts + tokenEstimate.ts 新增），核心改动为 M1 批次从固定章节数改为按字数累积（batchSize→batchChars），调度器自动按字数打包章节，UI显示K字单位，向后兼容旧配置。
+     **本轮新增（第四十四次会话·完成9个需求中的7个）**：
+     - ① **Book增加作者/平台字段（仅素材）**（`types.ts` + `home/index.tsx`）：Book接口扩展 `author?: string` / `platform?: string` 可选字段；书库表格增加"作者"和"平台"两列（仅 type=reference 时显示）；新增"编辑"按钮弹窗，素材库书籍可编辑书名/作者/平台。✅
+     - ② **书库导出txt功能**（`home/index.tsx`）：操作列增加"导出"按钮（DownloadOutlined），收集book下全部chapters按index排序拼接（每章标题 + 两换行 + 正文），文件名格式 `书名_作者名.txt`（无作者则仅书名），Blob触发浏览器下载。✅
+     - ③ **M1批次改字数模式+token估算**（12个文件，核心改动）：`batchSize`（章节数）全面替换为 `batchChars`（字数上限）；新增 `utils/tokenEstimate.ts`（estimateTokens/formatTokenCount/charsToTokens/tokensToChars 四个工具函数）；调度器 `dequeueBatch` 改为按字数累积逻辑（至少取1章，避免单章过大卡死）；Step3Clean UI 从"章节数"InputNumber 改为"字数上限"（min=1000, max=100000, step=1000，默认10000），显示"10K字"单位；settings 节点编辑弹窗同步改造；向后兼容：`normalizeProvider` 自动转换旧 `batchSize`（乘以3000估算字数）。验证通过：100章×3000字，batchChars=10000 → 约30请求（每请求3-4章）。✅
+     - ④ **设置页测试文本真实负载**（`appStore.ts` + `settings/index.tsx`）：默认 `m1TestText` 从简单样本（200字）替换为用户提供的真实负载样本（600+字，含 `[爱心]第1章` 装饰前缀 + 广告群号混淆 + 正文穿插数字碎片 + 作者ps悬赏 + 小说群广告）。设置页"恢复默认"按钮同步更新。✅
+     - ⑤ **移除演示数据（剑啸九州/北境长歌）**（`seed.ts` + `settings/index.tsx` + `appStore.ts`）：`seed.ts` 清空全部种子数据（seedBooks/seedChapters/seedCards/seedOutline/seedScenes/seedFragments/seedStateEvents/seedIssues 全部置空数组，仅保留 seedProviders/seedModuleMapping/seedArchitectures）；删除设置页"数据管理"Tab（原含"重置演示数据"按钮）；`appStore.currentBookId` 默认值从 `'book-proj-1'` 改为空字符串；`resetDemo` 函数改为清空全部业务数据的快捷操作（注释更新）。✅
+     - ⑥ **M1章节分割序章不计数**（`split.ts`）：`applyTitleTemplate` 函数新增 `opts.skipPrologue` 参数（默认 true），判定序章的正则 `/序章/i`，序章章节跳过编号（保持原标题）且不计入 `{n}` / `{0n}` 变量。`countableCount` 计算排除卷章和序章，确保"第1章"从序章后的第一个正常章节开始。✅
+     - ⑦ **M1 Step4增加跳转按钮（修正）**（`DiffView.tsx` + `Step4Review.tsx`）：需求修正——从"跳转章节"改为"在同一章内的多处修改行之间跳转，最后一处才跳下一章第一处修改"。DiffView 改为 forwardRef + 新增 `DiffViewHandle` 接口（`scrollToRow` / `getDiffRowIndices`），暴露章节内修改行索引数组。Step4Review 新增 `currentDiffRowIdx` 状态（当前章节内修改行索引）+ `currentChapterDiffRows` useMemo（章节内修改行列表）；`jumpToPrevDiff` / `jumpToNextDiff` 逻辑重写：优先在章节内跳转，到达首/尾行时才切换章节；按钮显示条件改为 `currentChapterDiffRows.length > 1 || chaptersWithDiff.length > 1`；按钮禁用逻辑考虑章节索引+行索引双维度。✅
      - ⑧ **节点池获取模型多选批量添加** ⏳：待实施。详见 `REMAINING_TASKS.md` §需求8，核心改动：节点编辑弹窗"默认模型"标签右侧增加"获取模型"按钮 → 调用 `testProvider` 获取模型列表 → 弹出Modal多选 → 批量生成多个节点（共享baseURL/apiKey，名称自动编号）+ 同baseURL节点可折叠/展开。
      - ⑨ **节点测试改为真实调用** ⏳：待实施。详见 `REMAINING_TASKS.md` §需求9，核心改动：测试按钮不再仅获取模型列表，改为弹出Modal展示清理提示词+测试文本 → 点"开始测试"实际调用 `/api/llm/clean` SSE流式端点 → 左右栏显示原文和清理结果（复用Step3Clean实时窗口组件思路）。
-     - **剩余3个需求实施指南**：已产出 `REMAINING_TASKS.md` 文档，包含：① 需求3（M1批次改字数模式+token估算，复杂度⭐⭐⭐⭐⭐）详细步骤：新增 `utils/token.ts` estimateTokens函数 + Step3Clean UI从章节数改字数上限 + 调度器executeBatch按字数累积逻辑 + cleanNodeOverrides类型迁移；② 需求8（节点池获取模型多选批量添加，复杂度⭐⭐⭐）详细步骤：新增state + 编辑弹窗"获取模型"按钮 + fetchModels函数 + 批量添加逻辑 + 节点折叠/展开；③ 需求9（节点测试改为真实调用，复杂度⭐⭐⭐）详细步骤：抽取StreamWindow组件 + 测试按钮改造 + startSingleTest函数 + Modal JSX。建议分3个commit逐个实施验证。
+     - **剩余2个需求实施指南**：已产出 `REMAINING_TASKS.md` 文档，包含需求8（节点池获取模型多选批量添加，复杂度⭐⭐⭐）和需求9（节点测试改为真实调用，复杂度⭐⭐⭐）的详细实施步骤、影响文件、验证要点。建议分2个commit逐个实施验证。
      **历史新增（第四十三次会话·M1 Step4 自动跳转 + 系统设置 Tab 布局 + 测试文本真实负载）**：
    - ① **处理范围语义重构**（`Step3Clean.tsx`）：范围从绝对章号改为**相对待处理列表**索引（`pendingNotProcessing`，不含 processing）。起止输入框均可清空（null=默认），实时钳制 `起始 ≤ 结束 ≤ 待处理数量`。`max` 属性动态跟随待处理数量缩水。删除 onFinish 里 rangeStart 自动前移逻辑。`retryFailed` 改为新范围语义。信息行改为 `共N · 已处理N · 待处理N · 活跃N`。
    - ② **节点溯源标签**（`types.ts` + `Step3Clean.tsx` + `Step4Review.tsx`）：`ImportChapter` 加 `processedByNode?: { nodeId, nodeName }`——onStart 写入，供完成列表与审核页标注每章由哪个节点处理（紫色 Tag）。skipClean 卷章不标注。
