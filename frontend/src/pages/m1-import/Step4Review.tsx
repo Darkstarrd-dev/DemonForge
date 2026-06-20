@@ -363,6 +363,7 @@ export default function Step4Review() {
                       cleaned={current.cleanedContent}
                       decisions={current.lineDecisions}
                       onDecide={onDecide}
+                      autoScrollToFirstDiff={true}
                     />
                   ) : null,
                 },

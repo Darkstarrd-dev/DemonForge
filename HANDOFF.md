@@ -25,15 +25,25 @@
 
 ## 项目状态快照
 
-- **最后更新**：2026-06-20（第四十二次会话·**M1 四项增强**）
+- **最后更新**：2026-06-20（第四十三次会话·**M1 Step4 自动跳转 + 系统设置 Tab 布局 + 测试文本真实负载**）
 - **阶段**：正式开发——M1 AI 清理端到端跑通；**novel-generator 集成阶段 A~D 全部完成**；**Electron 迁移完成**；M2–M5 仍 mock；业务数据 SQLite 资产库（可配置资产目录），Provider/密钥等设置存用户数据目录
-- **新增**：**M1 Step3 文本清理流水线重构**——按用户实机反馈做四项整改：
+- **新增**：**三项 UX 改进全部完成**（详见 `IMPLEMENTATION_SUMMARY.md`）：
+  ① **M1 Step4 自动跳转首个差异**（`DiffView.tsx` + `Step4Review.tsx`）：点击待审核章节后，右侧对比视图自动滚动到第一处修改位置。新增 prop `autoScrollToFirstDiff`（默认 true），useEffect 监听 rows 变化，查找第一个 `type !== 'context'` 的行，`setTimeout(0)` 等 DOM 渲染后调用 `scrollIntoView({ behavior: 'smooth', block: 'start' })`。提升审核效率，减少手动滚动。
+  ② **系统设置改 Tab 横向布局**（`settings/index.tsx`）：从 900+ 行单页滚动改为 4 个清晰分组的 Tab（节点池与测试 / 高级配置 / 备份与恢复 / 数据管理）。最常用「节点池与测试」置首，解决长页面滚动痛点，用户可快速定位目标配置。
+  ③ **测试文本配置 + 真实负载测试**（`settings/index.tsx` + `appStore.ts`）：新增 `m1TestText` 字段（默认 200 字样本，含广告混淆/乱码/正文），持久化到 settings.json。设置页 Tab1 新增「测试文本」Card（恢复默认/清空按钮 + TextArea 即时保存）。`probeOnce` 签名扩展为 `(node, content, systemPrompt)`，`runConcurrencyTest` 读取测试文本和清理提示词传给 probeOnce。节点池的「测试」和「并发测试」现在使用真实负载（system prompt + 测试文本）调用 `/api/llm/clean`，响应时间更准确反映节点实际承载能力。
+- **验证**：自动化全过——后端 typecheck ✅、前端 eslint ✅、build(tsc+vite,720ms) ✅、smoke(73) 全部通过 ✅
+- **摘要**：三项改进均为**纯前端增强**，无需后端改动。改动集中在 2 个页面组件（DiffView/Step4Review/settings）+ 1 个 store 字段（m1TestText），影响面小，向后兼容。
   ① **Tabs 四标签可切换列表**（`Step3Clean.tsx`）：原单一活跃列表 → `Tabs`（待处理/完成/工作节点/节点任务）。节点按**批次会话**生命周期跟踪（`nodeSessions` + `chapterNode` ref）：分配时创建/追加，本批全完成置 idle 变灰，下次再分配替换，运行结束清理。**修复 Tabs 无法切换的真因**——`index.css` 给 `.ant-tabs-tabpane` 强制 `display:flex` 覆盖了 antd 非活动面板的 `display:none`，四面板同时渲染。移除该规则后面板靠 antd 自身 `.ant-tabs-tabpane-active` 显隐。
   ② **节点级熔断**（`llm.ts`）：`nodeConsecFails` 计连续失败，网关/网络类错误（HTTP 5xx / fetch 失败 / SSE error）累加、成功归零；达 `NODE_FAIL_LIMIT=3` 加入 `disabledNodes`，`pickCandidate` 永久跳过，触发新回调 `onNodeDisabled(nodeId,name,reason)` → UI 把参与开关切关闭 + 红色提示。用户手动重新开启 → `updateNodes` 清熔断状态（手动恢复）。**全节点熔断时**剩余任务一次性判错退出（否则死循环，有回归测试）。
   ③ **批处理可观测性 + 失败隔离**（`llm.ts`）：每条请求 debug 事件带实际 `batchSize`（顶层 + requestBody，日志每条 REQ 直接看出走单章还是批量）；batch 失败后用 `chapterAvoidNodes` 让该章重试时 `pickCandidate(avoid)` 优先避开坏节点（不再饥饿重拉 9 章）；重试上限对熔断中节点放宽到 `MAX_RETRIES+2`。成功响应不再记录流式正文 `responseBody`（保留诊断字段）；错误路径 rawChunks 保留。
   ④ **统一设置改部分应用 + 持久化**：`applyBulkToAll` 原必须三字段全填才生效（静默 bug）→ 改为仅已填字段生效；`cleanNodeOverrides` 从 useState 迁到 store（落 `settings.json`），解决重挂载/步骤切换丢设置 → 回退默认 batchSize=1（"100 章发 100 请求"的配置层根因）。后端 settings 路由透传任意键，无需改后端。
    **新增回归测试** `scripts/smoke-batch.mts`（16 项，node --experimental-strip-types）：实证 100 章/batchSize 20 = **5 请求**（非 100）、10 节点场景同样 5、整除/非整除、单章；熔断场景（坏节点恰在第 3 次 502 后停分配、健康节点接管、单坏节点熔断后判失败不死循环）。
-   **本轮新增（第三十六次会话·处理范围 + 节点溯源 + 审核批量）**：
+     **本轮新增（第四十三次会话·M1 Step4 自动跳转 + 系统设置 Tab 布局 + 测试文本真实负载）**：
+     - ① **M1 Step4 自动跳转首个差异**（`DiffView.tsx` + `Step4Review.tsx`）：新增 prop `autoScrollToFirstDiff?: boolean`（默认 true）+ useEffect 滚动逻辑。点击章节列表后，对比视图查找第一个 `type !== 'context'` 的行，`setTimeout(0)` 等 DOM 渲染后调用 `scrollIntoView({ behavior: 'smooth', block: 'start' })`，自动平滑滚动到首个差异。
+     - ② **系统设置改 Tab 横向布局**（`settings/index.tsx`）：外层从 `<Space direction="vertical">` 改为 `<Tabs defaultActiveKey="nodes">`，4 个 Tab 分组（节点池与测试 / 高级配置 / 备份与恢复 / 数据管理）。每个 Tab children 包裹 Space 保持原卡片间距。最常用「节点池与测试」置首，包含节点池表格 + 模块映射 + M1 清理提示词 + **测试文本（新 Card）**。
+     - ③ **测试文本配置 + 真实负载测试**（`settings/index.tsx` + `appStore.ts`）：新增字段 `m1TestText: string`（默认 200 字样本，含广告混淆/乱码/正文），持久化到 settings.json。设置页 Tab1 新增「测试文本」Card（extra 按钮：恢复默认/清空；TextArea 失焦即时保存）。`probeOnce` 签名扩展为 `(node, content: string, systemPrompt: string)`，`runConcurrencyTest` 读取 `m1TestText` 和 `m1SystemPrompt` 传给 probeOnce。并发测试现在使用真实负载（清理提示词 + 测试文本）调用 `/api/llm/clean`，模拟实际清理负载，响应时间更准确。连通性测试（`testProvider`）保持不变，仍调用 `/api/llm/test` 快速端口检测。
+     - **验证全过**：tsc --noEmit ✅ / eslint ✅ / vite build(720ms) ✅ / smoke(73：23+22+43+28) 全部通过 ✅
+     **历史新增（第四十二次会话·M1 四项增强）**：
    - ① **处理范围语义重构**（`Step3Clean.tsx`）：范围从绝对章号改为**相对待处理列表**索引（`pendingNotProcessing`，不含 processing）。起止输入框均可清空（null=默认），实时钳制 `起始 ≤ 结束 ≤ 待处理数量`。`max` 属性动态跟随待处理数量缩水。删除 onFinish 里 rangeStart 自动前移逻辑。`retryFailed` 改为新范围语义。信息行改为 `共N · 已处理N · 待处理N · 活跃N`。
    - ② **节点溯源标签**（`types.ts` + `Step3Clean.tsx` + `Step4Review.tsx`）：`ImportChapter` 加 `processedByNode?: { nodeId, nodeName }`——onStart 写入，供完成列表与审核页标注每章由哪个节点处理（紫色 Tag）。skipClean 卷章不标注。
     - ③ **审核页批量操作**（`Step4Review.tsx`）：「全部入库」右侧新增三个按钮——全部接受（completed → accepted + finalText）、全部拒绝（completed → rejected）、拒绝指定节点（Modal + Checkbox 列出章节中出现的节点及章数，勾选后该节点的 completed 章置 rejected）。三者均只作用于 completed（待审核）状态，已 accepted/rejected 的保持不动。
@@ -401,16 +411,19 @@
 
 ## 交接备注（最近一次会话）
 
-- **日期**：2026-06-20（第四十一次会话·**participating 过滤修复**）
-- **本次起因**：用户反馈「节点池 7 节点，关闭 4 个，开始任务后 7 个全在工作」——`buildCleanNodes` 仅过滤 `p.enabled` 和 `baseURL`/`model` 有效性，完全忽略 overrides 中的 `participating` 标志。
-- **根因分析**：`participating` 标志只存在于 UI 层（`nodeRunStates`/`participatingNodes` 仅用于摘要显示），`buildCleanNodes` → `startCleanQueue` / `updateNodes` 的整条调度器输入链路未读该标志。
-- **本次完成**（1 项）：
-  - ① **buildCleanNodes 过滤 participating**（`Step3Clean.tsx`：`:218`）：在 `.filter((p) => p.enabled)` 后新增 `.filter((p) => (nowOverrides[p.id] ?? {}).participating !== false)`。默认 `true`（未设覆盖的节点不受影响），仅排除显式 `false` 的节点。单行修复覆盖启动前关闭与运行中关闭两个场景。
-- **改动文件**（2 个）：
-  - `frontend/src/pages/m1-import/Step3Clean.tsx`（buildCleanNodes 加 participating 过滤）
-  - `HANDOFF.md`
-- **验证全过**：tsc(frontend) 0 ✅ / eslint 0 ✅ / vite build 730ms ✅
-- **下一步**：用户实机验证「节点池关闭节点不再参选」
+- **日期**：2026-06-20（第四十三次会话·**M1 Step4 自动跳转 + 系统设置 Tab 布局 + 测试文本真实负载**）
+- **本次起因**：用户提出三个 UX 改进需求：① M1 Step4 点击章节后右侧对比视图自动跳转到第一处差异；② 系统设置改 Tab 横向布局避免长页滚动；③ 测试文本配置供节点测试使用真实负载（清理提示词+测试文本）。
+- **本次完成**（3 项纯前端增强）：
+  - ① **M1 Step4 自动跳转首个差异**：DiffView 新增 `autoScrollToFirstDiff` prop + useEffect 监听 rows 变化，查找第一个 `type !== 'context'` 的行，`setTimeout(0)` 等 DOM 渲染后调用 `scrollIntoView({ behavior: 'smooth', block: 'start' })`。Step4Review 显式传 `autoScrollToFirstDiff={true}`。无差异时 findIndex 返回 -1 提前 return，不报错。
+  - ② **系统设置改 Tab 横向布局**：外层从 `<Space direction="vertical">` 改为 `<Tabs>`，4 个 Tab（节点池与测试 / 高级配置 / 备份与恢复 / 数据管理）。Tab1「节点池与测试」包含：节点池表格（含 Tab 过滤文本/文生图 + 批量测试）+ 模块映射 + M1 清理提示词 + **测试文本（新 Card）**。Tab2「高级配置」：章节检测模式池 + 资产目录 + 界面设置。Tab3「备份与恢复」：设置导入导出 + 完整备份恢复。Tab4「数据管理」：演示数据重置。需导入 Tabs 组件。
+  - ③ **测试文本配置 + 真实负载测试**：appStore 新增 `m1TestText: string`（默认 200 字样本：`第一章 开端\n\n请加鹅鹅鹅群：12叁45陆7捌玖0（数字+谐音混淆）\n\n正文内容abcd1234efgh（模拟正文穿插数字碎片）\n主角心想："今天天气不错。"`），持久化到 settings.json（settingsPayload 追加 / bootstrapStore 合并 / 订阅判断）。设置页 Tab1 新增「测试文本」Card（extra：恢复默认/清空按钮；TextArea 失焦时 `setState({ m1TestText: draftTestText })`）。`probeOnce` 签名扩展为 `(node, content: string, systemPrompt: string)`，`runConcurrencyTest` 读取 `m1TestText` 和 `m1SystemPrompt` 传给 probeOnce，所有 `probeOnce(node)` 改为 `probeOnce(node, testText, systemPrompt)`。并发测试现在使用真实负载调用 `/api/llm/clean`，响应时间更准确反映节点实际承载能力。
+- **改动文件**（4 个）：
+  - `frontend/src/pages/m1-import/DiffView.tsx`（新增 prop + useEffect 滚动逻辑）
+  - `frontend/src/pages/m1-import/Step4Review.tsx`（DiffView 调用传 autoScrollToFirstDiff）
+  - `frontend/src/pages/settings/index.tsx`（Tab 布局重构 + 新增测试文本 Card + probeOnce/runConcurrencyTest 改造 + 新增 draftTestText state + 导入 Tabs）
+  - `frontend/src/store/appStore.ts`（新增 m1TestText 字段 + settingsPayload 追加 + bootstrapStore 合并 + 订阅判断）
+- **验证全过**：tsc --noEmit ✅ / eslint ✅ / vite build(720ms) ✅ / smoke(73) 全部通过 ✅
+- **下一步**：用户实机验证三项改进：① 点击待审核章节确认右侧对比视图自动滚动到首个差异；② 设置页 4 个 Tab 切换无需滚动全页；③ 节点池并发测试使用真实负载（查看探测日志确认包含清理提示词+测试文本，对比响应时间）
 
 ## 更新本文档的约定
 

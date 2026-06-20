@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Button, Input, Space, Tag, Tooltip } from 'antd'
 import { CheckOutlined, CloseOutlined, EditOutlined, UndoOutlined } from '@ant-design/icons'
 import { alignedDiff, diffStats, type DiffRow } from '../../utils/alignedDiff'
@@ -10,6 +10,7 @@ interface Props {
   cleaned: string
   decisions: Record<number, LineDecision>
   onDecide: (rowIdx: number, decision: LineDecision | null) => void
+  autoScrollToFirstDiff?: boolean
 }
 
 function renderParts(
@@ -24,13 +25,25 @@ function renderParts(
   ))
 }
 
-export default function DiffView({ original, cleaned, decisions, onDecide }: Props) {
+export default function DiffView({ original, cleaned, decisions, onDecide, autoScrollToFirstDiff = true }: Props) {
   const rows = useMemo(() => alignedDiff(original, cleaned), [original, cleaned])
   const stats = useMemo(() => diffStats(rows), [rows])
   const [selected, setSelected] = useState<number | null>(null)
   const [editingIdx, setEditingIdx] = useState<number | null>(null)
   const [editText, setEditText] = useState('')
   const rate = retentionRate(original, cleaned)
+
+  // 自动滚动到首个差异行
+  useEffect(() => {
+    if (!autoScrollToFirstDiff) return
+    const firstDiffIdx = rows.findIndex((r) => r.type !== 'context')
+    if (firstDiffIdx < 0) return // 无差异时不滚动
+    // 等一帧让 DOM 渲染完成
+    setTimeout(() => {
+      const tr = document.querySelector(`.diff-table tbody tr:nth-child(${firstDiffIdx + 1})`)
+      if (tr) tr.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }, 0)
+  }, [rows, autoScrollToFirstDiff])
 
   const startEdit = (idx: number, row: DiffRow) => {
     setEditingIdx(idx)

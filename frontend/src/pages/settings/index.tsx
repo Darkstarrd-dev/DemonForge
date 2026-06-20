@@ -17,6 +17,7 @@ import {
   Space,
   Switch,
   Table,
+  Tabs,
   Tag,
   Tooltip,
   Typography,
@@ -64,11 +65,13 @@ const MODULE_LABELS: Record<ModuleKey, string> = {
 }
 
 /**
- * 并发测试用单次探测：向后端 /api/llm/clean 发极短内容请求（15s 超时），
- * 仅用于判定该节点能否成功响应一次（吞吐量探测），返回 {ok, error}。
+ * 并发测试用单次探测：向后端 /api/llm/clean 发真实负载请求（15s 超时），
+ * 用于判定该节点能否成功响应一次（吞吐量探测），返回 {ok, error}。
  */
 async function probeOnce(
   node: Pick<ProviderNode, 'baseURL' | 'apiKey' | 'model'>,
+  content: string,
+  systemPrompt: string,
 ): Promise<{ ok: boolean; error?: string }> {
   const ac = new AbortController()
   const timer = setTimeout(() => ac.abort(), 15000)
@@ -76,7 +79,13 @@ async function probeOnce(
     const res = await fetch('/api/llm/clean', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ baseURL: node.baseURL, apiKey: node.apiKey, model: node.model, content: '请回复"OK"。' }),
+      body: JSON.stringify({
+        baseURL: node.baseURL,
+        apiKey: node.apiKey,
+        model: node.model,
+        content,
+        systemPrompt,
+      }),
       signal: ac.signal,
     })
     if (!res.ok) {
@@ -103,6 +112,7 @@ export default function SettingsPage() {
   const providers = useAppStore((s) => s.providers)
   const moduleMapping = useAppStore((s) => s.moduleMapping)
   const m1SystemPrompt = useAppStore((s) => s.m1SystemPrompt)
+  const m1TestText = useAppStore((s) => s.m1TestText)
   const assetDir = useAppStore((s) => s.assetDir)
   const showMenuBar = useAppStore((s) => s.showMenuBar)
   const splitPatterns = useAppStore((s) => s.splitPatterns)
@@ -122,6 +132,7 @@ export default function SettingsPage() {
     error?: string
   } | null>(null)
   const [draftPrompt, setDraftPrompt] = useState<string>(m1SystemPrompt)
+  const [draftTestText, setDraftTestText] = useState<string>(m1TestText)
   const [draftDir, setDraftDir] = useState<string>(assetDir)
   const [applyingDir, setApplyingDir] = useState(false)
   const [loadingPrompt, setLoadingPrompt] = useState(false)
@@ -285,11 +296,14 @@ export default function SettingsPage() {
       log.push(s)
       setConcurrencyResult({ node, log: [...log] })
     }
+    // 读取测试文本和清理提示词（真实负载）
+    const testText = useAppStore.getState().m1TestText || ''
+    const systemPrompt = useAppStore.getState().m1SystemPrompt || ''
     try {
       // 1) 单发探测连通 + 记录单请求耗时作为间隔估算基准
       push('① 单发探测连通性...')
       const t0 = Date.now()
-      const probe = await probeOnce(node)
+      const probe = await probeOnce(node, testText, systemPrompt)
       const singleLatency = Date.now() - t0
       if (!probe.ok) {
         push(`✗ 探测失败：${probe.error}`)
@@ -305,7 +319,7 @@ export default function SettingsPage() {
       for (const n of levels) {
         push(`② 尝试并发 ${n} 个请求...`)
         const t = Date.now()
-        const results = await Promise.all(Array.from({ length: n }, () => probeOnce(node).catch((e) => ({ ok: false, error: e instanceof Error ? e.message : String(e) }))))
+        const results = await Promise.all(Array.from({ length: n }, () => probeOnce(node, testText, systemPrompt).catch((e) => ({ ok: false, error: e instanceof Error ? e.message : String(e) }))))
         const ok = results.filter((r) => r.ok).length
         const latency = Date.now() - t
         if (ok === n) {
@@ -614,300 +628,372 @@ export default function SettingsPage() {
   ]
 
   return (
-    <Space direction="vertical" size={16} style={{ width: '100%' }}>
-      <Card title="界面设置">
-        <Space>
-          <Typography.Text>显示菜单栏</Typography.Text>
-          <Switch
-            checked={showMenuBar}
-            onChange={(checked) => {
-              setState({ showMenuBar: checked })
-              window.electronAPI?.setMenuBarVisibility(checked)
-            }}
-          />
-        </Space>
-        <Typography.Paragraph type="secondary" style={{ marginTop: 8, marginBottom: 0 }}>
-          控制是否显示 Electron 原生菜单栏（包含文件、编辑等标准菜单项）。关闭后可通过 Alt 键临时唤出。
-        </Typography.Paragraph>
-      </Card>
+    <>
+      <Tabs
+        defaultActiveKey="nodes"
+        items={[
+        {
+          key: 'nodes',
+          label: '节点池与测试',
+          children: (
+            <Space direction="vertical" size={16} style={{ width: '100%' }}>
+              <Card
+                title="Provider 节点池"
+                extra={
+                  <Space>
+                    <Segmented
+                      value={nodeTypeFilter}
+                      onChange={(v) => setNodeTypeFilter(v as ProviderNodeType)}
+                      options={[
+                        { value: 'text', label: '文本生成' },
+                        { value: 'image', label: '文生图' },
+                      ]}
+                    />
+                    <Button loading={batchTesting} onClick={runBatchTest}>
+                      批量测试
+                    </Button>
+                    <Button type="primary" onClick={() => openEdit()}>
+                      新增节点
+                    </Button>
+                  </Space>
+                }
+              >
+                <Table rowKey="id" columns={columns} dataSource={filteredProviders} pagination={false} size="middle" />
+                <Typography.Paragraph type="secondary" style={{ marginTop: 12, marginBottom: 0 }}>
+                  统一 OpenAI 兼容格式；测试经本地后端 Provider 抽象层调用（/api/llm/test → GET /v1/models）。节点选择策略（最久未用 + 最少连接、429 冷却恢复）待后续完善。
+                </Typography.Paragraph>
+              </Card>
 
-      <Card
-        title="Provider 节点池"
-        extra={
-          <Space>
-            <Segmented
-              value={nodeTypeFilter}
-              onChange={(v) => setNodeTypeFilter(v as ProviderNodeType)}
-              options={[
-                { value: 'text', label: '文本生成' },
-                { value: 'image', label: '文生图' },
-              ]}
-            />
-            <Button loading={batchTesting} onClick={runBatchTest}>
-              批量测试
-            </Button>
-            <Button type="primary" onClick={() => openEdit()}>
-              新增节点
-            </Button>
-          </Space>
-        }
-      >
-        <Table rowKey="id" columns={columns} dataSource={filteredProviders} pagination={false} size="middle" />
-        <Typography.Paragraph type="secondary" style={{ marginTop: 12, marginBottom: 0 }}>
-          统一 OpenAI 兼容格式；测试经本地后端 Provider 抽象层调用（/api/llm/test → GET /v1/models）。节点选择策略（最久未用 + 最少连接、429 冷却恢复）待后续完善。
-        </Typography.Paragraph>
-      </Card>
+              <Card title="模块 → 模型映射（各模块指定节点，模型随节点配置）">
+                <Table
+                  rowKey="key"
+                  pagination={false}
+                  size="middle"
+                  dataSource={(Object.keys(MODULE_LABELS) as ModuleKey[]).map((key) => ({
+                    key,
+                    label: MODULE_LABELS[key],
+                    ...moduleMapping[key],
+                  }))}
+                  columns={[
+                    { title: '模块', dataIndex: 'label', width: 200 },
+                    {
+                      title: '节点（模型随节点配置）',
+                      dataIndex: 'nodeId',
+                      render: (v: string | null, row: { key: ModuleKey }) => {
+                        return (
+                          <Select
+                            style={{ minWidth: 280 }}
+                            value={v ?? undefined}
+                            placeholder="选择节点"
+                            options={providers
+                              .filter((p) => p.nodeType !== 'image')
+                              .map((p) => ({ value: p.id, label: `${p.name} · ${p.model || '（未设模型）'}` }))}
+                            onChange={(nodeId) => {
+                              setState({
+                                moduleMapping: {
+                                  ...moduleMapping,
+                                  [row.key]: { nodeId },
+                                },
+                              })
+                            }}
+                          />
+                        )
+                      },
+                    },
+                    {
+                      title: '将使用模型',
+                      key: 'model',
+                      width: 240,
+                      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                      render: (_: unknown, row: any) => {
+                        const node = providers.find((p) => p.id === row.nodeId)
+                        return node?.model ? <Tag>{node.model}</Tag> : <Typography.Text type="secondary">—</Typography.Text>
+                      },
+                    },
+                  ]}
+                />
+                <Typography.Paragraph type="secondary" style={{ marginTop: 12, marginBottom: 0 }}>
+                  模型名在「Provider 节点池」里为每个节点统一配置；此处仅选择节点。如需某模块用不同模型，请新建一个配置了该模型的节点。
+                </Typography.Paragraph>
+              </Card>
 
-      <Card title="模块 → 模型映射（各模块指定节点，模型随节点配置）">
-        <Table
-          rowKey="key"
-          pagination={false}
-          size="middle"
-          dataSource={(Object.keys(MODULE_LABELS) as ModuleKey[]).map((key) => ({
-            key,
-            label: MODULE_LABELS[key],
-            ...moduleMapping[key],
-          }))}
-          columns={[
-            { title: '模块', dataIndex: 'label', width: 200 },
-            {
-              title: '节点（模型随节点配置）',
-              dataIndex: 'nodeId',
-              render: (v: string | null, row: { key: ModuleKey }) => {
-                return (
-                  <Select
-                    style={{ minWidth: 280 }}
-                    value={v ?? undefined}
-                    placeholder="选择节点"
-                    options={providers
-                      .filter((p) => p.nodeType !== 'image')
-                      .map((p) => ({ value: p.id, label: `${p.name} · ${p.model || '（未设模型）'}` }))}
-                    onChange={(nodeId) => {
-                      setState({
-                        moduleMapping: {
-                          ...moduleMapping,
-                          [row.key]: { nodeId },
-                        },
-                      })
+              <Card
+                title="M1 清理提示词（默认）"
+                extra={
+                  <Space>
+                    <Button
+                      loading={loadingPrompt}
+                      onClick={async () => {
+                        setLoadingPrompt(true)
+                        try {
+                          const p = await getDefaultPrompt()
+                          setDraftPrompt(p)
+                        } finally {
+                          setLoadingPrompt(false)
+                        }
+                      }}
+                    >
+                      载入内置默认
+                    </Button>
+                    <Button disabled={draftPrompt === m1SystemPrompt} onClick={() => setState({ m1SystemPrompt: draftPrompt })}>
+                      保存
+                    </Button>
+                    <Button disabled={!m1SystemPrompt} onClick={() => { setDraftPrompt(''); setState({ m1SystemPrompt: '' }) }}>
+                      清空（用内置）
+                    </Button>
+                  </Space>
+                }
+              >
+                <Input.TextArea
+                  value={draftPrompt}
+                  onChange={(e) => setDraftPrompt(e.target.value)}
+                  autoSize={{ minRows: 6, maxRows: 16 }}
+                  placeholder="留空则使用后端内置默认提示词。点「载入内置默认」可查看并在此基础上修改。"
+                  style={{ fontFamily: 'monospace', fontSize: 12 }}
+                />
+                <Typography.Paragraph type="secondary" style={{ marginTop: 8, marginBottom: 0 }}>
+                  {m1SystemPrompt ? `已保存自定义提示词（${m1SystemPrompt.length} 字）。清理时优先使用它。` : '当前为空——清理时使用后端内置默认提示词。'}
+                  {' M1 第三步可再为单次任务临时覆盖。'}
+                </Typography.Paragraph>
+              </Card>
+
+              <Card
+                title="测试文本"
+                extra={
+                  <Space>
+                    <Button
+                      onClick={() => {
+                        const defaultText = `第一章 开端
+
+请加鹅鹅鹅群：12叁45陆7捌玖0（数字+谐音混淆）
+
+正文内容abcd1234efgh（模拟正文穿插数字碎片）
+主角心想："今天天气不错。"`
+                        setDraftTestText(defaultText)
+                        setState({ m1TestText: defaultText })
+                      }}
+                    >
+                      恢复默认
+                    </Button>
+                    <Button onClick={() => { setDraftTestText(''); setState({ m1TestText: '' }) }}>
+                      清空
+                    </Button>
+                  </Space>
+                }
+              >
+                <Input.TextArea
+                  value={draftTestText}
+                  onChange={(e) => setDraftTestText(e.target.value)}
+                  onBlur={() => setState({ m1TestText: draftTestText })}
+                  autoSize={{ minRows: 4, maxRows: 12 }}
+                  placeholder="节点测试时使用的文本内容"
+                  style={{ fontFamily: 'monospace', fontSize: 12 }}
+                />
+                <Typography.Paragraph type="secondary" style={{ marginTop: 8, marginBottom: 0 }}>
+                  节点池的「测试」和「并发测试」会用清理提示词 + 此文本调用 /api/llm/clean 真实流式请求，
+                  模拟实际清理负载。留空则测试退化为极短内容（不推荐）。
+                </Typography.Paragraph>
+              </Card>
+            </Space>
+          ),
+        },
+        {
+          key: 'advanced',
+          label: '高级配置',
+          children: (
+            <Space direction="vertical" size={16} style={{ width: '100%' }}>
+              <Card
+                title="章节检测模式池"
+                extra={
+                  <Space>
+                    <Button onClick={() => openPatternEdit()}>新增模式</Button>
+                    <Popconfirm
+                      title="恢复为内置默认模式池？"
+                      description="当前自定义/修改将丢失"
+                      onConfirm={() => {
+                        resetSplitPatterns()
+                        message.success('已恢复内置默认模式池')
+                      }}
+                    >
+                      <Button>恢复默认</Button>
+                    </Popconfirm>
+                  </Space>
+                }
+              >
+                <Table
+                  rowKey="key"
+                  pagination={false}
+                  size="middle"
+                  dataSource={splitPatterns}
+                  columns={[
+                    { title: '名称', dataIndex: 'label', width: 200 },
+                    {
+                      title: '正则',
+                      dataIndex: 'regex',
+                      render: (v: string, row: SplitPattern) =>
+                        row.key === 'custom' ? (
+                          <Typography.Text type="secondary">（用户在 M1 Step2 输入）</Typography.Text>
+                        ) : (
+                          <Typography.Text code style={{ fontSize: 12 }}>{v}</Typography.Text>
+                        ),
+                    },
+                    {
+                      title: '内置',
+                      dataIndex: 'builtin',
+                      width: 70,
+                      render: (v?: boolean) => (v ? <Tag>内置</Tag> : <Tag color="blue">自定义</Tag>),
+                    },
+                    {
+                      title: '操作',
+                      key: 'actions',
+                      width: 150,
+                      render: (_: unknown, p: SplitPattern) => (
+                        <Space size="small">
+                          <Button size="small" onClick={() => openPatternEdit(p)}>
+                            编辑
+                          </Button>
+                          {p.key !== 'custom' && (
+                            <Popconfirm title="删除该检测模式？" onConfirm={() => deletePattern(p)}>
+                              <Button size="small" danger>
+                                删除
+                              </Button>
+                            </Popconfirm>
+                          )}
+                        </Space>
+                      ),
+                    },
+                  ]}
+                />
+                <Typography.Paragraph type="secondary" style={{ marginTop: 12, marginBottom: 0 }}>
+                  M1 Step2 进入时自动从这些模式中按命中数评分推荐最匹配的章节分割模式。正则需以 <Typography.Text code>^</Typography.Text> 开头（整行匹配）并包含一个捕获组作为章节标题；
+                  标题行前的装饰符号（如 [爱心]、★）会被自动剥除。「自定义正则」模式由用户在 M1 Step2 临时输入，不在此编辑。
+                </Typography.Paragraph>
+              </Card>
+
+              <Card title="资产目录">
+                <Typography.Paragraph type="secondary" style={{ marginBottom: 8 }}>
+                  业务数据（书/章节/卡片/推演等）保存在此目录下的 <Typography.Text code>novelhelper.db</Typography.Text>，
+                  图片存 <Typography.Text code>images/</Typography.Text>。留空使用默认 <Typography.Text code>&lt;repo&gt;/assets</Typography.Text>。
+                  切换目录将载入该目录下的数据集（空目录则显示空书库，可经 M0 立项 / M1 导入自行创建作品）。Provider/密钥等设置不在此目录。
+                </Typography.Paragraph>
+                <Space.Compact style={{ width: '100%' }}>
+                  <Input
+                    value={draftDir}
+                    onChange={(e) => setDraftDir(e.target.value)}
+                    placeholder="如：D:\\novelhelper-data（留空=默认 <repo>/assets）"
+                  />
+                  <Button type="primary" loading={applyingDir} disabled={draftDir.trim() === assetDir.trim()} onClick={applyAssetDir}>
+                    应用并切换
+                  </Button>
+                </Space.Compact>
+                <Typography.Paragraph type="secondary" style={{ marginTop: 8, marginBottom: 0 }}>
+                  当前：<Typography.Text code>{assetDir || '（默认 <repo>/assets）'}</Typography.Text>
+                </Typography.Paragraph>
+              </Card>
+
+              <Card title="界面设置">
+                <Space>
+                  <Typography.Text>显示菜单栏</Typography.Text>
+                  <Switch
+                    checked={showMenuBar}
+                    onChange={(checked) => {
+                      setState({ showMenuBar: checked })
+                      window.electronAPI?.setMenuBarVisibility(checked)
                     }}
                   />
-                )
-              },
-            },
-            {
-              title: '将使用模型',
-              key: 'model',
-              width: 240,
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              render: (_: unknown, row: any) => {
-                const node = providers.find((p) => p.id === row.nodeId)
-                return node?.model ? <Tag>{node.model}</Tag> : <Typography.Text type="secondary">—</Typography.Text>
-              },
-            },
-          ]}
-        />
-        <Typography.Paragraph type="secondary" style={{ marginTop: 12, marginBottom: 0 }}>
-          模型名在「Provider 节点池」里为每个节点统一配置；此处仅选择节点。如需某模块用不同模型，请新建一个配置了该模型的节点。
-        </Typography.Paragraph>
-      </Card>
-
-      <Card
-        title="M1 清理提示词（默认）"
-        extra={
-          <Space>
-            <Button
-              loading={loadingPrompt}
-              onClick={async () => {
-                setLoadingPrompt(true)
-                try {
-                  const p = await getDefaultPrompt()
-                  setDraftPrompt(p)
-                } finally {
-                  setLoadingPrompt(false)
-                }
-              }}
-            >
-              载入内置默认
-            </Button>
-            <Button disabled={draftPrompt === m1SystemPrompt} onClick={() => setState({ m1SystemPrompt: draftPrompt })}>
-              保存
-            </Button>
-            <Button disabled={!m1SystemPrompt} onClick={() => { setDraftPrompt(''); setState({ m1SystemPrompt: '' }) }}>
-              清空（用内置）
-            </Button>
-          </Space>
-        }
-      >
-        <Input.TextArea
-          value={draftPrompt}
-          onChange={(e) => setDraftPrompt(e.target.value)}
-          autoSize={{ minRows: 6, maxRows: 16 }}
-          placeholder="留空则使用后端内置默认提示词。点「载入内置默认」可查看并在此基础上修改。"
-          style={{ fontFamily: 'monospace', fontSize: 12 }}
-        />
-        <Typography.Paragraph type="secondary" style={{ marginTop: 8, marginBottom: 0 }}>
-          {m1SystemPrompt ? `已保存自定义提示词（${m1SystemPrompt.length} 字）。清理时优先使用它。` : '当前为空——清理时使用后端内置默认提示词。'}
-          {' M1 第三步可再为单次任务临时覆盖。'}
-        </Typography.Paragraph>
-      </Card>
-
-      <Card
-        title="章节检测模式池"
-        extra={
-          <Space>
-            <Button onClick={() => openPatternEdit()}>新增模式</Button>
-            <Popconfirm
-              title="恢复为内置默认模式池？"
-              description="当前自定义/修改将丢失"
-              onConfirm={() => {
-                resetSplitPatterns()
-                message.success('已恢复内置默认模式池')
-              }}
-            >
-              <Button>恢复默认</Button>
-            </Popconfirm>
-          </Space>
-        }
-      >
-        <Table
-          rowKey="key"
-          pagination={false}
-          size="middle"
-          dataSource={splitPatterns}
-          columns={[
-            { title: '名称', dataIndex: 'label', width: 200 },
-            {
-              title: '正则',
-              dataIndex: 'regex',
-              render: (v: string, row: SplitPattern) =>
-                row.key === 'custom' ? (
-                  <Typography.Text type="secondary">（用户在 M1 Step2 输入）</Typography.Text>
-                ) : (
-                  <Typography.Text code style={{ fontSize: 12 }}>{v}</Typography.Text>
-                ),
-            },
-            {
-              title: '内置',
-              dataIndex: 'builtin',
-              width: 70,
-              render: (v?: boolean) => (v ? <Tag>内置</Tag> : <Tag color="blue">自定义</Tag>),
-            },
-            {
-              title: '操作',
-              key: 'actions',
-              width: 150,
-              render: (_: unknown, p: SplitPattern) => (
-                <Space size="small">
-                  <Button size="small" onClick={() => openPatternEdit(p)}>
-                    编辑
-                  </Button>
-                  {p.key !== 'custom' && (
-                    <Popconfirm title="删除该检测模式？" onConfirm={() => deletePattern(p)}>
-                      <Button size="small" danger>
-                        删除
-                      </Button>
-                    </Popconfirm>
-                  )}
                 </Space>
-              ),
-            },
-          ]}
-        />
-        <Typography.Paragraph type="secondary" style={{ marginTop: 12, marginBottom: 0 }}>
-          M1 Step2 进入时自动从这些模式中按命中数评分推荐最匹配的章节分割模式。正则需以 <Typography.Text code>^</Typography.Text> 开头（整行匹配）并包含一个捕获组作为章节标题；
-          标题行前的装饰符号（如 [爱心]、★）会被自动剥除。「自定义正则」模式由用户在 M1 Step2 临时输入，不在此编辑。
-        </Typography.Paragraph>
-      </Card>
+                <Typography.Paragraph type="secondary" style={{ marginTop: 8, marginBottom: 0 }}>
+                  控制是否显示 Electron 原生菜单栏（包含文件、编辑等标准菜单项）。关闭后可通过 Alt 键临时唤出。
+                </Typography.Paragraph>
+              </Card>
+            </Space>
+          ),
+        },
+        {
+          key: 'backup',
+          label: '备份与恢复',
+          children: (
+            <Space direction="vertical" size={16} style={{ width: '100%' }}>
+              <Card title="设置导入 / 导出">
+                <Typography.Paragraph type="secondary" style={{ marginBottom: 8 }}>
+                  导出 Provider 节点池、模块映射、提示词、章节检测模式等配置；换机、分享或重装时用。
+                  导入会合并到当前配置（覆盖同名设置），不影响已入库的业务数据（书/章节等）。
+                </Typography.Paragraph>
+                <Space wrap>
+                  <Button icon={<DownloadOutlined />} onClick={() => handleExport('settings')}>
+                    导出设置
+                  </Button>
+                  <Upload accept=".json,application/json" beforeUpload={handleImportFile} showUploadList={false}>
+                    <Button icon={<UploadOutlined />}>导入设置</Button>
+                  </Upload>
+                </Space>
+                <div style={{ marginTop: 8 }}>
+                  <Checkbox checked={exportRedact} onChange={(e) => setExportRedact(e.target.checked)}>
+                    导出时脱敏 API Key（分享给他人生成不含密钥的配置）
+                  </Checkbox>
+                </div>
+                <Typography.Paragraph type="secondary" style={{ marginTop: 8, marginBottom: 0 }}>
+                  旧版/缺字段的设置文件可正常导入——缺失字段自动用默认值补全，多余字段忽略，不报错。
+                </Typography.Paragraph>
+              </Card>
 
-      <Card title="资产目录">
-        <Typography.Paragraph type="secondary" style={{ marginBottom: 8 }}>
-          业务数据（书/章节/卡片/推演等）保存在此目录下的 <Typography.Text code>novelhelper.db</Typography.Text>，
-          图片存 <Typography.Text code>images/</Typography.Text>。留空使用默认 <Typography.Text code>&lt;repo&gt;/assets</Typography.Text>。
-          切换目录将载入该目录下的数据集（空目录则显示空书库，可经 M0 立项 / M1 导入自行创建作品）。Provider/密钥等设置不在此目录。
-        </Typography.Paragraph>
-        <Space.Compact style={{ width: '100%' }}>
-          <Input
-            value={draftDir}
-            onChange={(e) => setDraftDir(e.target.value)}
-            placeholder="如：D:\\novelhelper-data（留空=默认 <repo>/assets）"
-          />
-          <Button type="primary" loading={applyingDir} disabled={draftDir.trim() === assetDir.trim()} onClick={applyAssetDir}>
-            应用并切换
-          </Button>
-        </Space.Compact>
-        <Typography.Paragraph type="secondary" style={{ marginTop: 8, marginBottom: 0 }}>
-          当前：<Typography.Text code>{assetDir || '（默认 <repo>/assets）'}</Typography.Text>
-        </Typography.Paragraph>
-      </Card>
+              <Card title="完整备份 / 恢复">
+                <Typography.Paragraph type="secondary" style={{ marginBottom: 8 }}>
+                  备份全部业务数据（书/章节/卡片/大纲/推演/文生图历史等）+ 设置为单个 JSON 文件。
+                  灾难恢复的最后保险——万一数据再丢失，可用此文件手工找回。
+                </Typography.Paragraph>
+                <Space wrap>
+                  <Button type="primary" icon={<CloudDownloadOutlined />} onClick={() => handleExport('full')}>
+                    生成完整备份
+                  </Button>
+                  <Upload accept=".json,application/json" beforeUpload={handleImportFile} showUploadList={false}>
+                    <Button icon={<CloudUploadOutlined />}>从备份恢复</Button>
+                  </Upload>
+                </Space>
+                <Typography.Paragraph type="warning" style={{ marginTop: 8, marginBottom: 0 }}>
+                  <Typography.Text strong>注意</Typography.Text>：恢复业务数据是高影响操作，导入前会弹出预览
+                  （显示各类数据计数与兼容性警告）并要求二次确认。可选择「合并导入」（不删现有数据）或
+                  「先清空再恢复」（覆盖式，谨慎）。
+                </Typography.Paragraph>
+              </Card>
+            </Space>
+          ),
+        },
+        {
+          key: 'data',
+          label: '数据管理',
+          children: (
+            <Space direction="vertical" size={16} style={{ width: '100%' }}>
+              <Card title="演示数据">
+                <Button
+                  danger
+                  onClick={() =>
+                    modal.confirm({
+                      title: '重置演示数据？',
+                      content: '将清空当前所有修改，恢复到初始种子数据（包括导入会话、卡片、章节、推演记录）。',
+                      onOk: () => {
+                        resetDemo()
+                        message.success('已恢复初始演示数据')
+                      },
+                    })
+                  }
+                >
+                  重置演示数据
+                </Button>
+              </Card>
+            </Space>
+          ),
+        },
+      ]}
+    />
 
-      <Card title="设置导入 / 导出">
-        <Typography.Paragraph type="secondary" style={{ marginBottom: 8 }}>
-          导出 Provider 节点池、模块映射、提示词、章节检测模式等配置；换机、分享或重装时用。
-          导入会合并到当前配置（覆盖同名设置），不影响已入库的业务数据（书/章节等）。
-        </Typography.Paragraph>
-        <Space wrap>
-          <Button icon={<DownloadOutlined />} onClick={() => handleExport('settings')}>
-            导出设置
-          </Button>
-          <Upload accept=".json,application/json" beforeUpload={handleImportFile} showUploadList={false}>
-            <Button icon={<UploadOutlined />}>导入设置</Button>
-          </Upload>
-        </Space>
-        <div style={{ marginTop: 8 }}>
-          <Checkbox checked={exportRedact} onChange={(e) => setExportRedact(e.target.checked)}>
-            导出时脱敏 API Key（分享给他人生成不含密钥的配置）
-          </Checkbox>
-        </div>
-        <Typography.Paragraph type="secondary" style={{ marginTop: 8, marginBottom: 0 }}>
-          旧版/缺字段的设置文件可正常导入——缺失字段自动用默认值补全，多余字段忽略，不报错。
-        </Typography.Paragraph>
-      </Card>
-
-      <Card title="完整备份 / 恢复">
-        <Typography.Paragraph type="secondary" style={{ marginBottom: 8 }}>
-          备份全部业务数据（书/章节/卡片/大纲/推演/文生图历史等）+ 设置为单个 JSON 文件。
-          灾难恢复的最后保险——万一数据再丢失，可用此文件手工找回。
-        </Typography.Paragraph>
-        <Space wrap>
-          <Button type="primary" icon={<CloudDownloadOutlined />} onClick={() => handleExport('full')}>
-            生成完整备份
-          </Button>
-          <Upload accept=".json,application/json" beforeUpload={handleImportFile} showUploadList={false}>
-            <Button icon={<CloudUploadOutlined />}>从备份恢复</Button>
-          </Upload>
-        </Space>
-        <Typography.Paragraph type="warning" style={{ marginTop: 8, marginBottom: 0 }}>
-          <Typography.Text strong>注意</Typography.Text>：恢复业务数据是高影响操作，导入前会弹出预览
-          （显示各类数据计数与兼容性警告）并要求二次确认。可选择「合并导入」（不删现有数据）或
-          「先清空再恢复」（覆盖式，谨慎）。
-        </Typography.Paragraph>
-      </Card>
-
-      <Card title="演示数据">
-        <Button
-          danger
-          onClick={() =>
-            modal.confirm({
-              title: '重置演示数据？',
-              content: '将清空当前所有修改，恢复到初始种子数据（包括导入会话、卡片、章节、推演记录）。',
-              onOk: () => {
-                resetDemo()
-                message.success('已恢复初始演示数据')
-              },
-            })
-          }
-        >
-          重置演示数据
-        </Button>
-      </Card>
-
-      <Modal
-        title={providers.some((p) => p.id === editing?.id) ? '编辑节点' : '新增节点'}
-        open={!!editing}
-        onOk={saveEdit}
-        onCancel={() => setEditing(null)}
-        destroyOnHidden
-      >
+    <Modal
+      title={providers.some((p) => p.id === editing?.id) ? '编辑节点' : '新增节点'}
+      open={!!editing}
+      onOk={saveEdit}
+      onCancel={() => setEditing(null)}
+      destroyOnHidden
+    >
         <Form form={form} layout="vertical" style={{ marginTop: 8 }}>
           <Form.Item name="name" label="名称" rules={[{ required: true }]}>
             <Input placeholder="如：本地 llama.cpp" />
@@ -1194,6 +1280,6 @@ export default function SettingsPage() {
           </Space>
         )}
       </Modal>
-    </Space>
+    </>
   )
 }

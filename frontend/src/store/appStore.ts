@@ -124,6 +124,8 @@ export interface AppState {
   m1AutoRetry: boolean
   /** M1 Step2 章节名称替换模板（持久化到 settings.json），如 "第{0n}章 {title}" */
   m1TitleTemplate: string
+  /** M1 测试文本（持久化到 settings.json）——节点池「测试」和「并发测试」用此文本 + 清理提示词调用真实负载 */
+  m1TestText: string
   /** M1 Step3 清理运行状态（不持久化，仅内存）。跨 Step 页面保持任务控制权。 */
   cleanRun: CleanRunState | null
 
@@ -178,6 +180,12 @@ const seedState = () => ({
   cleanNodeOverrides: {} as Record<string, Partial<{ participating: boolean; concurrency: number; batchSize: number; intervalSec: number }>>,
   m1AutoRetry: true,
   m1TitleTemplate: '第{0n}章 {title}',
+  m1TestText: `第一章 开端
+
+请加鹅鹅鹅群：12叁45陆7捌玖0（数字+谐音混淆）
+
+正文内容abcd1234efgh（模拟正文穿插数字碎片）
+主角心想："今天天气不错。"`,
   cleanRun: null,
 })
 
@@ -373,6 +381,7 @@ export async function bootstrapStore(): Promise<void> {
         cleanNodeOverrides?: Record<string, Partial<{ participating: boolean; concurrency: number; batchSize: number; intervalSec: number }>>
         m1AutoRetry?: boolean
         m1TitleTemplate?: string
+        m1TestText?: string
       }
       storeInitialized = d.storeInitialized === true
       const patch: Partial<AppState> = {}
@@ -399,6 +408,8 @@ export async function bootstrapStore(): Promise<void> {
       if (typeof d.m1AutoRetry === 'boolean') patch.m1AutoRetry = d.m1AutoRetry
       // M1 Step2 章节标题模板（旧 settings.json 无此键则默认 "第{0n}章 {title}"）
       if (typeof d.m1TitleTemplate === 'string') patch.m1TitleTemplate = d.m1TitleTemplate
+      // M1 测试文本（旧 settings.json 无此键则沿用 seed 默认样本）
+      if (typeof d.m1TestText === 'string') patch.m1TestText = d.m1TestText
       if (Object.keys(patch).length) useAppStore.setState(patch)
     }
   } catch {
@@ -603,6 +614,7 @@ export const settingsPayload = (s: AppState) => ({
   cleanNodeOverrides: s.cleanNodeOverrides,
   m1AutoRetry: s.m1AutoRetry,
   m1TitleTemplate: s.m1TitleTemplate,
+  m1TestText: s.m1TestText,
 })
 
 let settingsTimer: ReturnType<typeof setTimeout> | null = null
@@ -619,7 +631,8 @@ useAppStore.subscribe((s, prev) => {
     s.splitPatterns === prev.splitPatterns &&
     s.cleanNodeOverrides === prev.cleanNodeOverrides &&
     s.m1AutoRetry === prev.m1AutoRetry &&
-    s.m1TitleTemplate === prev.m1TitleTemplate
+    s.m1TitleTemplate === prev.m1TitleTemplate &&
+    s.m1TestText === prev.m1TestText
   ) {
     return
   }
