@@ -24,7 +24,7 @@
 
 ## 项目状态快照
 
-- **最后更新**：2026-06-20（第三十八次会话·**日志节点信息 + 防抖状态同步修复 + batchSeq 独立 session + max 放开**）
+- **最后更新**：2026-06-20（第三十九次会话·**孤儿 session 清除 + 熔断节点清理 + 在途 batch abort**）
 - **阶段**：正式开发——M1 AI 清理端到端跑通；**novel-generator 集成阶段 A~D 全部完成**；**Electron 迁移完成**；M2–M5 仍 mock；业务数据 SQLite 资产库（可配置资产目录），Provider/密钥等设置存用户数据目录
 - **新增**：**M1 Step3 文本清理流水线重构**——按用户实机反馈做四项整改：
   ① **Tabs 四标签可切换列表**（`Step3Clean.tsx`）：原单一活跃列表 → `Tabs`（待处理/完成/工作节点/节点任务）。节点按**批次会话**生命周期跟踪（`nodeSessions` + `chapterNode` ref）：分配时创建/追加，本批全完成置 idle 变灰，下次再分配替换，运行结束清理。**修复 Tabs 无法切换的真因**——`index.css` 给 `.ant-tabs-tabpane` 强制 `display:flex` 覆盖了 antd 非活动面板的 `display:none`，四面板同时渲染。移除该规则后面板靠 antd 自身 `.ant-tabs-tabpane-active` 显隐。
@@ -46,6 +46,10 @@
     - ② **DebouncedInputNumber 状态同步修复**（`Step3Clean.tsx`）：原 `key={value}` trick 无效——key 在子 InputNumber 上，但 InputNumber 的 value 来自父 `local` state，外部 value 变化时 `local` 不更新。改用 React 官方 derived state with reset 模式（`if (value !== tracked) { setTracked(value); setLocal(value) }`），根除统一设置不更新分控值、修改分控值不更新显示等所有显示同步问题。
     - ③ **batchSeq 批独立 session**（`llm.ts` + `Step3Clean.tsx`）：调度器 `executeBatch` 维护 per-worker 递增 `batchSeq`，传入 `onStart`。UI session key 从 `workerId` 改为 `${workerId}:${batchSeq}`。`trackAssign` 不再查 `idle` state（根除跨批累积的 React 时序竞态）——每批天然新 session，创建时自动移除同 worker 旧 idle session（「完成后从队列中移除」）。
     - ④ **batchSize max 从 20→100**（`Step3Clean.tsx`）：bulk + per-node 共 2 处，支持大批量（如 30 章/batch）。
+    **本轮新增（第三十九次会话·孤儿 session 清除 + 熔断节点清理 + abort）**：
+    - ① **trackAssign 不再限 idle**（`Step3Clean.tsx`）：filter 从 `s.idle && startsWith(workerId)` 改为 `!startsWith(workerId)`——同一 worker 新 batch 开始时移除其**所有**旧 session（含失败的孤儿），根除跨批累积的根本原因：失败 batch 的章节进入 retryQueue 时未调 `onError`/`onDone`，`trackComplete` 不执行，session 永远 idle=false，旧 filter 不过滤。
+    - ② **onNodeDisabled 清理 sessions**（`Step3Clean.tsx`）：熔断通知中追加 `setNodeSessions(filter(nodeId))`，被禁用节点的所有工作会话立即从列表移除（含孤儿），不再永久残留。
+    - ③ **markNodeFail 立即 abort 在途 batch**（`llm.ts`）：达熔断阈值后遍历 `activeBatches`，中止该节点所有在途请求 → catch 块将章节放入 `retryQueue` → 其他节点立即接管，不再等待 HTTP 超时。
 - **摘要**：在 mock 前端基础上**进入实现阶段**。
   运行方式（三选一）：
   - **【推荐】Electron 模式**：双击 `start-electron.bat`（开发模式）或 `npm run dev`，Electron 窗口自动管理前后端；关窗即自动清理进程
@@ -384,17 +388,30 @@
 
 ## 交接备注（最近一次会话）
 
-- **日期**：2026-06-20（第三十八次会话·**日志节点信息 + 防抖状态同步修复 + batchSeq + max**）
-- **本次起因**：用户反馈上一轮四个修复仍有残留问题：① 响应日志 error/response 类型没有节点标签；② 工作节点分进程后仍存在 session 跨批累积（idle state 竞态）；③ 统一设置与分控显示数字不一致（DebouncedInputNumber key trick 无效）；④ 分控修改值不反映到实际设置。
-- **本次完成**（4 项）：
-  - **日志补节点信息**（`llm.ts` + `Step3Clean.tsx`）：`streamSingleChapter`/`streamBatch` 全部 15 处 `response`/`error` `onDebug` 补 `nodeName: node.name, nodeId: node.id`；UI 节点 Tag 从 `type === 'request'` 条件块移出到所有类型。
-  - **DebouncedInputNumber 根治**（`Step3Clean.tsx`）：原 `key={value}` trick 完全无效——key 在子 InputNumber（不重设父 DebouncedInputNumber 的 `useState`），且 InputNumber value 来自 `local` 非 `value` prop。改用 derived state with reset 模式（`if (value !== tracked) { setTracked(value); setLocal(value) }`），外部 prop 变化时同步重置 `local`。根除统一设置不更新分控显示、分控修改不保存等全部问题。
-  - **batchSeq 独立 session**（`llm.ts` + `Step3Clean.tsx`）：`executeBatch` 维护 `workerBatchSeq: Map<workerId, number>` 递增，传入 `onStart`。UI session key 改为 `workerId:batchSeq`。`trackAssign` 不再查 `idle` state——每批天然新 session，创建时自动 filter 掉同 worker 旧 idle session（完成后移除 → 新 batch 入队尾）。
-  - **batchSize max 20→100**（`Step3Clean.tsx`）：bulk + per-node 两类输入放开上限。
+- **日期**：2026-06-20（第三十九次会话·**孤儿 session 清除 + 熔断节点清理 + abort**）
+- **本次起因**：用户实机验证上一轮修复后仍存残留问题：① 5 节点 × 1 进程 × 30 章 → 列表显示 7 条，2 条重复执行相同任务，运行后增到 9 条（与「每进程同时只一条」要求不符）；② 报错的节点未释放任务、未从列表移除。
+- **根因分析**：
+  - **孤儿 session**：`executeBatch` 失败重试时（`fails < MAX_RETRIES`）不入 `retryQueue` 而不调 `onError`/`onDone` → `trackComplete` 不执行 → session 永远 `idle=false` → 旧 filter `s.idle && startsWith(...)` 不过滤。新 batch 创建新 session → 同一 worker 同时有两条（旧孤儿+新活跃）。跨 worker 重试时两 session 显示相同章节。
+  - **熔断节点残留**：`onNodeDisabled` 只设 `participating=false`，未清理 `nodeSessions`。
+  - **在途请求不中止**：熔断时机到 `markNodeFail` 仅加 `disabledNodes` 集合，不 abort 在途 batch，章节要等超时才释放。
+- **本次完成**（3 项）：
+  - **trackAssign filter 不限 idle**（`Step3Clean.tsx`）：移除条件 `s.idle &&`，同一 workerId 新批次开始时移除其所有旧 session（成功/失败/孤儿全清）。
+  - **onNodeDisabled 清理 UI**（`Step3Clean.tsx`）：追加 `setNodeSessions(prev => prev.filter(s => s.nodeId !== nodeId))`，熔断节点即时从列表消失。
+  - **markNodeFail abort 在途 batch**（`llm.ts`）：遍历 `activeBatches`，abort 所有该节点的请求 → `executeBatch` catch 块入 `retryQueue` → 其他节点立即接管。
 - **改动文件**（3 个）：
-  - `frontend/src/services/real/llm.ts`（onStart+batchSeq / executeBatch workerBatchSeq / 15 处 debug +nodeName+nodeId）
-  - `frontend/src/pages/m1-import/Step3Clean.tsx`（DebouncedInputNumber derived state 重写 / NodeSession +sessionKey / trackAssign 无 idle / NodeListPane sessionKey / 日志 Tag 全局化 / max=100×2）
+  - `frontend/src/pages/m1-import/Step3Clean.tsx`（trackAssign filter 移除 idle 条件 / onNodeDisabled 加 session 清理）
+  - `frontend/src/services/real/llm.ts`（markNodeFail 加 abort 循环）
   - `HANDOFF.md`
+- **验证全过**：tsc 0 / eslint 0 / vite build 815ms ✅ / smoke-batch(16) ✅
+- **关键设计决策**：
+  ① **不限 idle 的全清除安全**：per-node 模型下 `await executeBatch` 串行，新 `onStart` 触发时旧 batch 必已结束——无论成功/失败/重试。因此可放心清除该 worker 的**所有**旧 session。
+  ② **startsWith(`${workerId}:`)**：冒号后缀防误匹配（`N1#1` 不匹配 `N1#10`）。
+  ③ **abort 无递归**：abort 导致的 catch 会再调 `markNodeFail`，但 `disabledNodes.has(node.id)` 提前返回，不会死循环。章节由 `retryQueue` 接管，其他 worker 处理。
+- **下一步**：用户实机验证：① 5 节点 × 1 进程运行时列表始终 ≤5 条；② 节点报错后立即消失，任务释放给其他节点；③ 人为关掉 LLM 服务看熔断→清理→接管全流程
+- **改动文件**（3 个）：
+  - 前端：`frontend/src/pages/m1-import/Step3Clean.tsx`（DebouncedInputNumber derived state 重写 / NodeSession +sessionKey / trackAssign 无 idle / NodeListPane sessionKey / 日志 Tag 全局化 / max=100×2）
+  - 前端：`frontend/src/services/real/llm.ts`（llm.ts（onStart+batchSeq / executeBatch workerBatchSeq / 15 处 debug +nodeName+nodeId）
+  - 文档：`HANDOFF.md`
 - **验证全过**：tsc 0 / eslint 0 / vite build 728ms ✅ / smoke(55) ✅ / smoke-batch(16) ✅ / ruleclean(43) ✅ / parse(22) ✅
 - **关键设计决策**：
   ① **derived state 替代 key trick**：key 重挂载方案在子组件 value 来自父 state 时天然无效（挂载态用 stale state → 显示不同步）。React 官方 derived state with reset pattern (`if (prev !== curr) setState(curr)` in render) 是正确方案——无额外渲染，无 useEffect lint 警告。

@@ -242,10 +242,9 @@ export default function Step3Clean() {
       // 新 batch → 创建新 session，同时移除同 worker 的旧 idle session
       const slotNum = workerId.split('#')[1] || '?'
       const fresh: NodeSession = { sessionKey, nodeId, name: `${nodeName} #${slotNum}`, assigned: [chapterId], done: new Set(), idle: false }
-      const cleaned = prev.filter((s) => {
-        if (s.idle && s.sessionKey.startsWith(`${workerId}:`)) return false
-        return true
-      })
+      // per-node 模型下 worker 串行处理 batch，新 onStart 时旧 batch 必已结束（成功/失败/重试）
+      // 移除该 worker 的所有旧 session（含失败的孤儿），保证每进程同时只有一条
+      const cleaned = prev.filter((s) => !s.sessionKey.startsWith(`${workerId}:`))
       return [...cleaned, fresh]
     })
   }
@@ -323,11 +322,12 @@ export default function Step3Clean() {
           message.success('清理完成，请进入审核步骤')
         },
         onNodeDisabled: (nodeId, nodeName, reason) => {
-          // 调度器熔断该节点 → 同步把参与开关切到关闭（写入 store 覆盖），并提示
+          // 调度器熔断该节点 → 同步把参与开关切到关闭（写入 store 覆盖），并移除该节点的工作会话
           setOverrides((prev) => ({
             ...prev,
             [nodeId]: { ...(prev[nodeId] ?? {}), participating: false },
           }))
+          setNodeSessions((prev) => prev.filter((s) => s.nodeId !== nodeId))
           message.error(`节点「${nodeName}」已自动关闭：${reason}`)
         },
         onDebug: (evt: CleanQueueDebugEvent) => {

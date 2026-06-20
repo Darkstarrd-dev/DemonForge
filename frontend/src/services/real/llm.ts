@@ -452,7 +452,10 @@ export function startCleanQueue(
     nodeConsecFails.set(node.id, fails)
     if (fails >= NODE_FAIL_LIMIT) {
       disabledNodes.add(node.id)
-      // 进行中的请求若还在该节点上会被自然 abort（见 workerLoop 的候选过滤），这里只通知 UI
+      // 立即中止该节点所有在途 batch → catch 块将章节放入 retryQueue 供其他节点接管
+      for (const [, batch] of activeBatches) {
+        if (batch.nodeId === node.id) batch.ac.abort()
+      }
       cb.onNodeDisabled?.(node.id, node.name, `连续 ${NODE_FAIL_LIMIT} 次失败（${reason}），已自动关闭`)
     }
   }
