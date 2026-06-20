@@ -1,21 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { Alert, App, Button, Card, Col, Collapse, Empty, Image, Input, InputNumber, Popconfirm, Row, Select, Space, Tag, Typography } from 'antd'
-import { DownloadOutlined, DeleteOutlined, PictureOutlined, ReloadOutlined } from '@ant-design/icons'
+import { App, Button, Popconfirm, Space, Typography, Upload, Select } from 'antd'
+import { DownloadOutlined, DeleteOutlined, PictureOutlined, CloseOutlined, UploadOutlined } from '@ant-design/icons'
 import { useAppStore } from '../../store/appStore'
 import { generateImage } from '../../services/api'
 import { genId } from '../../store/appStore'
 import type { ProviderNode } from '../../services/types'
 
-// 服务商下拉：当前仅 ModelScope，前向预留多服务商。
-const PROVIDERS = [{ value: 'modelscope', label: 'ModelScope' }]
-
-// 常用分辨率预设（ModelScope / Z-Image-Turbo 支持）。值格式 '<width>x<height>'，
-// 即 ModelScope payload 的 size 字段（按官方示例首选字符串格式）。
 const RESOLUTIONS = [
-  { value: '1024x1024', label: '1024×1024（1:1 方形）' },
-  { value: '1280x720', label: '1280×720（16:9 横）' },
-  { value: '720x1280', label: '720×1280（9:16 竖）' },
+  { value: '1024x1024', label: '1024×1024（1:1）' },
+  { value: '1280x720', label: '1280×720（16:9）' },
+  { value: '720x1280', label: '720×1280（9:16）' },
   { value: '1024x768', label: '1024×768（4:3）' },
   { value: '768x1024', label: '768×1024（3:4）' },
 ]
@@ -32,7 +26,6 @@ const PHASE_TEXT: Record<Phase, string> = {
 
 export default function ImageDemoPage() {
   const { message } = App.useApp()
-  const navigate = useNavigate()
   const providers = useAppStore((s) => s.providers)
   const imageGallery = useAppStore((s) => s.imageGallery)
   const imageDemoForm = useAppStore((s) => s.imageDemoForm)
@@ -40,33 +33,52 @@ export default function ImageDemoPage() {
   const addImage = useAppStore((s) => s.addImage)
   const deleteImage = useAppStore((s) => s.deleteImage)
 
-  // 仅展示「文生图」且启用的节点
   const imageNodes = useMemo(
     () => providers.filter((p) => p.nodeType === 'image' && p.enabled),
     [providers],
   )
 
-  // 运行态（仅内存，不持久化）
   const [phase, setPhase] = useState<Phase>('idle')
   const [statusText, setStatusText] = useState('')
-  const [preview, setPreview] = useState<string | null>(null)
+  const [currentImage, setCurrentImage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-  // 调试信息：后端实际发给 ModelScope 的 payload + ModelScope 各阶段返回的响应
+  const [selectedImages, setSelectedImages] = useState<File[]>([])
   const [debugPayload, setDebugPayload] = useState<string>('')
   const [debugResponses, setDebugResponses] = useState<string>('')
   const acRef = useRef<AbortController | null>(null)
+  const promptRef = useRef<HTMLTextAreaElement>(null)
 
-  // 卸载时取消进行中的请求
   useEffect(() => () => acRef.current?.abort(), [])
 
-  // 若选中节点已被删除/改为文本类型，则视为未选（派生而非 effect 重置，避免 setState-in-effect）
   const selectedNode: ProviderNode | undefined = imageNodes.find((n) => n.id === imageDemoForm.nodeId)
   const effectiveNodeId = selectedNode ? imageDemoForm.nodeId : undefined
   const isModelScope = imageDemoForm.provider === 'modelscope'
+  const supportsEdit = selectedNode?.supportsImageEdit ?? false
 
-  // 表单 patch 写入 store（持久化）。setFields 会触发 settings 回写的 debounce。
   const setForm = (patch: Partial<typeof imageDemoForm>) =>
     setState({ imageDemoForm: { ...imageDemoForm, ...patch } })
+
+  // 粘贴图片监听
+  useEffect(() => {
+    if (!supportsEdit) return
+    const handlePaste = (e: ClipboardEvent) => {
+      const items = e.clipboardData?.items
+      if (!items) return
+      const imageFiles: File[] = []
+      for (let i = 0; i < items.length; i++) {
+        if (items[i].type.startsWith('image/')) {
+          const file = items[i].getAsFile()
+          if (file) imageFiles.push(file)
+        }
+      }
+      if (imageFiles.length > 0) {
+        setSelectedImages((prev) => [...prev, ...imageFiles])
+        message.success(`已粘贴 ${imageFiles.length} 张图片`)
+      }
+    }
+    document.addEventListener('paste', handlePaste)
+    return () => document.removeEventListener('paste', handlePaste)
+  }, [supportsEdit, message])
 
   const handleGenerate = async () => {
     if (!selectedNode) {
@@ -77,20 +89,37 @@ export default function ImageDemoPage() {
       message.warning('请输入文生图 prompt')
       return
     }
-    // 取消上一次请求（若有）
     acRef.current?.abort()
     const ac = new AbortController()
     acRef.current = ac
 
     setPhase('idle')
     setStatusText('')
-    setPreview(null)
+    setCurrentImage(null)
     setError(null)
     setDebugPayload('')
     setDebugResponses('')
 
-    // 仅 ModelScope 透传分辨率 size（resolution 字符串即 ModelScope 的 size 字段）
     const size = isModelScope ? imageDemoForm.resolution : undefined
+
+    // 转换图片为 Base64
+    const imageInputs: string[] = []
+    if (supportsEdit && selectedImages.length > 0) {
+      for (const file of selectedImages) {
+        try {
+          const dataUrl = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader()
+            reader.onload = () => resolve(reader.result as string)
+            reader.onerror = reject
+            reader.readAsDataURL(file)
+          })
+          imageInputs.push(dataUrl)
+        } catch (e) {
+          message.error(`图片读取失败：${e instanceof Error ? e.message : String(e)}`)
+          return
+        }
+      }
+    }
 
     try {
       await generateImage(
@@ -104,21 +133,21 @@ export default function ImageDemoPage() {
           ...(typeof imageDemoForm.steps === 'number' && imageDemoForm.steps > 0 ? { steps: imageDemoForm.steps } : {}),
           ...(typeof imageDemoForm.guidance === 'number' ? { guidance: imageDemoForm.guidance } : {}),
           ...(typeof imageDemoForm.seed === 'number' ? { seed: imageDemoForm.seed } : {}),
+          ...(imageInputs.length > 0 ? { imageInputs } : {}),
         },
         {
           submitted: ({ taskId }) => {
             setPhase('submitted')
-            setStatusText(`任务 ${taskId.slice(0, 12)}… 已提交，等待排队`)
+            setStatusText(`任务 ${taskId.slice(0, 12)}… 已提交`)
           },
           polling: ({ status, attempt }) => {
             setPhase('polling')
             setStatusText(`${status}（第 ${attempt} 次轮询）`)
           },
           done: ({ image: dataUrl }) => {
-            setPreview(dataUrl)
+            setCurrentImage(dataUrl)
             setPhase('done')
             setStatusText('')
-            // 落入历史库（持久化到 SQLite image_gallery 表）
             addImage({
               id: genId('img'),
               dataUrl,
@@ -134,11 +163,9 @@ export default function ImageDemoPage() {
             })
           },
           debug: ({ stage, payload, response, error: dbgError }) => {
-            // payload 仅在 submit/fetchImage 阶段有；展示后端实际发给 ModelScope 的请求体
             if (payload !== undefined) {
               setDebugPayload(JSON.stringify(payload, null, 2))
             }
-            // 响应体逐次追加，带时间戳与阶段标记，便于看完整轮询过程
             const ts = new Date().toLocaleTimeString()
             const respBlock = response !== undefined ? JSON.stringify(response, null, 2) : '(无响应体)'
             const errLine = dbgError ? `\n  ⚠ ${dbgError}` : ''
@@ -178,315 +205,410 @@ export default function ImageDemoPage() {
     document.body.removeChild(a)
   }
 
+  const handleFileSelect = (file: File) => {
+    setSelectedImages((prev) => [...prev, file])
+    return false // 阻止自动上传
+  }
+
+  const removeImage = (index: number) => {
+    setSelectedImages((prev) => prev.filter((_, i) => i !== index))
+  }
+
   const busy = phase === 'submitted' || phase === 'polling'
+  const displayImage = currentImage || (imageGallery.length > 0 ? imageGallery[0].dataUrl : null)
 
   return (
-    <Space direction="vertical" size={16} style={{ width: '100%' }}>
-      <Card title={<Space><PictureOutlined /> 文生图 Demo</Space>}>
-        <Typography.Paragraph type="secondary" style={{ marginBottom: 16 }}>
-          选择标记为「文生图」的节点 + 服务商（当前仅 ModelScope），输入 prompt 生成图片。
-          文生图节点需在
-          <Typography.Link onClick={() => navigate('/settings')}> 系统设置 </Typography.Link>
-          中新建并填写 Token、模型（如 Tongyi-MAI/Z-Image-Turbo）、Base URL。
-          已选的节点 / Prompt / 分辨率与生成历史会自动保存，切换页面或重启后不丢失。
-        </Typography.Paragraph>
-
-        <Row gutter={16}>
-          <Col span={8}>
-            <Typography.Text type="secondary">服务商</Typography.Text>
-            <Select
-              style={{ width: '100%', marginTop: 4 }}
-              value={imageDemoForm.provider}
-              onChange={(v) => setForm({ provider: v })}
-              options={PROVIDERS}
-            />
-          </Col>
-          <Col span={isModelScope ? 8 : 16}>
-            <Typography.Text type="secondary">
-              文生图节点{selectedNode ? `（模型：${selectedNode.model || '—'}）` : ''}
-            </Typography.Text>
-            <Select
-              style={{ width: '100%', marginTop: 4 }}
-              value={effectiveNodeId}
-              onChange={(v) => setForm({ nodeId: v })}
-              placeholder="选择文生图节点"
-              allowClear
-              notFoundContent={
-                <Empty
-                  image={Empty.PRESENTED_IMAGE_SIMPLE}
-                  description="无可用文生图节点"
-                  style={{ margin: '8px 0' }}
-                />
-              }
-              options={imageNodes.map((p) => ({
-                value: p.id,
-                label: `${p.name} · ${p.model || '（未设模型）'}`,
-              }))}
-            />
-          </Col>
-          {isModelScope && (
-            <Col span={8}>
-              <Typography.Text type="secondary">分辨率</Typography.Text>
+    <div style={{ display: 'flex', height: 'calc(100vh - 80px)', overflow: 'hidden', background: '#0d1117' }}>
+      {/* 中间主画廊区 */}
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', position: 'relative' }}>
+        {/* 顶部选择器 */}
+        <div style={{ padding: '16px 24px', borderBottom: '1px solid #30363d', background: '#161b22' }}>
+          <Space size="middle">
+            <div>
+              <Typography.Text style={{ color: '#8b949e', fontSize: 12, display: 'block', marginBottom: 4 }}>节点</Typography.Text>
               <Select
-                style={{ width: '100%', marginTop: 4 }}
-                value={imageDemoForm.resolution}
-                onChange={(v) => setForm({ resolution: v })}
-                options={RESOLUTIONS}
+                style={{ width: 240 }}
+                value={effectiveNodeId}
+                onChange={(v) => setForm({ nodeId: v })}
+                placeholder="选择文生图节点"
+                options={imageNodes.map((p) => ({
+                  value: p.id,
+                  label: `${p.name}${p.supportsImageEdit ? ' 🖼️' : ''}`,
+                }))}
               />
-            </Col>
-          )}
-        </Row>
-
-        <div style={{ marginTop: 16 }}>
-          <Typography.Text type="secondary">Prompt</Typography.Text>
-          <Input.TextArea
-            value={imageDemoForm.prompt}
-            onChange={(e) => setForm({ prompt: e.target.value })}
-            autoSize={{ minRows: 4, maxRows: 10 }}
-            placeholder="描述要生成的图片，如：A golden cat"
-            disabled={busy}
-            style={{ marginTop: 4 }}
-          />
+            </div>
+            {isModelScope && (
+              <div>
+                <Typography.Text style={{ color: '#8b949e', fontSize: 12, display: 'block', marginBottom: 4 }}>分辨率</Typography.Text>
+                <Select
+                  style={{ width: 180 }}
+                  value={imageDemoForm.resolution}
+                  onChange={(v) => setForm({ resolution: v })}
+                  options={RESOLUTIONS}
+                />
+              </div>
+            )}
+          </Space>
         </div>
 
-        {/* 可选参数（ModelScope）：反向提示词 / 步数 / 引导系数 / 种子。折叠默认展开。 */}
-        {isModelScope && (
-          <Collapse
-            defaultActiveKey={['adv']}
-            style={{ marginTop: 16 }}
-            items={[
-              {
-                key: 'adv',
-                label: '可选参数（negative_prompt / steps / guidance / seed）',
-                children: (
-                  <Space direction="vertical" size={12} style={{ width: '100%' }}>
-                    <div>
-                      <Typography.Text type="secondary">反向提示词（negative_prompt）</Typography.Text>
-                      <Input.TextArea
-                        value={imageDemoForm.negativePrompt ?? ''}
-                        onChange={(e) => setForm({ negativePrompt: e.target.value })}
-                        autoSize={{ minRows: 2, maxRows: 6 }}
-                        placeholder="描述要避免的内容，如：lowres, bad anatomy"
-                        disabled={busy}
-                        style={{ marginTop: 4 }}
-                      />
-                    </div>
-                    <Row gutter={16}>
-                      <Col span={8}>
-                        <Typography.Text type="secondary">采样步数 steps</Typography.Text>
-                        <InputNumber
-                          style={{ width: '100%', marginTop: 4 }}
-                          min={1}
-                          max={100}
-                          value={imageDemoForm.steps}
-                          onChange={(v) => setForm({ steps: v ?? undefined })}
-                          placeholder="如 9（Z-Image-Turbo 默认）"
-                          disabled={busy}
-                        />
-                      </Col>
-                      <Col span={8}>
-                        <Typography.Text type="secondary">引导系数 guidance</Typography.Text>
-                        <InputNumber
-                          style={{ width: '100%', marginTop: 4 }}
-                          min={0}
-                          max={20}
-                          step={0.5}
-                          value={imageDemoForm.guidance}
-                          onChange={(v) => setForm({ guidance: v ?? undefined })}
-                          placeholder="如 4.0"
-                          disabled={busy}
-                        />
-                      </Col>
-                      <Col span={8}>
-                        <Typography.Text type="secondary">随机种子 seed</Typography.Text>
-                        <Space.Compact style={{ width: '100%', marginTop: 4 }}>
-                          <InputNumber
-                            style={{ width: 'calc(100% - 32px)' }}
-                            min={0}
-                            value={imageDemoForm.seed}
-                            onChange={(v) => setForm({ seed: v ?? undefined })}
-                            placeholder="留空=随机"
-                            disabled={busy}
-                          />
-                          <Button
-                            icon={<ReloadOutlined />}
-                            disabled={busy}
-                            onClick={() => setForm({ seed: Math.floor(Math.random() * 1_000_000) })}
-                            title="随机生成一个种子"
-                          />
-                        </Space.Compact>
-                      </Col>
-                    </Row>
-                    <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                      以上参数留空则不发送，由 ModelScope 使用模型默认值。参数会随表单自动保存。
-                    </Typography.Text>
-                  </Space>
-                ),
-              },
-            ]}
-          />
-        )}
-
-        <Space style={{ marginTop: 16 }}>
-          {busy ? (
-            <Button danger onClick={handleCancel}>
-              取消
-            </Button>
+        {/* 主图展示区 */}
+        <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24, position: 'relative', overflow: 'auto' }}>
+          {displayImage ? (
+            <div style={{ position: 'relative', maxWidth: '100%', maxHeight: '100%' }}>
+              <img
+                src={displayImage}
+                alt="生成结果"
+                style={{ maxWidth: '100%', maxHeight: '70vh', borderRadius: 12, display: 'block', boxShadow: '0 10px 40px rgba(0,0,0,0.5)' }}
+              />
+              {busy && (
+                <div style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  background: 'rgba(0,0,0,0.7)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  borderRadius: 12,
+                }}>
+                  <div style={{
+                    width: 40,
+                    height: 40,
+                    border: '3px solid rgba(88,166,255,0.3)',
+                    borderTop: '3px solid #58a6ff',
+                    borderRadius: '50%',
+                    animation: 'spin 1s linear infinite',
+                  }} />
+                  <Typography.Text style={{ color: '#c9d1d9', marginTop: 12 }}>正在生成新画面...</Typography.Text>
+                </div>
+              )}
+            </div>
           ) : (
-            <Button
-              type="primary"
-              icon={<PictureOutlined />}
-              onClick={handleGenerate}
-              disabled={!selectedNode || !imageDemoForm.prompt.trim()}
-            >
-              生成
-            </Button>
+            <div style={{ textAlign: 'center', opacity: 0.3 }}>
+              <PictureOutlined style={{ fontSize: 64, color: '#8b949e', marginBottom: 16 }} />
+              <Typography.Text style={{ color: '#8b949e', display: 'block' }}>选择节点，描述你想看到的画面</Typography.Text>
+            </div>
           )}
-          {busy && (
-            <Tag color="processing" style={{ marginLeft: 8 }}>
-              {PHASE_TEXT[phase]} {statusText && <span style={{ opacity: 0.8 }}>· {statusText}</span>}
-            </Tag>
+        </div>
+
+        {/* 输入区 */}
+        <div style={{ padding: '0 24px 24px', borderTop: '1px solid #30363d' }}>
+          {/* 图片预览 */}
+          {supportsEdit && selectedImages.length > 0 && (
+            <div style={{ marginBottom: 12, padding: 12, background: '#161b22', borderRadius: 8, border: '1px solid #30363d' }}>
+              <Space wrap size={8}>
+                {selectedImages.map((file, idx) => (
+                  <div key={idx} style={{ position: 'relative', width: 80, height: 80 }}>
+                    <img
+                      src={URL.createObjectURL(file)}
+                      alt=""
+                      style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 6 }}
+                    />
+                    <Button
+                      size="small"
+                      type="text"
+                      danger
+                      icon={<CloseOutlined />}
+                      style={{ position: 'absolute', top: 2, right: 2, background: 'rgba(0,0,0,0.6)' }}
+                      onClick={() => removeImage(idx)}
+                    />
+                  </div>
+                ))}
+              </Space>
+            </div>
           )}
-        </Space>
-      </Card>
 
-      {error && (
-        <Alert
-          type="error"
-          showIcon
-          message="生成失败"
-          description={error}
-          closable
-          onClose={() => setError(null)}
-        />
-      )}
-
-      {/* 本次生成的即时预览（运行中） */}
-      {(busy || preview) && (
-        <Card title="本次生成">
-          {preview ? (
-            <img
-              src={preview}
-              alt="生成结果"
-              style={{ maxWidth: '100%', maxHeight: '70vh', borderRadius: 8, display: 'block' }}
+          <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
+            {supportsEdit && (
+              <Upload
+                accept="image/*"
+                multiple
+                beforeUpload={handleFileSelect}
+                showUploadList={false}
+              >
+                <Button icon={<UploadOutlined />} style={{ background: '#161b22', border: '1px solid #30363d', color: '#c9d1d9' }}>
+                  上传图片
+                </Button>
+              </Upload>
+            )}
+            <textarea
+              ref={promptRef}
+              value={imageDemoForm.prompt}
+              onChange={(e) => setForm({ prompt: e.target.value })}
+              placeholder={supportsEdit && selectedImages.length > 0 ? "描述你想对图片做的修改... (支持粘贴图片 Ctrl+V)" : "输入提示词描述你想要的画面..."}
+              disabled={busy}
+              rows={2}
+              style={{
+                flex: 1,
+                background: '#0d1117',
+                border: '1px solid #30363d',
+                borderRadius: 8,
+                padding: 12,
+                color: '#c9d1d9',
+                fontSize: 14,
+                resize: 'none',
+                fontFamily: 'inherit',
+              }}
             />
-          ) : (
-            <Empty description={PHASE_TEXT[phase]} />
+            {busy ? (
+              <Button danger onClick={handleCancel} style={{ height: 56 }}>
+                取消
+              </Button>
+            ) : (
+              <Button
+                type="primary"
+                icon={<PictureOutlined />}
+                onClick={handleGenerate}
+                disabled={!selectedNode || !imageDemoForm.prompt.trim()}
+                style={{ height: 56, background: '#1f6feb', borderColor: '#1f6feb' }}
+              >
+                生成
+              </Button>
+            )}
+          </div>
+          {busy && (
+            <div style={{ marginTop: 8, color: '#8b949e', fontSize: 13 }}>
+              {PHASE_TEXT[phase]} {statusText && <span>· {statusText}</span>}
+            </div>
           )}
-        </Card>
-      )}
+          {error && (
+            <div style={{ marginTop: 8, padding: 12, background: '#da3633', color: '#fff', borderRadius: 6, fontSize: 13 }}>
+              生成失败：{error}
+            </div>
+          )}
+        </div>
 
-      {/* 调试信息：后端实际发给 ModelScope 的 payload + ModelScope 各阶段返回的响应。
-          排障核心——出错时可直接看到 HTTP 错误码与服务端原始响应体。 */}
-      {(debugPayload || debugResponses || busy) && (
-        <Card
-          title="调试信息"
-          extra={
-            (debugPayload || debugResponses) && (
-              <Button size="small" onClick={() => { setDebugPayload(''); setDebugResponses('') }}>
-                清空
-              </Button>
-            )
-          }
-        >
-          <Row gutter={16}>
-            <Col span={12}>
-              <Typography.Text type="secondary">后端发送的 Payload（发给 ModelScope）</Typography.Text>
-              <Input.TextArea
-                value={debugPayload}
-                readOnly
-                autoSize={{ minRows: 8, maxRows: 20 }}
-                placeholder="点击「生成」后这里显示后端实际发给 ModelScope 的 JSON payload"
-                style={{ marginTop: 4, fontFamily: 'ui-monospace, Consolas, monospace', fontSize: 12 }}
-              />
-            </Col>
-            <Col span={12}>
-              <Typography.Text type="secondary">ModelScope 返回的响应（提交 + 轮询追加）</Typography.Text>
-              <Input.TextArea
-                value={debugResponses}
-                readOnly
-                autoSize={{ minRows: 8, maxRows: 20 }}
-                placeholder="点击「生成」后这里按时间顺序追加 ModelScope 的返回响应（task_id、轮询状态、图片 URL 等）"
-                style={{ marginTop: 4, fontFamily: 'ui-monospace, Consolas, monospace', fontSize: 12 }}
-              />
-            </Col>
-          </Row>
-        </Card>
-      )}
+        {/* 底部缩略图栏 */}
+        <div style={{ padding: '12px 24px', borderTop: '1px solid #30363d', background: '#161b22', overflowX: 'auto', overflowY: 'hidden' }}>
+          <div style={{ display: 'flex', gap: 8 }}>
+            {imageGallery.map((img) => (
+              <div
+                key={img.id}
+                style={{
+                  position: 'relative',
+                  width: 80,
+                  height: 80,
+                  flexShrink: 0,
+                  cursor: 'pointer',
+                  border: currentImage === img.dataUrl ? '2px solid #58a6ff' : '2px solid transparent',
+                  borderRadius: 6,
+                  overflow: 'hidden',
+                }}
+                onClick={() => setCurrentImage(img.dataUrl)}
+              >
+                <img src={img.dataUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
 
-      {/* 历史图片（持久化，可逐张删除） */}
-      <Card
-        title={`生成历史（${imageGallery.length}）`}
-        extra={
-          imageGallery.length > 0 && (
-            <Popconfirm
-              title="清空全部历史"
-              description="将删除全部生成图片，此操作不可撤销。"
-              okText="清空"
-              okButtonProps={{ danger: true }}
-              cancelText="取消"
-              onConfirm={() => imageGallery.forEach((i) => deleteImage(i.id))}
-            >
-              <Button danger icon={<DeleteOutlined />}>
-                清空全部
-              </Button>
-            </Popconfirm>
-          )
-        }
-      >
-        {imageGallery.length === 0 ? (
-          <Empty description="尚未生成图片" />
-        ) : (
-          <Row gutter={[16, 16]}>
-            {imageGallery.map((img) => {
-              const resLabel = img.size
-                ? img.size
-                : img.width && img.height
-                  ? `${img.width}×${img.height}`
-                  : '默认尺寸'
-              return (
-                <Col key={img.id} xs={24} sm={12} md={8} lg={6}>
-                  <Card
-                    size="small"
-                    cover={<Image src={img.dataUrl} alt={img.prompt} style={{ objectFit: 'contain', maxHeight: 280, background: '#fafafa' }} />}
-                    actions={[
+      {/* 右侧设置面板 */}
+      <div style={{ width: 320, background: '#161b22', borderLeft: '1px solid #30363d', overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
+        <div style={{ padding: 16, flex: 1 }}>
+          <Typography.Title level={5} style={{ color: '#c9d1d9', marginBottom: 16 }}>参数设置</Typography.Title>
+
+          <div style={{ marginBottom: 16 }}>
+            <Typography.Text style={{ color: '#8b949e', fontSize: 12, display: 'block', marginBottom: 4 }}>反向提示词</Typography.Text>
+            <textarea
+              value={imageDemoForm.negativePrompt ?? ''}
+              onChange={(e) => setForm({ negativePrompt: e.target.value })}
+              placeholder="描述要避免的内容"
+              disabled={busy}
+              rows={3}
+              style={{
+                width: '100%',
+                background: '#0d1117',
+                border: '1px solid #30363d',
+                borderRadius: 6,
+                padding: 8,
+                color: '#c9d1d9',
+                fontSize: 13,
+                resize: 'none',
+                fontFamily: 'inherit',
+              }}
+            />
+          </div>
+
+          {isModelScope && (
+            <>
+              <div style={{ marginBottom: 16 }}>
+                <Typography.Text style={{ color: '#8b949e', fontSize: 12, display: 'block', marginBottom: 4 }}>采样步数</Typography.Text>
+                <input
+                  type="number"
+                  value={imageDemoForm.steps ?? ''}
+                  onChange={(e) => setForm({ steps: e.target.value ? parseInt(e.target.value) : undefined })}
+                  placeholder="如 9"
+                  disabled={busy}
+                  min={1}
+                  max={100}
+                  style={{
+                    width: '100%',
+                    background: '#0d1117',
+                    border: '1px solid #30363d',
+                    borderRadius: 6,
+                    padding: 8,
+                    color: '#c9d1d9',
+                    fontSize: 13,
+                  }}
+                />
+              </div>
+
+              <div style={{ marginBottom: 16 }}>
+                <Typography.Text style={{ color: '#8b949e', fontSize: 12, display: 'block', marginBottom: 4 }}>引导系数</Typography.Text>
+                <input
+                  type="number"
+                  value={imageDemoForm.guidance ?? ''}
+                  onChange={(e) => setForm({ guidance: e.target.value ? parseFloat(e.target.value) : undefined })}
+                  placeholder="如 4.0"
+                  disabled={busy}
+                  step={0.5}
+                  style={{
+                    width: '100%',
+                    background: '#0d1117',
+                    border: '1px solid #30363d',
+                    borderRadius: 6,
+                    padding: 8,
+                    color: '#c9d1d9',
+                    fontSize: 13,
+                  }}
+                />
+              </div>
+
+              <div style={{ marginBottom: 16 }}>
+                <Typography.Text style={{ color: '#8b949e', fontSize: 12, display: 'block', marginBottom: 4 }}>随机种子</Typography.Text>
+                <input
+                  type="number"
+                  value={imageDemoForm.seed ?? ''}
+                  onChange={(e) => setForm({ seed: e.target.value ? parseInt(e.target.value) : undefined })}
+                  placeholder="留空=随机"
+                  disabled={busy}
+                  min={0}
+                  style={{
+                    width: '100%',
+                    background: '#0d1117',
+                    border: '1px solid #30363d',
+                    borderRadius: 6,
+                    padding: 8,
+                    color: '#c9d1d9',
+                    fontSize: 13,
+                  }}
+                />
+              </div>
+            </>
+          )}
+
+          {(debugPayload || debugResponses) && (
+            <>
+              <Typography.Title level={5} style={{ color: '#c9d1d9', marginTop: 24, marginBottom: 12 }}>调试信息</Typography.Title>
+              <div style={{ marginBottom: 12 }}>
+                <Typography.Text style={{ color: '#8b949e', fontSize: 11 }}>Payload</Typography.Text>
+                <pre style={{
+                  background: '#0d1117',
+                  border: '1px solid #30363d',
+                  borderRadius: 6,
+                  padding: 8,
+                  fontSize: 11,
+                  color: '#c9d1d9',
+                  maxHeight: 150,
+                  overflow: 'auto',
+                  fontFamily: 'monospace',
+                  whiteSpace: 'pre-wrap',
+                  wordBreak: 'break-all',
+                }}>
+                  {debugPayload || '—'}
+                </pre>
+              </div>
+              <div>
+                <Typography.Text style={{ color: '#8b949e', fontSize: 11 }}>Response</Typography.Text>
+                <pre style={{
+                  background: '#0d1117',
+                  border: '1px solid #30363d',
+                  borderRadius: 6,
+                  padding: 8,
+                  fontSize: 11,
+                  color: '#c9d1d9',
+                  maxHeight: 200,
+                  overflow: 'auto',
+                  fontFamily: 'monospace',
+                  whiteSpace: 'pre-wrap',
+                  wordBreak: 'break-all',
+                }}>
+                  {debugResponses || '—'}
+                </pre>
+              </div>
+            </>
+          )}
+        </div>
+
+        {/* 底部历史管理 */}
+        <div style={{ padding: 16, borderTop: '1px solid #30363d' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+            <Typography.Text style={{ color: '#c9d1d9', fontSize: 14 }}>生成历史 ({imageGallery.length})</Typography.Text>
+            {imageGallery.length > 0 && (
+              <Popconfirm
+                title="清空全部历史？"
+                okText="清空"
+                okButtonProps={{ danger: true }}
+                cancelText="取消"
+                onConfirm={() => imageGallery.forEach((i) => deleteImage(i.id))}
+              >
+                <Button size="small" danger icon={<DeleteOutlined />} style={{ fontSize: 12 }}>
+                  清空
+                </Button>
+              </Popconfirm>
+            )}
+          </div>
+          {imageGallery.length === 0 ? (
+            <Typography.Text style={{ color: '#8b949e', fontSize: 12 }}>尚未生成图片</Typography.Text>
+          ) : (
+            <div style={{ maxHeight: 200, overflowY: 'auto' }}>
+              <Space direction="vertical" size={8} style={{ width: '100%' }}>
+                {imageGallery.slice(0, 10).map((img) => (
+                  <div key={img.id} style={{ display: 'flex', gap: 8, alignItems: 'center', padding: 8, background: '#0d1117', borderRadius: 6, border: '1px solid #30363d' }}>
+                    <img src={img.dataUrl} alt="" style={{ width: 40, height: 40, objectFit: 'cover', borderRadius: 4 }} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <Typography.Text ellipsis style={{ color: '#c9d1d9', fontSize: 12, display: 'block' }}>
+                        {img.prompt.slice(0, 30)}...
+                      </Typography.Text>
+                      <Typography.Text style={{ color: '#8b949e', fontSize: 11 }}>
+                        {img.size || '默认'}
+                      </Typography.Text>
+                    </div>
+                    <Space size={4}>
                       <Button
-                        key="download"
-                        type="text"
                         size="small"
+                        type="text"
                         icon={<DownloadOutlined />}
-                        onClick={() => downloadImage(img.dataUrl, `image-demo-${img.id}`)}
-                      />,
+                        onClick={() => downloadImage(img.dataUrl, `image-${img.id}`)}
+                        style={{ color: '#8b949e' }}
+                      />
                       <Popconfirm
-                        key="delete"
-                        title="删除这张图片？"
+                        title="删除？"
                         okText="删除"
                         okButtonProps={{ danger: true }}
                         cancelText="取消"
                         onConfirm={() => deleteImage(img.id)}
                       >
-                        <Button type="text" size="small" danger icon={<DeleteOutlined />} />
-                      </Popconfirm>,
-                    ]}
-                  >
-                    <Typography.Paragraph
-                      type="secondary"
-                      ellipsis={{ rows: 2, tooltip: img.prompt }}
-                      style={{ marginBottom: 4, fontSize: 12 }}
-                    >
-                      {img.prompt}
-                    </Typography.Paragraph>
-                    <Space size={4} wrap>
-                      <Tag style={{ marginRight: 0 }}>{resLabel}</Tag>
-                      <Tag color="blue" style={{ marginRight: 0 }}>{img.modelName}</Tag>
+                        <Button size="small" type="text" danger icon={<DeleteOutlined />} style={{ color: '#da3633' }} />
+                      </Popconfirm>
                     </Space>
-                  </Card>
-                </Col>
-              )
-            })}
-          </Row>
-        )}
-      </Card>
-    </Space>
+                  </div>
+                ))}
+              </Space>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <style>{`
+        @keyframes spin {
+          to { transform: rotate(360deg); }
+        }
+      `}</style>
+    </div>
   )
 }

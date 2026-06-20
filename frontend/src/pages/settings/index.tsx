@@ -1192,6 +1192,15 @@ export default function SettingsPage() {
               ]}
             />
           </Form.Item>
+          <Form.Item shouldUpdate={(prev, cur) => prev.nodeType !== cur.nodeType} noStyle>
+            {({ getFieldValue }) =>
+              getFieldValue('nodeType') === 'image' ? (
+                <Form.Item name="supportsImageEdit" label="图片编辑" valuePropName="checked" extra="开启后该节点可进行图片编辑（Image2Image）">
+                  <Switch />
+                </Form.Item>
+              ) : null
+            }
+          </Form.Item>
           <Form.Item name="baseURL" label="Base URL" rules={[{ required: true }]}>
             <Input placeholder="http://127.0.0.1:8080/v1" />
           </Form.Item>

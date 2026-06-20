@@ -204,6 +204,8 @@ export interface ProviderNode {
   usageLeft?: number
   /** 上次重置剩余次数的日期 YYYY-MM-DD（本地自然日） */
   usageResetDate?: string
+  /** 是否支持图片编辑（Image2Image）功能，仅文生图节点有效 */
+  supportsImageEdit?: boolean
 }
 
 export type ModuleKey =

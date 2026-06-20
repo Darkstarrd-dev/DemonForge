@@ -16,6 +16,8 @@ export interface ImageGenParams {
   seed?: number
   /** 反向提示词，可选 */
   negativePrompt?: string
+  /** 输入图片列表（Base64 data URL），用于图片编辑（Image2Image） */
+  imageInputs?: string[]
 }
 
 /** 调试事件载荷：展示后端发给 ModelScope 的 payload 与各阶段返回的原始响应 */

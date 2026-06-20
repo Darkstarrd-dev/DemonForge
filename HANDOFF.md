@@ -25,24 +25,47 @@
 
 ## 项目状态快照
 
-- **最后更新**：2026-06-20（第四十五次会话·**5项UI优化完成**）
+- **最后更新**：2026-06-20（第四十六次会话·**文生图图片编辑功能完成**）
 - **阶段**：正式开发——M1 AI 清理端到端跑通；**novel-generator 集成阶段 A~D 全部完成**；**Electron 迁移完成**；M2–M5 仍 mock；业务数据 SQLite 资产库（可配置资产目录），Provider/密钥等设置存用户数据目录
-- **新增**：**5项UI优化完成** ✅（详见下方本轮新增）：
-  ① 修正测试弹窗清理提示词显示问题 ✅
-  ② 节点池同baseURL节点折叠展开功能 ✅
-  ③ 页面响应式布局改善 ✅
-  ④ 修复M1 Step4小分辨率布局破坏 ✅
-  ⑤ 优化节点池表格列结构 ✅
-- **验证**：前端 build待验证（代码修改完成）
-- **摘要**：本次会话完成5项UI优化 + 2个修复，全面提升响应式体验和节点池可用性：
-  - 测试弹窗清理提示词显示占位提示
-  - 节点池按baseURL自动分组并支持折叠
-  - 全局页面响应式布局（滚动容器、Modal自适应宽度、表格固定列+横向滚动）
-  - M1 Step4添加滚动容器和响应式列布局
-  - 节点池表格优化（去除名称/BaseURL/并发批次间隔三列、使用组名称、M1 Step3显示"组名+模型"）
-  - 修复M1 Step4 JSX结构错误（多余的`</Row>`标签）
-  - 移除节点池"并发/批次/间隔"列
-     **本轮新增（第四十五次会话·5项UI优化）**：
+- **新增**：**文生图图片编辑功能 + UI重构完成** ✅（详见下方本轮新增）：
+  ① 节点池增加"图片编辑"开关 ✅
+  ② 文生图Demo支持图片输入（粘贴/上传/多图/预览） ✅
+  ③ 文生图Demo UI完全重构（参考freegen画廊式布局） ✅
+- **验证**：前端 build ✅（14.89s）/ 后端 build ✅
+- **摘要**：本次会话完成文生图Demo图片编辑功能全栈实现 + UI完全重构，影响5个文件：
+  - **节点池增强**：文生图节点新增"图片编辑"开关（`supportsImageEdit`），开启后可进行Image2Image
+  - **图片输入支持**：
+    - 支持 Ctrl+V 粘贴剪贴板图片（自动提取 ClipboardData）
+    - 支持点击按钮打开文件浏览器（Upload 组件）
+    - 支持多张图片（预览缩略图 + 单独删除）
+    - 前端转 Base64 data URL，通过 `imageInputs` 参数传给后端
+    - 后端拼入 ModelScope `image_url` 字段（数组格式）
+  - **UI完全重构**：参考 freegen 项目（`C:\Users\Houpy\Desktop\Zed\# OnePageApps\Pages\freegen`）
+    - 画廊式全屏布局：主图居中 + 右侧设置面板 + 底部缩略图栏
+    - GitHub Dark 配色（`#0d1117` / `#161b22` / `#30363d`）
+    - 生成中显示半透明蒙层 + 旋转动画
+    - 移除不需要的元素（注册/获取Key/API KEY输入/导入导出设置按钮）
+    - 保留核心功能（节点选择/参数/历史管理/调试信息）
+  - **详细文档**：新增 `docs/image_edit_feature.md`（使用说明/数据流/技术实现/测试建议）
+     **本轮新增（第四十六次会话·文生图图片编辑）**：
+     - ① **节点池"图片编辑"开关** ✅（`types.ts` + `settings/index.tsx`）：`ProviderNode` 新增 `supportsImageEdit?: boolean` 字段；节点编辑 Modal 中，当 `nodeType === 'image'` 时显示"图片编辑" Switch（extra 说明："开启后该节点可进行图片编辑（Image2Image）"）。normalizeProvider 自动补默认值 `false`。
+     - ② **文生图Demo图片输入** ✅（`image-demo/index.tsx` + `real/image.ts` + `imageClient.ts`）：
+       - 前端：新增 `selectedImages: File[]` state；document 全局粘贴监听（提取 `clipboardData.items` 中 `image/*` 类型）；Upload 组件 `beforeUpload` 返回 false 仅收集文件；预览区显示缩略图（80×80，右上角删除按钮）；生成时 FileReader 转 Base64 data URL；仅当 `selectedNode.supportsImageEdit === true` 时显示图片输入区。
+       - 类型：`ImageGenParams` / `ImageGenConfig` 新增 `imageInputs?: string[]` 字段（Base64 data URL 数组）。
+       - 后端：`imageClient.ts` 提交任务时判断 `cfg.imageInputs?.length > 0`，拼入 `submitBody.image_url = cfg.imageInputs`（ModelScope 接受数组格式）。
+     - ③ **文生图Demo UI完全重构** ✅（`image-demo/index.tsx` 480行完全重写）：
+       - **布局结构**：左右分栏（主画廊区 flex:1 + 右侧设置面板 320px），主画廊区垂直分层（顶部选择器 / 主图展示 flex:1 / 输入区 / 底部缩略图栏）。
+       - **顶部选择器**：节点下拉（支持编辑的节点名后显示 🖼️）+ 分辨率下拉（仅 ModelScope），灰色背景 `#161b22`，边框 `#30363d`。
+       - **主图展示区**：居中对齐，`maxWidth/maxHeight: 70vh`，圆角 12px，阴影 `0 10px 40px rgba(0,0,0,0.5)`；生成中显示半透明蒙层（`background: rgba(0,0,0,0.7)`）+ 旋转 loading 动画（40×40，边框渐变 `#58a6ff`）+ 提示文字。
+       - **图片预览区**：仅图片编辑模式显示（`supportsEdit && selectedImages.length > 0`），灰色面板 `#161b22`，横向 Space 布局，每张图 80×80 缩略图 + 右上角删除按钮（半透明黑底）。
+       - **输入区**：横向 flex 布局，上传按钮（仅图片编辑模式）+ textarea（flex:1，2行，背景 `#0d1117`）+ 生成/取消按钮（高度 56px）；下方显示进度状态（灰色小字）和错误信息（红色面板）。
+       - **底部缩略图栏**：横向滚动（`overflowX: auto`），每张 80×80，点击切换主图，当前图蓝色边框 `#58a6ff`。
+       - **右侧设置面板**：垂直分三区（参数设置 / 调试信息 / 生成历史），独立滚动（`overflowY: auto`），底部历史区固定（`borderTop` 分隔）。参数设置：反向提示词 textarea + 步数/引导/种子 number input（深色背景 `#0d1117`，边框 `#30363d`）。调试信息：Payload/Response 两个 pre 块（monospace，`maxHeight` 限高）。生成历史：最多显示 10 条，每条含缩略图 40×40 + 文字摘要 + 下载/删除按钮。
+       - **配色方案**：完全对齐 GitHub Dark（背景 `#0d1117` / 面板 `#161b22` / 边框 `#30363d` / 文字 `#c9d1d9` / 次要文字 `#8b949e` / 强调蓝 `#58a6ff` / 危险红 `#da3633`）。
+       - **移除元素**：注册/获取Key按钮 ❌、API KEY输入框 ❌、导入导出设置按钮 ❌（按需求明确移除）。
+       - **保留功能**：节点选择 ✅、参数设置 ✅、主图展示 ✅、缩略图栏 ✅、历史管理 ✅、调试信息 ✅。
+     - ④ **新增文档** ✅（`docs/image_edit_feature.md`）：完整实现文档，包含使用说明（创建节点/上传图片/查看结果）、数据流图（前端→后端→ModelScope）、技术细节（粘贴监听/Base64转换）、测试建议（5个场景）、文件清单、技术亮点、向后兼容、已知限制。
+     **历史新增（第四十五次会话·5项UI优化）**：
      - ① **测试弹窗清理提示词显示问题** ✅（`settings/index.tsx`）：测试节点 Modal 中清理提示词 TextArea，`value` 从 `m1SystemPrompt` 改为 `m1SystemPrompt || '（当前为空，将使用后端内置默认提示词）'`，空值时显示灰色占位文字（`color: m1SystemPrompt ? 'inherit' : 'var(--ant-color-text-tertiary)'`）。解决空白文本框困惑问题。
      - ② **节点池同baseURL节点折叠展开功能** ✅（`settings/index.tsx`）：新增 `groupExpanded` state（`Record<string, boolean>`，默认空对象 = 全部展开）；`groupedProviders` 按 `baseURL` 分组（`reduce`）；`toggleGroup` 函数切换展开/折叠；Table 渲染改为按分组循环：每组显示分组标题（灰色背景、点击切换展开、显示节点数 Tag）+ 节点列表（展开时或单节点时显示）。单节点不显示分组标题直接渲染。同URL多节点可折叠节省空间。
      - ③ **页面响应式布局改善** ✅（`settings/index.tsx`）：
@@ -459,19 +482,35 @@
 
 ## 交接备注（最近一次会话）
 
-- **日期**：2026-06-20（第四十三次会话·**M1 Step4 自动跳转 + 系统设置 Tab 布局 + 测试文本真实负载**）
-- **本次起因**：用户提出三个 UX 改进需求：① M1 Step4 点击章节后右侧对比视图自动跳转到第一处差异；② 系统设置改 Tab 横向布局避免长页滚动；③ 测试文本配置供节点测试使用真实负载（清理提示词+测试文本）。
-- **本次完成**（3 项纯前端增强）：
-  - ① **M1 Step4 自动跳转首个差异**：DiffView 新增 `autoScrollToFirstDiff` prop + useEffect 监听 rows 变化，查找第一个 `type !== 'context'` 的行，`setTimeout(0)` 等 DOM 渲染后调用 `scrollIntoView({ behavior: 'smooth', block: 'start' })`。Step4Review 显式传 `autoScrollToFirstDiff={true}`。无差异时 findIndex 返回 -1 提前 return，不报错。
-  - ② **系统设置改 Tab 横向布局**：外层从 `<Space direction="vertical">` 改为 `<Tabs>`，4 个 Tab（节点池与测试 / 高级配置 / 备份与恢复 / 数据管理）。Tab1「节点池与测试」包含：节点池表格（含 Tab 过滤文本/文生图 + 批量测试）+ 模块映射 + M1 清理提示词 + **测试文本（新 Card）**。Tab2「高级配置」：章节检测模式池 + 资产目录 + 界面设置。Tab3「备份与恢复」：设置导入导出 + 完整备份恢复。Tab4「数据管理」：演示数据重置。需导入 Tabs 组件。
-  - ③ **测试文本配置 + 真实负载测试**：appStore 新增 `m1TestText: string`（默认 200 字样本：`第一章 开端\n\n请加鹅鹅鹅群：12叁45陆7捌玖0（数字+谐音混淆）\n\n正文内容abcd1234efgh（模拟正文穿插数字碎片）\n主角心想："今天天气不错。"`），持久化到 settings.json（settingsPayload 追加 / bootstrapStore 合并 / 订阅判断）。设置页 Tab1 新增「测试文本」Card（extra：恢复默认/清空按钮；TextArea 失焦时 `setState({ m1TestText: draftTestText })`）。`probeOnce` 签名扩展为 `(node, content: string, systemPrompt: string)`，`runConcurrencyTest` 读取 `m1TestText` 和 `m1SystemPrompt` 传给 probeOnce，所有 `probeOnce(node)` 改为 `probeOnce(node, testText, systemPrompt)`。并发测试现在使用真实负载调用 `/api/llm/clean`，响应时间更准确反映节点实际承载能力。
-- **改动文件**（4 个）：
-  - `frontend/src/pages/m1-import/DiffView.tsx`（新增 prop + useEffect 滚动逻辑）
-  - `frontend/src/pages/m1-import/Step4Review.tsx`（DiffView 调用传 autoScrollToFirstDiff）
-  - `frontend/src/pages/settings/index.tsx`（Tab 布局重构 + 新增测试文本 Card + probeOnce/runConcurrencyTest 改造 + 新增 draftTestText state + 导入 Tabs）
-  - `frontend/src/store/appStore.ts`（新增 m1TestText 字段 + settingsPayload 追加 + bootstrapStore 合并 + 订阅判断）
-- **验证全过**：tsc --noEmit ✅ / eslint ✅ / vite build(720ms) ✅ / smoke(73) 全部通过 ✅
-- **下一步**：用户实机验证三项改进：① 点击待审核章节确认右侧对比视图自动滚动到首个差异；② 设置页 4 个 Tab 切换无需滚动全页；③ 节点池并发测试使用真实负载（查看探测日志确认包含清理提示词+测试文本，对比响应时间）
+- **日期**：2026-06-20（第四十六次会话·**文生图图片编辑功能完成**）
+- **本次起因**：用户提出三个需求：① 节点池新增"图片编辑"开关；② 文生图Demo支持图片输入（粘贴/上传/多图）；③ 参考 freegen 项目重构文生图Demo布局（画廊式，移除注册/API KEY/导入导出按钮）。
+- **本次完成**（全栈实现 + UI完全重构）：
+  - ① **节点池"图片编辑"开关**：`ProviderNode` 类型新增 `supportsImageEdit?: boolean` 字段；节点编辑 Modal 中，当节点类型为"文生图"时显示 Switch 开关，label="图片编辑"，extra 说明文字"开启后该节点可进行图片编辑（Image2Image）"。向后兼容：旧数据 `undefined` 视为 `false`。
+  - ② **文生图Demo图片输入支持**：
+    - **粘贴功能**：useEffect 监听 document 全局 `paste` 事件，提取 `clipboardData.items` 中所有 `image/*` 类型 item，调用 `getAsFile()` 收集到 `selectedImages` state，弹 `message.success` 反馈。
+    - **上传功能**：Upload 组件 `beforeUpload` 返回 `false` 阻止自动上传，仅收集文件到 state。
+    - **多图预览**：当 `supportsEdit && selectedImages.length > 0` 时显示预览区（灰色面板 `#161b22`），Space wrap 布局，每张图 80×80 缩略图 + 右上角删除按钮（半透明黑底 `rgba(0,0,0,0.6)`）。
+    - **Base64转换**：生成时遍历 `selectedImages`，用 FileReader 读取每张图转为 data URL（`reader.readAsDataURL(file)`），收集到 `imageInputs: string[]` 数组。
+    - **后端透传**：`ImageGenParams` / `ImageGenConfig` 新增 `imageInputs?: string[]` 字段；`imageClient.ts` 提交任务时判断 `cfg.imageInputs?.length > 0`，拼入 `submitBody.image_url = cfg.imageInputs`（ModelScope 接受 Base64 data URL 数组，格式 `["data:image/png;base64,...", ...]`）。
+    - **条件显示**：仅当 `selectedNode.supportsImageEdit === true` 时显示"上传图片"按钮和图片预览区；Prompt 占位符动态变化（有图时提示"描述你想对图片做的修改... (支持粘贴图片 Ctrl+V)"，无图时为默认文字）。
+  - ③ **文生图Demo UI完全重构**（参考 `C:\Users\Houpy\Desktop\Zed\# OnePageApps\Pages\freegen\index.html`）：
+    - **布局结构**：左右分栏（主画廊区 flex:1 + 右侧设置面板 320px），主画廊区垂直分五层（顶部选择器 / 主图展示区 flex:1 / 图片预览区 / 输入区 / 底部缩略图栏）。
+    - **视觉风格**：GitHub Dark 配色（`#0d1117` 背景 / `#161b22` 面板 / `#30363d` 边框 / `#c9d1d9` 主文字 / `#8b949e` 次要文字 / `#58a6ff` 强调蓝 / `#da3633` 危险红）。
+    - **主图展示**：居中对齐，`maxWidth/maxHeight: 70vh`，圆角 12px，阴影 `0 10px 40px rgba(0,0,0,0.5)`；生成中显示半透明蒙层 + 旋转 loading 动画（CSS `@keyframes spin`，40×40 圆环，边框渐变 `#58a6ff`）+ 提示文字"正在生成新画面..."。
+    - **输入区**：横向 flex 布局，上传按钮（仅图片编辑模式）+ textarea（flex:1，2行，深色背景 `#0d1117`，边框 `#30363d`）+ 生成/取消按钮（高度 56px，主按钮蓝色 `#1f6feb`）；下方显示进度状态（灰色小字）和错误提示（红色面板 `#da3633`）。
+    - **底部缩略图栏**：横向滚动（`overflowX: auto`），每张 80×80，点击切换主图，当前图蓝色边框 2px `#58a6ff`。
+    - **右侧设置面板**：垂直分三区（参数设置 / 调试信息 / 生成历史），独立滚动；参数设置：反向提示词 textarea + 步数/引导/种子 number input（深色背景，边框 `#30363d`）；调试信息：Payload/Response 两个 pre 块（monospace，灰色背景 `#0d1117`，maxHeight 限高滚动）；生成历史：最多显示 10 条，每条含缩略图 40×40 + 摘要（30字+省略号）+ 下载/删除按钮。
+    - **移除元素**（按需求）：注册按钮 ❌、获取Key按钮 ❌、API KEY输入框 ❌、导入导出设置按钮 ❌。
+    - **保留功能**：节点选择 ✅、分辨率选择 ✅、参数设置（反向提示词/步数/引导/种子）✅、主图展示 ✅、缩略图栏 ✅、历史管理（下载/删除/清空）✅、调试信息（Payload/Response）✅。
+  - ④ **新增文档**：`docs/image_edit_feature.md`（9 个章节：概述/三个需求详解/数据流图/使用说明/测试建议/文件清单/技术亮点/向后兼容/已知限制）。
+- **改动文件**（5 个）：
+  - `frontend/src/services/types.ts`（`ProviderNode` 新增 `supportsImageEdit` 字段）
+  - `frontend/src/services/real/image.ts`（`ImageGenParams` 新增 `imageInputs` 字段）
+  - `frontend/src/pages/settings/index.tsx`（节点编辑 Modal 新增"图片编辑" Switch，1187-1195行）
+  - `server/src/imageClient.ts`（`ImageGenConfig` 新增 `imageInputs` 字段，提交任务时拼 `image_url`，77-80行）
+  - `frontend/src/pages/image-demo/index.tsx`（**完全重写**，480行，画廊式布局 + 图片输入 + GitHub Dark 配色）
+- **验证全过**：前端 build(tsc+vite,14.89s) ✅ / 后端 build(tsc) ✅ / 无类型错误 ✅
+- **下一步**：用户实机验证三个功能：① 节点编辑时"图片编辑"开关显示正常；② 文生图Demo粘贴/上传图片功能正常（支持多图，预览可删除，调试信息显示 `image_url` 字段）；③ 新布局在不同分辨率下响应式正常（主图自适应，右侧面板滚动，底部缩略图横向滚动）
 
 ## 更新本文档的约定
 

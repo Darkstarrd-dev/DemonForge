@@ -17,6 +17,8 @@ export interface ImageGenConfig {
   seed?: number
   /** 反向提示词，描述要避免的内容 */
   negativePrompt?: string
+  /** 输入图片列表（Base64 data URL），用于图片编辑（Image2Image） */
+  imageInputs?: string[]
 }
 
 /** 规范化 baseURL：提取 origin，去尾斜杠（ModelScope 路径自拼 /v1） */
@@ -74,7 +76,7 @@ export async function generateImageModelScope<K extends ImageEventType>(
   const MAX_POLL_MS = 120_000
 
   // 1) 提交任务
-  // body 拼装：按 ModelScope 官方示例（prompt + size + steps + guidance + seed + negative_prompt）。
+  // body 拼装：按 ModelScope 官方示例（prompt + size + steps + guidance + seed + negative_prompt + image_url）。
   // 仅在前端显式提供某参数时透传，未传则由 ModelScope 用默认值。
   const submitBody: Record<string, unknown> = { model: cfg.model, prompt: cfg.prompt }
   if (cfg.size) submitBody.size = cfg.size
@@ -82,6 +84,8 @@ export async function generateImageModelScope<K extends ImageEventType>(
   if (typeof cfg.guidance === 'number') submitBody.guidance = cfg.guidance
   if (typeof cfg.seed === 'number') submitBody.seed = cfg.seed
   if (cfg.negativePrompt?.trim()) submitBody.negative_prompt = cfg.negativePrompt.trim()
+  // Image2Image：输入图片列表（Base64 data URL 数组），ModelScope 接受 image_url 字段
+  if (cfg.imageInputs && cfg.imageInputs.length > 0) submitBody.image_url = cfg.imageInputs
   const submitRes = await fetch(`${base}/v1/images/generations`, {
     method: 'POST',
     headers: {
