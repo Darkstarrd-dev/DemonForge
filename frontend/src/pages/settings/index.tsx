@@ -108,7 +108,7 @@ async function probeOnce(
 }
 
 export default function SettingsPage() {
-  const { message, modal } = App.useApp()
+  const { message } = App.useApp()
   const providers = useAppStore((s) => s.providers)
   const moduleMapping = useAppStore((s) => s.moduleMapping)
   const m1SystemPrompt = useAppStore((s) => s.m1SystemPrompt)
@@ -119,7 +119,6 @@ export default function SettingsPage() {
   const setSplitPatterns = useAppStore((s) => s.setSplitPatterns)
   const resetSplitPatterns = useAppStore((s) => s.resetSplitPatterns)
   const setState = useAppStore((s) => s.setState)
-  const resetDemo = useAppStore((s) => s.resetDemo)
   const [editing, setEditing] = useState<ProviderNode | null>(null)
   const [nodeTypeFilter, setNodeTypeFilter] = useState<ProviderNodeType>('text')
   const [batchTesting, setBatchTesting] = useState(false)
@@ -167,7 +166,7 @@ export default function SettingsPage() {
       enabled: true,
       lastTestResult: null,
       maxConcurrency: 2,
-      batchSize: 1,
+      batchChars: 10000,
       intervalSec: 0,
       usageLimitEnabled: false,
       usageLimit: 0,
@@ -548,7 +547,7 @@ export default function SettingsPage() {
       width: 140,
       render: (_: unknown, node: ProviderNode) => (
         <Typography.Text style={{ fontSize: 12 }}>
-          {node.maxConcurrency}核 · {node.batchSize}章/次 · {node.intervalSec}s
+          {node.maxConcurrency}核 · {Math.round(node.batchChars/1000)}K字 · {node.intervalSec}s
         </Typography.Text>
       ),
     },
@@ -763,12 +762,46 @@ export default function SettingsPage() {
                   <Space>
                     <Button
                       onClick={() => {
-                        const defaultText = `第一章 开端
+                        const defaultText = `[爱心]第1章
 
-请加鹅鹅鹅群：12叁45陆7捌玖0（数字+谐音混淆）
+　　中少女穿着巫女服，深棕色的长发，编成发辫垂在胸前，额头上沁出细密的汗珠。
+　　转她正在教夏川神乐舞。
+　　宭这是祭典前的完整排练，下周就要正式演出了。
+　　伞"这个转身要流畅...夏川君看好了。"
+　　柒三叶示范了一个旋转动作，巫女服的下摆扬起。
+　　易她转得很稳，脚步轻盈得像在飘。
+　　7夏川跟着做，但他的动作更...利落。
+　　2少了些柔美，多了种说不出的神圣与力量感。
+　　韭"不对不对..."
+　　幺三叶走到他身后，犹豫了一下，然后红着脸伸手扶住他的腰，"腰要这样转..."
+　　壹她的手很小，很软，隔着薄薄的衣物能感觉到温度。
+　　韭夏川能闻到她身上淡淡的香味，不是香水，是皂角混合着少女体香的味道。
 
-正文内容abcd1234efgh（模拟正文穿插数字碎片）
-主角心想："今天天气不错。"`
+
+　　"啊...是、是的..."
+　　三叶慌忙退开10016，心跳如71055小鹿乱撞一样不受控制。
+　　她低下头，手指绞着衣角，耳根红得滴血。
+
+　　那是四宫家最隐秘的武装力量，平时根本不会动用，只有在家族存亡关头才会出现。
+　　"早坂。"
+　　辉夜突小説羣3七然转身1七29，"你觉得，发生11九了什么？"
+　　早坂爱沉吟片刻:"从情报看，不只是四宫家，其他几家财阀也有类似动作。"
+
+　　"但在家族利益上...各凭本事。"
+　　阳乃站微笑着起身，"中转峮公  3气1漆平竞（二）9吆伊9争，那就...合作愉快？"
+　　"合作愉快。"
+
+　　ps：正在悬赏中，也是月末最后一天了，系统送的月票和刀片如果有的话不送就过期了~求~
+　　ps：悬赏结束，向上取整，月票欠四章，推荐票欠两章，打赏欠一章，刀片欠两章，……总计正好欠十章。
+　　0求鲜花
+
+欢迎加入『灵珑小说群』
+分享废卢，刺猬猫等全网小说资源，每个群的文件不一样（之前的群没了，以下是新群）
+（灵珑小说外群一群：852104278）
+（灵珑小说外群二群：817040545）
+（中转群371729119）
+（ 备用2群893964460）
+以上群号搜不到可以加qq264235286`
                         setDraftTestText(defaultText)
                         setState({ m1TestText: defaultText })
                       }}
@@ -959,31 +992,6 @@ export default function SettingsPage() {
             </Space>
           ),
         },
-        {
-          key: 'data',
-          label: '数据管理',
-          children: (
-            <Space direction="vertical" size={16} style={{ width: '100%' }}>
-              <Card title="演示数据">
-                <Button
-                  danger
-                  onClick={() =>
-                    modal.confirm({
-                      title: '重置演示数据？',
-                      content: '将清空当前所有修改，恢复到初始种子数据（包括导入会话、卡片、章节、推演记录）。',
-                      onOk: () => {
-                        resetDemo()
-                        message.success('已恢复初始演示数据')
-                      },
-                    })
-                  }
-                >
-                  重置演示数据
-                </Button>
-              </Card>
-            </Space>
-          ),
-        },
       ]}
     />
 
@@ -1022,8 +1030,8 @@ export default function SettingsPage() {
               </Form.Item>
             </Col>
             <Col span={8}>
-              <Form.Item name="batchSize" label="单次章节数" rules={[{ required: true }]}>
-                <InputNumber min={1} max={20} style={{ width: '100%' }} />
+              <Form.Item name="batchChars" label="批次字数上限" rules={[{ required: true }]}>
+                <InputNumber min={1000} max={100000} step={1000} style={{ width: '100%' }} />
               </Form.Item>
             </Col>
             <Col span={8}>

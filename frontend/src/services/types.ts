@@ -9,6 +9,10 @@ export interface Book {
   createdAt: string
   /** 滚动摘要（长篇记忆，定稿时增量更新）——novel-generator global_summary 对应 */
   globalSummary?: string
+  /** 作者名（仅素材库，可选） */
+  author?: string
+  /** 原始发布平台（仅素材库，可选） */
+  platform?: string
 }
 
 export type ChapterStatus = 'raw' | 'cleaned' | 'draft' | 'final'
@@ -188,8 +192,8 @@ export interface ProviderNode {
   lastTestResult?: 'ok' | 'fail' | null
   /** 该节点最大并发请求数（核心数），默认 2 */
   maxConcurrency: number
-  /** 该节点每次请求合并的章节数，默认 1（单章） */
-  batchSize: number
+  /** 该节点每次请求的批次字数上限（非章节数），默认 4000 */
+  batchChars: number
   /** 该节点两次请求之间最小间隔秒数，默认 0 */
   intervalSec: number
   /** 次数限制开关：开启后按每日额度限制该节点可用次数 */

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useEffect, useRef } from 'react'
 import {
   App,
   Alert,
@@ -24,10 +24,12 @@ import {
   DatabaseOutlined,
   RedoOutlined,
   SyncOutlined,
+  UpOutlined,
+  DownOutlined,
 } from '@ant-design/icons'
 import { useAppStore, genId, pushStoreNowChecked } from '../../store/appStore'
 import { alignedDiff, applyLineDecisions } from '../../utils/alignedDiff'
-import DiffView from './DiffView'
+import DiffView, { type DiffViewHandle } from './DiffView'
 import type { BookType, Chapter, CleanStatus, ImportChapter, LineDecision } from '../../services/types'
 
 const STATUS_META: Record<CleanStatus, { icon: React.ReactNode; text: string; color: string }> = {
@@ -53,9 +55,109 @@ export default function Step4Review() {
   const [form] = Form.useForm<{ title: string; type: BookType }>()
   const [rejectNodeOpen, setRejectNodeOpen] = useState(false)
   const [rejectNodeIds, setRejectNodeIds] = useState<string[]>([])
+  const diffViewRef = useRef<DiffViewHandle>(null)
+  const [currentDiffRowIdx, setCurrentDiffRowIdx] = useState(0) // 当前章节内的修改行索引
 
   const chapters = useMemo(() => session?.chapters ?? [], [session?.chapters])
   const current = useMemo(() => chapters.find((c) => c.id === selectedId) ?? chapters[0] ?? null, [chapters, selectedId])
+
+  // 自动标记：completed 但无任何修改的章节自动置为 accepted
+  useEffect(() => {
+    if (!session) return
+    const toAutoAccept = session.chapters.filter((c) => {
+      if (c.cleanStatus !== 'completed' || !c.cleanedContent) return false
+      // 原文与清理后内容完全一致 → 无修改
+      return c.content === c.cleanedContent
+    })
+    if (toAutoAccept.length === 0) return
+    const cur = useAppStore.getState().importSession
+    if (!cur) return
+    setState({
+      importSession: {
+        ...cur,
+        chapters: cur.chapters.map((c) => {
+          if (toAutoAccept.some((t) => t.id === c.id)) {
+            return { ...c, cleanStatus: 'accepted' as const, finalText: c.content }
+          }
+          return c
+        }),
+      },
+    })
+  }, [session, setState])
+
+  // 有差异的章节列表（cleanedContent 不为空且与 content 不同）
+  const chaptersWithDiff = useMemo(() => {
+    return chapters.filter((c) => c.cleanedContent && c.cleanedContent !== c.content)
+  }, [chapters])
+
+  // 当前章节在有差异列表中的索引
+  const currentDiffChapterIdx = useMemo(() => {
+    if (!current) return -1
+    return chaptersWithDiff.findIndex((c) => c.id === current.id)
+  }, [current, chaptersWithDiff])
+
+  // 切换章节时重置修改行索引
+  useEffect(() => {
+    setCurrentDiffRowIdx(0)
+  }, [selectedId])
+
+  // 获取当前章节内的所有修改行索引
+  const currentChapterDiffRows = useMemo(() => {
+    return diffViewRef.current?.getDiffRowIndices() ?? []
+  }, [current?.content, current?.cleanedContent])
+
+  const jumpToPrevDiff = () => {
+    const diffRows = diffViewRef.current?.getDiffRowIndices() ?? []
+    if (diffRows.length === 0) return
+
+    if (currentDiffRowIdx > 0) {
+      // 跳到同一章内的上一个修改行
+      const newIdx = currentDiffRowIdx - 1
+      setCurrentDiffRowIdx(newIdx)
+      diffViewRef.current?.scrollToRow(diffRows[newIdx])
+    } else {
+      // 已经是本章第一个修改行，跳到上一章
+      if (currentDiffChapterIdx > 0) {
+        const prevChapter = chaptersWithDiff[currentDiffChapterIdx - 1]
+        setSelectedId(prevChapter.id)
+        // 切换后自动定位到那一章的最后一个修改行
+        setTimeout(() => {
+          const diffRows = diffViewRef.current?.getDiffRowIndices() ?? []
+          if (diffRows.length > 0) {
+            const lastIdx = diffRows.length - 1
+            setCurrentDiffRowIdx(lastIdx)
+            diffViewRef.current?.scrollToRow(diffRows[lastIdx])
+          }
+        }, 100)
+      }
+    }
+  }
+
+  const jumpToNextDiff = () => {
+    const diffRows = diffViewRef.current?.getDiffRowIndices() ?? []
+    if (diffRows.length === 0) return
+
+    if (currentDiffRowIdx < diffRows.length - 1) {
+      // 跳到同一章内的下一个修改行
+      const newIdx = currentDiffRowIdx + 1
+      setCurrentDiffRowIdx(newIdx)
+      diffViewRef.current?.scrollToRow(diffRows[newIdx])
+    } else {
+      // 已经是本章最后一个修改行，跳到下一章的第一个修改行
+      if (currentDiffChapterIdx >= 0 && currentDiffChapterIdx < chaptersWithDiff.length - 1) {
+        const nextChapter = chaptersWithDiff[currentDiffChapterIdx + 1]
+        setSelectedId(nextChapter.id)
+        setCurrentDiffRowIdx(0)
+        // 切换后自动滚动到第一个修改行
+        setTimeout(() => {
+          const diffRows = diffViewRef.current?.getDiffRowIndices() ?? []
+          if (diffRows.length > 0) {
+            diffViewRef.current?.scrollToRow(diffRows[0])
+          }
+        }, 100)
+      }
+    }
+  }
 
   const rejectNodeOptions = useMemo(() => {
     const map = new Map<string, string>()
@@ -306,6 +408,28 @@ export default function Step4Review() {
               <Button size="small" onClick={() => markReprocess(current)}>
                 标记重新处理
               </Button>
+              {(currentChapterDiffRows.length > 1 || chaptersWithDiff.length > 1) && (
+                <>
+                  <Button
+                    size="small"
+                    icon={<UpOutlined />}
+                    disabled={currentDiffChapterIdx <= 0 && currentDiffRowIdx <= 0}
+                    onClick={jumpToPrevDiff}
+                    title="跳转到上一处修改"
+                  />
+                  <Button
+                    size="small"
+                    icon={<DownOutlined />}
+                    disabled={
+                      currentDiffChapterIdx < 0 ||
+                      (currentDiffChapterIdx >= chaptersWithDiff.length - 1 &&
+                        currentDiffRowIdx >= currentChapterDiffRows.length - 1)
+                    }
+                    onClick={jumpToNextDiff}
+                    title="跳转到下一处修改"
+                  />
+                </>
+              )}
               {Object.keys(current.lineDecisions).length > 0 && (
                 <Badge count={Object.keys(current.lineDecisions).length} color="blue" overflowCount={999}>
                   <Tag color="blue">行级决策</Tag>
@@ -358,6 +482,7 @@ export default function Step4Review() {
                   disabled: !current.cleanedContent,
                   children: current.cleanedContent ? (
                     <DiffView
+                      ref={diffViewRef}
                       key={current.id}
                       original={current.content}
                       cleaned={current.cleanedContent}

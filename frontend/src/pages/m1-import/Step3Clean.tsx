@@ -39,7 +39,7 @@ interface DebugEntry {
   nodeName?: string
   nodeId?: string
   model?: string
-  batchSize?: number
+  batchSize?: number  // 实际打包章节数（用于日志显示）
   contentLength?: number
   requestBody?: Record<string, unknown>
   statusCode?: number
@@ -55,7 +55,7 @@ interface NodeRuntime {
   nodeId: string
   participating: boolean
   concurrency: number
-  batchSize: number
+  batchChars: number  // 批次字数上限
   intervalSec: number
 }
 
@@ -81,7 +81,7 @@ export default function Step3Clean() {
 
   /** 统一设置所有节点三参数（应用后仍可逐节点单独覆盖） */
   const [bulkConcurrency, setBulkConcurrency] = useState<number | null>(null)
-  const [bulkBatchSize, setBulkBatchSize] = useState<number | null>(null)
+  const [bulkBatchChars, setBulkBatchChars] = useState<number | null>(null)
   const [bulkIntervalSec, setBulkIntervalSec] = useState<number | null>(null)
 
   /** 有效节点运行时状态 = ProviderNode 默认值 + 用户覆盖 */
@@ -93,7 +93,7 @@ export default function Step3Clean() {
           nodeId: p.id,
           participating: o.participating ?? true,
           concurrency: o.concurrency ?? p.maxConcurrency,
-          batchSize: o.batchSize ?? p.batchSize,
+          batchChars: o.batchChars ?? p.batchChars,
           intervalSec: o.intervalSec ?? p.intervalSec,
         }
       }),
@@ -279,7 +279,7 @@ export default function Step3Clean() {
           apiKey: p.apiKey?.trim() || undefined,
           model: p.model,
           maxConcurrency: o.concurrency ?? p.maxConcurrency,
-          batchSize: o.batchSize ?? p.batchSize,
+          batchChars: o.batchChars ?? p.batchChars,
           intervalSec: o.intervalSec ?? p.intervalSec,
         }
       })
@@ -474,7 +474,7 @@ export default function Step3Clean() {
 
   /** 将已填字段一次性写入所有已启用节点（未填的保留原值）——修复"必须三字段全填"导致静默不生效 */
   const applyBulkToAll = () => {
-    if (bulkConcurrency == null && bulkBatchSize == null && bulkIntervalSec == null) {
+    if (bulkConcurrency == null && bulkBatchChars == null && bulkIntervalSec == null) {
       message.warning('请至少填写一个参数')
       return
     }
@@ -484,7 +484,7 @@ export default function Step3Clean() {
         next[rs.nodeId] = {
           ...(prev[rs.nodeId] ?? {}),
           ...(bulkConcurrency != null ? { concurrency: bulkConcurrency } : {}),
-          ...(bulkBatchSize != null ? { batchSize: bulkBatchSize } : {}),
+          ...(bulkBatchChars != null ? { batchSize: bulkBatchChars } : {}),
           ...(bulkIntervalSec != null ? { intervalSec: bulkIntervalSec } : {}),
         }
       }
@@ -493,7 +493,7 @@ export default function Step3Clean() {
     if (running) setTimeout(hotUpdateNodes, 0)
     const parts: string[] = []
     if (bulkConcurrency != null) parts.push(`${bulkConcurrency} 进程`)
-    if (bulkBatchSize != null) parts.push(`${bulkBatchSize} 章节`)
+    if (bulkBatchChars != null) parts.push(`${bulkBatchChars} 章节`)
     if (bulkIntervalSec != null) parts.push(`${bulkIntervalSec}s`)
     message.success(`已统一设置 ${nodeRunStates.length} 个节点：${parts.join(' · ')}`)
   }
@@ -575,15 +575,16 @@ export default function Step3Clean() {
                       style={{ width: 64 }}
                       onCommit={(v) => setBulkConcurrency(v)}
                     />
-                    <Typography.Text type="secondary" style={{ fontSize: 12 }}>章节</Typography.Text>
+                    <Typography.Text type="secondary" style={{ fontSize: 12 }}>字数</Typography.Text>
                     <DebouncedInputNumber
                       size="small"
-                      min={1}
-                      max={100}
-                      value={bulkBatchSize}
-                      placeholder="如 1"
-                      style={{ width: 60 }}
-                      onCommit={(v) => setBulkBatchSize(v)}
+                      min={1000}
+                      max={100000}
+                      step={1000}
+                      value={bulkBatchChars}
+                      placeholder="如 10000"
+                      style={{ width: 72 }}
+                      onCommit={(v) => setBulkBatchChars(v)}
                     />
                     <Typography.Text type="secondary" style={{ fontSize: 12 }}>间隔</Typography.Text>
                     <DebouncedInputNumber
@@ -599,7 +600,7 @@ export default function Step3Clean() {
                     <Button
                       size="small"
                       type="primary"
-                      disabled={bulkConcurrency == null && bulkBatchSize == null && bulkIntervalSec == null}
+                      disabled={bulkConcurrency == null && bulkBatchChars == null && bulkIntervalSec == null}
                       onClick={applyBulkToAll}
                     >
                       统一设置
@@ -645,15 +646,16 @@ export default function Step3Clean() {
                                     if (running) setTimeout(hotUpdateNodes, 0)
                                   }}
                                 />
-                                <Typography.Text type="secondary" style={{ fontSize: 12 }}>章节</Typography.Text>
+                                <Typography.Text type="secondary" style={{ fontSize: 12 }}>字数</Typography.Text>
                                 <DebouncedInputNumber
                                   size="small"
-                                  min={1}
-                                  max={100}
-                                  value={rs.batchSize}
-                                  style={{ width: 52 }}
+                                  min={1000}
+                                  max={100000}
+                                  step={1000}
+                                  value={rs.batchChars}
+                                  style={{ width: 60 }}
                                   onCommit={(v) => {
-                                    updateNodeSetting(rs.nodeId, { batchSize: v ?? 1 })
+                                    updateNodeSetting(rs.nodeId, { batchChars: v ?? 10000 })
                                     if (running) setTimeout(hotUpdateNodes, 0)
                                   }}
                                 />
@@ -722,7 +724,7 @@ export default function Step3Clean() {
         {participatingNodes.length ? `${participatingNodes.length} 个节点 · ` : '无参选节点'}
         {participatingNodes.map((s) => {
           const p = providers.find((x) => x.id === s.nodeId)
-          return `${p?.name ?? s.nodeId}(${s.concurrency}进程/${s.batchSize}章)`
+          return `${p?.name ?? s.nodeId}(${s.concurrency}进程/${Math.round(s.batchChars/1000)}K字)`
         }).join(', ')}
       </Tag>
 

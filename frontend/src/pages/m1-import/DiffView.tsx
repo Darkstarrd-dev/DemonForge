@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { forwardRef, useEffect, useImperativeHandle, useMemo, useState } from 'react'
 import { Button, Input, Space, Tag, Tooltip } from 'antd'
 import { CheckOutlined, CloseOutlined, EditOutlined, UndoOutlined } from '@ant-design/icons'
 import { alignedDiff, diffStats, type DiffRow } from '../../utils/alignedDiff'
@@ -13,6 +13,11 @@ interface Props {
   autoScrollToFirstDiff?: boolean
 }
 
+export interface DiffViewHandle {
+  scrollToRow: (rowIdx: number) => void
+  getDiffRowIndices: () => number[]
+}
+
 function renderParts(
   parts: { text: string; removed?: boolean; added?: boolean }[] | undefined,
   fallback: string,
@@ -25,7 +30,10 @@ function renderParts(
   ))
 }
 
-export default function DiffView({ original, cleaned, decisions, onDecide, autoScrollToFirstDiff = true }: Props) {
+const DiffView = forwardRef<DiffViewHandle, Props>(function DiffView(
+  { original, cleaned, decisions, onDecide, autoScrollToFirstDiff = true },
+  ref,
+) {
   const rows = useMemo(() => alignedDiff(original, cleaned), [original, cleaned])
   const stats = useMemo(() => diffStats(rows), [rows])
   const [selected, setSelected] = useState<number | null>(null)
@@ -33,17 +41,38 @@ export default function DiffView({ original, cleaned, decisions, onDecide, autoS
   const [editText, setEditText] = useState('')
   const rate = retentionRate(original, cleaned)
 
+  // 所有差异行索引
+  const diffRowIndices = useMemo(() => {
+    return rows.map((r, idx) => ({ idx, isDiff: r.type !== 'context' }))
+      .filter((item) => item.isDiff)
+      .map((item) => item.idx)
+  }, [rows])
+
+  // 暴露方法给父组件
+  useImperativeHandle(ref, () => ({
+    scrollToRow: (rowIdx: number) => {
+      setTimeout(() => {
+        const tr = document.querySelector(`.diff-table tbody tr:nth-child(${rowIdx + 1})`)
+        if (tr) {
+          tr.scrollIntoView({ behavior: 'smooth', block: 'center' })
+          setSelected(rowIdx)
+        }
+      }, 0)
+    },
+    getDiffRowIndices: () => diffRowIndices,
+  }), [diffRowIndices])
+
   // 自动滚动到首个差异行
   useEffect(() => {
     if (!autoScrollToFirstDiff) return
-    const firstDiffIdx = rows.findIndex((r) => r.type !== 'context')
-    if (firstDiffIdx < 0) return // 无差异时不滚动
+    const firstDiffIdx = diffRowIndices[0]
+    if (firstDiffIdx === undefined) return // 无差异时不滚动
     // 等一帧让 DOM 渲染完成
     setTimeout(() => {
       const tr = document.querySelector(`.diff-table tbody tr:nth-child(${firstDiffIdx + 1})`)
       if (tr) tr.scrollIntoView({ behavior: 'smooth', block: 'start' })
     }, 0)
-  }, [rows, autoScrollToFirstDiff])
+  }, [diffRowIndices, autoScrollToFirstDiff])
 
   const startEdit = (idx: number, row: DiffRow) => {
     setEditingIdx(idx)
@@ -173,4 +202,6 @@ export default function DiffView({ original, cleaned, decisions, onDecide, autoS
       </div>
     </div>
   )
-}
+})
+
+export default DiffView

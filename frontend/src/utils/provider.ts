@@ -12,7 +12,9 @@ export const normalizeProvider = (
   ...p,
   nodeType: p.nodeType === 'image' ? 'image' : 'text',
   maxConcurrency: typeof p.maxConcurrency === 'number' && p.maxConcurrency > 0 ? p.maxConcurrency : 2,
-  batchSize: typeof p.batchSize === 'number' && p.batchSize > 0 ? p.batchSize : 1,
+  batchChars: typeof p.batchChars === 'number' && p.batchChars > 0 ? p.batchChars :
+              // 向后兼容：旧版 batchSize 转换为 batchChars
+              (typeof (p as any).batchSize === 'number' ? (p as any).batchSize * 3000 : 10000),
   intervalSec: typeof p.intervalSec === 'number' && p.intervalSec >= 0 ? p.intervalSec : 0,
   enabled: p.enabled !== false,
   apiKey: p.apiKey ?? '',

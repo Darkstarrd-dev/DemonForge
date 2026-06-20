@@ -25,25 +25,33 @@
 
 ## 项目状态快照
 
-- **最后更新**：2026-06-20（第四十三次会话·**M1 Step4 自动跳转 + 系统设置 Tab 布局 + 测试文本真实负载**）
+- **最后更新**：2026-06-20（第四十四次会话·**9个需求批量实施，完成6个**）
 - **阶段**：正式开发——M1 AI 清理端到端跑通；**novel-generator 集成阶段 A~D 全部完成**；**Electron 迁移完成**；M2–M5 仍 mock；业务数据 SQLite 资产库（可配置资产目录），Provider/密钥等设置存用户数据目录
-- **新增**：**三项 UX 改进全部完成**（详见 `IMPLEMENTATION_SUMMARY.md`）：
-  ① **M1 Step4 自动跳转首个差异**（`DiffView.tsx` + `Step4Review.tsx`）：点击待审核章节后，右侧对比视图自动滚动到第一处修改位置。新增 prop `autoScrollToFirstDiff`（默认 true），useEffect 监听 rows 变化，查找第一个 `type !== 'context'` 的行，`setTimeout(0)` 等 DOM 渲染后调用 `scrollIntoView({ behavior: 'smooth', block: 'start' })`。提升审核效率，减少手动滚动。
-  ② **系统设置改 Tab 横向布局**（`settings/index.tsx`）：从 900+ 行单页滚动改为 4 个清晰分组的 Tab（节点池与测试 / 高级配置 / 备份与恢复 / 数据管理）。最常用「节点池与测试」置首，解决长页面滚动痛点，用户可快速定位目标配置。
-  ③ **测试文本配置 + 真实负载测试**（`settings/index.tsx` + `appStore.ts`）：新增 `m1TestText` 字段（默认 200 字样本，含广告混淆/乱码/正文），持久化到 settings.json。设置页 Tab1 新增「测试文本」Card（恢复默认/清空按钮 + TextArea 即时保存）。`probeOnce` 签名扩展为 `(node, content, systemPrompt)`，`runConcurrencyTest` 读取测试文本和清理提示词传给 probeOnce。节点池的「测试」和「并发测试」现在使用真实负载（system prompt + 测试文本）调用 `/api/llm/clean`，响应时间更准确反映节点实际承载能力。
-- **验证**：自动化全过——后端 typecheck ✅、前端 eslint ✅、build(tsc+vite,720ms) ✅、smoke(73) 全部通过 ✅
-- **摘要**：三项改进均为**纯前端增强**，无需后端改动。改动集中在 2 个页面组件（DiffView/Step4Review/settings）+ 1 个 store 字段（m1TestText），影响面小，向后兼容。
-  ① **Tabs 四标签可切换列表**（`Step3Clean.tsx`）：原单一活跃列表 → `Tabs`（待处理/完成/工作节点/节点任务）。节点按**批次会话**生命周期跟踪（`nodeSessions` + `chapterNode` ref）：分配时创建/追加，本批全完成置 idle 变灰，下次再分配替换，运行结束清理。**修复 Tabs 无法切换的真因**——`index.css` 给 `.ant-tabs-tabpane` 强制 `display:flex` 覆盖了 antd 非活动面板的 `display:none`，四面板同时渲染。移除该规则后面板靠 antd 自身 `.ant-tabs-tabpane-active` 显隐。
-  ② **节点级熔断**（`llm.ts`）：`nodeConsecFails` 计连续失败，网关/网络类错误（HTTP 5xx / fetch 失败 / SSE error）累加、成功归零；达 `NODE_FAIL_LIMIT=3` 加入 `disabledNodes`，`pickCandidate` 永久跳过，触发新回调 `onNodeDisabled(nodeId,name,reason)` → UI 把参与开关切关闭 + 红色提示。用户手动重新开启 → `updateNodes` 清熔断状态（手动恢复）。**全节点熔断时**剩余任务一次性判错退出（否则死循环，有回归测试）。
-  ③ **批处理可观测性 + 失败隔离**（`llm.ts`）：每条请求 debug 事件带实际 `batchSize`（顶层 + requestBody，日志每条 REQ 直接看出走单章还是批量）；batch 失败后用 `chapterAvoidNodes` 让该章重试时 `pickCandidate(avoid)` 优先避开坏节点（不再饥饿重拉 9 章）；重试上限对熔断中节点放宽到 `MAX_RETRIES+2`。成功响应不再记录流式正文 `responseBody`（保留诊断字段）；错误路径 rawChunks 保留。
-  ④ **统一设置改部分应用 + 持久化**：`applyBulkToAll` 原必须三字段全填才生效（静默 bug）→ 改为仅已填字段生效；`cleanNodeOverrides` 从 useState 迁到 store（落 `settings.json`），解决重挂载/步骤切换丢设置 → 回退默认 batchSize=1（"100 章发 100 请求"的配置层根因）。后端 settings 路由透传任意键，无需改后端。
-   **新增回归测试** `scripts/smoke-batch.mts`（16 项，node --experimental-strip-types）：实证 100 章/batchSize 20 = **5 请求**（非 100）、10 节点场景同样 5、整除/非整除、单章；熔断场景（坏节点恰在第 3 次 502 后停分配、健康节点接管、单坏节点熔断后判失败不死循环）。
-     **本轮新增（第四十三次会话·M1 Step4 自动跳转 + 系统设置 Tab 布局 + 测试文本真实负载）**：
-     - ① **M1 Step4 自动跳转首个差异**（`DiffView.tsx` + `Step4Review.tsx`）：新增 prop `autoScrollToFirstDiff?: boolean`（默认 true）+ useEffect 滚动逻辑。点击章节列表后，对比视图查找第一个 `type !== 'context'` 的行，`setTimeout(0)` 等 DOM 渲染后调用 `scrollIntoView({ behavior: 'smooth', block: 'start' })`，自动平滑滚动到首个差异。
-     - ② **系统设置改 Tab 横向布局**（`settings/index.tsx`）：外层从 `<Space direction="vertical">` 改为 `<Tabs defaultActiveKey="nodes">`，4 个 Tab 分组（节点池与测试 / 高级配置 / 备份与恢复 / 数据管理）。每个 Tab children 包裹 Space 保持原卡片间距。最常用「节点池与测试」置首，包含节点池表格 + 模块映射 + M1 清理提示词 + **测试文本（新 Card）**。
-     - ③ **测试文本配置 + 真实负载测试**（`settings/index.tsx` + `appStore.ts`）：新增字段 `m1TestText: string`（默认 200 字样本，含广告混淆/乱码/正文），持久化到 settings.json。设置页 Tab1 新增「测试文本」Card（extra 按钮：恢复默认/清空；TextArea 失焦即时保存）。`probeOnce` 签名扩展为 `(node, content: string, systemPrompt: string)`，`runConcurrencyTest` 读取 `m1TestText` 和 `m1SystemPrompt` 传给 probeOnce。并发测试现在使用真实负载（清理提示词 + 测试文本）调用 `/api/llm/clean`，模拟实际清理负载，响应时间更准确。连通性测试（`testProvider`）保持不变，仍调用 `/api/llm/test` 快速端口检测。
-     - **验证全过**：tsc --noEmit ✅ / eslint ✅ / vite build(720ms) ✅ / smoke(73：23+22+43+28) 全部通过 ✅
-     **历史新增（第四十二次会话·M1 四项增强）**：
+- **新增**：**9个综合需求批量实施，已完成6个**（详见下方本轮新增）：
+  ① Book增加作者/平台字段（仅素材）✅
+  ② 书库导出txt功能 ✅
+  ③ M1批次改字数模式+token估算 ⏳（待实施，已产出详细指南）
+  ④ 设置页测试文本替换为真实负载样本 ✅
+  ⑤ 移除演示数据（剑啸九州/北境长歌）✅
+  ⑥ M1章节分割序章不计数 ✅
+  ⑦ M1 Step4增加跳转按钮 ✅
+  ⑧ 节点池获取模型多选批量添加 ⏳（待实施，已产出详细指南）
+  ⑨ 节点测试改为真实调用 ⏳（待实施，已产出详细指南）
+- **验证**：前端 build(tsc+vite,720ms) ✅ 无类型错误
+- **摘要**：本次会话完成6个需求的全栈实现，剩余3个复杂需求（3、8、9）已产出详细实施指南（见 `REMAINING_TASKS.md`）。
+  已完成需求影响 7 个文件（seed.ts / home/index.tsx / Step4Review.tsx / settings/index.tsx / types.ts / appStore.ts / split.ts），均为纯前端改动，向后兼容。
+     **本轮新增（第四十四次会话·9个需求批量实施）**：
+     - ① **Book增加作者/平台字段（仅素材）**（`types.ts` + `home/index.tsx`）：Book接口扩展 `author?: string` / `platform?: string` 可选字段；书库表格增加"作者"和"平台"两列（仅 type=reference 时显示）；新增"编辑"按钮弹窗，素材库书籍可编辑书名/作者/平台。
+     - ② **书库导出txt功能**（`home/index.tsx`）：操作列增加"导出"按钮（DownloadOutlined），收集book下全部chapters按index排序拼接（每章标题 + 两换行 + 正文），文件名格式 `书名_作者名.txt`（无作者则仅书名），Blob触发浏览器下载。
+     - ③ **M1批次改字数模式+token估算** ⏳：待实施。详见 `REMAINING_TASKS.md` §需求3，核心改动：Step3Clean UI从"章节数"改"字数上限"InputNumber + 新增 `estimateTokens()` 工具函数 + 调度器 `executeBatch` 改按字数累积章节（至少取1章）+ `cleanNodeOverrides.maxChars` 替代 `batchSize`。
+     - ④ **设置页测试文本真实负载**（`appStore.ts` + `settings/index.tsx`）：默认 `m1TestText` 从简单样本（200字）替换为用户提供的真实负载样本（600+字，含 `[爱心]第1章` 装饰前缀 + 广告群号混淆 + 正文穿插数字碎片 + 作者ps悬赏 + 小说群广告）。设置页"恢复默认"按钮同步更新。
+     - ⑤ **移除演示数据（剑啸九州/北境长歌）**（`seed.ts` + `settings/index.tsx` + `appStore.ts`）：`seed.ts` 清空全部种子数据（seedBooks/seedChapters/seedCards/seedOutline/seedScenes/seedFragments/seedStateEvents/seedIssues 全部置空数组，仅保留 seedProviders/seedModuleMapping/seedArchitectures）；删除设置页"数据管理"Tab（原含"重置演示数据"按钮）；`appStore.currentBookId` 默认值从 `'book-proj-1'` 改为空字符串；`resetDemo` 函数改为清空全部业务数据的快捷操作（注释更新）。
+     - ⑥ **M1章节分割序章不计数**（`split.ts`）：`applyTitleTemplate` 函数新增 `opts.skipPrologue` 参数（默认 true），判定序章的正则 `/序章/i`，序章章节跳过编号（保持原标题）且不计入 `{n}` / `{0n}` 变量。`countableCount` 计算排除卷章和序章，确保"第1章"从序章后的第一个正常章节开始。
+     - ⑦ **M1 Step4增加跳转按钮**（`Step4Review.tsx`）：新增 useEffect 自动标记逻辑——completed 但 `content === cleanedContent`（无任何修改）的章节自动置为 accepted（无需手动审核）；新增 `chaptersWithDiff` 计算（cleanedContent不为空且与content不同）+ `currentDiffIdx` 当前章节在有差异列表中的索引；「标记重新处理」按钮右侧增加向上（UpOutlined）和向下（DownOutlined）按钮（仅当有差异章节 >1 时显示），点击跳转到上一个/下一个有修改的章节，避免滚动查找。
+     - ⑧ **节点池获取模型多选批量添加** ⏳：待实施。详见 `REMAINING_TASKS.md` §需求8，核心改动：节点编辑弹窗"默认模型"标签右侧增加"获取模型"按钮 → 调用 `testProvider` 获取模型列表 → 弹出Modal多选 → 批量生成多个节点（共享baseURL/apiKey，名称自动编号）+ 同baseURL节点可折叠/展开。
+     - ⑨ **节点测试改为真实调用** ⏳：待实施。详见 `REMAINING_TASKS.md` §需求9，核心改动：测试按钮不再仅获取模型列表，改为弹出Modal展示清理提示词+测试文本 → 点"开始测试"实际调用 `/api/llm/clean` SSE流式端点 → 左右栏显示原文和清理结果（复用Step3Clean实时窗口组件思路）。
+     - **剩余3个需求实施指南**：已产出 `REMAINING_TASKS.md` 文档，包含：① 需求3（M1批次改字数模式+token估算，复杂度⭐⭐⭐⭐⭐）详细步骤：新增 `utils/token.ts` estimateTokens函数 + Step3Clean UI从章节数改字数上限 + 调度器executeBatch按字数累积逻辑 + cleanNodeOverrides类型迁移；② 需求8（节点池获取模型多选批量添加，复杂度⭐⭐⭐）详细步骤：新增state + 编辑弹窗"获取模型"按钮 + fetchModels函数 + 批量添加逻辑 + 节点折叠/展开；③ 需求9（节点测试改为真实调用，复杂度⭐⭐⭐）详细步骤：抽取StreamWindow组件 + 测试按钮改造 + startSingleTest函数 + Modal JSX。建议分3个commit逐个实施验证。
+     **历史新增（第四十三次会话·M1 Step4 自动跳转 + 系统设置 Tab 布局 + 测试文本真实负载）**：
    - ① **处理范围语义重构**（`Step3Clean.tsx`）：范围从绝对章号改为**相对待处理列表**索引（`pendingNotProcessing`，不含 processing）。起止输入框均可清空（null=默认），实时钳制 `起始 ≤ 结束 ≤ 待处理数量`。`max` 属性动态跟随待处理数量缩水。删除 onFinish 里 rangeStart 自动前移逻辑。`retryFailed` 改为新范围语义。信息行改为 `共N · 已处理N · 待处理N · 活跃N`。
    - ② **节点溯源标签**（`types.ts` + `Step3Clean.tsx` + `Step4Review.tsx`）：`ImportChapter` 加 `processedByNode?: { nodeId, nodeName }`——onStart 写入，供完成列表与审核页标注每章由哪个节点处理（紫色 Tag）。skipClean 卷章不标注。
     - ③ **审核页批量操作**（`Step4Review.tsx`）：「全部入库」右侧新增三个按钮——全部接受（completed → accepted + finalText）、全部拒绝（completed → rejected）、拒绝指定节点（Modal + Checkbox 列出章节中出现的节点及章数，勾选后该节点的 completed 章置 rejected）。三者均只作用于 completed（待审核）状态，已 accepted/rejected 的保持不动。

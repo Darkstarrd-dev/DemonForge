@@ -60,7 +60,7 @@ export interface CleanNode {
   apiKey?: string
   model: string
   maxConcurrency: number
-  batchSize: number
+  batchChars: number  // 批次字数上限（非章节数）
   intervalSec: number
 }
 
@@ -440,17 +440,34 @@ export function startCleanQueue(
     }
   }
 
-  /** 从队列取 batchSize 个任务 */
-  const dequeueBatch = (batchSize: number): ChapterTask[] => {
+  /** 从队列取任务，按 maxChars 字数累积（batchSize 现为字数上限，非章节数） */
+  const dequeueBatch = (maxChars: number): ChapterTask[] => {
     const result: ChapterTask[] = []
+    let accChars = 0
+
     // 优先重试队列
-    for (let i = 0; i < batchSize && retryQueue.length > 0; i++) {
-      result.push(retryQueue.shift()!)
+    while (retryQueue.length > 0) {
+      const task = retryQueue[0]
+      // 已有章节时检查是否超限（首章不受限制，避免单章过大时永远取不到）
+      if (result.length > 0 && accChars + task.content.length > maxChars) break
+      retryQueue.shift()
+      result.push(task)
+      accChars += task.content.length
+      // 累积达标且已有至少1章，停止继续取
+      if (accChars >= maxChars) break
     }
+
     // 再从 pending 队列补足
-    for (let i = result.length; i < batchSize && pendingQueue.length > 0; i++) {
-      result.push(pendingQueue.shift()!)
+    while (pendingQueue.length > 0) {
+      const task = pendingQueue[0]
+      // 已有章节时检查是否超限
+      if (result.length > 0 && accChars + task.content.length > maxChars) break
+      pendingQueue.shift()
+      result.push(task)
+      accChars += task.content.length
+      if (accChars >= maxChars) break
     }
+
     return result
   }
 
@@ -594,7 +611,7 @@ export function startCleanQueue(
       }
 
       // 取首章（重试优先，由 dequeueBatch 内部从 retryQueue 优先取）
-      const first = dequeueBatch(1)[0]
+      const first = dequeueBatch(1)[0]  // 先取1字符试探（实际会取首章无论字数）
       if (!first) {
         if (active === 0 && retryQueue.length === 0 && pendingQueue.length === 0) break
         await sleep(100)
@@ -609,8 +626,8 @@ export function startCleanQueue(
         continue
       }
 
-      // 补满 batch（同步取，保证连续）
-      const batch = [first, ...dequeueBatch(node.batchSize - 1)]
+      // 补满 batch（按字数累积，batchChars 现为字数上限）
+      const batch = [first, ...dequeueBatch(node.batchChars - first.content.length)]
 
       // 执行并 await——每 worker 同时只跑一个 batch（maxConcurrency 由 worker 数保证）
       state.activeCount++

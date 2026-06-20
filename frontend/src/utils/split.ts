@@ -447,31 +447,44 @@ export function stripChapterMarker(title: string): string {
  * 对切分结果批量应用章节标题模板。
  *
  * 模板变量：
- * - `{n}`    — 递增序号（从 opts.start 开始，默认 1；卷章跳过时不计入）
+ * - `{n}`    — 递增序号（从 opts.start 开始，默认 1；卷章和序章跳过时不计入）
  * - `{0n}`   — 补零序号（按总章数位数自动补零，如 120 章 → 001）
  * - `{title}`— 剥除章号标记后的纯章名
  * - `{raw}`  — 原始完整标题
  *
  * @param results  切分结果（预览阶段 SplitResult[] 或 ImportChapter[] 均可）
  * @param template 模板字符串，如 "第{0n}章 {title}"
- * @param opts.start      起始序号，默认 1
- * @param opts.skipVolume 卷章跳过替换，默认 true
+ * @param opts.start        起始序号，默认 1
+ * @param opts.skipVolume   卷章跳过替换，默认 true
+ * @param opts.skipPrologue 序章跳过计数（标题含"序章"字样的章节保持原标题，不参与编号），默认 true
  */
 export function applyTitleTemplate<T extends { title: string; isVolume?: boolean }>(
   results: T[],
   template: string,
-  opts: { start?: number; skipVolume?: boolean } = {},
+  opts: { start?: number; skipVolume?: boolean; skipPrologue?: boolean } = {},
 ): T[] {
-  const { start = 1, skipVolume = true } = opts
+  const { start = 1, skipVolume = true, skipPrologue = true } = opts
   if (!template) return results
-  const nonVolumeCount = skipVolume
-    ? results.filter((r) => !r.isVolume).length
-    : results.length
-  const padLen = Math.max(String(nonVolumeCount).length, 2)
+
+  // 判定是否为序章（标题包含"序章"字样，不区分大小写）
+  const isPrologue = (title: string) => /序章/i.test(title)
+
+  // 计算参与编号的章节总数（排除卷章和序章）
+  const countableCount = results.filter((r) => {
+    if (skipVolume && r.isVolume) return false
+    if (skipPrologue && isPrologue(r.title)) return false
+    return true
+  }).length
+
+  const padLen = Math.max(String(countableCount).length, 2)
   let seqIdx = start - 1
 
   return results.map((r) => {
+    // 卷章跳过替换
     if (skipVolume && r.isVolume) return r
+    // 序章跳过计数和替换（保持原标题）
+    if (skipPrologue && isPrologue(r.title)) return r
+
     seqIdx++
     const pureTitle = stripChapterMarker(r.title)
     const n = String(seqIdx)

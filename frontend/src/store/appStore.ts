@@ -116,10 +116,10 @@ export interface AppState {
   /**
    * M1 Step3 清理节点运行时覆盖（持久化到 settings.json）。
    * key = 节点 id，value = 该节点本次运行的参与/进程/批量/间隔覆盖。
-   * 原 Step3 用 useState 存此值，重挂载/步骤切换即丢失 → 回退 provider 默认 batchSize=1，
+   * 原 Step3 用 useState 存此值，重挂载/步骤切换即丢失 → 回退 provider 默认 batchChars=4000，
    * 曾导致"100 章发 100 请求"。迁到 store 后随设置落盘，避免静默回退。
    */
-  cleanNodeOverrides: Record<string, Partial<{ participating: boolean; concurrency: number; batchSize: number; intervalSec: number }>>
+  cleanNodeOverrides: Record<string, Partial<{ participating: boolean; concurrency: number; batchChars: number; intervalSec: number }>>
   /** M1 Step3 失败章节自动重试开关（持久化到 settings.json，默认开启） */
   m1AutoRetry: boolean
   /** M1 Step2 章节名称替换模板（持久化到 settings.json），如 "第{0n}章 {title}" */
@@ -172,20 +172,54 @@ const seedState = () => ({
   assetDir: '',
   showMenuBar: true,
   mergeCandidates: seedMergeCandidates,
-  currentBookId: 'book-proj-1',
+  currentBookId: '',
   importSession: null,
   imageGallery: [] as GeneratedImage[],
   imageDemoForm: { provider: 'modelscope', nodeId: undefined, prompt: '', resolution: '1024x1024' },
   splitPatterns: DEFAULT_SPLIT_PATTERNS.map((p) => ({ ...p })),
-  cleanNodeOverrides: {} as Record<string, Partial<{ participating: boolean; concurrency: number; batchSize: number; intervalSec: number }>>,
+  cleanNodeOverrides: {} as Record<string, Partial<{ participating: boolean; concurrency: number; batchChars: number; intervalSec: number }>>,
   m1AutoRetry: true,
   m1TitleTemplate: '第{0n}章 {title}',
-  m1TestText: `第一章 开端
+  m1TestText: `[爱心]第1章
 
-请加鹅鹅鹅群：12叁45陆7捌玖0（数字+谐音混淆）
+　　中少女穿着巫女服，深棕色的长发，编成发辫垂在胸前，额头上沁出细密的汗珠。
+　　转她正在教夏川神乐舞。
+　　宭这是祭典前的完整排练，下周就要正式演出了。
+　　伞"这个转身要流畅...夏川君看好了。"
+　　柒三叶示范了一个旋转动作，巫女服的下摆扬起。
+　　易她转得很稳，脚步轻盈得像在飘。
+　　7夏川跟着做，但他的动作更...利落。
+　　2少了些柔美，多了种说不出的神圣与力量感。
+　　韭"不对不对..."
+　　幺三叶走到他身后，犹豫了一下，然后红着脸伸手扶住他的腰，"腰要这样转..."
+　　壹她的手很小，很软，隔着薄薄的衣物能感觉到温度。
+　　韭夏川能闻到她身上淡淡的香味，不是香水，是皂角混合着少女体香的味道。
 
-正文内容abcd1234efgh（模拟正文穿插数字碎片）
-主角心想："今天天气不错。"`,
+
+　　"啊...是、是的..."
+　　三叶慌忙退开10016，心跳如71055小鹿乱撞一样不受控制。
+　　她低下头，手指绞着衣角，耳根红得滴血。
+
+　　那是四宫家最隐秘的武装力量，平时根本不会动用，只有在家族存亡关头才会出现。
+　　"早坂。"
+　　辉夜突小説羣3七然转身1七29，"你觉得，发生11九了什么？"
+　　早坂爱沉吟片刻:"从情报看，不只是四宫家，其他几家财阀也有类似动作。"
+
+　　"但在家族利益上...各凭本事。"
+　　阳乃站微笑着起身，"中转峮公  3气1漆平竞（二）9吆伊9争，那就...合作愉快？"
+　　"合作愉快。"
+
+　　ps：正在悬赏中，也是月末最后一天了，系统送的月票和刀片如果有的话不送就过期了~求~
+　　ps：悬赏结束，向上取整，月票欠四章，推荐票欠两章，打赏欠一章，刀片欠两章，……总计正好欠十章。
+　　0求鲜花
+
+欢迎加入『灵珑小说群』
+分享废卢，刺猬猫等全网小说资源，每个群的文件不一样（之前的群没了，以下是新群）
+（灵珑小说外群一群：852104278）
+（灵珑小说外群二群：817040545）
+（中转群371729119）
+（ 备用2群893964460）
+以上群号搜不到可以加qq264235286`,
   cleanRun: null,
 })
 
@@ -255,7 +289,7 @@ export const useAppStore = create<AppState>()((set) => ({
     // 立即触发（绕 debounce），避免"删完立刻关窗"竞态丢失删除写入。
     pushDeleteNow(deletes)
   },
-  // 仅重置业务数据 + 导入会话；保留 providers/moduleMapping/m1SystemPrompt/assetDir（用户配置）
+  // 重置业务数据（已移除演示数据，保留为清空全部业务数据的快捷操作）
   resetDemo: () => {
     /** 重置前先把当前业务数据全部显式删除（syncAll 不再反推删除）。 */
     const cur = useAppStore.getState()
@@ -276,10 +310,10 @@ export const useAppStore = create<AppState>()((set) => ({
       issues: seedIssues,
       architectures: seedArchitectures,
       mergeCandidates: seedMergeCandidates,
-      currentBookId: 'book-proj-1',
+      currentBookId: '',
       importSession: null,
     })
-    // 先显式删旧业务数据（防残留），再立即 pushStore 落新种子
+    // 先显式删旧业务数据（防残留），再立即 pushStore 落新种子（空数组）
     pushDeleteNow(deletes)
     pushStoreNow()
   },
