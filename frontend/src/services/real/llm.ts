@@ -74,7 +74,7 @@ export interface CleanQueueDebugEvent {
 }
 
 export interface CleanQueueCallbacks {
-  onStart: (chapterId: string, nodeName: string, batchId?: string, nodeId?: string) => void
+  onStart: (chapterId: string, nodeName: string, batchId?: string, nodeId?: string, workerId?: string) => void
   onChunk: (chapterId: string, acc: string) => void
   onDone: (chapterId: string, cleaned: string) => void
   onError: (chapterId: string, message: string) => void
@@ -438,39 +438,7 @@ export function startCleanQueue(
     return result
   }
 
-  /** 选择候选节点——有空闲核心且间隔已过；跳过已熔断节点；可选避开指定节点（重试用） */
-  const pickCandidate = (avoidNodeId?: string): { cfg: CleanNode; state: NodeRuntime } | null => {
-    const now = Date.now()
-    const candidates: { cfg: CleanNode; state: NodeRuntime }[] = []
-    for (const cfg of nodeConfigs) {
-      if (disabledNodes.has(cfg.id)) continue // 熔断节点永不参选
-      const state = nodeStates.get(cfg.id)
-      if (!state) continue
-      if (state.activeCount >= cfg.maxConcurrency) continue
-      const intervalMs = cfg.intervalSec * 1000
-      if (intervalMs > 0 && now - state.lastRequestTime < intervalMs) continue
-      // 次数限制：扣减当日额度，额度用尽的节点跳过
-      if (isNodeAvailable && !isNodeAvailable(cfg.id)) continue
-      candidates.push({ cfg, state })
-    }
-    // 优先不避开的节点；仅当全部都要避开时才退而求其次（避免无节点可用导致饿死）
-    let pool = candidates
-    if (avoidNodeId && candidates.some((c) => c.cfg.id !== avoidNodeId)) {
-      pool = candidates.filter((c) => c.cfg.id !== avoidNodeId)
-    }
-    if (!pool.length) return null
-    // 排序：最久未用 → 最少连接 → 原序号
-    pool.sort((a, b) => {
-      const timeDiff = a.state.lastRequestTime - b.state.lastRequestTime
-      if (timeDiff !== 0) return timeDiff
-      const countDiff = a.state.activeCount - b.state.activeCount
-      if (countDiff !== 0) return countDiff
-      return nodeConfigs.indexOf(a.cfg) - nodeConfigs.indexOf(b.cfg)
-    })
-    return pool[0]
-  }
-
-  /** 记录节点成功：连续失败计数归零 */
+  /** 取本章应避开的节点（仅一个最强避让，传给 worker；多个避让时取最近失败的） */
   const markNodeSuccess = (nodeId: string) => {
     nodeConsecFails.set(nodeId, 0)
   }
@@ -497,41 +465,25 @@ export function startCleanQueue(
     set.add(nodeId)
   }
 
-  /** 取本章应避开的节点（仅一个最强避让，传给 pickCandidate；多个避让时取最近失败的） */
-  const lastAvoidFor = (chapterId: string): string | undefined => {
-    const set = chapterAvoidNodes.get(chapterId)
-    if (!set || !set.size) return undefined
-    // 避让集合里任取一个（这里取 set 末尾迭代值）
-    let last: string | undefined
-    for (const id of set) last = id
-    return last
-  }
-
-  const executeTask = async (task: ChapterTask, node: CleanNode, nodeState: NodeRuntime) => {
-    active++
-    nodeState.activeCount++
-    nodeState.lastRequestTime = Date.now()
+  const executeBatch = async (batch: ChapterTask[], node: CleanNode, workerId: string) => {
     const ac = new AbortController()
     let batchId: string | undefined
-    let batchTasks: ChapterTask[] | undefined
     try {
-      if (node.batchSize <= 1) {
-        cb.onStart(task.id, node.name, undefined, node.id)
+      if (batch.length === 1) {
+        const task = batch[0]
+        cb.onStart(task.id, node.name, undefined, node.id, workerId)
         await streamSingleChapter(node, task.content, task.id, cb, ac.signal, systemPrompt)
         nodeOverrides.delete(task.id)
         markNodeSuccess(node.id)
       } else {
-        // batch 模式：生成 batchId，取出 batchSize 章
-        batchId = `batch-${Date.now()}-${task.id}`
-        batchTasks = [task, ...dequeueBatch(node.batchSize - 1)]
-        const chapterIds = batchTasks.map((t) => t.id)
+        batchId = `batch-${Date.now()}-${batch[0].id}`
+        const chapterIds = batch.map((t) => t.id)
         activeBatches.set(batchId, { ac, chapterIds, nodeId: node.id })
-        batchTasks.forEach((t) => {
-          cb.onStart(t.id, node.name, t === task ? batchId : undefined, node.id)
+        batch.forEach((t) => {
+          cb.onStart(t.id, node.name, t === batch[0] ? batchId : undefined, node.id, workerId)
         })
-        await streamBatch(node, batchTasks.map((t) => ({ id: t.id, content: t.content })), cb, ac.signal, systemPrompt)
-        // 清除覆盖
-        for (const t of batchTasks) nodeOverrides.delete(t.id)
+        await streamBatch(node, batch.map((t) => ({ id: t.id, content: t.content })), cb, ac.signal, systemPrompt)
+        for (const t of batch) nodeOverrides.delete(t.id)
         activeBatches.delete(batchId)
         markNodeSuccess(node.id)
       }
@@ -543,15 +495,14 @@ export function startCleanQueue(
         const isNodeLevel = /HTTP\s*5\d\d|fetch\s*失败|网关错误|signal is aborted/i.test(errMsg)
         if (isNodeLevel) markNodeFail(node, errMsg)
 
-        // 收集本批所有未完成章（batch 模式含 anchor 之外的章）
-        const failedTasks: ChapterTask[] = batchTasks && batchTasks.length
-          ? batchTasks.map((t) => ({ id: t.id, content: chapters.find((c) => c.id === t.id)?.content ?? t.content }))
-          : [task]
+        // 收集本批所有未完成章
+        const failedTasks: ChapterTask[] = batch.map((t) => ({
+          id: t.id,
+          content: chapters.find((c) => c.id === t.id)?.content ?? t.content,
+        }))
 
-        // batch/节点级失败：让这些章重试时避开当前节点，降低同一坏节点反复接手
-        if (batchId || isNodeLevel) {
-          failedTasks.forEach((t) => avoidNodeForChapter(t.id, node.id))
-        }
+        // 让失败章重试时避开当前节点（per-node 模型下必须避让，否则同 worker 反复失败）
+        failedTasks.forEach((t) => avoidNodeForChapter(t.id, node.id))
 
         for (const t of failedTasks) {
           const fails = (failCounts.get(t.id) ?? 0) + 1
@@ -567,66 +518,95 @@ export function startCleanQueue(
         }
         if (batchId) activeBatches.delete(batchId)
       }
-    } finally {
-      nodeState.activeCount = Math.max(0, nodeState.activeCount - 1)
-      active--
     }
   }
 
-  const workerLoop = async () => {
+  // per-node-per-slot worker：每个 worker 绑定一个节点，同节点 slot 共享 lastRequestTime（间隔锁）。
+  const workerLoopForNode = async (assignedNode: CleanNode, slot: number) => {
+    const workerId = `${assignedNode.id}#${slot + 1}`
     while (!stopped) {
       if (paused) {
         await sleep(200)
         continue
       }
-      // 先取一个任务（重试优先），再据其"避让节点"选候选——让失败过的章尽量换节点重试
-      const task = dequeueBatch(1)[0]
-      if (!task) {
+      // 读最新节点配置（热更新入口：batchSize / intervalSec 即时生效；节点删除/熔断则退出）
+      const node = nodeConfigs.find((n) => n.id === assignedNode.id)
+      if (!node || disabledNodes.has(node.id)) break
+      if (slot >= node.maxConcurrency) break
+      const state = nodeStates.get(node.id)
+      if (!state) break
+
+      // 节点级间隔（同节点所有 slot 共享 lastRequestTime）
+      const now = Date.now()
+      const intervalMs = node.intervalSec * 1000
+      if (intervalMs > 0 && now - state.lastRequestTime < intervalMs) {
+        await sleep(50)
+        continue
+      }
+
+      // 次数限制
+      if (isNodeAvailable && !isNodeAvailable(node.id)) {
+        await sleep(100)
+        continue
+      }
+
+      // 取首章（重试优先，由 dequeueBatch 内部从 retryQueue 优先取）
+      const first = dequeueBatch(1)[0]
+      if (!first) {
         if (active === 0 && retryQueue.length === 0 && pendingQueue.length === 0) break
         await sleep(100)
         continue
       }
-      // 读最新节点配置（热更新入口）；按本章避让集选候选
-      const avoid = lastAvoidFor(task.id)
-      const candidate = pickCandidate(avoid)
-      if (!candidate) {
-        // 全部节点都已熔断（active 也无进行中）→ 剩余任务注定失败，逐个判错并清空队列，
-        // 否则会无限把任务放回 retryQueue 永不结束。
-        if (active === 0 && nodeConfigs.every((n) => disabledNodes.has(n.id))) {
-          for (const t of [task, ...retryQueue.splice(0), ...pendingQueue.splice(0)]) {
-            cb.onError(t.id, '所有节点均已熔断，无法处理')
-          }
-          continue
-        }
-        // 无可用节点（全忙/全冷却）→ 放回队首等下一轮。
-        // 若所有候选都被避让集排除（只剩已熔断/被避开节点）→ 清空避让集给最后一搏，避免永久饿死。
-        retryQueue.unshift(task)
-        const liveNodes = nodeConfigs.filter((n) => !disabledNodes.has(n.id))
-        if (liveNodes.length > 0 && liveNodes.every((n) => avoid === n.id || chapterAvoidNodes.get(task.id)?.has(n.id))) {
-          chapterAvoidNodes.delete(task.id)
-        }
-        await sleep(100)
-        continue
-      }
-      const { cfg, state } = candidate
-      // 检查节点覆盖：切换模型后章节只由指定节点处理
-      const overrideNode = nodeOverrides.get(task.id)
-      if (overrideNode && overrideNode !== cfg.id) {
-        retryQueue.unshift(task)
+
+      // 节点覆盖（手动切换模型）：只由指定节点处理
+      const overrideNode = nodeOverrides.get(first.id)
+      if (overrideNode && overrideNode !== node.id) {
+        retryQueue.unshift(first)
         await sleep(50)
         continue
       }
-      // fire-and-forget：不 await，立即回循环抢下一个节点
-      executeTask(task, cfg, state)
+
+      // 补满 batch（同步取，保证连续）
+      const batch = [first, ...dequeueBatch(node.batchSize - 1)]
+
+      // 执行并 await——每 worker 同时只跑一个 batch（maxConcurrency 由 worker 数保证）
+      state.activeCount++
+      state.lastRequestTime = now
+      active++
+      try {
+        await executeBatch(batch, node, workerId)
+      } finally {
+        state.activeCount = Math.max(0, state.activeCount - 1)
+        active--
+      }
     }
-    maybeFinish()
+    // worker 退出
+    activeWorkers--
+    if (activeWorkers === 0) {
+      // 全部 worker 退出，若队列非空→全熔断，判错剩余章
+      const remaining = [...retryQueue.splice(0), ...pendingQueue.splice(0)]
+      for (const t of remaining) {
+        cb.onError(t.id, '所有节点均已熔断，无法处理')
+      }
+      if (!finished) {
+        finished = true
+        cb.onFinish()
+      }
+    }
   }
 
-  // 总 worker 数 = 所有节点最大并发之和
-  const totalWorkers = nodeConfigs.reduce((sum, n) => sum + n.maxConcurrency, 0)
+  // round-robin per-slot 创建：slot 0 → N1#1, N2#1, N3#1; slot 1 → N1#2, N2#2, N3#2
+  // 顺序保证初始分配连续（N1P1→1-10, N2P1→11-20, N3P1→21-30, N1P2→31-40, ...）
+  const maxConc = nodeConfigs.reduce((sum, n) => sum + n.maxConcurrency, 0)
+  let activeWorkers = maxConc
   const workerPromises: Promise<void>[] = []
-  for (let i = 0; i < Math.max(totalWorkers, 1); i++) {
-    workerPromises.push(workerLoop())
+  const maxSlot = Math.max(...nodeConfigs.map((n) => n.maxConcurrency), 0)
+  for (let slot = 0; slot < maxSlot; slot++) {
+    for (const node of nodeConfigs) {
+      if (slot < node.maxConcurrency) {
+        workerPromises.push(workerLoopForNode(node, slot))
+      }
+    }
   }
 
   // 后台兜底：所有 worker 结束时触发 onFinish

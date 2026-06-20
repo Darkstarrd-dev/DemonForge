@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import {
   App,
   Badge,
@@ -52,8 +52,18 @@ export default function Step4Review() {
   const [rejectNodeOpen, setRejectNodeOpen] = useState(false)
   const [rejectNodeIds, setRejectNodeIds] = useState<string[]>([])
 
-  const chapters = session?.chapters ?? []
-  const current = chapters.find((c) => c.id === selectedId) ?? chapters[0] ?? null
+  const chapters = useMemo(() => session?.chapters ?? [], [session?.chapters])
+  const current = useMemo(() => chapters.find((c) => c.id === selectedId) ?? chapters[0] ?? null, [chapters, selectedId])
+
+  const rejectNodeOptions = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const c of chapters) {
+      if (c.processedByNode && c.cleanStatus === 'completed' && !map.has(c.processedByNode.nodeId)) {
+        map.set(c.processedByNode.nodeId, c.processedByNode.nodeName)
+      }
+    }
+    return Array.from(map, ([nodeId, nodeName]) => ({ label: nodeName, value: nodeId }))
+  }, [chapters])
 
   const patchChapter = (id: string, patch: Partial<ImportChapter>) => {
     const cur = useAppStore.getState().importSession
@@ -401,16 +411,7 @@ export default function Step4Review() {
         <Checkbox.Group
           value={rejectNodeIds}
           onChange={(v) => setRejectNodeIds(v as string[])}
-          options={(() => {
-            const seen = new Set<string>()
-            return chapters
-              .filter((c) => c.processedByNode && c.cleanStatus === 'completed' && !seen.has(c.processedByNode.nodeId))
-              .map((c) => {
-                seen.add(c.processedByNode!.nodeId)
-                const count = chapters.filter((x) => x.processedByNode?.nodeId === c.processedByNode!.nodeId && x.cleanStatus === 'completed').length
-                return { label: `${c.processedByNode!.nodeName}（${count} 章）`, value: c.processedByNode!.nodeId }
-              })
-          })()}
+          options={rejectNodeOptions}
         />
       </Modal>
     </Row>

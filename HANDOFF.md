@@ -19,11 +19,12 @@
     ⑤ 系统设置·节点池增强 6 项功能 + 入库小说数据恢复（sqlite3 .recover）。
     ⑥ **【最新】数据持久化全面加固 + 设置/备份导入导出**——从根上修复"反复数据丢失"的 6 个缺陷（syncAll 改纯 upsert 永不删除 / settings.json 原子写入+.bak / assetDir 启动缓存 / readAll 逐行容错 / 启动日志增强 / 显式 DELETE 端点），并新增设置导入导出 + 完整备份恢复（版本化 bundle、向后兼容、脱敏选项）作为人工兜底。详见 FIXES.md「2026-06-20」。
          ⑦ M1 Step3 文本清理流水线重构
-     ⑧ **【本次】M1 处理范围 + 节点溯源 + 审核批量操作**——按用户实机反馈做四项整改：① **Tabs 四标签可切换列表**（待处理/完成/工作节点/节点任务，按批次会话跟踪节点接手数/完成数，修复 CSS 强制 tabpane `display:flex` 导致点 tab 不切换的真因）；② **节点级熔断**（连续 3 次 5xx/网络错误自动 `onNodeDisabled` + UI 同步关闭，不再对坏节点无限重试；全节点熔断时剩余任务判错退出不死循环）；③ **批处理可观测性 + 失败隔离**（每条请求日志带实际 batchSize；batch 失败后重试避开该节点 `chapterAvoidNodes`，不再饥饿重拉 9 章；成功响应不再记录流式正文 responseBody）；④ **统一设置改部分应用**（原必须三字段全填才生效的静默 bug，现仅填的生效）+ **cleanNodeOverrides 持久化到 settings.json**（原 useState 重挂载丢失 → 回退默认 batchSize=1，是"100 章发 100 请求"的配置层根因）。新增 `scripts/smoke-batch.mts`（16 项批处理+熔断回归测试，实证 100 章/batchSize 20 = 5 请求）。
+     ⑧ M1 处理范围语义重构 + 节点溯源标签 + 审核批量操作
+     ⑨ **【本次】数值输入卡顿修复 + 调度器 per-node 重构 + 工作节点分进程显示 + 拒绝节点去重**——按用户实机反馈做四项整改：① **Tabs 四标签可切换列表**（待处理/完成/工作节点/节点任务，按批次会话跟踪节点接手数/完成数，修复 CSS 强制 tabpane `display:flex` 导致点 tab 不切换的真因）；② **节点级熔断**（连续 3 次 5xx/网络错误自动 `onNodeDisabled` + UI 同步关闭，不再对坏节点无限重试；全节点熔断时剩余任务判错退出不死循环）；③ **批处理可观测性 + 失败隔离**（每条请求日志带实际 batchSize；batch 失败后重试避开该节点 `chapterAvoidNodes`，不再饥饿重拉 9 章；成功响应不再记录流式正文 responseBody）；④ **统一设置改部分应用**（原必须三字段全填才生效的静默 bug，现仅填的生效）+ **cleanNodeOverrides 持久化到 settings.json**（原 useState 重挂载丢失 → 回退默认 batchSize=1，是"100 章发 100 请求"的配置层根因）。新增 `scripts/smoke-batch.mts`（16 项批处理+熔断回归测试，实证 100 章/batchSize 20 = 5 请求）。
 
 ## 项目状态快照
 
-- **最后更新**：2026-06-20（第三十六次会话·**M1 处理范围语义重构 + 节点溯源标签 + 审核批量接受/拒绝/按节点拒绝**）
+- **最后更新**：2026-06-20（第三十七次会话·**数值输入卡顿修复 + 调度器 per-node 重构 + 工作节点分进程显示 + 拒绝节点去重**）
 - **阶段**：正式开发——M1 AI 清理端到端跑通；**novel-generator 集成阶段 A~D 全部完成**；**Electron 迁移完成**；M2–M5 仍 mock；业务数据 SQLite 资产库（可配置资产目录），Provider/密钥等设置存用户数据目录
 - **新增**：**M1 Step3 文本清理流水线重构**——按用户实机反馈做四项整改：
   ① **Tabs 四标签可切换列表**（`Step3Clean.tsx`）：原单一活跃列表 → `Tabs`（待处理/完成/工作节点/节点任务）。节点按**批次会话**生命周期跟踪（`nodeSessions` + `chapterNode` ref）：分配时创建/追加，本批全完成置 idle 变灰，下次再分配替换，运行结束清理。**修复 Tabs 无法切换的真因**——`index.css` 给 `.ant-tabs-tabpane` 强制 `display:flex` 覆盖了 antd 非活动面板的 `display:none`，四面板同时渲染。移除该规则后面板靠 antd 自身 `.ant-tabs-tabpane-active` 显隐。
@@ -34,7 +35,12 @@
    **本轮新增（第三十六次会话·处理范围 + 节点溯源 + 审核批量）**：
    - ① **处理范围语义重构**（`Step3Clean.tsx`）：范围从绝对章号改为**相对待处理列表**索引（`pendingNotProcessing`，不含 processing）。起止输入框均可清空（null=默认），实时钳制 `起始 ≤ 结束 ≤ 待处理数量`。`max` 属性动态跟随待处理数量缩水。删除 onFinish 里 rangeStart 自动前移逻辑。`retryFailed` 改为新范围语义。信息行改为 `共N · 已处理N · 待处理N · 活跃N`。
    - ② **节点溯源标签**（`types.ts` + `Step3Clean.tsx` + `Step4Review.tsx`）：`ImportChapter` 加 `processedByNode?: { nodeId, nodeName }`——onStart 写入，供完成列表与审核页标注每章由哪个节点处理（紫色 Tag）。skipClean 卷章不标注。
-   - ③ **审核页批量操作**（`Step4Review.tsx`）：「全部入库」右侧新增三个按钮——全部接受（completed → accepted + finalText）、全部拒绝（completed → rejected）、拒绝指定节点（Modal + Checkbox 列出章节中出现的节点及章数，勾选后该节点的 completed 章置 rejected）。三者均只作用于 completed（待审核）状态，已 accepted/rejected 的保持不动。
+    - ③ **审核页批量操作**（`Step4Review.tsx`）：「全部入库」右侧新增三个按钮——全部接受（completed → accepted + finalText）、全部拒绝（completed → rejected）、拒绝指定节点（Modal + Checkbox 列出章节中出现的节点及章数，勾选后该节点的 completed 章置 rejected）。三者均只作用于 completed（待审核）状态，已 accepted/rejected 的保持不动。
+    **本轮新增（第三十七次会话·数值输入去卡顿 + per-node 调度器 + 分进程显示 + 去重）**：
+    - ① **DebouncedInputNumber**（`Step3Clean.tsx`）：所有 9 个 InputNumber（3 批量 + N×3 每节点 + 2 范围）统一换防抖输入组件——本地 state 即时显示，失焦才 `onCommit` 父组件。`key={String(value)}` 自动同步外部值变更。消除每按键写 zustand store / 全组件重渲染的 lag。
+    - ② **调度器 per-node-per-slot 专用 worker**（`llm.ts`）：从匿名 worker 免费竞争模型改为每节点每并发槽位一个专用 worker（round-robin 创建：slot0→N1#1, N2#1, N3#1; slot1→N1#2, N2#2, N3#2）。worker 绑定节点 `await` 执行，全 batch 原子取队。删 `pickCandidate`；新增 `executeBatch`（接收预成型 batch + `workerId`）和 `workerLoopForNode`（node 禁用/删除→break；并发降低→多余 worker 退出；全退出→drain 队列判错）。`onStart` 签名 +`workerId`。per-node 下 avoid-set 检查移除（由 circuit breaker 自然处理）。
+    - ③ **工作节点分进程显示**（`Step3Clean.tsx`）：`NodeSession` 加 `workerId`，以 workerId 为键独立展示，每进程单独条目。`chapterNode` ref 改 `Map<chapterId, workerId>`。「工作节点」Tab 显示「节点名 #1」「节点名 #2」等，每进程独立统计接手/完成/进行中。
+    - ④ **拒绝节点去重 fix**（`Step4Review.tsx`）：`filter`/`map` 链 with `seen` Set 经典 bug（filter 执行时 seen 恒空→全过）→ pre-compute `useMemo` + `Map` 去重；移除 `（N 章）` 后缀。
 - **摘要**：在 mock 前端基础上**进入实现阶段**。
   运行方式（三选一）：
   - **【推荐】Electron 模式**：双击 `start-electron.bat`（开发模式）或 `npm run dev`，Electron 窗口自动管理前后端；关窗即自动清理进程
@@ -373,16 +379,22 @@
 
 ## 交接备注（最近一次会话）
 
-- **日期**：2026-06-20（第三十六次会话·**M1 处理范围语义重构 + 节点溯源标签 + 审核批量接受/拒绝/按节点拒绝**）
-- **本次起因**：用户反馈三个问题：① 处理范围输入框无法完全删除（rangeStart 的 `v ?? 1` 强制回 1）；② 希望处理范围始终从 1 开始、不做自动前移，并增加"已处理/待处理/共"统计；③ 希望标注每章由哪个节点处理（完成列表+审核页），并增加批量接受/拒绝/按节点拒绝的操作。
-- **本次完成**（三项全部落地）：
-  - **处理范围语义重构**（`Step3Clean.tsx`）：范围从绝对章号改为相对待处理列表（`pendingNotProcessing`，不含 processing/已完成/卷章）。起止均可清空（`number|null`，onChange 直接透传），钳制 `起始 ≤ 结束 ≤ 待处理数量`。删除 onFinish 里 rangeStart 自动前移。retryFailed 改为新范围语义。信息行改为 `共N · 已处理N · 待处理N · 活跃N`。
-  - **节点溯源标签**（`types.ts` + `Step3Clean.tsx` + `Step4Review.tsx`）：`ImportChapter` 加 `processedByNode?: { nodeId, nodeName }`——onStart 写入（重试换节点覆盖，最终保留成功节点的标注），skipClean 卷章不标。Step3 完成/待处理列表 + Step4 审核列表均以紫色 Tag 显示节点名。
-  - **审核页批量操作**（`Step4Review.tsx`）：「全部入库」右侧新增三个按钮——① 全部接受：completed → accepted + finalText；② 全部拒绝：completed → rejected；③ 拒绝指定节点：Modal + Checkbox 列出章节中所有节点的去重列表（带章数），勾选确认后该节点的 completed 章置 rejected。三者均只作用于 completed（待审核）状态。
-- **改动文件**（3 个）：
-  - 前端：`frontend/src/services/types.ts`（ImportChapter.processedByNode）、`frontend/src/pages/m1-import/Step3Clean.tsx`（rangeStart/End → null 可清空 + pendingNotProcessing/pendingCount + rangeTargets/retryFailed 新语义 + 删除 onFinish 前移 + onStart 写 processedByNode + ChapterListPane 标签 + 信息行）、`frontend/src/pages/m1-import/Step4Review.tsx`（列表节点 Tag + 三个批量按钮 + rejectByNode Modal）
-- **验证全过**：tsc --noEmit ✅（0 错误）/ eslint ✅ / vite build ✅（14.9s）/ smoke(55) ✅ / ruleclean(43) ✅ / parse(22) ✅ / smoke-batch(16) ✅
-- **下一步**：① 用户实机验证处理范围可清空、钳制行为；② 实机验证批量接受/拒绝/按节点拒绝的批量操作；③（可选）将节点溯源推广到 batch-generate 页
+- **日期**：2026-06-20（第三十七次会话·**数值输入卡顿修复 + 调度器 per-node 重构 + 工作节点分进程显示 + 拒绝节点去重**）
+- **本次起因**：用户反馈 4 个问题：① 所有数字输入框输入时有明显卡顿；② 工作节点合并显示（同节点多进程混为一条 20 章）；③ 任务分发非顺序（N1P2 接手 31~34,40~45 非连续）；④ 拒绝指定节点弹窗选项重复（每章一条而非每节点一条）。
+- **本次完成**（4 项全部落地）：
+  - **DebouncedInputNumber**（`Step3Clean.tsx`）：新建防抖输入组件——本地 state 即时显示，失焦才 `onCommit`。替换全部 9 个 InputNumber（3 批量 + N×3 每节点 + 2 范围）。根除每按键写 zustand store（per-node）/ 全组件重渲染（1099 行组件 diff）的 lag。
+  - **调度器 per-node-per-slot 专用 worker**（`llm.ts`）：删 `pickCandidate`；新建 `workerLoopForNode(node, slot)` + `executeBatch(batch, node, workerId)`。worker 创建 round-robin：slot 0→N1#1,N2#1,N3#1; slot 1→N1#2,N2#2,N3#2（保证初始分配 N1P1→1-10, N2P1→11-20, ...）。worker 绑定节点、await 执行、全 batch 原子取队。per-node 下 avoid-set 检查移除（circuit breaker 自然处理重试）。全退出时 drain 队列判错。
+  - **工作节点分进程显示**（`Step3Clean.tsx`）：`NodeSession` 加 `workerId`，以 workerId 为键独立展示每个进程。`chapterNode` ref 改 `Map<chapterId, workerId>`。显示「节点名 #1」「节点名 #2」。
+  - **拒绝节点去重**（`Step4Review.tsx`）：`filter`/`map` with `seen` Set 经典 bug（filter 先执行→seen 恒空→全过）→ pre-compute `useMemo`+`Map` 去重；移除 `（N 章）` 后缀。
+- **改动文件**（4 个）：
+  - 前端：`frontend/src/services/real/llm.ts`（删 pickCandidate/executeTask/workerLoop/worker创建 → 新建 executeBatch/workerLoopForNode/round-robin创建/activeWorkers计数；onStart +workerId）、`frontend/src/pages/m1-import/Step3Clean.tsx`（新建 DebouncedInputNumber；替换全部 InputNumber；NodeSession 加 workerId/改键；trackAssign/trackComplete 按 workerId）、`frontend/src/pages/m1-import/Step4Review.tsx`（rejectNodeOptions useMemo+Map 去重）
+  - 文档：`HANDOFF.md`
+- **验证全过**：tsc 0 错误 / eslint 0 错误 0 警告 / vite build ✅（704ms）/ smoke(55) ✅ / smoke-batch(16) ✅（含熔断回归） / ruleclean-smoke(43) ✅ / parse-smoke(22) ✅
+- **关键设计决策**：
+  ① **per-node 模型**：每节点每并发槽一个专用 worker（await 执行，非 fire-and-forget）。优势：分布确定可预测、每进程可观测、全 batch 原子取队。代价：利用率略降（某节点慢时其他节点 worker 不接管）— 用户场景本地少量节点，可预测性优先。
+  ② **avoid-set 在 per-node 下移除**：worker 绑定节点，若避让会导致同章永远不被该节点重试 → circuit breaker 无法触发。移除后 circuit breaker 自然工作（连续 3 次失败→禁用→其他节点 worker 接管）。
+  ③ **DebouncedInputNumber key 机制**：用 `key={String(value)}` 同步外部值变更（父组件改值时重挂载重置本地 state），避免 useEffect+setState 的 lint 警告和 cascading renders。
+- **下一步**：① 用户实机验证数字输入不卡顿、工作节点分进程显示、顺序分布；② 实机验证拒绝指定节点选项无重复；③（可选）per-node worker 支持运行时新增节点动态创建 worker
 
 ## 更新本文档的约定
 

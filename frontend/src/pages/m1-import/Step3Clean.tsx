@@ -71,7 +71,10 @@ interface NodeRuntime {
 /** 工作节点的一次会话（按批次生命周期）：节点被分配任务时创建，本批全部完成后置 idle。
  *  下次再被分配→新建会话替换（重置计数、置底部）；运行结束/被关闭→硬删除。 */
 interface NodeSession {
+  /** 唯一进程标识：nodeId#slot（如 mint-1#1、mint-1#2），同节点不同进程各自独立 */
+  workerId: string
   nodeId: string
+  /** 显示名：节点名 #slot */
   name: string
   /** 本会话接手的章节 id（含已完成，按接手顺序） */
   assigned: string[]
@@ -135,11 +138,11 @@ export default function Step3Clean() {
 
   /** 列表视图切换：待处理 / 完成 / 工作节点 / 节点任务 */
   const [listTab, setListTab] = useState<'pending' | 'done' | 'nodes' | 'nodeTasks'>('pending')
-  const [selectedNode, setSelectedNode] = useState<string | null>(null)
+  const [selectedNode, setSelectedNode] = useState<string | null>(null) // workerId
 
   /** 工作节点会话（有序数组，底部=最新） */
   const [nodeSessions, setNodeSessions] = useState<NodeSession[]>([])
-  /** chapterId → 当前所属会话的 nodeId（onStart 写入，onDone/onError 读） */
+  /** chapterId → 当前所属会话的 workerId（onStart 写入，onDone/onError 读） */
   const chapterNode = useRef<Map<string, string>>(new Map())
 
   // 挂载时加载内置默认 prompt
@@ -223,12 +226,12 @@ export default function Step3Clean() {
     }).filter((n) => n.baseURL.trim() && n.model.trim())
   }
 
-  /** onStart：记录 chapterId → nodeId，并维护节点会话（按批次生命周期） */
-  const trackAssign = (chapterId: string, nodeName: string, nodeId?: string) => {
-    if (!nodeId) return
-    chapterNode.current.set(chapterId, nodeId)
+  /** onStart：记录 chapterId → workerId，并维护节点会话（按批次生命周期） */
+  const trackAssign = (chapterId: string, nodeName: string, nodeId?: string, workerId?: string) => {
+    if (!nodeId || !workerId) return
+    chapterNode.current.set(chapterId, workerId)
     setNodeSessions((prev) => {
-      const idx = prev.findIndex((s) => s.nodeId === nodeId)
+      const idx = prev.findIndex((s) => s.workerId === workerId)
       // 已有会话且未 idle → 直接追加；已 idle → 视为新一批，替换（重置计数、置底部）
       if (idx >= 0 && !prev[idx].idle) {
         const next = [...prev]
@@ -236,10 +239,11 @@ export default function Step3Clean() {
         next[idx] = s
         return next
       }
-      const fresh: NodeSession = { nodeId, name: nodeName, assigned: [chapterId], done: new Set(), idle: false }
+      const slotNum = workerId.split('#')[1] || '?'
+      const fresh: NodeSession = { workerId, nodeId, name: `${nodeName} #${slotNum}`, assigned: [chapterId], done: new Set(), idle: false }
       if (idx >= 0) {
         // idle 会话被替换
-        const next = prev.filter((s) => s.nodeId !== nodeId)
+        const next = prev.filter((s) => s.workerId !== workerId)
         return [...next, fresh]
       }
       return [...prev, fresh]
@@ -248,10 +252,10 @@ export default function Step3Clean() {
 
   /** onDone/onError：标记会话内该章完成；本会话全部完成则置 idle */
   const trackComplete = (chapterId: string) => {
-    const nodeId = chapterNode.current.get(chapterId)
-    if (!nodeId) return
+    const workerId = chapterNode.current.get(chapterId)
+    if (!workerId) return
     setNodeSessions((prev) => {
-      const idx = prev.findIndex((s) => s.nodeId === nodeId)
+      const idx = prev.findIndex((s) => s.workerId === workerId)
       if (idx < 0) return prev
       const s = prev[idx]
       const done = new Set(s.done).add(chapterId)
@@ -283,12 +287,12 @@ export default function Step3Clean() {
       targets.map((c) => ({ id: c.id, content: c.content })),
       cleanNodes,
       {
-        onStart: (chapterId, nodeName, batchId, nodeId) => {
+        onStart: (chapterId, nodeName, batchId, nodeId, workerId) => {
           patchChapter(chapterId, {
             cleanStatus: 'processing',
             ...(nodeId ? { processedByNode: { nodeId, nodeName } } : {}),
           })
-          trackAssign(chapterId, nodeName, nodeId)
+          trackAssign(chapterId, nodeName, nodeId, workerId)
           const isAnchor = !!batchId
           setActive((prev) => [...prev, { chapterId, nodeName, nodeId, acc: '', batchId, isBatchAnchor: isAnchor }])
           setSelectedTask((sel) => sel ?? chapterId)
@@ -462,7 +466,7 @@ export default function Step3Clean() {
     c.cleanStatus === 'pending' || c.cleanStatus === 'processing' || c.cleanStatus === 'needsReprocess' || c.cleanStatus === 'failed',
   )
   const doneChapters = chapters.filter((c) => c.cleanStatus === 'completed' || c.cleanStatus === 'accepted')
-  const selectedSession = nodeSessions.find((s) => s.nodeId === selectedNode) ?? null
+  const selectedSession = nodeSessions.find((s) => s.workerId === selectedNode) ?? null
 
   /** 选中节点任务列表里的章节（完成的不移除，直到该会话结束） */
   const nodeTaskChapters = selectedSession
@@ -504,34 +508,34 @@ export default function Step3Clean() {
                   <Space size={8} align="center" wrap style={{ marginBottom: 12 }}>
                     <Typography.Text type="secondary">统一设置所有节点（仅填的生效）：</Typography.Text>
                     <Typography.Text type="secondary" style={{ fontSize: 12 }}>进程</Typography.Text>
-                    <InputNumber
+                    <DebouncedInputNumber
                       size="small"
                       min={1}
                       max={32}
                       value={bulkConcurrency}
                       placeholder="如 2"
                       style={{ width: 64 }}
-                      onChange={(v) => setBulkConcurrency(v)}
+                      onCommit={(v) => setBulkConcurrency(v)}
                     />
                     <Typography.Text type="secondary" style={{ fontSize: 12 }}>章节</Typography.Text>
-                    <InputNumber
+                    <DebouncedInputNumber
                       size="small"
                       min={1}
                       max={20}
                       value={bulkBatchSize}
                       placeholder="如 1"
                       style={{ width: 60 }}
-                      onChange={(v) => setBulkBatchSize(v)}
+                      onCommit={(v) => setBulkBatchSize(v)}
                     />
                     <Typography.Text type="secondary" style={{ fontSize: 12 }}>间隔</Typography.Text>
-                    <InputNumber
+                    <DebouncedInputNumber
                       size="small"
                       min={0}
                       max={60}
                       value={bulkIntervalSec}
                       placeholder="如 0"
                       style={{ width: 60 }}
-                      onChange={(v) => setBulkIntervalSec(v)}
+                      onCommit={(v) => setBulkIntervalSec(v)}
                     />
                     <Typography.Text type="secondary" style={{ fontSize: 12 }}>s</Typography.Text>
                     <Button
@@ -572,37 +576,37 @@ export default function Step3Clean() {
                             <Space direction="vertical" size={4} style={{ width: '100%' }}>
                               <Space size={4}>
                                 <Typography.Text type="secondary" style={{ fontSize: 12 }}>进程</Typography.Text>
-                                <InputNumber
+                                <DebouncedInputNumber
                                   size="small"
                                   min={1}
                                   max={32}
                                   value={rs.concurrency}
                                   style={{ width: 56 }}
-                                  onChange={(v) => {
+                                  onCommit={(v) => {
                                     updateNodeSetting(rs.nodeId, { concurrency: v ?? 1 })
                                     if (running) setTimeout(hotUpdateNodes, 0)
                                   }}
                                 />
                                 <Typography.Text type="secondary" style={{ fontSize: 12 }}>章节</Typography.Text>
-                                <InputNumber
+                                <DebouncedInputNumber
                                   size="small"
                                   min={1}
                                   max={20}
                                   value={rs.batchSize}
                                   style={{ width: 52 }}
-                                  onChange={(v) => {
+                                  onCommit={(v) => {
                                     updateNodeSetting(rs.nodeId, { batchSize: v ?? 1 })
                                     if (running) setTimeout(hotUpdateNodes, 0)
                                   }}
                                 />
                                 <Typography.Text type="secondary" style={{ fontSize: 12 }}>间隔</Typography.Text>
-                                <InputNumber
+                                <DebouncedInputNumber
                                   size="small"
                                   min={0}
                                   max={60}
                                   value={rs.intervalSec}
                                   style={{ width: 52 }}
-                                  onChange={(v) => {
+                                  onCommit={(v) => {
                                     updateNodeSetting(rs.nodeId, { intervalSec: v ?? 0 })
                                     if (running) setTimeout(hotUpdateNodes, 0)
                                   }}
@@ -632,11 +636,11 @@ export default function Step3Clean() {
       {/* 处理范围：相对待处理列表 */}
       <Space wrap align="center">
         <Typography.Text>处理范围：第</Typography.Text>
-        <InputNumber
+        <DebouncedInputNumber
           min={1}
           max={Math.max(1, rangeEnd ?? pendingCount)}
           value={rangeStart}
-          onChange={(v) => {
+          onCommit={(v) => {
             setRangeStart(v)
             if (v != null && rangeEnd != null && v > rangeEnd) setRangeEnd(null)
           }}
@@ -644,11 +648,11 @@ export default function Step3Clean() {
           placeholder="1"
         />
         <Typography.Text>—</Typography.Text>
-        <InputNumber
+        <DebouncedInputNumber
           min={rangeStart ?? 1}
           max={pendingCount}
           value={rangeEnd}
-          onChange={(v) => setRangeEnd(v)}
+          onCommit={(v) => setRangeEnd(v)}
           style={{ width: 70 }}
           placeholder={String(pendingCount)}
         />
@@ -991,6 +995,28 @@ export default function Step3Clean() {
   )
 }
 
+// ── 防抖数字输入：本地状态即时显示，失焦才交父组件（避免每按键写 store / 重渲染） ──
+
+function DebouncedInputNumber({
+  value,
+  onCommit,
+  ...rest
+}: React.ComponentProps<typeof InputNumber> & {
+  onCommit: (v: number | null) => void
+}) {
+  // key={value} 让父组件改值时组件重挂载，本地状态自然重置为新值（规避 useEffect+setState 的 lint 警告）
+  const [local, setLocal] = useState<number | null>(value)
+  return (
+    <InputNumber
+      key={String(value ?? 'null')}
+      {...rest}
+      value={local}
+      onChange={(v) => setLocal(v)}
+      onBlur={() => onCommit(local)}
+    />
+  )
+}
+
 // ── 子组件：章节列表格 ──
 
 interface ChapterListPaneProps {
@@ -1056,7 +1082,7 @@ interface NodeListPaneProps {
   sessions: NodeSession[]
   providers: { id: string; name: string; model?: string }[]
   selectedNode: string | null
-  onPick: (nodeId: string) => void
+  onPick: (workerId: string) => void
 }
 
 function NodeListPane({ sessions, selectedNode, onPick }: NodeListPaneProps) {
@@ -1069,13 +1095,13 @@ function NodeListPane({ sessions, selectedNode, onPick }: NodeListPaneProps) {
           const inFlight = s.assigned.length - s.done.size
           return (
             <div
-              key={s.nodeId}
-              onClick={() => onPick(s.nodeId)}
+              key={s.workerId}
+              onClick={() => onPick(s.workerId)}
               style={{
                 cursor: 'pointer',
                 padding: '8px 10px',
                 borderBottom: '1px solid #f0f0f0',
-                background: selectedNode === s.nodeId ? '#e6f4ff' : undefined,
+                background: selectedNode === s.workerId ? '#e6f4ff' : undefined,
                 opacity: s.idle ? 0.6 : 1,
               }}
             >
