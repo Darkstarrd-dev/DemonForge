@@ -29,7 +29,7 @@ bootstrapStore().finally(() => {
   createRoot(document.getElementById('root')!).render(
     <StrictMode>
       <ConfigProvider locale={zhCN}>
-        <AntApp>
+        <AntApp message={{ maxCount: 3 }}>
           <BrowserRouter>
             <ErrorBoundary>
               <Routes>

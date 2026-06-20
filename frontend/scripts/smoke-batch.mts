@@ -199,5 +199,84 @@ const mkChapters = (n: number) =>
   check('自动重试=关：无完成章节', done.length === 0, `意外完成 ${done.length}`)
 }
 
+// ── 场景 9：节点返回 200 + delta 后发 error（中途出错）→ 不触发熔断，失败章推回重试 ──
+{
+  const chapters = mkChapters(6)
+  const expectedIds = new Set(chapters.map((c) => c.id))
+  const enc = new TextEncoder()
+  let midErrCount = 0
+  globalThis.fetch = async (_url: string, init: RequestInit) => {
+    const body = JSON.parse(String(init.body))
+    const ids = [...String(body.content).matchAll(/===CHAPTER_ID:([^=]+)===/g)].map((m) => m[1]).filter((id) => expectedIds.has(id))
+    midErrCount++
+    const out = ids.map((id) => `===CHAPTER_ID:${id}===\n这是中途出错节点产出的清理正文，足够超过十个字符。`).join(`\n\n${CHAPTER_SEP}\n\n`)
+    const stream = new ReadableStream({
+      start(c) {
+        // 先发 delta（证明节点能响应），再发 error 模拟流中断
+        c.enqueue(enc.encode(`event: delta\ndata: ${JSON.stringify({ delta: out })}\n\n`))
+        c.enqueue(enc.encode(`event: error\ndata: ${JSON.stringify({ message: '服务中途超时' })}\n\n`))
+        c.close()
+      },
+    })
+    return new Response(stream, { status: 200, headers: { 'content-type': 'text/event-stream' } })
+  }
+  let disabledCount = 0
+  const { errored } = await runQueue(chapters, [mkNode('STREAM_ERR', 1)], {
+    onNodeDisabled: () => { disabledCount++ },
+    autoRetry: false,
+  })
+  check('中途出错不熔断：节点多次 stream error 后不被 onNodeDisabled', disabledCount === 0, `实际熔断 ${disabledCount} 次`)
+  check('中途出错：所有章节走重试/终态失败（不死循环）', errored.length > 0, `错误 ${errored.length}`)
+}
+
+// ── 场景 10：batch 内前几章正常产出、后几章过短 → 已产出章 onDone 不重复，未完成章推回，节点不熔断 ──
+{
+  const chapters = mkChapters(5)
+  const expectedIds = new Set(chapters.map((c) => c.id))
+  const enc = new TextEncoder()
+  // 根据 chapter id 后缀数决定是否过短（非 batch 内位置）：c1-c2 正常，c3-c5 始终过短
+  const isShortChapter = (id: string) => {
+    const n = parseInt(id.replace(/\D/g, ''), 10)
+    return n >= 3
+  }
+  globalThis.fetch = async (_url: string, init: RequestInit) => {
+    const body = JSON.parse(String(init.body))
+    const ids = [...String(body.content).matchAll(/===CHAPTER_ID:([^=]+)===/g)].map((m) => m[1]).filter((id) => expectedIds.has(id))
+    const out = ids.map((id) => `===CHAPTER_ID:${id}===\n${isShortChapter(id) ? '短' : `这是节点为章节 ${id} 产出的清理正文，足够超过十个字符。`}`).join(`\n\n${CHAPTER_SEP}\n\n`)
+    const stream = new ReadableStream({
+      start(c) {
+        c.enqueue(enc.encode(`event: delta\ndata: ${JSON.stringify({ delta: out })}\n\n`))
+        c.enqueue(enc.encode(`event: done\ndata: ${JSON.stringify({ text: out })}\n\n`))
+        c.close()
+      },
+    })
+    return new Response(stream, { status: 200, headers: { 'content-type': 'text/event-stream' } })
+  }
+  let disabledCount = 0
+  let doneDedup = 0
+  const doneSet = new Set<string>()
+  const { done, errored } = await new Promise<{ done: string[]; errored: string[] }>((resolve) => {
+    const doneArr: string[] = []
+    const erroredArr: string[] = []
+    const cb: CleanQueueCallbacks = {
+      onStart: () => {},
+      onChunk: () => {},
+      onDone: (id) => {
+        if (doneSet.has(id)) doneDedup++
+        else doneSet.add(id)
+        doneArr.push(id)
+      },
+      onError: (id) => erroredArr.push(id),
+      onFinish: () => resolve({ done: doneArr, errored: erroredArr }),
+      onDebug: () => {},
+      onNodeDisabled: () => { disabledCount++ },
+    }
+    startCleanQueue(chapters, [mkNode('PARTIAL', 5)], cb, { autoRetry: false })
+  })
+  check('partial batch：已完成章 onDone 不重复', doneDedup === 0, `重复 ${doneDedup} 次`)
+  check('partial batch：uncompleted 短章推回重试/终态失败', errored.length > 0, `错误 ${errored.length}`)
+  check('partial batch：节点不熔断（能响应+产出=node可用）', disabledCount === 0, `实际熔断 ${disabledCount} 次`)
+}
+
 console.log(failed === 0 ? '\n全部通过' : `\n${failed} 项失败`)
 process.exit(failed === 0 ? 0 : 1)

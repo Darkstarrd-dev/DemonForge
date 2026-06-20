@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Alert,
   App,
@@ -27,7 +27,7 @@ import {
   PlusOutlined,
   ReloadOutlined,
 } from '@ant-design/icons'
-import { useAppStore, type CleanRunNodeSession } from '../../store/appStore'
+import { useAppStore, pushImportSessionNow, type CleanRunNodeSession } from '../../store/appStore'
 import { startCleanQueue, getDefaultPrompt, type CleanNode, type CleanQueueHandle, type CleanQueueDebugEvent } from '../../services/api'
 
 interface DebugEntry {
@@ -104,13 +104,18 @@ export default function Step3Clean() {
   const [rangeEnd, setRangeEnd] = useState<number | null>(null)
   const running = cleanRun?.running ?? false
   const paused = cleanRun?.paused ?? false
-  const active = cleanRun?.active ?? []
+  const active = useMemo(() => cleanRun?.active ?? [], [cleanRun?.active])
   const nodeSessions = useMemo(() => cleanRun?.nodeSessions ?? [], [cleanRun?.nodeSessions])
   const [selectedTask, setSelectedTask] = useState<string | null>(null)
   const [debugEntries, setDebugEntries] = useState<DebugEntry[]>([])
   const [logFilter, setLogFilter] = useState<'all' | 'request' | 'response' | 'error'>('all')
   const [overridePrompt, setOverridePrompt] = useState('')
   const [promptLoaded, setPromptLoaded] = useState(false)
+  const errorCountRef = useRef(0)
+  const accMapRef = useRef<Map<string, string>>(new Map())
+  const [liveAcc, setLiveAcc] = useState('')
+  const viewingIdRef = useRef<string | undefined>(undefined)
+  const debugBufferRef = useRef<DebugEntry[]>([])
   const debugIdRef = useRef(0)
   const handleRef = useRef<CleanQueueHandle | null>(null)
 
@@ -130,6 +135,37 @@ export default function Step3Clean() {
       handleRef.current = null
     }
   }, [cleanRun?.handle, cleanRun])
+
+  // 同步 viewingIdRef（供 150ms interval 读取当前选中章节 id）
+  const viewing = active.find((t) => t.chapterId === selectedTask) ?? active[0]
+  useEffect(() => {
+    viewingIdRef.current = viewing?.chapterId
+  }, [viewing?.chapterId])
+
+  // 150ms 定时刷新：从 accMapRef 读取选中章节的流式文本写入 liveAcc，
+  // 并把 debugBufferRef 积累的日志条目合并写入 setDebugEntries。
+  // 与并发数/章数无关，固定 ~6.7fps。
+  useEffect(() => {
+    if (!running) return
+    const id = setInterval(() => {
+      const curId = viewingIdRef.current
+      if (curId) {
+        const curAcc = accMapRef.current.get(curId) ?? ''
+        setLiveAcc((prev) => (prev === curAcc ? prev : curAcc))
+      } else {
+        setLiveAcc('')
+      }
+      const buf = debugBufferRef.current
+      if (buf.length) {
+        debugBufferRef.current = []
+        setDebugEntries((prev) => {
+          const next = [...prev, ...buf]
+          return next.slice(-200)
+        })
+      }
+    }, 150)
+    return () => clearInterval(id)
+  }, [running])
 
   /** 写 cleanRun 到 store（部分合并）。调用处直接传 patch。 */
   const patchRun = (patch: Partial<{ handle: unknown; running: boolean; paused: boolean; active: typeof active; nodeSessions: typeof nodeSessions; startedAt: number }>) => {
@@ -179,19 +215,32 @@ export default function Step3Clean() {
     })
   }, [session?.chapters, setState])
 
+  // ── 派生数据（useMemo 必须在 early return 之前，遵守 hook 调用顺序） ──
+  const chapters2 = useMemo(() => session?.chapters ?? [], [session?.chapters])
+  const pendingNotProcessing = useMemo(() => chapters2.filter(
+    (c) => c.cleanStatus === 'pending' || c.cleanStatus === 'needsReprocess' || c.cleanStatus === 'failed',
+  ), [chapters2])
+  const pendingCount = pendingNotProcessing.length
+  const doneCount = useMemo(() => chapters2.filter((c) => c.cleanStatus === 'completed' || c.cleanStatus === 'accepted').length, [chapters2])
+
+  /** 参选节点（participating 为 true） */
+  const participatingNodes = useMemo(() => nodeRunStates.filter((s) => s.participating), [nodeRunStates])
+
+  // ── 列表数据（memo 化，减少 onChunk 重渲染时的 filter 开销）──
+  const pendingChapters = useMemo(() => chapters2.filter((c) =>
+    c.cleanStatus === 'pending' || c.cleanStatus === 'processing' || c.cleanStatus === 'needsReprocess' || c.cleanStatus === 'failed',
+  ), [chapters2])
+  const doneChapters = useMemo(() => chapters2.filter((c) => c.cleanStatus === 'completed' || c.cleanStatus === 'accepted'), [chapters2])
+
+  const previewChapter = useCallback((chapterId: string) => setSelectedTask(chapterId), [])
+  const activeIds = useMemo(() => new Set(active.map((a) => a.chapterId)), [active])
+  const activeIdsEmpty = useMemo(() => new Set<string>(), [])
+
   if (!session) return null
   const chapters = session.chapters
   const total = chapters.length
-  const pendingNotProcessing = chapters.filter(
-    (c) => c.cleanStatus === 'pending' || c.cleanStatus === 'needsReprocess' || c.cleanStatus === 'failed',
-  )
-  const pendingCount = pendingNotProcessing.length
   const start = Math.max(1, Math.min(rangeStart ?? 1, pendingCount))
   const end = Math.min(rangeEnd ?? pendingCount, pendingCount)
-  const doneCount = chapters.filter((c) => c.cleanStatus === 'completed' || c.cleanStatus === 'accepted').length
-
-  /** 参选节点（participating 为 true） */
-  const participatingNodes = nodeRunStates.filter((s) => s.participating)
 
   const patchChapter = (chapterId: string, patch: Record<string, unknown>) => {
     const cur = useAppStore.getState().importSession
@@ -286,6 +335,7 @@ export default function Step3Clean() {
       return
     }
     patchRun({ running: true, paused: false, active: [], nodeSessions: [], startedAt: Date.now() })
+    errorCountRef.current = 0
     chapterNode.current = new Map()
     targets.forEach((c) => patchChapter(c.id, { cleanStatus: 'pending' }))
     const handle = startCleanQueue(
@@ -300,18 +350,17 @@ export default function Step3Clean() {
           trackAssign(chapterId, nodeName, nodeId, workerId, batchSeq)
           const isAnchor = !!batchId
           const cr = useAppStore.getState().cleanRun
-          const nextActive = [...(cr?.active ?? []), { chapterId, nodeName, nodeId, acc: '', batchId, isBatchAnchor: isAnchor }]
+          const nextActive = [...(cr?.active ?? []), { chapterId, nodeName, nodeId, batchId, isBatchAnchor: isAnchor }]
           useAppStore.getState().setState({ cleanRun: { ...cr!, active: nextActive } })
           setSelectedTask((sel) => sel ?? chapterId)
         },
         onChunk: (chapterId, acc) => {
-          const cr = useAppStore.getState().cleanRun
-          const nextActive = (cr?.active ?? []).map((t) => (t.chapterId === chapterId ? { ...t, acc } : t))
-          useAppStore.getState().setState({ cleanRun: { ...cr!, active: nextActive } })
+          accMapRef.current.set(chapterId, acc)
         },
         onDone: (chapterId, cleaned) => {
           patchChapter(chapterId, { cleanStatus: 'completed', cleanedContent: cleaned, lineDecisions: {} })
           trackComplete(chapterId)
+          accMapRef.current.delete(chapterId)
           const cr = useAppStore.getState().cleanRun
           const nextActive = (cr?.active ?? []).filter((t) => t.chapterId !== chapterId)
           useAppStore.getState().setState({ cleanRun: { ...cr!, active: nextActive } })
@@ -320,13 +369,17 @@ export default function Step3Clean() {
         onError: (chapterId, msg) => {
           patchChapter(chapterId, { cleanStatus: 'failed' })
           trackComplete(chapterId)
+          accMapRef.current.delete(chapterId)
           const cr = useAppStore.getState().cleanRun
           const nextActive = (cr?.active ?? []).filter((t) => t.chapterId !== chapterId)
           useAppStore.getState().setState({ cleanRun: { ...cr!, active: nextActive } })
           setSelectedTask((sel) => (sel === chapterId ? null : sel))
-          message.error(`「${chapters.find((c) => c.id === chapterId)?.title ?? chapterId}」清理失败：${msg}`)
+          const title = chapters.find((c) => c.id === chapterId)?.title ?? chapterId
+          message.error({ key: 'm1-clean-error', content: `清理失败（累计 ${++errorCountRef.current} 章）·最近「${title}」：${msg}` })
         },
         onFinish: () => {
+          pushImportSessionNow()
+          accMapRef.current = new Map()
           clearRun()
           chapterNode.current = new Map()
           setSelectedNode(null)
@@ -342,34 +395,28 @@ export default function Step3Clean() {
           if (cr) {
             useAppStore.getState().setState({ cleanRun: { ...cr, nodeSessions: cr.nodeSessions.filter((s) => s.nodeId !== nodeId) } })
           }
-          message.error(`节点「${nodeName}」已自动关闭：${reason}`)
+          message.error({ key: 'm1-node-disabled', content: `节点「${nodeName}」已自动关闭：${reason}` })
         },
         onDebug: (evt: CleanQueueDebugEvent) => {
           debugIdRef.current += 1
-          setDebugEntries((prev) => {
-            const next = [
-              ...prev,
-              {
-                chapterId: evt.chapterId,
-                id: debugIdRef.current,
-                title: evt.chapterTitle ?? chapters.find((c) => c.id === evt.chapterId)?.title ?? evt.chapterId,
-                type: evt.type,
-                timestamp: evt.timestamp,
-                nodeName: evt.nodeName,
-                nodeId: evt.nodeId,
-                model: evt.model,
-                batchSize: evt.batchSize,
-                contentLength: evt.contentLength,
-                requestBody: evt.requestBody,
-                statusCode: evt.statusCode,
-                responseBody: evt.responseBody,
-                chunksCount: evt.chunksCount,
-                error: evt.error,
-                outputLength: evt.outputLength,
-                firstBytesAt: evt.firstBytesAt,
-              },
-            ]
-            return next.slice(-200)
+          debugBufferRef.current.push({
+            chapterId: evt.chapterId,
+            id: debugIdRef.current,
+            title: evt.chapterTitle ?? chapters.find((c) => c.id === evt.chapterId)?.title ?? evt.chapterId,
+            type: evt.type,
+            timestamp: evt.timestamp,
+            nodeName: evt.nodeName,
+            nodeId: evt.nodeId,
+            model: evt.model,
+            batchSize: evt.batchSize,
+            contentLength: evt.contentLength,
+            requestBody: evt.requestBody,
+            statusCode: evt.statusCode,
+            responseBody: evt.responseBody,
+            chunksCount: evt.chunksCount,
+            error: evt.error,
+            outputLength: evt.outputLength,
+            firstBytesAt: evt.firstBytesAt,
           })
         },
       },
@@ -384,6 +431,7 @@ export default function Step3Clean() {
   const pause = () => {
     handleRef.current?.pause()
     patchRun({ paused: true })
+    pushImportSessionNow()
   }
   const resume = () => {
     handleRef.current?.resume()
@@ -391,6 +439,8 @@ export default function Step3Clean() {
   }
   const stop = () => {
     handleRef.current?.stop()
+    pushImportSessionNow()
+    accMapRef.current = new Map()
     clearRun()
     chapterNode.current = new Map()
     const cur = useAppStore.getState().importSession
@@ -474,14 +524,8 @@ export default function Step3Clean() {
   const gotoReview = () =>
     setState({ importSession: { ...useAppStore.getState().importSession!, step: 3 } })
 
-  const viewing = active.find((t) => t.chapterId === selectedTask) ?? active[0]
   const viewingChapter = viewing ? chapters.find((c) => c.id === viewing.chapterId) : (selectedTask ? chapters.find((c) => c.id === selectedTask) : null)
 
-  // ── 列表数据 ──
-  const pendingChapters = chapters.filter((c) =>
-    c.cleanStatus === 'pending' || c.cleanStatus === 'processing' || c.cleanStatus === 'needsReprocess' || c.cleanStatus === 'failed',
-  )
-  const doneChapters = chapters.filter((c) => c.cleanStatus === 'completed' || c.cleanStatus === 'accepted')
   const selectedSession = nodeSessions.find((s) => s.sessionKey === selectedNode) ?? null
 
   /** 选中节点任务列表里的章节（完成的不移除，直到该会话结束） */
@@ -496,8 +540,6 @@ export default function Step3Clean() {
       : st === 'failed' ? 'red'
       : st === 'needsReprocess' ? 'orange'
       : 'default'
-
-  const previewChapter = (chapterId: string) => setSelectedTask(chapterId)
 
   return (
     <Space direction="vertical" size={16} style={{ width: '100%' }}>
@@ -752,7 +794,7 @@ export default function Step3Clean() {
                     chapters={pendingChapters}
                     emptyText="无待处理章节"
                     selectedTask={selectedTask}
-                    activeIds={new Set(active.map((a) => a.chapterId))}
+                    activeIds={activeIds}
                     onPick={previewChapter}
                     statusColor={statusColor}
                   />
@@ -766,7 +808,7 @@ export default function Step3Clean() {
                     chapters={doneChapters}
                     emptyText="暂无完成章节"
                     selectedTask={selectedTask}
-                    activeIds={new Set()}
+                    activeIds={activeIdsEmpty}
                     onPick={previewChapter}
                     statusColor={statusColor}
                   />
@@ -795,7 +837,7 @@ export default function Step3Clean() {
                     chapters={nodeTaskChapters as typeof pendingChapters}
                     emptyText={selectedSession ? '该节点暂无任务' : '请在「工作节点」选择一个节点'}
                     selectedTask={selectedTask}
-                    activeIds={new Set(active.map((a) => a.chapterId))}
+                    activeIds={activeIds}
                     onPick={previewChapter}
                     statusColor={statusColor}
                     doneSet={selectedSession ? new Set(selectedSession.done) : undefined}
@@ -826,7 +868,7 @@ export default function Step3Clean() {
             </Col>
             <Col span={12} style={{ height: '100%' }}>
               <div className="stream-pane" style={{ height: '100%', overflow: 'auto' }}>
-                {viewing ? viewing.acc || '等待响应…' : (viewingChapter?.cleanedContent ?? '等待响应…')}
+                {viewing ? liveAcc || '等待响应…' : (viewingChapter?.cleanedContent ?? '等待响应…')}
               </div>
             </Col>
           </Row>
@@ -1057,52 +1099,62 @@ interface ChapterListPaneProps {
   doneSet?: Set<string>
 }
 
-function ChapterListPane({ chapters, emptyText, selectedTask, activeIds, onPick, statusColor, doneSet }: ChapterListPaneProps) {
+const ChapterListPane = React.memo(function ChapterListPane({ chapters, emptyText, selectedTask, activeIds, onPick, statusColor, doneSet }: ChapterListPaneProps) {
+  const TRUNCATE_AT = 300
+  const truncated = chapters.length > TRUNCATE_AT
+  const visible = truncated ? chapters.slice(0, TRUNCATE_AT) : chapters
   return (
     <div style={{ height: '100%', overflow: 'auto', border: '1px solid #f0f0f0', borderRadius: 6 }}>
       {chapters.length === 0 ? (
         <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={emptyText} style={{ marginTop: 40 }} />
       ) : (
-        chapters.map((c) => {
-          const isActive = activeIds.has(c.id)
-          const isDone = doneSet?.has(c.id)
-          const outLen = c.cleanedContent?.length
-          return (
-            <div
-              key={c.id}
-              onClick={() => onPick(c.id)}
-              style={{
-                cursor: 'pointer',
-                padding: '6px 10px',
-                borderBottom: '1px solid #f0f0f0',
-                background: selectedTask === c.id ? '#e6f4ff' : undefined,
-                opacity: isDone ? 0.7 : 1,
-              }}
-            >
-              <Typography.Text ellipsis style={{ maxWidth: 180, display: 'block', fontSize: 13 }}>
-                {c.title}
-              </Typography.Text>
-              <Space size={4}>
-                {c.processedByNode && (
-                  <Tag color="purple" style={{ margin: 0, fontSize: 10 }}>
-                    {c.processedByNode.nodeName}
+        <>
+          {visible.map((c) => {
+            const isActive = activeIds.has(c.id)
+            const isDone = doneSet?.has(c.id)
+            const outLen = c.cleanedContent?.length
+            return (
+              <div
+                key={c.id}
+                onClick={() => onPick(c.id)}
+                style={{
+                  cursor: 'pointer',
+                  padding: '6px 10px',
+                  borderBottom: '1px solid #f0f0f0',
+                  background: selectedTask === c.id ? '#e6f4ff' : undefined,
+                  opacity: isDone ? 0.7 : 1,
+                }}
+              >
+                <Typography.Text ellipsis style={{ maxWidth: 180, display: 'block', fontSize: 13 }}>
+                  {c.title}
+                </Typography.Text>
+                <Space size={4}>
+                  {c.processedByNode && (
+                    <Tag color="purple" style={{ margin: 0, fontSize: 10 }}>
+                      {c.processedByNode.nodeName}
+                    </Tag>
+                  )}
+                  <Tag color={statusColor(c.cleanStatus)} style={{ margin: 0, fontSize: 11 }}>
+                    {isActive ? '处理中' : c.cleanStatus === 'completed' ? '已完成' : c.cleanStatus === 'accepted' ? '已采纳' : c.cleanStatus === 'failed' ? '失败' : c.cleanStatus === 'needsReprocess' ? '待重做' : '待处理'}
                   </Tag>
-                )}
-                <Tag color={statusColor(c.cleanStatus)} style={{ margin: 0, fontSize: 11 }}>
-                  {isActive ? '处理中' : c.cleanStatus === 'completed' ? '已完成' : c.cleanStatus === 'accepted' ? '已采纳' : c.cleanStatus === 'failed' ? '失败' : c.cleanStatus === 'needsReprocess' ? '待重做' : '待处理'}
-                </Tag>
-                {outLen != null && (
-                  <Typography.Text type="secondary" style={{ fontSize: 11 }}>{outLen} 字</Typography.Text>
-                )}
-                {isDone && <Typography.Text type="success" style={{ fontSize: 11 }}>✓</Typography.Text>}
-              </Space>
+                  {outLen != null && (
+                    <Typography.Text type="secondary" style={{ fontSize: 11 }}>{outLen} 字</Typography.Text>
+                  )}
+                  {isDone && <Typography.Text type="success" style={{ fontSize: 11 }}>✓</Typography.Text>}
+                </Space>
+              </div>
+            )
+          })}
+          {truncated && (
+            <div style={{ padding: '10px', textAlign: 'center', color: '#999', fontSize: 12, borderTop: '1px solid #f0f0f0' }}>
+              共 {chapters.length} 项，仅显示前 {TRUNCATE_AT}（完整列表请进入审核步骤）
             </div>
-          )
-        })
+          )}
+        </>
       )}
     </div>
   )
-}
+})
 
 // ── 子组件：工作节点列表 ──
 
@@ -1113,7 +1165,7 @@ interface NodeListPaneProps {
   onPick: (sessionKey: string) => void
 }
 
-function NodeListPane({ sessions, selectedNode, onPick }: NodeListPaneProps) {
+const NodeListPane = React.memo(function NodeListPane({ sessions, selectedNode, onPick }: NodeListPaneProps) {
   return (
     <div style={{ height: '100%', overflow: 'auto', border: '1px solid #f0f0f0', borderRadius: 6 }}>
       {sessions.length === 0 ? (
@@ -1150,4 +1202,4 @@ function NodeListPane({ sessions, selectedNode, onPick }: NodeListPaneProps) {
       )}
     </div>
   )
-}
+})

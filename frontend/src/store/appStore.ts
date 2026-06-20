@@ -54,12 +54,12 @@ export interface ImageDemoForm {
   seed?: number
 }
 
-/** M1 Step3 清理运行状态（不持久化，仅内存）。用于跨 Step 页面保持任务控制权。 */
+/** M1 Step3 清理当前进行中任务（不持久化，仅内存）。用于跨 Step 页面保持任务控制权。
+ * acc 字段已移除——流式文本改用 Step3Clean 组件内 accMapRef + 150ms 定时刷新，不再每 delta 写 store。 */
 export interface CleanRunActiveTask {
   chapterId: string
   nodeName: string
   nodeId?: string
-  acc: string
   batchId?: string
   isBatchAnchor?: boolean
 }
@@ -649,7 +649,7 @@ useAppStore.subscribe((s, prev) => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(useAppStore.getState().importSession),
     }).catch(() => {})
-  }, 1500)
+  }, useAppStore.getState().cleanRun?.running ? 8000 : 1500)
 })
 
 /** 立即推送当前 importSession 到后端（关窗时绕过 debounce） */

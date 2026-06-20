@@ -42,6 +42,17 @@ export async function getDefaultPrompt(): Promise<string> {
 /** 多章合并分隔符，服务端 prompt.ts 中同名常量保持一致 */
 export const CHAPTER_SEP = '<<<|||CHAPTER_SEP|||>>>'
 
+class CleanError extends Error {
+  phase: 'connect' | 'stream'
+  completedIds: string[]
+  constructor(message: string, phase: 'connect' | 'stream', completedIds: string[] = []) {
+    super(message)
+    this.name = 'CleanError'
+    this.phase = phase
+    this.completedIds = completedIds
+  }
+}
+
 export interface CleanNode {
   id: string
   name: string
@@ -135,16 +146,16 @@ async function streamSingleChapter(
     })
   } catch (e) {
     cb.onDebug?.({ type: 'error', chapterId, timestamp: Date.now(), nodeName: node.name, nodeId: node.id, error: `fetch 失败：${e instanceof Error ? e.message : String(e)}` })
-    throw e
+    throw new CleanError(e instanceof Error ? e.message : String(e), 'connect')
   }
   if (!res.ok) {
     const text = await res.text().catch(() => '(无法读取响应体)')
     cb.onDebug?.({ type: 'error', chapterId, timestamp: Date.now(), nodeName: node.name, nodeId: node.id, statusCode: res.status, responseBody: text.slice(0, 2000), error: `HTTP ${res.status}` })
-    throw new Error(`网关错误 HTTP ${res.status}${text ? `：${text.slice(0, 200)}` : ''}`)
+    throw new CleanError(`网关错误 HTTP ${res.status}${text ? `：${text.slice(0, 200)}` : ''}`, 'connect')
   }
   if (!res.body) {
     cb.onDebug?.({ type: 'error', chapterId, timestamp: Date.now(), nodeName: node.name, nodeId: node.id, statusCode: res.status, error: '响应无 body' })
-    throw new Error('响应无 body')
+    throw new CleanError('响应无 body', 'connect')
   }
 
   const reader = res.body.getReader()
@@ -186,7 +197,7 @@ async function streamSingleChapter(
           const msg = parsed.message ?? '清理失败'
           cb.onDebug?.({ type: 'error', chapterId, timestamp: Date.now(), nodeName: node.name, nodeId: node.id, statusCode: 200, chunksCount, firstBytesAt, responseBody: msg, error: msg })
           sseReported = true
-          throw new Error(msg)
+          throw new CleanError(msg, firstBytesAt !== undefined ? 'stream' : 'connect')
         }
       }
       if (done) break
@@ -196,11 +207,12 @@ async function streamSingleChapter(
       const errMsg = e instanceof Error ? e.message : String(e)
       cb.onDebug?.({ type: 'error', chapterId, timestamp: Date.now(), nodeName: node.name, nodeId: node.id, chunksCount, error: errMsg, responseBody: rawChunks.slice(0, 2000) })
     }
-    throw e
+    throw e instanceof CleanError ? e : new CleanError(e instanceof Error ? e.message : String(e), firstBytesAt !== undefined ? 'stream' : 'connect')
   }
   const endMsg = '流式响应意外结束'
+  const phase = firstBytesAt !== undefined ? 'stream' : 'connect'
   cb.onDebug?.({ type: 'error', chapterId, timestamp: Date.now(), nodeName: node.name, nodeId: node.id, chunksCount, error: endMsg, responseBody: rawChunks.slice(0, 2000) })
-  throw new Error(endMsg)
+  throw new CleanError(endMsg, phase)
 }
 
 // ── 多章合并请求（batchSize > 1） ──
@@ -241,16 +253,16 @@ async function streamBatch(
     })
   } catch (e) {
     batch.forEach((c) => cb.onDebug?.({ type: 'error', chapterId: c.id, timestamp: Date.now(), nodeName: node.name, nodeId: node.id, error: `fetch 失败：${e instanceof Error ? e.message : String(e)}` }))
-    throw e
+    throw new CleanError(e instanceof Error ? e.message : String(e), 'connect')
   }
   if (!res.ok) {
     const text = await res.text().catch(() => '(无法读取响应体)')
     batch.forEach((c) => cb.onDebug?.({ type: 'error', chapterId: c.id, timestamp: Date.now(), nodeName: node.name, nodeId: node.id, statusCode: res.status, responseBody: text.slice(0, 2000), error: `HTTP ${res.status}` }))
-    throw new Error(`网关错误 HTTP ${res.status}${text ? `：${text.slice(0, 200)}` : ''}`)
+    throw new CleanError(`网关错误 HTTP ${res.status}${text ? `：${text.slice(0, 200)}` : ''}`, 'connect')
   }
   if (!res.body) {
     batch.forEach((c) => cb.onDebug?.({ type: 'error', chapterId: c.id, timestamp: Date.now(), nodeName: node.name, nodeId: node.id, statusCode: res.status, error: '响应无 body' }))
-    throw new Error('响应无 body')
+    throw new CleanError('响应无 body', 'connect')
   }
 
   const reader = res.body.getReader()
@@ -339,7 +351,7 @@ async function streamBatch(
           const fullText = parsed.text ?? acc
           const shortIds = finalizeBatch(fullText)
           // 批量内部分章节过短/未产出 → 抛错走重试（已 onDone 的成功章不受影响）
-          if (shortIds.length) throw new Error(`批量输出不完整：${shortIds.length} 章过短（${shortIds.join(', ')}）`)
+          if (shortIds.length) throw new CleanError(`批量输出不完整：${shortIds.length} 章过短（${shortIds.join(', ')}）`, firstBytesAt !== undefined ? 'stream' : 'connect', [...completedIds])
           return
         } else if (event === 'error') {
           const msg = parsed.message ?? '清理失败'
@@ -348,14 +360,14 @@ async function streamBatch(
               cb.onDebug?.({ type: 'error', chapterId: c.id, timestamp: Date.now(), nodeName: node.name, nodeId: node.id, statusCode: 200, chunksCount, firstBytesAt, responseBody: msg, error: msg })
             }
           })
-          throw new Error(msg)
+          throw new CleanError(msg, firstBytesAt !== undefined ? 'stream' : 'connect', [...completedIds])
         }
       }
       if (done) break
     }
     // 流意外结束 → 用累积文本做最终拆分
     const shortIdsAtEnd = finalizeBatch(acc)
-    if (shortIdsAtEnd.length) throw new Error(`流意外结束且部分章节过短（${shortIdsAtEnd.join(', ')}）`)
+    if (shortIdsAtEnd.length) throw new CleanError(`流意外结束且部分章节过短（${shortIdsAtEnd.join(', ')}）`, firstBytesAt !== undefined ? 'stream' : 'connect', [...completedIds])
   } catch (e) {
     if (!signal.aborted) {
       batch.forEach((c) => {
@@ -364,7 +376,7 @@ async function streamBatch(
         }
       })
     }
-    throw e
+    throw e instanceof CleanError ? e : new CleanError(e instanceof Error ? e.message : String(e), firstBytesAt !== undefined ? 'stream' : 'connect', [...completedIds])
   }
 }
 
@@ -498,17 +510,26 @@ export function startCleanQueue(
       }
     } catch (e) {
       const errMsg = e instanceof Error ? e.message : String(e)
-      if (!stopped) {
-        // 节点级熔断：网关/网络类错误（HTTP 5xx、fetch 失败、SSE error）累计到节点，
-        // 达阈值自动关闭该节点，避免对坏节点无限重试。
-        const isNodeLevel = /HTTP\s*5\d\d|fetch\s*失败|网关错误|signal is aborted/i.test(errMsg)
-        if (isNodeLevel) markNodeFail(node, errMsg)
+      const aborted = ac.signal.aborted
+      const ce = e instanceof CleanError ? e : null
+      const phase = ce?.phase ?? 'stream'
+      const completed = ce?.completedIds ?? []
+      if (!stopped && !aborted) {
+        if (phase === 'connect') {
+          markNodeFail(node, errMsg)
+        } else {
+          nodeConsecFails.set(node.id, 0)
+        }
+      }
 
-        // 收集本批所有未完成章
-        const failedTasks: ChapterTask[] = batch.map((t) => ({
-          id: t.id,
-          content: chapters.find((c) => c.id === t.id)?.content ?? t.content,
-        }))
+      if (!stopped) {
+        // 收集本批未完成章（跳过已 onDone 的，避免 batch 部分成功时已完成章被重复推回重试）
+        const failedTasks: ChapterTask[] = batch
+          .filter((t) => !completed.includes(t.id))
+          .map((t) => ({
+            id: t.id,
+            content: chapters.find((c) => c.id === t.id)?.content ?? t.content,
+          }))
 
         // 让失败章重试时避开当前节点（per-node 模型下必须避让，否则同 worker 反复失败）
         failedTasks.forEach((t) => avoidNodeForChapter(t.id, node.id))
