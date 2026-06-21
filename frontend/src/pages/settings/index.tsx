@@ -165,8 +165,8 @@ export default function SettingsPage() {
     filename: string
   } | null>(null)
   const [importBusy, setImportBusy] = useState(false)
-  // 节点池分组折叠状态：从 store 读取（持久化）
-  const nodeGroupExpanded = useAppStore((s) => s.nodeGroupExpanded)
+  // 节点池分组折叠状态：key = baseURL, value = 是否展开
+  const [groupExpanded, setGroupExpanded] = useState<Record<string, boolean>>({})
 
   const openEdit = (node?: ProviderNode) => {
     const target: ProviderNode = node ?? {
@@ -681,27 +681,21 @@ export default function SettingsPage() {
   // 当前 Tab 过滤后的节点（用于上移/下移首尾禁用判断）
   const filteredProviders = providers.filter((p) => p.nodeType === nodeTypeFilter)
 
-  // 节点池按 baseURL + 名称前缀分组（正确的分组逻辑）
+  // 节点池按 baseURL 分组，并提取组名称
   const groupedProviders = filteredProviders.reduce((acc, node) => {
-    // 提取组名称：去掉括号内模型后缀
-    const groupName = node.name.replace(/\s*\([^)]*\)\s*$/, '').trim() || node.baseURL
-    // 分组键：baseURL | groupName（确保同 URL 不同名称分到不同组）
-    const key = `${node.baseURL}|${groupName}`
+    const key = node.baseURL
     if (!acc[key]) {
-      acc[key] = { baseURL: node.baseURL, groupName, nodes: [] }
+      // 提取组名称：取该URL下第一个节点的名称前缀（去掉模型后缀）
+      const groupName = node.name.replace(/\s*\([^)]*\)\s*$/, '').trim() || node.baseURL
+      acc[key] = { groupName, nodes: [] }
     }
     acc[key].nodes.push(node)
     return acc
-  }, {} as Record<string, { baseURL: string; groupName: string; nodes: ProviderNode[] }>)
+  }, {} as Record<string, { groupName: string; nodes: ProviderNode[] }>)
 
-  // 切换分组展开/折叠（持久化到 store）
-  const toggleGroup = (groupKey: string) => {
-    setState({
-      nodeGroupExpanded: {
-        ...nodeGroupExpanded,
-        [groupKey]: !(nodeGroupExpanded[groupKey] ?? true),
-      },
-    })
+  // 切换分组展开/折叠
+  const toggleGroup = (baseURL: string) => {
+    setGroupExpanded((prev) => ({ ...prev, [baseURL]: !(prev?.[baseURL] ?? true) }))
   }
 
   const columns = [
@@ -854,10 +848,10 @@ export default function SettingsPage() {
                 }
               >
                 {/* 节点池分组渲染 */}
-                {Object.entries(groupedProviders).map(([groupKey, { baseURL, groupName, nodes }]) => {
-                  const isExpanded = nodeGroupExpanded[groupKey] ?? true
+                {Object.entries(groupedProviders).map(([baseURL, { groupName, nodes }]) => {
+                  const isExpanded = groupExpanded[baseURL] ?? true
                   return (
-                    <div key={groupKey} style={{ marginBottom: 16 }}>
+                    <div key={baseURL} style={{ marginBottom: 16 }}>
                       {/* 分组标题（统一显示，单节点也显示并支持折叠） */}
                       <div
                         style={{
@@ -869,7 +863,7 @@ export default function SettingsPage() {
                           cursor: 'pointer',
                           marginBottom: 8,
                         }}
-                        onClick={() => toggleGroup(groupKey)}
+                        onClick={() => toggleGroup(baseURL)}
                       >
                         <Space>
                           {isExpanded ? <DownOutlined style={{ fontSize: 12 }} /> : <UpOutlined style={{ fontSize: 12, transform: 'rotate(180deg)' }} />}
