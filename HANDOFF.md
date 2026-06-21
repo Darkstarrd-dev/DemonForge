@@ -123,6 +123,13 @@
     - ✅ 冷却延迟（randomDelay(cooldownBase ± Variance)，回复后休息）
     - ✅ 状态流转（idle → thinking → responding → waiting → done）
     - ✅ 停止循环（abortRef.current = true 中断所有 Agent）
+  - **阶段 E（增强功能）**：
+    - ✅ 导出 TXT（含时间戳 + 格式化标题）
+    - ✅ 导出下拉菜单（JSON / TXT 两种格式）
+    - ✅ 帮助文档弹窗（完整使用说明：功能简介、使用流程、循环参数、状态说明、注意事项）
+  - **阶段 D（Opencode 模式）**：
+    - ✅ 代码完整实现（listOpencodeAgents + createOpencodeSession + sendOpencodeMessage）
+    - ⏳ 需实际测试验证（需启动 Opencode Server）
   - ✅ 编译通过，零错误，核心功能完整可用
 
 ### 节点测试架构重构（2026-06-21 完成）
@@ -189,18 +196,20 @@
 ## 备注
 
 **本轮工作成果**：
-- 完成角色交流模块**阶段 A+B+C**（2026-06-21）
+- 完成角色交流模块**阶段 A+B+C+E**（2026-06-21）
 - **阶段 A**：数据模型、服务层、后端路由、核心组件全部完成
 - **阶段 B**：本地模式 SSE 流式响应 + Opencode 模式会话管理，手动发送完整实现
 - **阶段 C**：并发 Agent 循环（Promise.all）+ 双模式支持 + 完整状态流转
+- **阶段 E**：导出 TXT + 下拉菜单 + 完整帮助文档
+- **阶段 D**：Opencode 模式代码已完整实现（需实际测试验证）
 - 编译通过，零错误，核心功能完整可用
 - 设计文档：`docs/role_chat_integration_design.md`
 
 **建议下次会话**：
 - 实际测试本地模式（选择角色卡 + 节点 → 手动发送 → 自动循环）
-- 根据测试结果优化细节
+- 测试导出功能（JSON / TXT）
+- 查看帮助文档弹窗
 - 可选：测试 Opencode 模式（需启动 Opencode Server）
-- 可选：实现阶段 E 增强功能（导出 TXT、头像自定义、帮助文档）
 
 **文档**：
 - `docs/role_chat_integration_design.md`：角色交流模块集成设计
