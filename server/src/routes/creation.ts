@@ -1,12 +1,14 @@
 // 创作类端点集中处（novel-generator 集成·阶段 B/C：起源流程 + 生成/管理真实化）。
 import type { FastifyInstance, FastifyReply } from 'fastify'
-import { chatStream, type ProviderConfig } from '../llmClient'
+import { chatStream, embed, type ProviderConfig } from '../llmClient'
 import {
   ARCH_SYSTEM_PROMPT,
   BLUEPRINT_SYSTEM_PROMPT,
   DRAFT_SYSTEM_PROMPT,
   FINALIZE_SYSTEM_PROMPT,
   CONSISTENCY_SYSTEM_PROMPT,
+  EXTRACT_ENTITIES_SYSTEM_PROMPT,
+  SIMULATE_CHARACTER_SYSTEM_PROMPT,
 } from '../prompts'
 import { assembleContext, type AssembleInput } from '../contextAssembler'
 
@@ -42,6 +44,20 @@ type ConsistencyBody = ProviderConfig & {
   characterStates?: string
   /** 前文摘要 */
   previousSummary?: string
+}
+type SimulateBody = ProviderConfig & {
+  /** Context Assembler 输入参数 */
+  context: AssembleInput
+  /** 生成候选数（默认 2） */
+  candidateCount?: number
+}
+type ExtractEntitiesBody = ProviderConfig & {
+  /** 所属作品 ID */
+  bookId: string
+  /** 要提取的章节 ID 列表 */
+  chapterIds: string[]
+  /** 已存在的卡片名称（用于去重） */
+  existingCardNames?: string[]
 }
 
 /**
@@ -272,5 +288,311 @@ export async function creationRoutes(app: FastifyInstance) {
       { role: 'system', content: CONSISTENCY_SYSTEM_PROMPT },
       { role: 'user', content: userPrompt },
     ])
+  })
+
+  // M3 角色推演（simulate）——SSE 流式，串行生成多个候选
+  app.post('/api/llm/simulate', async (req, reply) => {
+    const { baseURL, apiKey, model, context, candidateCount } = (req.body ?? {}) as SimulateBody
+    if (!baseURL || !model || !context?.bookId || !context?.sceneId || !context?.targetCharacterId) {
+      reply.status(400).send({ error: '缺少 baseURL / model / context.bookId / sceneId / targetCharacterId' })
+      return
+    }
+
+    // 组装上下文
+    const ctx = await assembleContext(context)
+
+    if (!ctx.scene || !ctx.targetCharacter) {
+      reply.status(404).send({ error: '场景或角色不存在' })
+      return
+    }
+
+    // 构建 user prompt
+    const sections = [
+      '# 目标角色卡',
+      `**名称**：${ctx.targetCharacter.name}`,
+      `**描述**：${ctx.targetCharacter.description}`,
+      ctx.targetCharacter.styleNote ? `**语言风格**：${ctx.targetCharacter.styleNote}` : '',
+      ctx.targetCharacter.styleExamples && ctx.targetCharacter.styleExamples.length > 0
+        ? `**台词例句**：\n${ctx.targetCharacter.styleExamples.map((ex) => `- "${ex}"`).join('\n')}`
+        : '',
+      Object.keys(ctx.targetCharacter.fields).length > 0
+        ? `**其他属性**：\n${Object.entries(ctx.targetCharacter.fields)
+            .map(([k, v]) => `- ${k}：${v}`)
+            .join('\n')}`
+        : '',
+      '',
+      '# 场景描述',
+      `**场景**：${ctx.scene.desc}`,
+      `**场景目标**：${ctx.scene.goal}`,
+      '',
+      '# 前情摘要',
+      ctx.scene.prevSummary || '（无）',
+      '',
+      '# 在场角色',
+      ctx.presentCharacters.length > 0
+        ? ctx.presentCharacters.map((c) => `- ${c.name}：${c.description}`).join('\n')
+        : '（仅目标角色在场）',
+      '',
+      '# 背景资料（RAG 检索）',
+      ctx.ragChunks.length > 0 ? ctx.ragChunks.map((c) => `【${c.source}】\n${c.text}`).join('\n\n') : '（无相关资料）',
+      '',
+      '# 已有片段（供参考）',
+      ctx.adoptedFragments.length > 0
+        ? ctx.adoptedFragments.map((f, i) => `## 片段 ${i + 1}\n${f}`).join('\n\n')
+        : '（无已有片段，本角色首次推演）',
+      '',
+      '现在基于以上信息，推演该角色在此场景中的言行举止（200–400 字）。',
+    ]
+
+    const userPrompt = sections.filter(Boolean).join('\n')
+    const count = candidateCount && candidateCount > 0 ? candidateCount : 2
+
+    // 手动实现多候选 SSE 流式（串行生成，每个候选一个 delta 流 + candidate-done 事件）
+    reply.hijack()
+    const raw = reply.raw
+    raw.writeHead(200, {
+      'Content-Type': 'text/event-stream; charset=utf-8',
+      'Cache-Control': 'no-cache',
+      Connection: 'keep-alive',
+    })
+    const send = (event: string, data: unknown) => {
+      raw.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
+    }
+
+    const ac = new AbortController()
+    raw.on('close', () => ac.abort())
+
+    try {
+      for (let i = 0; i < count; i++) {
+        if (ac.signal.aborted) break
+
+        const candidateText = await chatStream(
+          {
+            baseURL,
+            apiKey,
+            model,
+            messages: [
+              { role: 'system', content: SIMULATE_CHARACTER_SYSTEM_PROMPT },
+              { role: 'user', content: userPrompt },
+            ],
+            signal: ac.signal,
+          },
+          (delta) => send('delta', { candidateIndex: i, delta }),
+        )
+
+        if (candidateText.trim().length < 50) {
+          send('error', { message: `候选 ${i + 1} 输出过短（${candidateText.trim().length} 字符），判为失败` })
+          break
+        }
+
+        send('candidate-done', { candidateIndex: i, text: candidateText })
+      }
+
+      if (!ac.signal.aborted) {
+        send('done', {})
+      }
+    } catch (e: unknown) {
+      if (!ac.signal.aborted) {
+        send('error', { message: e instanceof Error ? e.message : String(e) })
+      }
+    } finally {
+      raw.end()
+    }
+  })
+
+  // M2 设定提取（批量章节并行）——SSE 流式，输出 progress/entity/merge/done/error 事件
+  app.post('/api/llm/extract-entities', async (req, reply) => {
+    const { baseURL, apiKey, model, bookId, chapterIds, existingCardNames } = (req.body ?? {}) as ExtractEntitiesBody
+    if (!baseURL || !model || !bookId || !Array.isArray(chapterIds) || chapterIds.length === 0) {
+      reply.status(400).send({ error: '缺少 baseURL / model / bookId / chapterIds' })
+      return
+    }
+
+    reply.hijack()
+    const raw = reply.raw
+    raw.writeHead(200, {
+      'Content-Type': 'text/event-stream; charset=utf-8',
+      'Cache-Control': 'no-cache',
+      Connection: 'keep-alive',
+    })
+    const send = (event: string, data: unknown) => {
+      raw.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
+    }
+
+    const ac = new AbortController()
+    raw.on('close', () => ac.abort())
+
+    try {
+      // 1. 从 chapters 表读取章节内容
+      const { getDb } = await import('../store/db')
+      const db = getDb()
+      const placeholders = chapterIds.map(() => '?').join(',')
+      const rows = db.prepare(`SELECT data FROM chapters WHERE id IN (${placeholders})`).all(...chapterIds) as { data: string }[]
+      const chapters: { id: string; title: string; content: string }[] = []
+      for (const row of rows) {
+        try {
+          const ch = JSON.parse(row.data) as { id: string; title: string; content: string }
+          chapters.push(ch)
+        } catch {
+          continue
+        }
+      }
+
+      if (chapters.length === 0) {
+        send('error', { message: '未找到有效章节' })
+        raw.end()
+        return
+      }
+
+      send('progress', { stage: 'extracting', total: chapters.length, current: 0 })
+
+      // 2. 并行调用 chatStream 提取实体
+      interface RawEntity {
+        type: string
+        name: string
+        description: string
+        fields: Record<string, string>
+        excerpt: string
+      }
+
+      const existingSet = new Set(existingCardNames ?? [])
+      const entityMap = new Map<string, { entity: RawEntity; refs: { chapterId: string; excerpt: string }[] }>()
+
+      await Promise.all(
+        chapters.map(async (ch, idx) => {
+          if (ac.signal.aborted) return
+
+          const userPrompt = `请从以下章节中提取实体（人物、地点、物品、技能、势力）：\n\n${ch.content}`
+
+          try {
+            const full = await chatStream(
+              {
+                baseURL,
+                apiKey,
+                model,
+                messages: [
+                  { role: 'system', content: EXTRACT_ENTITIES_SYSTEM_PROMPT },
+                  { role: 'user', content: userPrompt },
+                ],
+                signal: ac.signal,
+              },
+              () => {}, // 不需要 delta 回调
+            )
+
+            // 解析 JSON 输出
+            let entities: RawEntity[] = []
+            try {
+              entities = JSON.parse(full.trim()) as RawEntity[]
+            } catch (parseErr) {
+              send('error', {
+                message: `章节 ${ch.title} 解析失败：${parseErr instanceof Error ? parseErr.message : String(parseErr)}`,
+              })
+              return
+            }
+
+            // 按 (type, name) 合并出处引用
+            for (const ent of entities) {
+              if (existingSet.has(ent.name)) continue // 去重
+              const key = `${ent.type}:${ent.name}`
+              if (entityMap.has(key)) {
+                entityMap.get(key)!.refs.push({ chapterId: ch.id, excerpt: ent.excerpt })
+              } else {
+                entityMap.set(key, { entity: ent, refs: [{ chapterId: ch.id, excerpt: ent.excerpt }] })
+              }
+            }
+
+            send('progress', { stage: 'extracting', total: chapters.length, current: idx + 1 })
+          } catch (err) {
+            if (ac.signal.aborted) return
+            send('error', {
+              message: `章节 ${ch.title} 提取失败：${err instanceof Error ? err.message : String(err)}`,
+            })
+          }
+        }),
+      )
+
+      if (ac.signal.aborted) {
+        raw.end()
+        return
+      }
+
+      send('progress', { stage: 'embedding', total: entityMap.size, current: 0 })
+
+      // 3. 对每张卡片调用 embed() 生成向量
+      const cards: Array<{ entity: RawEntity; refs: { chapterId: string; excerpt: string }[]; vector: number[] }> = []
+      let embIdx = 0
+      for (const { entity, refs } of entityMap.values()) {
+        if (ac.signal.aborted) break
+        try {
+          const text = `${entity.name}\n${entity.description}\n${Object.values(entity.fields).join('\n')}`
+          const vectors = await embed({ baseURL, apiKey, model }, [text])
+          cards.push({ entity, refs, vector: vectors[0] })
+          embIdx++
+          send('progress', { stage: 'embedding', total: entityMap.size, current: embIdx })
+        } catch (err) {
+          send('error', {
+            message: `向量化失败（${entity.name}）：${err instanceof Error ? err.message : String(err)}`,
+          })
+        }
+      }
+
+      if (ac.signal.aborted) {
+        raw.end()
+        return
+      }
+
+      // 4. 计算两两余弦相似度，≥0.85 生成 MergeCandidate
+      function cosineSimilarity(a: number[], b: number[]): number {
+        let dot = 0,
+          normA = 0,
+          normB = 0
+        for (let i = 0; i < a.length; i++) {
+          dot += a[i] * b[i]
+          normA += a[i] * a[i]
+          normB += b[i] * b[i]
+        }
+        return dot / (Math.sqrt(normA) * Math.sqrt(normB))
+      }
+
+      const mergeCandidates: Array<{ cardA: RawEntity; cardB: RawEntity; similarity: number }> = []
+      for (let i = 0; i < cards.length; i++) {
+        for (let j = i + 1; j < cards.length; j++) {
+          const sim = cosineSimilarity(cards[i].vector, cards[j].vector)
+          if (sim >= 0.85) {
+            mergeCandidates.push({ cardA: cards[i].entity, cardB: cards[j].entity, similarity: sim })
+          }
+        }
+      }
+
+      send('progress', { stage: 'merging', mergeCandidateCount: mergeCandidates.length })
+
+      // 5. 逐卡发送 entity 事件
+      for (const { entity, refs } of cards) {
+        send('entity', {
+          type: entity.type,
+          name: entity.name,
+          description: entity.description,
+          fields: entity.fields,
+          refs,
+        })
+      }
+
+      // 6. 发送 merge candidates
+      for (const mc of mergeCandidates) {
+        send('merge', {
+          cardAName: mc.cardA.name,
+          cardBName: mc.cardB.name,
+          similarity: mc.similarity,
+        })
+      }
+
+      send('done', { entityCount: cards.length, mergeCandidateCount: mergeCandidates.length })
+    } catch (err) {
+      if (!ac.signal.aborted) {
+        send('error', { message: err instanceof Error ? err.message : String(err) })
+      }
+    } finally {
+      raw.end()
+    }
   })
 }

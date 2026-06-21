@@ -25,6 +25,7 @@ import { ExperimentOutlined, MergeCellsOutlined } from '@ant-design/icons'
 import { useAppStore } from '../../store/appStore'
 import { extractEntities } from '../../services/api'
 import type { EntityType } from '../../services/types'
+import type { ExtractProgress } from '../../services/api'
 
 const TYPE_META: Record<EntityType, { label: string; color: string }> = {
   character: { label: '人物', color: 'blue' },
@@ -52,6 +53,8 @@ export default function M2CardsPage() {
   const [refModal, setRefModal] = useState<{ chapterId: string; excerpt: string } | null>(null)
   const [extractOpen, setExtractOpen] = useState(false)
   const [extracting, setExtracting] = useState(false)
+  const [extractProgress, setExtractProgress] = useState<ExtractProgress | null>(null)
+  const [activeTab, setActiveTab] = useState<'cards' | 'merge'>('cards')
   const [newIds, setNewIds] = useState<string[]>([])
   const [extractForm] = Form.useForm<{ bookId: string }>()
   const [editForm] = Form.useForm()
@@ -77,18 +80,37 @@ export default function M2CardsPage() {
   const runExtract = async () => {
     const { bookId } = await extractForm.validateFields()
     setExtracting(true)
-    const bookChapters = chapters.filter((c) => c.bookId === bookId)
-    const existing = cards.map((c) => c.name)
-    const newCards = await extractEntities(bookId, bookChapters, existing)
-    if (newCards.length === 0) {
-      message.info('未提取到新实体（已有卡片覆盖，或章节中无可识别实体）')
-    } else {
-      setState({ cards: [...useAppStore.getState().cards, ...newCards] })
-      setNewIds(newCards.map((c) => c.id))
-      message.success(`提取到 ${newCards.length} 张新卡片（已高亮，mock 规则提取待人工修正）`)
+    setExtractProgress(null)
+    try {
+      const bookChapters = chapters.filter((c) => c.bookId === bookId)
+      const existing = cards.map((c) => c.name)
+      const result = await extractEntities(
+        bookId,
+        bookChapters,
+        existing,
+        (progress) => setExtractProgress(progress),
+      )
+      if (result.cards.length === 0) {
+        message.info('未提取到新实体（已有卡片覆盖，或章节中无可识别实体）')
+      } else {
+        setState({
+          cards: [...useAppStore.getState().cards, ...result.cards],
+          mergeCandidates: [...useAppStore.getState().mergeCandidates, ...result.mergeCandidates],
+        })
+        setNewIds(result.cards.map((c) => c.id))
+        message.success(`提取到 ${result.cards.length} 张新卡片`)
+        if (result.mergeCandidates.length > 0) {
+          message.info(`发现 ${result.mergeCandidates.length} 组潜在重复实体，已自动跳转到合并裁决`)
+          setActiveTab('merge')
+        }
+      }
+    } catch (err) {
+      message.error(`提取失败：${err instanceof Error ? err.message : String(err)}`)
+    } finally {
+      setExtracting(false)
+      setExtractProgress(null)
+      setExtractOpen(false)
     }
-    setExtracting(false)
-    setExtractOpen(false)
   }
 
   const doMerge = (mergeId: string, action: 'merged' | 'kept') => {
@@ -274,6 +296,8 @@ export default function M2CardsPage() {
   return (
     <>
       <Tabs
+        activeKey={activeTab}
+        onChange={(key) => setActiveTab(key as 'cards' | 'merge')}
         items={[
           { key: 'cards', label: `卡片库（${filtered.length}）`, children: cardsTab },
           {
@@ -427,26 +451,43 @@ export default function M2CardsPage() {
       </Modal>
 
       <Modal
-        title="从章节提取设定（mock）"
+        title="从章节提取设定"
         open={extractOpen}
         onOk={runExtract}
         confirmLoading={extracting}
-        onCancel={() => setExtractOpen(false)}
+        onCancel={() => !extracting && setExtractOpen(false)}
         okText={extracting ? '提取中…' : '开始提取'}
+        cancelButtonProps={{ disabled: extracting }}
       >
         <Form form={extractForm} layout="vertical" initialValues={{ bookId: currentBookId }} style={{ marginTop: 8 }}>
           <Form.Item name="bookId" label="选择书籍" rules={[{ required: true }]}>
             <Select
+              disabled={extracting}
               options={books.map((b) => ({
                 value: b.id,
                 label: `${b.title}（${b.type === 'project' ? '作品' : '素材'}·${chapters.filter((c) => c.bookId === b.id).length} 章）`,
               }))}
             />
           </Form.Item>
-          <Typography.Text type="secondary">
-            mock 说明：演示用规则统计（对话引导词、地名后缀）代替 LLM 分块抽取；正式版为「分块 LLM 抽取 →
-            合并去重 → embedding 入库」，新增卡片自动带出处引用。
-          </Typography.Text>
+          {extracting && extractProgress && (
+            <Space direction="vertical" size={8} style={{ width: '100%', marginTop: 12 }}>
+              <Progress
+                percent={Math.round((extractProgress.current / extractProgress.total) * 100)}
+                status="active"
+              />
+              <Typography.Text type="secondary">
+                {extractProgress.stage === 'chunk' && `正在分块提取：${extractProgress.current}/${extractProgress.total}`}
+                {extractProgress.stage === 'merge' && `正在合并去重：${extractProgress.current}/${extractProgress.total}`}
+                {extractProgress.stage === 'embed' && `正在生成向量：${extractProgress.current}/${extractProgress.total}`}
+                {extractProgress.message && ` - ${extractProgress.message}`}
+              </Typography.Text>
+            </Space>
+          )}
+          {!extracting && (
+            <Typography.Text type="secondary">
+              流程：LLM 分块抽取 → 合并去重 → embedding 相似度检测 → 生成卡片（含出处引用）
+            </Typography.Text>
+          )}
         </Form>
       </Modal>
     </>

@@ -20,6 +20,13 @@ interface StateEventLite {
   eventType: string; description: string; createdAt: string
 }
 interface FragmentLite { id: string; sceneId: string; characterId: string; adoptedText?: string; order: number }
+interface SimSceneLite {
+  id: string; bookId: string; desc: string; goal: string; prevSummary: string; presentCharacterIds: string[]
+}
+interface EntityCardLite {
+  id: string; bookId: string; type: string; name: string; description: string; fields: Record<string, string>
+  styleNote?: string; styleExamples?: string[]
+}
 
 export interface AssembleInput {
   bookId: string
@@ -45,6 +52,12 @@ export interface AssembledContext {
   ragChunks: RagChunk[]
   /** M4 硬约束：该场景已采纳的推演片段原文 */
   adoptedFragments: string[]
+  /** M3 场景详情（若提供 sceneId） */
+  scene?: SimSceneLite
+  /** M3 目标角色卡（若提供 targetCharacterId） */
+  targetCharacter?: EntityCardLite
+  /** M3 在场角色列表（若提供 sceneId） */
+  presentCharacters: EntityCardLite[]
 }
 
 export async function assembleContext(input: AssembleInput): Promise<AssembledContext> {
@@ -55,6 +68,8 @@ export async function assembleContext(input: AssembleInput): Promise<AssembledCo
   const architectures = (data.architectures ?? []) as ArchitectureLite[]
   const stateEvents = (data.stateEvents ?? []) as StateEventLite[]
   const fragments = (data.fragments ?? []) as FragmentLite[]
+  const scenes = (data.scenes ?? []) as SimSceneLite[]
+  const cards = (data.cards ?? []) as EntityCardLite[]
 
   const book = books.find((b) => b.id === input.bookId) ?? null
   const architecture = architectures.find((a) => a.bookId === input.bookId) ?? null
@@ -80,6 +95,16 @@ export async function assembleContext(input: AssembleInput): Promise<AssembledCo
         .map((f) => f.adoptedText as string)
     : []
 
+  const scene = input.sceneId ? scenes.find((s) => s.id === input.sceneId) : undefined
+
+  const targetCharacter = input.targetCharacterId
+    ? cards.find((c) => c.id === input.targetCharacterId)
+    : undefined
+
+  const presentCharacters = scene
+    ? cards.filter((c) => scene.presentCharacterIds.includes(c.id))
+    : []
+
   const ragChunks = input.rag
     ? await queryVectorStore({
         queryText: input.rag.queryText,
@@ -99,5 +124,8 @@ export async function assembleContext(input: AssembleInput): Promise<AssembledCo
     characterTimeline,
     ragChunks,
     adoptedFragments,
+    scene,
+    targetCharacter,
+    presentCharacters,
   }
 }

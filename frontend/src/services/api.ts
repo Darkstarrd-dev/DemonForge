@@ -1,11 +1,11 @@
 // 统一服务入口：页面只从这里调用。
 // M1 清理（startCleanQueue）、Provider 连通性测试（testProvider）、M0 起源（generateArch/generateBlueprint）已接真实后端；
+// M2 提取（extractEntities）已接真实后端（services/real/extract）；
+// M3 推演（simulateCharacter）已接真实后端（services/real/simulate）；
 // M4 生成（generateDraft）、M5 管理（finalizeChapter/checkConsistency）已接真实后端（services/real/generation）；
-// M2 提取（extractEntities）、M3 推演（simulateCharacter）、M4 旧接口（generateChapterDraft）仍为 mock（services/mock）。
+// M4 旧接口（generateChapterDraft）仍为 mock（services/mock）。
 export {
   aiSplitChapter,
-  extractEntities,
-  simulateCharacter,
   generateChapterDraft, // 保留 mock 版本，M4 页面改造时再切换
   checkConsistency, // 暂时保留 mock 版本（包含本地死亡角色规则），阶段 C 完成后再整合真实 LLM 审校
 } from './mock/impl'
@@ -13,9 +13,16 @@ export {
 export { testProvider, startCleanQueue, getDefaultPrompt } from './real/llm'
 export type { CleanQueueCallbacks, CleanQueueHandle, CleanNode, TestResult, CleanQueueDebugEvent } from './real/llm'
 
+// M2 提取已接真实后端（services/real/extract）。
+export { extractEntities } from './real/extract'
+export type { ExtractProgress, ExtractResult } from './real/extract'
+
 // M0 起源流程已接真实后端（services/real/creation）。
 export { generateArch, generateBlueprint } from './real/creation'
 export type { ArchParams, BlueprintParams, CreationProvider } from './real/creation'
+
+// M3 推演已接真实后端（services/real/simulate）。
+export { simulateCharacter } from './real/simulate'
 
 // M4/M5 生成与管理已接真实后端（services/real/generation）。
 // generateDraft/finalizeChapter/checkConsistencyReal 为新接口，供 M4/M5 页面改造时使用。

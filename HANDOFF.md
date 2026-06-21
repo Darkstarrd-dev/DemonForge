@@ -1,8 +1,8 @@
 # HANDOFF.md — novelhelper 交接备忘
 
-**最后更新**：2026-06-21  
+**最后更新**：2026-06-22  
 **当前位置**：办公场所 A
-**本轮主题**：编译打包 + `file://` 协议修复
+**本轮主题**：M2/M3 真实 LLM 接入
 
 ---
 
@@ -12,6 +12,21 @@
 
 - [x] **M0 立项·架构**（arch/blueprint + SSE 流式 + UI + Context Assembler）
 - [x] **M1 文本清理**（四步骤全流程 + 批量清理调度器 + UI）
+- [x] **M2 设定提取**（2026-06-22）✨
+  - 后端：`POST /api/llm/extract-entities` SSE 流式端点
+  - Prompt：`EXTRACT_ENTITIES_SYSTEM_PROMPT`（五类实体：character/location/item/skill/faction）
+  - 流程：并行章节提取 → 按 (type, name) 合并出处 → embedding 相似度检测 → 生成 MergeCandidate
+  - SSE 事件：`progress`（chunk/merge/embed）、`entity`、`merge`、`done`、`error`
+  - 前端：`services/real/extract.ts` + 进度条 + 自动跳转合并裁决页
+  - **状态**：编译通过，真实 LLM 接入完成，待实际测试
+- [x] **M3 角色推演**（2026-06-22）✨
+  - 后端：`POST /api/llm/simulate` SSE 流式端点
+  - Prompt：`SIMULATE_CHARACTER_SYSTEM_PROMPT`（角色一致性 + 场景适配）
+  - Context Assembler 扩展：支持 `sceneId` 查询（新增 `scene`/`targetCharacter`/`presentCharacters` 字段）
+  - 流程：组装上下文 → 串行生成多候选（默认 2）→ 流式输出
+  - SSE 事件：`delta`（含 candidateIdx）、`candidate-done`、`done`、`error`
+  - 前端：`services/real/simulate.ts` + 双候选实时流式吐字
+  - **状态**：编译通过，真实 LLM 接入完成，待实际测试
 - [x] **M4 章节生成**（draft SSE + Context Assembler + 实时流式 UI）
 - [x] **M5 章节管理**（finalize/consistency SSE + UI）
 - [x] **批量生产**（startBatchGenerate 调度器 + UI 面板）
@@ -112,35 +127,80 @@
 
 ### 🚧 进行中 / 待完善
 
+- [ ] **M2/M3 实际测试**（2026-06-22）
+  - 配置模块节点映射（设置 → 高级配置 → m2Extract/m3Simulate）
+  - M2 测试：提取 3-5 章 → 检查 EntityCard → 验证合并候选
+  - M3 测试：创建场景 → 推演候选 → 采纳片段 → M4 生成验证
 - [ ] 打包后首次启动，`~/.novelhelper/` 下尚无 `settings.json`，前端需手动配置 Provider 节点才能使用
 
-### ⏸️ Mock 阶段（暂缓）
+### ⏸️ Mock 阶段（已完成）
 
-- [ ] **M2 设定提取**（extractEntities 仍为 mock）
-- [ ] **M3 角色推演**（simulateCharacter 仍为 mock）
+- [x] **M2 设定提取**（extractEntities 已接真实 LLM）
+- [x] **M3 角色推演**（simulateCharacter 已接真实 LLM）
 
 ---
 
 ## 下一步任务
 
 ### 立即任务（本次会话后）
-1. **安装测试编译产物**
-   - 运行 `release/NovelHelper Setup 0.1.0.exe` 安装
-   - 首次启动应正常打开窗口（不再白屏）
-   - 验证 API 请求正常（设置页面、Provider 配置等可使用）
-   - 导航菜单所有页路由正常跳转（HashRouter `#/path`）
+1. **M2/M3 实际测试验证**
+   - 启动应用：`npm run dev`
+   - 配置模块节点：设置 → 高级配置 → 模块节点映射
+     - `m2Extract`: 选择文本节点（用于实体提取）
+     - `m3Simulate`: 选择文本节点（用于角色推演）
+   - M2 测试流程：
+     - 进入 M2 卡片库 → 点击"从章节提取设定"
+     - 选择书籍（3-5 章）→ 观察三阶段进度（chunk/merge/embed）
+     - 检查生成的 EntityCard（type/name/description/refs）
+     - 若有 MergeCandidate，验证合并裁决功能
+   - M3 测试流程：
+     - 创建场景（填写 desc/goal/prevSummary，选择在场角色）
+     - 选择目标角色（需先填写 styleNote/styleExamples）
+     - 点击"生成推演候选" → 观察双候选实时流式输出
+     - 采纳候选 → 检查场景序列 → M4 生成验证片段保留
 
-2. **首次配置**
-   - 打包版数据目录：`~/.novelhelper/`（首次需手动配置 Provider 节点）
+2. **端到端流程验证**
+   - 完整链路：M0 → M1 → M2 → M3 → M4 → M5
+   - 数据流验证：M2 卡片 → M3 推演 → M4 生成（含已采纳片段）→ M5 状态事件
 
 ### 后续计划
-1. **M2 实现（设定提取）**：接真实 LLM，SSE 流式提取
-2. **M3 实现（角色推演）**：接真实 LLM，多轮对话推演
-3. **端到端测试**：M0 → M1 → M2 → M3 → M4 → M5 完整流程验证
+1. **性能优化**（可选）
+   - M2 批量 embed API（若 provider 支持）
+   - M3 并发候选生成（需评估 token 消耗）
+2. **用户体验增强**（可选）
+   - M2 提供模板角色卡示例
+   - M3 首次使用引导提示
 
 ---
 
 ## 技术决策记录
+
+### M2/M3 真实 LLM 接入（2026-06-22 完成）
+- **动机**：完成端到端创作流程闭环，M0/M1/M4/M5 已接真实 LLM，剩余 M2/M3 仍为 mock
+- **方案**：
+  - **并行实施**：使用 Workflow 工具并行实现 M2/M3 后端和前端（5 个 agent，13.6 分钟完成）
+  - **M2 设定提取**：
+    - Prompt：`EXTRACT_ENTITIES_SYSTEM_PROMPT`（五类实体，结构化 JSON 输出）
+    - 端点：`POST /api/llm/extract-entities`（并行章节提取 + embedding 相似度检测）
+    - 流程：chunk（LLM 提取）→ merge（按 type+name 去重）→ embed（生成 MergeCandidate）
+    - SSE 事件：`progress`/`entity`/`merge`/`done`/`error`
+  - **M3 角色推演**：
+    - Prompt：`SIMULATE_CHARACTER_SYSTEM_PROMPT`（角色一致性 + 场景适配）
+    - Context Assembler 扩展：新增 `sceneId` 支持（查询场景、目标角色、在场角色）
+    - 端点：`POST /api/llm/simulate`（串行生成多候选，默认 2 个）
+    - SSE 事件：`delta`（含 candidateIdx）/`candidate-done`/`done`/`error`
+  - **前端服务层**：
+    - `services/real/extract.ts`：从 settings 读取 m2Extract 节点配置，SSE 流式解析
+    - `services/real/simulate.ts`：从 settings 读取 m3Simulate 节点配置，维护累积文本数组
+  - **UI 集成**：
+    - M2：三阶段进度条（chunk/merge/embed）+ 自动跳转合并裁决页
+    - M3：双候选实时流式吐字 + 错误提示
+- **实施成果**：
+  - ✅ 后端：2 个 prompt + 2 个 SSE 端点 + Context Assembler 扩展
+  - ✅ 前端：2 个服务层文件 + 2 个页面 UI 集成
+  - ✅ 编译通过：前后端零错误
+  - ✅ 文件清单：2 个新建 + 6 个修改
+  - ⏳ 待实际测试验证
 
 ### 前端主题系统和响应式布局（2026-06-21 完成）
 - **动机**：统一视觉风格，支持深色模式，修复小屏幕下布局问题
@@ -292,6 +352,75 @@
 ---
 
 ## 备注
+
+**本轮工作成果**（2026-06-22 — M2/M3 真实 LLM 接入）：
+
+**1. M2 设定提取后端实现**
+- `server/src/prompts.ts`：新增 `EXTRACT_ENTITIES_SYSTEM_PROMPT`（378 行）
+  - 五类实体：character/location/item/skill/faction
+  - 结构化 JSON 输出（type/name/description/fields/excerpt）
+  - 明确禁止 markdown 标记
+- `server/src/routes/creation.ts`：新增 `POST /api/llm/extract-entities` 端点
+  - 并行章节处理（每章一个 LLM 调用）
+  - 按 (type, name) 合并出处引用
+  - Embedding 相似度检测（≥0.85 生成 MergeCandidate）
+  - SSE 事件：`progress`（3 阶段）、`entity`、`merge`、`done`、`error`
+  - 容错：单章失败不中断、JSON 解析失败友好降级、断连自动取消
+
+**2. M3 角色推演后端实现**
+- `server/src/prompts.ts`：新增 `SIMULATE_CHARACTER_SYSTEM_PROMPT`（285-332 行）
+  - 角色一致性：遵循 styleNote/styleExamples
+  - 场景适配：考虑场景目标、在场角色、前情摘要
+  - 输出格式：200-400 字推演片段，无 markdown 标记
+- `server/src/contextAssembler.ts`：扩展 Context Assembler
+  - 新增类型：`SimSceneLite`、`EntityCardLite`
+  - 新增输出字段：`scene`、`targetCharacter`、`presentCharacters`
+  - 支持 `sceneId` 参数查询场景上下文
+- `server/src/routes/creation.ts`：新增 `POST /api/llm/simulate` 端点（287-391 行）
+  - 串行生成多候选（默认 2 个，避免并发压力）
+  - 每个候选独立 chatStream 调用
+  - SSE 事件：`delta`（含 candidateIdx）、`candidate-done`、`done`、`error`
+  - 参数校验：场景/角色存在性、输出长度检查（< 50 字符判为失败）
+
+**3. M2 设定提取前端实现**
+- `frontend/src/services/real/extract.ts`（新建）
+  - `extractEntities(bookId, chapters, existingNames, onProgress?, signal?)`
+  - 从 settings 读取 `m2Extract` 节点配置
+  - SSE 流式解析（3 阶段进度：chunk/merge/embed）
+  - 返回 `{cards, mergeCandidates}`
+- `frontend/src/services/api.ts`：从 `./real/extract` 导出，替换 mock
+- `frontend/src/pages/m2-cards/index.tsx`：UI 集成
+  - 添加 `extractProgress` 状态（实时进度条）
+  - 成功后自动跳转到"合并裁决"标签页（若有候选）
+  - 错误提示 toast
+
+**4. M3 角色推演前端实现**
+- `frontend/src/services/real/simulate.ts`（新建）
+  - `simulateCharacter(scene, card, onChunk, signal?)`
+  - 从 settings 读取 `m3Simulate` 节点配置
+  - SSE 流式解析（`delta` 事件携带 `candidateIdx`）
+  - 维护累积文本数组，实时回调更新
+- `frontend/src/services/api.ts`：从 `./real/simulate` 导出，替换 mock
+- `frontend/src/pages/m3-simulate/index.tsx`：UI 集成
+  - 调用真实 `simulateCharacter`
+  - 双候选实时流式吐字
+  - 错误捕获与提示
+
+**5. 编译验证**
+- ✅ 后端编译通过（`server/`）：0 错误
+- ✅ 前端编译通过（`frontend/`）：0 错误
+- ✅ 文件清单：
+  - 已创建：`frontend/src/services/real/extract.ts`、`frontend/src/services/real/simulate.ts`
+  - 已修改：`server/src/prompts.ts`、`server/src/routes/creation.ts`、`server/src/contextAssembler.ts`、`frontend/src/services/api.ts`、`frontend/src/pages/m2-cards/index.tsx`、`frontend/src/pages/m3-simulate/index.tsx`
+
+**建议下次会话**：
+1. 启动应用 (`npm run dev`) 进行实际测试
+2. 配置模块节点（设置 → 高级配置 → m2Extract/m3Simulate）
+3. M2 测试：提取章节 → 验证 EntityCard → 检查合并候选
+4. M3 测试：创建场景 → 推演候选 → 采纳片段
+5. 端到端验证：M0 → M1 → M2 → M3 → M4 → M5 完整流程
+
+---
 
 **本轮工作成果**（2026-06-21 晚间 — 编译打包修复）：
 

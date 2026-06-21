@@ -80,11 +80,17 @@ export default function M3SimulatePage() {
     if (!scene || !target) return
     setGenerating(true)
     setCandidates(['', ''])
-    const results = await simulateCharacter(scene, target, (idx, acc) =>
-      setCandidates((prev) => prev.map((c, i) => (i === idx ? acc : c))),
-    )
-    setCandidates(results.map((r) => r.text))
-    setGenerating(false)
+    try {
+      const results = await simulateCharacter(scene, target, (idx, acc) =>
+        setCandidates((prev) => prev.map((c, i) => (i === idx ? acc : c))),
+      )
+      setCandidates(results.map((r) => r.text))
+    } catch (err) {
+      message.error(`推演失败：${err instanceof Error ? err.message : String(err)}`)
+      setCandidates([])
+    } finally {
+      setGenerating(false)
+    }
   }
 
   const adopt = (text: string) => {
@@ -224,7 +230,7 @@ export default function M3SimulatePage() {
               loading={generating}
               onClick={run}
             >
-              {generating ? '推演生成中…' : '生成推演候选（mock 流式）'}
+              {generating ? '推演生成中…' : '生成推演候选'}
             </Button>
           </Card>
         )}
