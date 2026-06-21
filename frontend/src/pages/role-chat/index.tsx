@@ -21,6 +21,7 @@ import {
 } from '@ant-design/icons'
 import { useAppStore } from '../../store/appStore'
 import type { RoleChatMode, RoleChatParticipant, RoleChatMessage } from '../../services/types'
+import { sendLocalRoleMessage, sendOpencodeMessage, createOpencodeSession } from '../../services/real/roleChat'
 import AddParticipantModal from './components/AddParticipantModal'
 import MessageList from './components/MessageList'
 import ParticipantList from './components/ParticipantList'
@@ -31,6 +32,7 @@ export default function RoleChatPage() {
   const currentBookId = useAppStore((s) => s.currentBookId)
   const roleChatMode = useAppStore((s) => s.roleChatMode)
   const roleChatAutoConfig = useAppStore((s) => s.roleChatAutoConfig)
+  const roleChatOpencodeURL = useAppStore((s) => s.roleChatOpencodeURL)
   const setState = useAppStore((s) => s.setState)
 
   // 页面状态
@@ -39,7 +41,10 @@ export default function RoleChatPage() {
   const [inputText, setInputText] = useState('')
   const [addModalOpen, setAddModalOpen] = useState(false)
   const [isLooping, setIsLooping] = useState(false)
+  const [isSending, setIsSending] = useState(false)
   const abortRef = useRef(false)
+  // Opencode 会话缓存：Map<agentName, sessionID>
+  const opcodeSessionsRef = useRef<Map<string, string>>(new Map())
 
   // 切换模式
   const handleModeChange = (mode: RoleChatMode) => {
@@ -59,6 +64,11 @@ export default function RoleChatPage() {
     message.success('已移除参与者')
   }
 
+  // 更新参与者状态
+  const updateParticipantStatus = (id: string, status: RoleChatParticipant['status']) => {
+    setParticipants((prev) => prev.map((p) => (p.id === id ? { ...p, status } : p)))
+  }
+
   // 添加消息
   const addMessage = (participantId: string, participantName: string, content: string, isUser?: boolean) => {
     const msg: RoleChatMessage = {
@@ -73,18 +83,138 @@ export default function RoleChatPage() {
     return msg
   }
 
+  // 单个参与者响应（本地模式）
+  const respondLocal = async (participant: RoleChatParticipant) => {
+    if (!participant.cardId || !participant.nodeId) return
+
+    updateParticipantStatus(participant.id, 'thinking')
+
+    // 模拟思考延迟
+    await new Promise((resolve) => setTimeout(resolve, 500))
+
+    updateParticipantStatus(participant.id, 'responding')
+
+    // 创建临时消息用于流式更新
+    const tempMsgId = `temp-${Date.now()}-${Math.random().toString(36).slice(2)}`
+    let accumulatedContent = ''
+
+    try {
+      const fullText = await sendLocalRoleMessage(
+        participant.cardId,
+        participant.nodeId,
+        messages,
+        (delta) => {
+          accumulatedContent += delta
+          // 实时更新消息内容
+          setMessages((prev) => {
+            const existingIndex = prev.findIndex((m) => m.id === tempMsgId)
+            const tempMsg: RoleChatMessage = {
+              id: tempMsgId,
+              participantId: participant.id,
+              participantName: participant.name,
+              content: accumulatedContent,
+              timestamp: Date.now(),
+            }
+            if (existingIndex >= 0) {
+              const updated = [...prev]
+              updated[existingIndex] = tempMsg
+              return updated
+            } else {
+              return [...prev, tempMsg]
+            }
+          })
+        },
+      )
+
+      // 替换临时消息为最终消息
+      setMessages((prev) => {
+        const filtered = prev.filter((m) => m.id !== tempMsgId)
+        return [
+          ...filtered,
+          {
+            id: `msg-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+            participantId: participant.id,
+            participantName: participant.name,
+            content: fullText,
+            timestamp: Date.now(),
+          },
+        ]
+      })
+
+      updateParticipantStatus(participant.id, 'idle')
+    } catch (e) {
+      // 移除临时消息
+      setMessages((prev) => prev.filter((m) => m.id !== tempMsgId))
+      message.error(`${participant.name} 响应失败: ${e instanceof Error ? e.message : String(e)}`)
+      updateParticipantStatus(participant.id, 'idle')
+    }
+  }
+
+  // 单个参与者响应（Opencode 模式）
+  const respondOpencode = async (participant: RoleChatParticipant) => {
+    if (!participant.agentName) return
+
+    updateParticipantStatus(participant.id, 'thinking')
+
+    // 模拟思考延迟
+    await new Promise((resolve) => setTimeout(resolve, 500))
+
+    try {
+      // 获取或创建会话
+      let sessionID = opcodeSessionsRef.current.get(participant.agentName)
+      if (!sessionID) {
+        updateParticipantStatus(participant.id, 'responding')
+        const session = await createOpencodeSession(roleChatOpencodeURL, participant.agentName)
+        sessionID = session.sessionID
+        opcodeSessionsRef.current.set(participant.agentName, sessionID)
+      }
+
+      updateParticipantStatus(participant.id, 'responding')
+
+      // 构建 Prompt（包含对话历史）
+      const historyText = messages
+        .map((m) => `[${m.participantName}]: ${m.content}`)
+        .join('\n\n')
+      const prompt = `${historyText}\n\n请回复最后一条消息，保持角色设定。`
+
+      const response = await sendOpencodeMessage(
+        roleChatOpencodeURL,
+        sessionID,
+        participant.agentName,
+        participant.model || 'opencode/default',
+        prompt,
+      )
+
+      addMessage(participant.id, participant.name, response)
+      updateParticipantStatus(participant.id, 'idle')
+    } catch (e) {
+      message.error(`${participant.name} 响应失败: ${e instanceof Error ? e.message : String(e)}`)
+      updateParticipantStatus(participant.id, 'idle')
+    }
+  }
+
   // 手动发送消息
-  const handleSendMessage = () => {
+  const handleSendMessage = async () => {
     const text = inputText.trim()
-    if (!text) return
+    if (!text || isSending) return
 
     addMessage('user', '用户', text, true)
     setInputText('')
 
     // 如果未在循环中，触发所有参与者的一轮响应
     if (!isLooping && participants.length > 0) {
-      // TODO: 触发单次响应（阶段 B 实现）
-      message.info('单次响应功能将在阶段 B 实现')
+      setIsSending(true)
+      try {
+        for (const participant of participants) {
+          if (participant.mode === 'local') {
+            await respondLocal(participant)
+          } else {
+            await respondOpencode(participant)
+          }
+        }
+      } finally {
+        setIsSending(false)
+      }
     }
   }
 
@@ -194,11 +324,6 @@ export default function RoleChatPage() {
             <ParticipantList
               participants={participants}
               onRemove={handleRemoveParticipant}
-              onStatusChange={(id, status) => {
-                setParticipants(
-                  participants.map((p) => (p.id === id ? { ...p, status } : p)),
-                )
-              }}
             />
 
             <Button
@@ -264,13 +389,14 @@ export default function RoleChatPage() {
               value={inputText}
               onChange={(e) => setInputText(e.target.value)}
               onPressEnter={handleSendMessage}
-              disabled={isLooping}
+              disabled={isLooping || isSending}
             />
             <Button
               type="primary"
               icon={<SendOutlined />}
               onClick={handleSendMessage}
-              disabled={isLooping || !inputText.trim()}
+              disabled={isLooping || isSending || !inputText.trim()}
+              loading={isSending}
             >
               发送
             </Button>
