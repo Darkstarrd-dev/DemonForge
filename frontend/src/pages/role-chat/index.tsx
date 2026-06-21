@@ -222,6 +222,7 @@ export default function RoleChatPage() {
   const handleReset = () => {
     setMessages([])
     setParticipants([])
+    opcodeSessionsRef.current.clear()
     message.success('已重置会话')
   }
 
@@ -258,8 +259,72 @@ export default function RoleChatPage() {
     message.success('已导出对话记录')
   }
 
+  // 随机延迟（毫秒）
+  const randomDelay = (min: number, max: number) => {
+    return Math.random() * (max - min) + min
+  }
+
+  // 单个 Agent 的循环逻辑
+  const runAgentLoop = async (participant: RoleChatParticipant) => {
+    const config = roleChatAutoConfig
+    let replyCount = 0
+    const startTime = Date.now()
+
+    // 计算目标次数（如果是 count 模式，加上波动）
+    let targetCount = config.count
+    if (config.mode === 'count') {
+      const variance = Math.floor(Math.random() * (2 * config.variance + 1)) - config.variance
+      targetCount = Math.max(1, config.count + variance)
+    }
+
+    while (!abortRef.current) {
+      // 检查终止条件
+      if (config.mode === 'count') {
+        if (replyCount >= targetCount) break
+      } else {
+        if (Date.now() - startTime >= config.duration * 1000) break
+      }
+
+      // 反应延迟（思考延迟）
+      updateParticipantStatus(participant.id, 'thinking')
+      await new Promise((resolve) =>
+        setTimeout(resolve, randomDelay(config.reactionDelayMin * 1000, config.reactionDelayMax * 1000)),
+      )
+
+      if (abortRef.current) break
+
+      // 执行响应
+      try {
+        if (participant.mode === 'local') {
+          await respondLocal(participant)
+        } else {
+          await respondOpencode(participant)
+        }
+        replyCount++
+
+        if (abortRef.current) break
+
+        // 冷却延迟
+        if (config.cooldownBase > 0 || config.cooldownVariance > 0) {
+          updateParticipantStatus(participant.id, 'waiting')
+          const cooldown = randomDelay(
+            (config.cooldownBase - config.cooldownVariance) * 1000,
+            (config.cooldownBase + config.cooldownVariance) * 1000,
+          )
+          await new Promise((resolve) => setTimeout(resolve, Math.max(0, cooldown)))
+        }
+      } catch (e) {
+        // 错误已在 respondLocal/respondOpencode 中处理
+        await new Promise((resolve) => setTimeout(resolve, 500))
+      }
+    }
+
+    // 循环结束，标记为完成
+    updateParticipantStatus(participant.id, 'done')
+  }
+
   // 启动/停止自动循环
-  const handleToggleLoop = () => {
+  const handleToggleLoop = async () => {
     if (isLooping) {
       abortRef.current = true
       setIsLooping(false)
@@ -269,10 +334,36 @@ export default function RoleChatPage() {
         message.warning('请先添加参与者')
         return
       }
+
+      // 过滤出非用户的参与者
+      const agents = participants.filter((p) => p.id !== 'user')
+      if (agents.length === 0) {
+        message.warning('没有可用的 Agent 参与者')
+        return
+      }
+
       setIsLooping(true)
       abortRef.current = false
-      message.success('已启动自动循环')
-      // TODO: 启动循环逻辑（阶段 C 实现）
+
+      const modeText = roleChatAutoConfig.mode === 'count'
+        ? `每个 Agent 约 ${roleChatAutoConfig.count}±${roleChatAutoConfig.variance} 次回复`
+        : `运行 ${roleChatAutoConfig.duration} 秒`
+      message.success(`已启动自动循环（${modeText}）`)
+
+      // 并发执行所有 Agent 的循环
+      try {
+        await Promise.all(agents.map((agent) => runAgentLoop(agent)))
+
+        if (abortRef.current) {
+          message.info('自动循环已停止')
+        } else {
+          message.success('自动循环已完成')
+        }
+      } finally {
+        setIsLooping(false)
+        // 重置所有 Agent 状态为 idle
+        setParticipants((prev) => prev.map((p) => ({ ...p, status: 'idle' })))
+      }
     }
   }
 
