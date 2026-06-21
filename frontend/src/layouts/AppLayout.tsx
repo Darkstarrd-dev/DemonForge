@@ -1,4 +1,4 @@
-import { Button, Layout, Menu, Select, Typography } from 'antd'
+import { Button, Layout, Menu, Select, Segmented, Typography } from 'antd'
 import {
   BookOutlined,
   PoweroffOutlined,
@@ -18,7 +18,7 @@ import {
 } from '@ant-design/icons'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useEffect } from 'react'
-import { useAppStore, flushStoreWrites } from '../store/appStore'
+import { useAppStore, flushStoreWrites, pushSettingsNow } from '../store/appStore'
 
 const MENU_ITEMS = [
   { key: '/', icon: <HomeOutlined />, label: '书库概览' },
@@ -42,6 +42,7 @@ export default function AppLayout() {
   const books = useAppStore((s) => s.books)
   const currentBookId = useAppStore((s) => s.currentBookId)
   const showMenuBar = useAppStore((s) => s.showMenuBar)
+  const theme = useAppStore((s) => s.theme)
   const setState = useAppStore((s) => s.setState)
   const projects = books.filter((b) => b.type === 'project')
 
@@ -68,14 +69,49 @@ export default function AppLayout() {
 
   return (
     <Layout style={{ height: '100vh' }}>
-      <Layout.Sider theme="dark" width={208} style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-        <div style={{ padding: '16px 20px', color: '#fff', fontSize: 17, fontWeight: 600 }}>
-          <BookOutlined style={{ marginRight: 8 }} />
-          novelhelper
+      <Layout.Sider
+        theme={theme === 'dark' ? 'dark' : 'light'}
+        width={208}
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          height: '100%',
+          background: theme === 'dark' ? '#141414' : '#ffffff',
+          borderRight: theme === 'dark' ? '1px solid #303030' : '1px solid #f0f0f0',
+        }}
+      >
+        <div style={{
+          padding: '16px 20px',
+          color: theme === 'dark' ? '#fff' : '#1F2421',
+          fontSize: 17,
+          fontWeight: 600,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: '12px',
+          borderBottom: theme === 'dark' ? '1px solid #303030' : '1px solid #f0f0f0',
+        }}>
+          <span style={{ flex: 1 }}>NovelHelper</span>
+          <Segmented
+            value={theme}
+            onChange={(v) => {
+              setState({ theme: v as 'light' | 'dark' })
+              pushSettingsNow()
+            }}
+            options={[
+              { value: 'light', label: '🌞' },
+              { value: 'dark', label: '🌙' },
+            ]}
+            size="small"
+            style={{ flexShrink: 0 }}
+          />
         </div>
 
         {/* 当前作品选择器（移到 sidebar） */}
-        <div style={{ padding: '8px 16px', borderBottom: '1px solid #303030' }}>
+        <div style={{
+          padding: '8px 4px 8px 7px',
+          borderBottom: theme === 'dark' ? '1px solid #303030' : '1px solid #f0f0f0',
+        }}>
           {projects.length > 0 ? (
             <Select
               style={{ width: '100%' }}
@@ -83,25 +119,32 @@ export default function AppLayout() {
               value={currentBookId}
               onChange={(v) => setState({ currentBookId: v })}
               options={projects.map((b) => ({ value: b.id, label: b.title }))}
-              dropdownStyle={{ minWidth: 180 }}
               placeholder="选择作品"
             />
           ) : (
-            <Typography.Text type="secondary" style={{ fontSize: 12, color: 'rgba(255,255,255,0.3)' }}>
+            <Typography.Text type="secondary" style={{ fontSize: 12, paddingLeft: 8 }}>
               暂无作品
             </Typography.Text>
           )}
         </div>
 
         <Menu
-          theme="dark"
+          theme={theme === 'dark' ? 'dark' : 'light'}
           mode="inline"
           items={MENU_ITEMS}
           selectedKeys={[location.pathname]}
           onClick={(e) => navigate(e.key)}
-          style={{ flex: 1 }}
+          style={{
+            flex: 1,
+            background: theme === 'dark' ? '#141414' : '#ffffff',
+            paddingTop: 0,
+            paddingLeft: 3,
+          }}
         />
-        <div style={{ padding: '8px 12px', borderTop: '1px solid #303030' }}>
+        <div style={{
+          padding: '8px 12px',
+          borderTop: theme === 'dark' ? '1px solid #303030' : '1px solid #f0f0f0',
+        }}>
           <Button
             block
             danger
