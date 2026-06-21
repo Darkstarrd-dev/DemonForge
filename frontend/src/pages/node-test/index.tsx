@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { App, Button, Card, Popconfirm, Space, Typography, Upload, Select, Segmented, theme, Tooltip } from 'antd'
-import { DownloadOutlined, DeleteOutlined, PictureOutlined, CloseOutlined, UploadOutlined, MessageOutlined, CopyOutlined, SendOutlined } from '@ant-design/icons'
+import { App, Button, Card, Popconfirm, Space, Typography, Upload, Select, Segmented, theme, Tooltip, Image } from 'antd'
+import { DownloadOutlined, DeleteOutlined, PictureOutlined, CloseOutlined, UploadOutlined, MessageOutlined, CopyOutlined, SendOutlined, FileImageOutlined } from '@ant-design/icons'
 import { useAppStore } from '../../store/appStore'
 import { generateImage, streamChat } from '../../services/api'
 import { genId, pushSettingsNow } from '../../store/appStore'
@@ -56,6 +56,8 @@ export default function NodeTestPage() {
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([])
   // System Prompt（仅文本模式）
   const [systemPrompt, setSystemPrompt] = useState('')
+  // 底部菜单展开状态
+  const [bottomMenuOpen, setBottomMenuOpen] = useState(false)
 
   // 根据测试模式过滤可用节点
   const availableNodes = useMemo(() => {
@@ -496,90 +498,7 @@ export default function NodeTestPage() {
 
   return (
     <div style={{ display: 'flex', height: '100%', overflow: 'hidden', background: token.colorBgContainer }}>
-      {/* 左侧节点选择 */}
-      <div style={{ width: 280, borderRight: `1px solid ${token.colorBorder}`, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-        <div style={{ padding: 16, borderBottom: `1px solid ${token.colorBorder}` }}>
-          <Typography.Text style={{ color: token.colorTextSecondary, fontSize: 12, display: 'block', marginBottom: 8 }}>测试模式</Typography.Text>
-          <Segmented
-            block
-            value={testMode}
-            onChange={(v) => {
-              setTestMode(v as TestMode)
-              setState({ nodeTestGlobalForm: { ...nodeTestGlobalForm, nodeId: undefined } })
-              setChatMessages([])
-              setCurrentResult(null)
-            }}
-            options={[
-              { label: '文本推理', value: 'text', icon: <MessageOutlined /> },
-              { label: '图片生成', value: 'image', icon: <PictureOutlined /> },
-            ]}
-          />
-        </div>
-
-        {/* 节点列表（分组显示） */}
-        <div style={{ flex: 1, overflow: 'auto', padding: '8px 0' }}>
-          {Object.entries(groupedProviders).map(([groupKey, { groupName, baseURL, nodes }]) => {
-            const isExpanded = nodeGroupExpanded[groupKey] ?? true
-            return (
-              <div key={groupKey} style={{ marginBottom: 4 }}>
-                {/* 分组标题 */}
-                <div
-                  style={{
-                    padding: '8px 16px',
-                    cursor: 'pointer',
-                    background: isExpanded ? token.colorFillQuaternary : 'transparent',
-                    transition: 'background 0.2s',
-                  }}
-                  onClick={() => toggleGroup(groupKey)}
-                  onMouseEnter={(e) => { if (!isExpanded) e.currentTarget.style.background = token.colorFillQuaternary }}
-                  onMouseLeave={(e) => { if (!isExpanded) e.currentTarget.style.background = 'transparent' }}
-                >
-                  <Space size={4}>
-                    <Typography.Text style={{ fontSize: 11, color: token.colorTextSecondary }}>
-                      {isExpanded ? '▼' : '▶'}
-                    </Typography.Text>
-                    <Typography.Text strong style={{ fontSize: 13 }}>{groupName}</Typography.Text>
-                    <Typography.Text type="secondary" style={{ fontSize: 11 }}>({nodes.length})</Typography.Text>
-                  </Space>
-                  <Typography.Text type="secondary" style={{ fontSize: 11, display: 'block', marginTop: 2, marginLeft: 12 }}>
-                    {baseURL}
-                  </Typography.Text>
-                </div>
-
-                {/* 节点列表 */}
-                {isExpanded && nodes.map((node) => (
-                  <div
-                    key={node.id}
-                    style={{
-                      padding: '8px 16px 8px 28px',
-                      cursor: 'pointer',
-                      background: effectiveNodeId === node.id ? token.colorPrimaryBg : 'transparent',
-                      borderLeft: effectiveNodeId === node.id ? `3px solid ${token.colorPrimary}` : '3px solid transparent',
-                      transition: 'all 0.2s',
-                    }}
-                    onClick={() => setState({ nodeTestGlobalForm: { ...nodeTestGlobalForm, nodeId: node.id } })}
-                    onMouseEnter={(e) => { if (effectiveNodeId !== node.id) e.currentTarget.style.background = 'rgba(255,255,255,0.08)' }}
-                    onMouseLeave={(e) => { if (effectiveNodeId !== node.id) e.currentTarget.style.background = 'transparent' }}
-                  >
-                    <Typography.Text style={{ fontSize: 13, display: 'block', fontWeight: effectiveNodeId === node.id ? 500 : 400, color: effectiveNodeId === node.id ? token.colorPrimary : token.colorText }}>
-                      {groupName} · {node.model}
-                    </Typography.Text>
-                    {node.supportsImageEdit && <Typography.Text type="secondary" style={{ fontSize: 11 }}>🖼️ 图生图</Typography.Text>}
-                    {node.isMultimodal && <Typography.Text type="secondary" style={{ fontSize: 11 }}>👁️ 多模态</Typography.Text>}
-                  </div>
-                ))}
-              </div>
-            )
-          })}
-          {availableNodes.length === 0 && (
-            <div style={{ padding: 24, textAlign: 'center' }}>
-              <Typography.Text type="secondary">无可用节点</Typography.Text>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* 中间主画廊区 */}
+      {/* 主内容区（去除左侧栏） */}
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         {/* 主展示区 */}
         <div style={{ flex: 1, overflow: 'auto', display: 'flex', flexDirection: 'column' }}>
@@ -742,62 +661,196 @@ export default function NodeTestPage() {
 
         {/* 输入区 */}
         <div style={{ borderTop: `1px solid ${token.colorBorder}`, flexShrink: 0 }}>
-          {/* 图片预览 */}
+          {/* 图片预览区（展示在文本框上方） */}
           {(supportsEdit || isMultimodal) && selectedImages.length > 0 && (
-            <div style={{ marginBottom: 0, padding: 12, background: token.colorBgElevated, border: `1px solid ${token.colorBorder}`, borderTop: 'none', borderBottom: 'none' }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                <Typography.Text style={{ color: token.colorTextSecondary, fontSize: 12 }}>
-                  {isImageMode ? '🖼️ 图生图输入' : '👁️ 多模态输入'} ({selectedImages.length} 张图片)
-                </Typography.Text>
-                <Button
-                  size="small"
-                  type="text"
-                  danger
-                  onClick={() => setSelectedImages([])}
-                  style={{ fontSize: 11, padding: '0 4px', height: 20 }}
-                >
-                  清空
-                </Button>
-              </div>
+            <div style={{ padding: '12px 16px', background: token.colorBgElevated, borderBottom: `1px solid ${token.colorBorder}` }}>
               <Space wrap size={8}>
-                {selectedImages.map((file, idx) => (
-                  <div key={idx} style={{ position: 'relative', width: 80, height: 80 }}>
-                    <img
-                      src={URL.createObjectURL(file)}
-                      alt=""
-                      style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 6 }}
-                    />
-                    <Button
-                      size="small"
-                      type="text"
-                      danger
-                      icon={<CloseOutlined />}
-                      style={{ position: 'absolute', top: 2, right: 2, background: 'rgba(0,0,0,0.7)', padding: 2, minWidth: 20, height: 20 }}
-                      onClick={() => removeImage(idx)}
-                    />
-                  </div>
-                ))}
+                {selectedImages.map((file, idx) => {
+                  const previewUrl = URL.createObjectURL(file)
+                  return (
+                    <div key={idx} style={{ position: 'relative' }}>
+                      <Image
+                        src={previewUrl}
+                        alt=""
+                        width={80}
+                        height={80}
+                        style={{ objectFit: 'cover', borderRadius: 6, cursor: 'pointer' }}
+                        preview={{
+                          mask: <div style={{ fontSize: 12 }}>查看</div>
+                        }}
+                      />
+                      <Button
+                        size="small"
+                        type="text"
+                        danger
+                        icon={<CloseOutlined />}
+                        style={{
+                          position: 'absolute',
+                          top: -6,
+                          right: -6,
+                          background: 'rgba(0,0,0,0.8)',
+                          border: 'none',
+                          padding: 0,
+                          minWidth: 20,
+                          height: 20,
+                          borderRadius: '50%',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          color: '#fff'
+                        }}
+                        onClick={() => removeImage(idx)}
+                      />
+                    </div>
+                  )
+                })}
               </Space>
             </div>
           )}
 
-          <div style={{ display: 'flex', gap: 0, alignItems: 'stretch' }}>
-            {(supportsEdit || isMultimodal) && (
-              <Upload
-                accept="image/*"
-                multiple
-                beforeUpload={handleFileSelect}
-                showUploadList={false}
-              >
+          {/* 底部选择菜单（向上展开） */}
+          {bottomMenuOpen && (
+            <div style={{
+              borderTop: `1px solid ${token.colorBorder}`,
+              background: token.colorBgElevated,
+              maxHeight: 400,
+              overflowY: 'auto'
+            }}>
+              {/* 测试模式选择 */}
+              <div style={{ padding: '12px 16px', borderBottom: `1px solid ${token.colorBorder}` }}>
+                <Typography.Text style={{ color: token.colorTextSecondary, fontSize: 12, display: 'block', marginBottom: 8 }}>测试模式</Typography.Text>
+                <Segmented
+                  block
+                  value={testMode}
+                  onChange={(v) => {
+                    setTestMode(v as TestMode)
+                    setState({ nodeTestGlobalForm: { ...nodeTestGlobalForm, nodeId: undefined } })
+                    setChatMessages([])
+                    setCurrentResult(null)
+                  }}
+                  options={[
+                    { label: '文本推理', value: 'text', icon: <MessageOutlined /> },
+                    { label: '图片生成', value: 'image', icon: <PictureOutlined /> },
+                  ]}
+                />
+              </div>
+
+              {/* 节点列表 */}
+              <div style={{ padding: '8px 0', maxHeight: 300, overflowY: 'auto' }}>
+                {Object.entries(groupedProviders).map(([groupKey, { groupName, baseURL, nodes }]) => {
+                  const isExpanded = nodeGroupExpanded[groupKey] ?? true
+                  return (
+                    <div key={groupKey} style={{ marginBottom: 4 }}>
+                      {/* 分组标题 */}
+                      <div
+                        style={{
+                          padding: '8px 16px',
+                          cursor: 'pointer',
+                          background: isExpanded ? token.colorFillQuaternary : 'transparent',
+                          transition: 'background 0.2s',
+                        }}
+                        onClick={() => toggleGroup(groupKey)}
+                      >
+                        <Space size={4}>
+                          <Typography.Text style={{ fontSize: 11, color: token.colorTextSecondary }}>
+                            {isExpanded ? '▼' : '▶'}
+                          </Typography.Text>
+                          <Typography.Text strong style={{ fontSize: 13 }}>{groupName}</Typography.Text>
+                          <Typography.Text type="secondary" style={{ fontSize: 11 }}>({nodes.length})</Typography.Text>
+                        </Space>
+                        <Typography.Text type="secondary" style={{ fontSize: 11, display: 'block', marginTop: 2, marginLeft: 12 }}>
+                          {baseURL}
+                        </Typography.Text>
+                      </div>
+
+                      {/* 节点列表 */}
+                      {isExpanded && nodes.map((node) => (
+                        <div
+                          key={node.id}
+                          style={{
+                            padding: '8px 16px 8px 28px',
+                            cursor: 'pointer',
+                            background: effectiveNodeId === node.id ? token.colorPrimaryBg : 'transparent',
+                            borderLeft: effectiveNodeId === node.id ? `3px solid ${token.colorPrimary}` : '3px solid transparent',
+                            transition: 'all 0.2s',
+                          }}
+                          onClick={() => {
+                            setState({ nodeTestGlobalForm: { ...nodeTestGlobalForm, nodeId: node.id } })
+                            setBottomMenuOpen(false)
+                          }}
+                        >
+                          <Typography.Text style={{ fontSize: 13, display: 'block', fontWeight: effectiveNodeId === node.id ? 500 : 400, color: effectiveNodeId === node.id ? token.colorPrimary : token.colorText }}>
+                            {groupName} · {node.model}
+                          </Typography.Text>
+                          {node.supportsImageEdit && <Typography.Text type="secondary" style={{ fontSize: 11, marginRight: 4 }}>🖼️ 图生图</Typography.Text>}
+                          {node.isMultimodal && <Typography.Text type="secondary" style={{ fontSize: 11 }}>👁️ 多模态</Typography.Text>}
+                        </div>
+                      ))}
+                    </div>
+                  )
+                })}
+                {availableNodes.length === 0 && (
+                  <div style={{ padding: 24, textAlign: 'center' }}>
+                    <Typography.Text type="secondary">无可用节点</Typography.Text>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* 输入框区域 */}
+          <div style={{ display: 'flex', alignItems: 'flex-end', background: token.colorBgContainer }}>
+            {/* 左侧按钮组 */}
+            <div style={{ display: 'flex', flexDirection: 'column', borderRight: `1px solid ${token.colorBorder}` }}>
+              {/* 模式/节点选择按钮 */}
+              <Tooltip title="选择测试模式和节点" placement="topLeft">
                 <Button
-                  icon={<UploadOutlined />}
-                  style={{ background: token.colorBgElevated, border: `1px solid ${token.colorBorder}`, borderRadius: 0, color: token.colorText, height: 56 }}
-                  title={isImageMode ? '上传图片用于图生图' : '上传图片用于多模态理解'}
+                  icon={<MessageOutlined style={{ fontSize: 16 }} />}
+                  onClick={() => setBottomMenuOpen(!bottomMenuOpen)}
+                  style={{
+                    height: 48,
+                    width: 48,
+                    borderRadius: 0,
+                    border: 'none',
+                    borderBottom: `1px solid ${token.colorBorder}`,
+                    background: bottomMenuOpen ? token.colorPrimaryBg : 'transparent',
+                    color: bottomMenuOpen ? token.colorPrimary : token.colorText,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center'
+                  }}
+                />
+              </Tooltip>
+
+              {/* 图片上传按钮 */}
+              {(supportsEdit || isMultimodal) && (
+                <Upload
+                  accept="image/*"
+                  multiple
+                  beforeUpload={handleFileSelect}
+                  showUploadList={false}
                 >
-                  图片
-                </Button>
-              </Upload>
-            )}
+                  <Tooltip title="添加图片" placement="bottomLeft">
+                    <Button
+                      icon={<FileImageOutlined style={{ fontSize: 16 }} />}
+                      style={{
+                        height: 48,
+                        width: 48,
+                        borderRadius: 0,
+                        border: 'none',
+                        background: 'transparent',
+                        color: token.colorText,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center'
+                      }}
+                    />
+                  </Tooltip>
+                </Upload>
+              )}
+            </div>
+
+            {/* 文本输入框 */}
             <textarea
               ref={promptRef}
               value={nodeTestForm.prompt}
@@ -815,38 +868,60 @@ export default function NodeTestPage() {
                         : "输入问题开始对话（Shift+Enter 发送）...")
               }
               disabled={busy}
-              rows={2}
+              rows={3}
               style={{
                 flex: 1,
                 background: token.colorBgContainer,
-                border: `1px solid ${token.colorBorder}`,
-                borderLeft: (supportsEdit || isMultimodal) ? 'none' : `1px solid ${token.colorBorder}`,
-                borderRight: 'none',
-                borderRadius: 0,
-                padding: 12,
+                border: 'none',
+                padding: '12px 16px',
                 color: token.colorText,
                 fontSize: 14,
                 resize: 'none',
                 fontFamily: 'inherit',
+                outline: 'none'
               }}
             />
+
+            {/* 发送/取消按钮 */}
             {busy ? (
-              <Button danger onClick={handleCancel} style={{ height: 56, borderRadius: 0, minWidth: 100 }}>
+              <Button
+                danger
+                onClick={handleCancel}
+                style={{
+                  height: 96,
+                  minWidth: 80,
+                  borderRadius: 0,
+                  border: 'none',
+                  borderLeft: `1px solid ${token.colorBorder}`,
+                  fontSize: 14
+                }}
+              >
                 取消
               </Button>
             ) : (
               <Button
                 type="primary"
-                icon={isImageMode ? <PictureOutlined /> : <SendOutlined />}
+                icon={<SendOutlined style={{ fontSize: 18 }} />}
                 onClick={handleGenerate}
                 disabled={!selectedNode || !nodeTestForm.prompt.trim()}
-                style={{ height: 56, borderRadius: 0, minWidth: 100, background: token.colorPrimary, borderColor: token.colorPrimary }}
-                title="Shift+Enter 发送"
+                style={{
+                  height: 96,
+                  minWidth: 80,
+                  borderRadius: 0,
+                  background: (!selectedNode || !nodeTestForm.prompt.trim()) ? token.colorBgContainerDisabled : '#FF6B35',
+                  borderColor: (!selectedNode || !nodeTestForm.prompt.trim()) ? token.colorBorder : '#FF6B35',
+                  border: 'none',
+                  borderLeft: `1px solid ${token.colorBorder}`,
+                  fontSize: 14,
+                  fontWeight: 500,
+                  color: '#fff'
+                }}
               >
-                {isImageMode ? '生成' : '发送'}
+                发送
               </Button>
             )}
           </div>
+
           {error && (
             <div style={{ padding: 12, background: '#da3633', color: '#fff', fontSize: 13 }}>
               失败：{error}
