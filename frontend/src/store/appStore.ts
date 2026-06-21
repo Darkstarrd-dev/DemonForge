@@ -14,7 +14,7 @@ import type {
   MergeCandidate,
   ImportSession,
   NovelArchitecture,
-  GeneratedImage,
+  TestHistoryItem,
   SplitPattern,
   ImageInputMode,
 } from '../services/types'
@@ -36,13 +36,14 @@ import { DEFAULT_SPLIT_PATTERNS } from '../utils/split'
 // normalizeProvider 抽到纯工具模块（backup.ts 单测需要，避免依赖 zustand/浏览器环境）
 import { normalizeProvider } from '../utils/provider'
 
-/** 文生图 Demo 表单草稿（轻量，持久化到 settings.json） */
-export interface ImageDemoForm {
+/** 节点测试表单草稿（轻量，持久化到 settings.json） */
+export interface NodeTestForm {
   /** 服务商：当前仅 'modelscope' */
   provider: string
-  /** 选中的文生图节点 id */
+  /** 选中的节点 id */
   nodeId?: string
   prompt: string
+  // ===== 图片生成参数 =====
   /** 分辨率预设值，如 '1024x1024'（透传给 ModelScope 的 size 字段） */
   resolution: string
   /** 反向提示词（negative_prompt），可选 */
@@ -55,7 +56,15 @@ export interface ImageDemoForm {
   seed?: number
   /** 图片输入方式（base64 / catbox / litterbox / 0x0 / telegraph） */
   imageInputMode?: ImageInputMode
+  // ===== 文本推理参数 =====
+  temperature?: number
+  topP?: number
+  topK?: number
+  maxTokens?: number
 }
+
+/** 向后兼容：旧的 ImageDemoForm 类型别名 */
+export type ImageDemoForm = NodeTestForm
 
 /** M1 Step3 清理当前进行中任务（不持久化，仅内存）。用于跨 Step 页面保持任务控制权。
  * acc 字段已移除——流式文本改用 Step3Clean 组件内 accMapRef + 150ms 定时刷新，不再每 delta 写 store。 */
@@ -110,12 +119,18 @@ export interface AppState {
   currentBookId: string
   /** M1 导入会话（页面流程态，仅内存、不持久化——含整份 rawText，避免反复回传） */
   importSession: ImportSession | null
-  /** 文生图 Demo 生成历史（持久化到 image_gallery 表，dataUrl 为 base64） */
-  imageGallery: GeneratedImage[]
-  /** 文生图 Demo 全局参数（provider + nodeId，持久化到 settings.json） */
+  /** 节点测试生成历史（持久化到 test_history 表） */
+  testHistory: TestHistoryItem[]
+  /** 节点测试全局参数（provider + nodeId，持久化到 settings.json） */
+  nodeTestGlobalForm: { provider: string; nodeId?: string }
+  /** 节点测试每节点独立参数（持久化到 settings.json） */
+  nodeTestFormPerNode: Record<string, Partial<NodeTestForm>>
+  /** 向后兼容：旧的 imageGallery 字段别名 */
+  imageGallery: TestHistoryItem[]
+  /** 向后兼容：旧的 imageDemoGlobalForm 字段别名（内部指向 nodeTestGlobalForm） */
   imageDemoGlobalForm: { provider: string; nodeId?: string }
-  /** 文生图 Demo 每节点独立参数（持久化到 settings.json） */
-  imageDemoFormPerNode: Record<string, Partial<ImageDemoForm>>
+  /** 向后兼容：旧的 imageDemoFormPerNode 字段别名（内部指向 nodeTestFormPerNode） */
+  imageDemoFormPerNode: Record<string, Partial<NodeTestForm>>
   /** M1 章节检测模式池（持久化到 settings.json，设置页可增删改） */
   splitPatterns: SplitPattern[]
   /**
@@ -142,9 +157,13 @@ export interface AppState {
   updateIssue: (id: string, patch: Partial<ConsistencyIssue>) => void
   /** 删除一本书及其全部关联数据（级联）。删除当前作品时切到首个剩余 project，无则置空 */
   deleteBook: (id: string) => void
-  /** 文生图：新增一张生成图到历史头部 */
-  addImage: (image: GeneratedImage) => void
-  /** 文生图：按 id 删除一张历史图 */
+  /** 节点测试：新增一条测试历史到头部 */
+  addTestHistory: (item: TestHistoryItem) => void
+  /** 节点测试：按 id 删除一条历史 */
+  deleteTestHistory: (id: string) => void
+  /** 向后兼容：旧的 addImage 方法别名 */
+  addImage: (image: TestHistoryItem) => void
+  /** 向后兼容：旧的 deleteImage 方法别名 */
   deleteImage: (id: string) => void
   /** 设置：覆盖章节检测模式池（立即落 settings.json） */
   setSplitPatterns: (patterns: SplitPattern[]) => void
@@ -179,9 +198,16 @@ const seedState = () => ({
   mergeCandidates: seedMergeCandidates,
   currentBookId: '',
   importSession: null,
-  imageGallery: [] as GeneratedImage[],
-  imageDemoGlobalForm: { provider: 'modelscope', nodeId: undefined },
-  imageDemoFormPerNode: {} as Record<string, Partial<ImageDemoForm>>,
+  testHistory: [] as TestHistoryItem[],
+  nodeTestGlobalForm: { provider: 'modelscope', nodeId: undefined },
+  nodeTestFormPerNode: {} as Record<string, Partial<NodeTestForm>>,
+  // 向后兼容字段别名
+  get imageGallery() { return this.testHistory },
+  set imageGallery(v) { this.testHistory = v },
+  get imageDemoGlobalForm() { return this.nodeTestGlobalForm },
+  set imageDemoGlobalForm(v) { this.nodeTestGlobalForm = v },
+  get imageDemoFormPerNode() { return this.nodeTestFormPerNode },
+  set imageDemoFormPerNode(v) { this.nodeTestFormPerNode = v },
   splitPatterns: DEFAULT_SPLIT_PATTERNS.map((p) => ({ ...p })),
   cleanNodeOverrides: {} as Record<string, Partial<{ participating: boolean; concurrency: number; batchChars: number; intervalSec: number }>>,
   m1AutoRetry: true,
@@ -229,8 +255,12 @@ const seedState = () => ({
   cleanRun: null,
 })
 
-export const useAppStore = create<AppState>()((set) => ({
+export const useAppStore = create<AppState>()((set, get) => ({
   ...seedState(),
+  // 向后兼容：getter 别名映射
+  get imageGallery() { return get().testHistory },
+  get imageDemoGlobalForm() { return get().nodeTestGlobalForm },
+  get imageDemoFormPerNode() { return get().nodeTestFormPerNode },
   setState: (patch) => set(patch),
   setCleanRun: (patch) =>
     set((s) => ({
@@ -323,16 +353,23 @@ export const useAppStore = create<AppState>()((set) => ({
     pushDeleteNow(deletes)
     pushStoreNow()
   },
-  // ===== 文生图 Demo =====
-  // 新图插到历史头部（最新在前）；写入是关键操作 → 立即落库（绕过 1s 防抖）。
-  addImage: (image: GeneratedImage) => {
-    set((s) => ({ imageGallery: [image, ...s.imageGallery] }))
+  // ===== 节点测试 =====
+  // 新测试历史插到头部（最新在前）；写入是关键操作 → 立即落库（绕过 1s 防抖）。
+  addTestHistory: (item: TestHistoryItem) => {
+    set((s) => ({ testHistory: [item, ...s.testHistory] }))
     pushStoreNow()
   },
-  // 删除即从历史移除 → 立即显式删除该图 id（syncAll 已不反推删除）。
+  // 删除即从历史移除 → 立即显式删除该 id（syncAll 已不反推删除）。
+  deleteTestHistory: (id: string) => {
+    set((s) => ({ testHistory: s.testHistory.filter((i) => i.id !== id) }))
+    pushDeleteNow({ testHistory: [id] })
+  },
+  // 向后兼容方法别名
+  addImage: (image: TestHistoryItem) => {
+    get().addTestHistory(image)
+  },
   deleteImage: (id: string) => {
-    set((s) => ({ imageGallery: s.imageGallery.filter((i) => i.id !== id) }))
-    pushDeleteNow({ imageGallery: [id] })
+    get().deleteTestHistory(id)
   },
   // ===== 章节检测模式池（设置通道，落 settings.json） =====
   setSplitPatterns: (patterns) => {
@@ -382,7 +419,7 @@ export const businessPayload = (s: AppState) => ({
   issues: s.issues,
   architectures: s.architectures,
   mergeCandidates: s.mergeCandidates,
-  imageGallery: s.imageGallery,
+  testHistory: s.testHistory,
 })
 
 const pushStore = (payload: Record<string, unknown>) =>
@@ -418,6 +455,8 @@ export async function bootstrapStore(): Promise<void> {
         imageDemoForm?: ImageDemoForm
         imageDemoGlobalForm?: { provider: string; nodeId?: string }
         imageDemoFormPerNode?: Record<string, Partial<ImageDemoForm>>
+        nodeTestGlobalForm?: { provider: string; nodeId?: string }
+        nodeTestFormPerNode?: Record<string, Partial<NodeTestForm>>
         showMenuBar?: boolean
         splitPatterns?: SplitPattern[]
         cleanNodeOverrides?: Record<string, Partial<{ participating: boolean; concurrency: number; batchSize: number; intervalSec: number }>>
@@ -434,16 +473,20 @@ export async function bootstrapStore(): Promise<void> {
       if (typeof d.assetDir === 'string') patch.assetDir = d.assetDir
       if (typeof d.showMenuBar === 'boolean') patch.showMenuBar = d.showMenuBar
       if (typeof d.currentBookId === 'string' && d.currentBookId) patch.currentBookId = d.currentBookId
-      // 文生图 Demo 表单：优先新结构，兼容旧 imageDemoForm 自动迁移
-      if (d.imageDemoGlobalForm && typeof d.imageDemoGlobalForm === 'object')
-        patch.imageDemoGlobalForm = { ...useAppStore.getState().imageDemoGlobalForm, ...d.imageDemoGlobalForm }
-      if (d.imageDemoFormPerNode && typeof d.imageDemoFormPerNode === 'object')
-        patch.imageDemoFormPerNode = d.imageDemoFormPerNode
+      // 节点测试表单：优先新结构（nodeTestGlobalForm），兼容旧 imageDemoForm/imageDemoGlobalForm 自动迁移
+      if (d.nodeTestGlobalForm && typeof d.nodeTestGlobalForm === 'object')
+        patch.nodeTestGlobalForm = { ...useAppStore.getState().nodeTestGlobalForm, ...d.nodeTestGlobalForm }
+      else if (d.imageDemoGlobalForm && typeof d.imageDemoGlobalForm === 'object')
+        patch.nodeTestGlobalForm = { ...useAppStore.getState().nodeTestGlobalForm, ...d.imageDemoGlobalForm }
+      if (d.nodeTestFormPerNode && typeof d.nodeTestFormPerNode === 'object')
+        patch.nodeTestFormPerNode = d.nodeTestFormPerNode
+      else if (d.imageDemoFormPerNode && typeof d.imageDemoFormPerNode === 'object')
+        patch.nodeTestFormPerNode = d.imageDemoFormPerNode
       // 旧 settings.json 只有 imageDemoForm 时自动迁移到新结构
-      if (d.imageDemoForm && typeof d.imageDemoForm === 'object' && !d.imageDemoFormPerNode) {
+      if (d.imageDemoForm && typeof d.imageDemoForm === 'object' && !d.nodeTestFormPerNode && !d.imageDemoFormPerNode) {
         const { nodeId, provider, ...params } = d.imageDemoForm
-        patch.imageDemoGlobalForm = { provider: provider || 'modelscope', nodeId }
-        patch.imageDemoFormPerNode = nodeId ? { [nodeId]: params } : {}
+        patch.nodeTestGlobalForm = { provider: provider || 'modelscope', nodeId }
+        patch.nodeTestFormPerNode = nodeId ? { [nodeId]: params } : {}
       }
       // 章节检测模式池（旧 settings.json 无此键则沿用内置默认池；确保 custom 永在）
       if (Array.isArray(d.splitPatterns) && d.splitPatterns.length) {
@@ -482,7 +525,7 @@ export async function bootstrapStore(): Promise<void> {
           issues: (data.issues ?? []) as ConsistencyIssue[],
           architectures: (data.architectures ?? []) as NovelArchitecture[],
           mergeCandidates: (data.mergeCandidates ?? []) as MergeCandidate[],
-          imageGallery: (data.imageGallery ?? []) as GeneratedImage[],
+          testHistory: (data.testHistory ?? data.imageGallery ?? []) as TestHistoryItem[],
         })
         // 旧 settings.json 没有该标记 → 趁这次有数据时补写，避免后续"删光"误触发回填
         if (!storeInitialized) {
@@ -522,7 +565,7 @@ export async function bootstrapStore(): Promise<void> {
           issues: [],
           architectures: [],
           mergeCandidates: [],
-          imageGallery: [],
+          testHistory: [],
         })
         storeReady = true
       }
@@ -551,7 +594,7 @@ export async function reloadStoreFromBackend(): Promise<void> {
       issues: (data.issues ?? []) as ConsistencyIssue[],
       architectures: (data.architectures ?? []) as NovelArchitecture[],
       mergeCandidates: (data.mergeCandidates ?? []) as MergeCandidate[],
-      imageGallery: (data.imageGallery ?? []) as GeneratedImage[],
+      testHistory: (data.testHistory ?? data.imageGallery ?? []) as TestHistoryItem[],
     })
   } else {
     // 目标目录无业务数据 → 视为空书库，保持空（不再自动播种 Mock 演示作品）。
@@ -568,7 +611,7 @@ export async function reloadStoreFromBackend(): Promise<void> {
       issues: [],
       architectures: [],
       mergeCandidates: [],
-      imageGallery: [],
+      testHistory: [],
     })
   }
 }
@@ -588,7 +631,7 @@ useAppStore.subscribe((s, prev) => {
     s.issues === prev.issues &&
     s.architectures === prev.architectures &&
     s.mergeCandidates === prev.mergeCandidates &&
-    s.imageGallery === prev.imageGallery
+    s.testHistory === prev.testHistory
   ) {
     return
   }
@@ -649,7 +692,7 @@ export async function pushStoreNowChecked(): Promise<void> {
   }
 }
 
-// 设置回写：providers/moduleMapping/m1SystemPrompt/assetDir/currentBookId/imageDemoForm/
+// 设置回写：providers/moduleMapping/m1SystemPrompt/assetDir/currentBookId/nodeTestGlobalForm/nodeTestFormPerNode/
 // showMenuBar/splitPatterns/cleanNodeOverrides/m1AutoRetry/m1TitleTemplate 变化时 debounce POST
 /** 设置载荷构造（11 个键）。导出供 backup.ts 组装备份 bundle 复用。 */
 export const settingsPayload = (s: AppState) => ({
@@ -658,8 +701,8 @@ export const settingsPayload = (s: AppState) => ({
   m1SystemPrompt: s.m1SystemPrompt,
   assetDir: s.assetDir,
   currentBookId: s.currentBookId,
-  imageDemoGlobalForm: s.imageDemoGlobalForm,
-  imageDemoFormPerNode: s.imageDemoFormPerNode,
+  nodeTestGlobalForm: s.nodeTestGlobalForm,
+  nodeTestFormPerNode: s.nodeTestFormPerNode,
   showMenuBar: s.showMenuBar,
   splitPatterns: s.splitPatterns,
   cleanNodeOverrides: s.cleanNodeOverrides,
@@ -677,8 +720,8 @@ useAppStore.subscribe((s, prev) => {
     s.m1SystemPrompt === prev.m1SystemPrompt &&
     s.assetDir === prev.assetDir &&
     s.currentBookId === prev.currentBookId &&
-    s.imageDemoGlobalForm === prev.imageDemoGlobalForm &&
-    s.imageDemoFormPerNode === prev.imageDemoFormPerNode &&
+    s.nodeTestGlobalForm === prev.nodeTestGlobalForm &&
+    s.nodeTestFormPerNode === prev.nodeTestFormPerNode &&
     s.showMenuBar === prev.showMenuBar &&
     s.splitPatterns === prev.splitPatterns &&
     s.cleanNodeOverrides === prev.cleanNodeOverrides &&

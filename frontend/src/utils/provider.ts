@@ -23,4 +23,6 @@ export const normalizeProvider = (
   usageLimit: typeof p.usageLimit === 'number' && p.usageLimit >= 0 ? p.usageLimit : 0,
   usageLeft: typeof p.usageLeft === 'number' && p.usageLeft >= 0 ? p.usageLeft : 0,
   usageResetDate: p.usageResetDate ?? '',
+  supportsImageEdit: p.supportsImageEdit === true,
+  isMultimodal: p.isMultimodal === true,
 })

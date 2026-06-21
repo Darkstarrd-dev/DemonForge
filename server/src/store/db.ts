@@ -32,8 +32,10 @@ const ENTITIES = [
   { key: 'issues', table: 'issues' },
   { key: 'architectures', table: 'architectures' },
   { key: 'mergeCandidates', table: 'merge_candidates' },
-  // 文生图 Demo 生成历史（dataUrl 等 JSON 整存）
-  { key: 'imageGallery', table: 'image_gallery' },
+  // 节点测试历史（文本/多模态/图片三种测试类型，dataUrl/textResponse 等 JSON 整存）
+  { key: 'testHistory', table: 'test_history' },
+  // 向后兼容：旧的 imageGallery 字段映射到同一张表
+  { key: 'imageGallery', table: 'test_history' },
 ] as const
 
 /** 业务实体键集合（供前端 DELETE 端点做白名单校验）。 */

@@ -5,6 +5,15 @@ import { M1_CLEAN_SYSTEM_PROMPT } from '../prompts'
 type TestBody = ProviderConfig
 type CleanBody = ProviderConfig & { content?: string; systemPrompt?: string }
 type EmbedBody = ProviderConfig & { input?: string[] }
+type ChatBody = ProviderConfig & {
+  messages?: Array<{
+    role: 'system' | 'user' | 'assistant'
+    content: string | Array<{ type: 'text' | 'image_url'; text?: string; image_url?: { url: string } }>
+  }>
+  temperature?: number
+  top_p?: number
+  max_tokens?: number
+}
 
 export async function llmRoutes(app: FastifyInstance) {
   // 连通性测试：转发 GET /v1/models
@@ -80,5 +89,48 @@ export async function llmRoutes(app: FastifyInstance) {
     } catch (e) {
       return reply.code(502).send({ error: e instanceof Error ? e.message : String(e) })
     }
+  })
+
+  // 通用对话：支持纯文本推理和多模态理解（OpenAI 兼容格式），SSE 流式返回
+  app.post('/api/llm/chat', async (req, reply) => {
+    const { baseURL, apiKey, model, messages, temperature, top_p, max_tokens } = (req.body ?? {}) as ChatBody
+    if (!baseURL || !model || !Array.isArray(messages) || messages.length === 0) {
+      reply.status(400).send({ error: '缺少 baseURL / model / messages' })
+      return
+    }
+
+    reply.hijack()
+    const raw = reply.raw
+    raw.writeHead(200, {
+      'Content-Type': 'text/event-stream; charset=utf-8',
+      'Cache-Control': 'no-cache',
+      Connection: 'keep-alive',
+    })
+    const send = (event: string, data: unknown) => {
+      raw.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
+    }
+
+    const ac = new AbortController()
+    raw.on('close', () => ac.abort())
+
+    // 构造传给 llmClient 的参数（支持额外参数）
+    const options: any = {
+      baseURL,
+      apiKey,
+      model,
+      messages,
+      signal: ac.signal,
+    }
+    if (typeof temperature === 'number') options.temperature = temperature
+    if (typeof top_p === 'number') options.top_p = top_p
+    if (typeof max_tokens === 'number') options.max_tokens = max_tokens
+
+    chatStream(options, (delta) => send('delta', { delta }))
+      .then((full) => send('done', { text: full }))
+      .catch((e: unknown) => {
+        if (ac.signal.aborted) return
+        send('error', { message: e instanceof Error ? e.message : String(e) })
+      })
+      .finally(() => raw.end())
   })
 }

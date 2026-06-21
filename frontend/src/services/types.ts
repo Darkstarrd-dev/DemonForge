@@ -98,15 +98,23 @@ export interface RagChunk {
   distance: number
 }
 
-/** 文生图 Demo 生成历史项（持久化到 image_gallery 表，dataUrl 为 base64 data URL） */
-export interface GeneratedImage {
+/** 节点测试历史项（持久化到 test_history 表） */
+export interface TestHistoryItem {
   id: string
-  dataUrl: string
+  /** 测试类型：文本生成/多模态理解/图片生成 */
+  testType: 'text' | 'multimodal' | 'image'
+  /** 文本响应（text/multimodal） */
+  textResponse?: string
+  /** 图片响应（image），base64 data URL */
+  imageResponse?: string
   prompt: string
   /** 生成所用模型名（来自节点） */
   modelName: string
-  /** 生成所用文生图节点 id */
+  /** 生成所用节点 id */
   nodeId: string
+  /** 节点类型（text/image） */
+  nodeType: 'text' | 'image'
+  // ===== 图片生成参数 =====
   width?: number
   height?: number
   /** 生成所用分辨率字符串（如 "1024x1024"） */
@@ -123,8 +131,16 @@ export interface GeneratedImage {
   imageInputs?: string[]
   /** 图片输入方式（base64 / catbox / litterbox / 0x0 / telegraph） */
   imageInputMode?: ImageInputMode
+  // ===== 文本推理参数 =====
+  temperature?: number
+  topP?: number
+  topK?: number
+  maxTokens?: number
   createdAt: string
 }
+
+/** 向后兼容：旧的 GeneratedImage 类型别名 */
+export type GeneratedImage = TestHistoryItem
 
 export type ImageInputMode = 'base64' | 'catbox' | 'litterbox' | '0x0' | 'telegraph'
 
@@ -212,6 +228,8 @@ export interface ProviderNode {
   usageResetDate?: string
   /** 是否支持图片编辑（Image2Image）功能，仅文生图节点有效 */
   supportsImageEdit?: boolean
+  /** 是否支持视觉多模态理解（VLM），仅文本节点有效 */
+  isMultimodal?: boolean
 }
 
 export type ModuleKey =

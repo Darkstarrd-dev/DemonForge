@@ -30,7 +30,7 @@ const MENU_ITEMS = [
   { key: '/batch', icon: <RocketOutlined />, label: '批量生产' },
   { key: '/demo-3d', icon: <BlockOutlined />, label: '3D环境Demo' },
   { key: '/demo-2d', icon: <AppstoreOutlined />, label: '2D环境Demo' },
-  { key: '/demo-image', icon: <PictureOutlined />, label: '文生图 Demo' },
+  { key: '/node-test', icon: <PictureOutlined />, label: '节点测试' },
   { key: '/settings', icon: <SettingOutlined />, label: '系统设置' },
 ]
 

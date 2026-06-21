@@ -569,14 +569,17 @@ export default function SettingsPage() {
       if (s.moduleMapping) patch.moduleMapping = s.moduleMapping
       if (typeof s.m1SystemPrompt === 'string') patch.m1SystemPrompt = s.m1SystemPrompt
       if (typeof s.showMenuBar === 'boolean') patch.showMenuBar = s.showMenuBar
-      // 文生图 Demo 表单：优先新结构，兼容旧 imageDemoForm
-      if (s.imageDemoGlobalForm) patch.imageDemoGlobalForm = s.imageDemoGlobalForm
-      if (s.imageDemoFormPerNode) patch.imageDemoFormPerNode = s.imageDemoFormPerNode
+      // 节点测试表单：优先新结构 nodeTestGlobalForm，兼容旧 imageDemoForm
+      if ((s as any).nodeTestGlobalForm) patch.nodeTestGlobalForm = (s as any).nodeTestGlobalForm
+      else if ((s as any).imageDemoGlobalForm) patch.nodeTestGlobalForm = (s as any).imageDemoGlobalForm
+      if ((s as any).nodeTestFormPerNode) patch.nodeTestFormPerNode = (s as any).nodeTestFormPerNode
+      else if ((s as any).imageDemoFormPerNode) patch.nodeTestFormPerNode = (s as any).imageDemoFormPerNode
       // 旧格式迁移
-      if (s.imageDemoForm && !s.imageDemoFormPerNode) {
-        const { nodeId, provider, ...params } = s.imageDemoForm as Record<string, unknown> & { nodeId?: string; provider?: string }
-        patch.imageDemoGlobalForm = { provider: (provider as string) || 'modelscope', nodeId: nodeId as string | undefined }
-        patch.imageDemoFormPerNode = nodeId ? { [nodeId]: params } : {}
+      if ((s as any).imageDemoForm && !(s as any).nodeTestFormPerNode && !(s as any).imageDemoFormPerNode) {
+        const rawForm = (s as any).imageDemoForm as any
+        const { nodeId, provider, ...params } = rawForm
+        patch.nodeTestGlobalForm = { provider: (provider as string) || 'modelscope', nodeId: nodeId as string | undefined }
+        patch.nodeTestFormPerNode = nodeId ? { [nodeId]: params } : {}
       }
       if (Array.isArray(s.splitPatterns)) patch.splitPatterns = s.splitPatterns
       if (s.cleanNodeOverrides) patch.cleanNodeOverrides = s.cleanNodeOverrides
@@ -1248,6 +1251,10 @@ export default function SettingsPage() {
             {({ getFieldValue }) =>
               getFieldValue('nodeType') === 'image' ? (
                 <Form.Item name="supportsImageEdit" label="图片编辑" valuePropName="checked" extra="开启后该节点可进行图片编辑（Image2Image）">
+                  <Switch />
+                </Form.Item>
+              ) : getFieldValue('nodeType') === 'text' ? (
+                <Form.Item name="isMultimodal" label="多模态" valuePropName="checked" extra="开启后该节点支持视觉多模态理解（图片+文本输入）">
                   <Switch />
                 </Form.Item>
               ) : null

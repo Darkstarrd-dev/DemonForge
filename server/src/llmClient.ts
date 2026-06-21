@@ -45,12 +45,15 @@ export async function listModels(cfg: ProviderConfig): Promise<ListModelsResult>
 
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant'
-  content: string
+  content: string | Array<{ type: 'text' | 'image_url'; text?: string; image_url?: { url: string } }>
 }
 
 export interface ChatStreamOptions extends ProviderConfig {
   messages: ChatMessage[]
   signal?: AbortSignal
+  temperature?: number
+  top_p?: number
+  max_tokens?: number
 }
 
 /** POST /v1/chat/completions (stream:true) —— 逐增量回调，返回完整文本；失败抛错由调用方处理 */
@@ -59,10 +62,15 @@ export async function chatStream(
   onDelta: (delta: string) => void,
 ): Promise<string> {
   const url = `${normalizeBase(opts.baseURL)}/chat/completions`
+  const body: any = { model: opts.model, messages: opts.messages, stream: true }
+  if (typeof opts.temperature === 'number') body.temperature = opts.temperature
+  if (typeof opts.top_p === 'number') body.top_p = opts.top_p
+  if (typeof opts.max_tokens === 'number') body.max_tokens = opts.max_tokens
+
   const res = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...authHeaders(opts.apiKey) },
-    body: JSON.stringify({ model: opts.model, messages: opts.messages, stream: true }),
+    body: JSON.stringify(body),
     signal: opts.signal,
   })
   if (!res.ok || !res.body) {
