@@ -158,6 +158,8 @@ export interface AppState {
   roleChatAutoConfig: RoleChatAutoConfig
   /** UI 主题模式（持久化到 settings.json） */
   theme: 'light' | 'dark'
+  /** 节点池分组折叠状态（持久化到 settings.json）：key = groupKey (baseURL + groupName), value = 是否展开 */
+  nodeGroupExpanded: Record<string, boolean>
 
   setState: (patch: Partial<AppState>) => void
   /** M1 Step3 清洗运行状态合并写入（部分更新）。不持久化。 */
@@ -276,6 +278,7 @@ const seedState = () => ({
 以上群号搜不到可以加qq264235286`,
   cleanRun: null,
   theme: 'light' as const,
+  nodeGroupExpanded: {},
 })
 
 export const useAppStore = create<AppState>()((set, get) => ({
@@ -490,6 +493,7 @@ export async function bootstrapStore(): Promise<void> {
         m1TitleTemplate?: string
         m1TestText?: string
         theme?: 'light' | 'dark'
+        nodeGroupExpanded?: Record<string, boolean>
       }
       storeInitialized = d.storeInitialized === true
       const patch: Partial<AppState> = {}
@@ -538,6 +542,8 @@ export async function bootstrapStore(): Promise<void> {
       }
       // 主题配置（旧 settings.json 无此键则默认 light）
       if (d.theme === 'light' || d.theme === 'dark') patch.theme = d.theme
+      // 节点池分组折叠状态（旧 settings.json 无此键则默认空对象）
+      if (d.nodeGroupExpanded && typeof d.nodeGroupExpanded === 'object') patch.nodeGroupExpanded = d.nodeGroupExpanded
       if (Object.keys(patch).length) useAppStore.setState(patch)
     }
   } catch {
@@ -729,7 +735,7 @@ export async function pushStoreNowChecked(): Promise<void> {
 
 // 设置回写：providers/moduleMapping/m1SystemPrompt/assetDir/currentBookId/nodeTestGlobalForm/nodeTestFormPerNode/
 // showMenuBar/splitPatterns/cleanNodeOverrides/m1AutoRetry/m1TitleTemplate 变化时 debounce POST
-/** 设置载荷构造（11 个键）。导出供 backup.ts 组装备份 bundle 复用。 */
+/** 设置载荷构造（12 个键）。导出供 backup.ts 组装备份 bundle 复用。 */
 export const settingsPayload = (s: AppState) => ({
   providers: s.providers,
   moduleMapping: s.moduleMapping,
@@ -745,6 +751,7 @@ export const settingsPayload = (s: AppState) => ({
   m1TitleTemplate: s.m1TitleTemplate,
   m1TestText: s.m1TestText,
   theme: s.theme,
+  nodeGroupExpanded: s.nodeGroupExpanded,
 })
 
 let settingsTimer: ReturnType<typeof setTimeout> | null = null
@@ -764,7 +771,8 @@ useAppStore.subscribe((s, prev) => {
     s.m1AutoRetry === prev.m1AutoRetry &&
     s.m1TitleTemplate === prev.m1TitleTemplate &&
     s.m1TestText === prev.m1TestText &&
-    s.theme === prev.theme
+    s.theme === prev.theme &&
+    s.nodeGroupExpanded === prev.nodeGroupExpanded
   ) {
     return
   }

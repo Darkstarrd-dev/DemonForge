@@ -17,6 +17,7 @@ import {
   Switch,
   Tabs,
   Tag,
+  theme,
   Typography,
 } from 'antd'
 import {
@@ -61,6 +62,7 @@ interface NodeRuntime {
 
 export default function Step3Clean() {
   const { message } = App.useApp()
+  const { token } = theme.useToken()
   const session = useAppStore((s) => s.importSession)
   const providers = useAppStore((s) => s.providers)
   const m1SystemPrompt = useAppStore((s) => s.m1SystemPrompt)
@@ -913,7 +915,7 @@ export default function Step3Clean() {
             ),
           },
         ]}
-        style={{ background: '#fafafa' }}
+        style={{ background: token.colorBgContainer }}
       />
 
       {/* 调试日志（成功响应不再含流式正文，仅记录诊断信息） */}
@@ -1020,8 +1022,8 @@ export default function Step3Clean() {
                           {e.requestBody && (
                             <div
                               style={{
-                                background: '#1f2428',
-                                color: '#c9d1d9',
+                                background: token.colorBgBase === '#ffffff' ? '#1f2428' : '#0d1117',
+                                color: token.colorBgBase === '#ffffff' ? '#c9d1d9' : '#e6edf3',
                                 padding: '6px 10px',
                                 borderRadius: 4,
                                 fontFamily: 'monospace',
@@ -1037,7 +1039,10 @@ export default function Step3Clean() {
                           {e.responseBody && (
                             <div
                               style={{
-                                background: e.type === 'error' ? '#fff1f0' : '#fffbe6',
+                                background: e.type === 'error'
+                                  ? (token.colorBgBase === '#ffffff' ? '#fff1f0' : 'rgba(255, 77, 79, 0.1)')
+                                  : (token.colorBgBase === '#ffffff' ? '#fffbe6' : 'rgba(255, 215, 5, 0.1)'),
+                                color: token.colorText,
                                 padding: '6px 10px',
                                 borderRadius: 4,
                                 fontFamily: 'monospace',
@@ -1061,7 +1066,7 @@ export default function Step3Clean() {
             ),
           },
         ]}
-        style={{ background: '#fafafa' }}
+        style={{ background: token.colorBgContainer }}
       />
     </Space>
   )

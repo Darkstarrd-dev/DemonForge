@@ -1,4 +1,4 @@
-import { Button, Layout, Menu, Select, Space, Typography, theme } from 'antd'
+import { Button, Layout, Menu, Select, Typography } from 'antd'
 import {
   BookOutlined,
   PoweroffOutlined,
@@ -44,10 +44,6 @@ export default function AppLayout() {
   const showMenuBar = useAppStore((s) => s.showMenuBar)
   const setState = useAppStore((s) => s.setState)
   const projects = books.filter((b) => b.type === 'project')
-  const { token } = theme.useToken()
-
-  // 这些页面不需要显示"当前作品"选择器
-  const hideBookSelector = ['/settings', '/node-test', '/demo-3d', '/demo-2d'].includes(location.pathname)
 
   // 同步 showMenuBar 到 Electron 主进程（兜底，确保前端状态与主窗口一致）
   useEffect(() => {
@@ -77,6 +73,26 @@ export default function AppLayout() {
           <BookOutlined style={{ marginRight: 8 }} />
           novelhelper
         </div>
+
+        {/* 当前作品选择器（移到 sidebar） */}
+        <div style={{ padding: '8px 16px', borderBottom: '1px solid #303030' }}>
+          {projects.length > 0 ? (
+            <Select
+              style={{ width: '100%' }}
+              size="small"
+              value={currentBookId}
+              onChange={(v) => setState({ currentBookId: v })}
+              options={projects.map((b) => ({ value: b.id, label: b.title }))}
+              dropdownStyle={{ minWidth: 180 }}
+              placeholder="选择作品"
+            />
+          ) : (
+            <Typography.Text type="secondary" style={{ fontSize: 12, color: 'rgba(255,255,255,0.3)' }}>
+              暂无作品
+            </Typography.Text>
+          )}
+        </div>
+
         <Menu
           theme="dark"
           mode="inline"
@@ -97,31 +113,7 @@ export default function AppLayout() {
         </div>
       </Layout.Sider>
       <Layout style={{ overflow: 'hidden' }}>
-        <Layout.Header
-          style={{
-            background: token.colorBgContainer,
-            padding: '0 24px',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            borderBottom: `1px solid ${token.colorBorder}`,
-            height: 64,
-            lineHeight: '64px',
-          }}
-        >
-          {!hideBookSelector && (
-            <Space>
-              <Typography.Text type="secondary">当前作品</Typography.Text>
-              <Select
-                style={{ minWidth: 180 }}
-                value={currentBookId}
-                onChange={(v) => setState({ currentBookId: v })}
-                options={projects.map((b) => ({ value: b.id, label: b.title }))}
-              />
-            </Space>
-          )}
-        </Layout.Header>
-        <Layout.Content style={{ padding: 24, overflow: 'auto', height: 'calc(100vh - 64px)' }}>
+        <Layout.Content style={{ padding: 0, overflow: 'auto', height: '100vh' }}>
           <Outlet />
         </Layout.Content>
       </Layout>

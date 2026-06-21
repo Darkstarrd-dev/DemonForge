@@ -19,6 +19,7 @@ import {
   Table,
   Tabs,
   Tag,
+  theme,
   Tooltip,
   Typography,
   Upload,
@@ -109,6 +110,7 @@ async function probeOnce(
 
 export default function SettingsPage() {
   const { message } = App.useApp()
+  const { token } = theme.useToken()
   const providers = useAppStore((s) => s.providers)
   const moduleMapping = useAppStore((s) => s.moduleMapping)
   const m1SystemPrompt = useAppStore((s) => s.m1SystemPrompt)
@@ -586,7 +588,7 @@ export default function SettingsPage() {
       if (typeof s.m1AutoRetry === 'boolean') patch.m1AutoRetry = s.m1AutoRetry
       if (typeof s.m1TitleTemplate === 'string') patch.m1TitleTemplate = s.m1TitleTemplate
       if (typeof s.m1TestText === 'string') patch.m1TestText = s.m1TestText
-      if (s.theme === 'light' || s.theme === 'dark') patch.theme = s.theme
+      if ((s as any).theme === 'light' || (s as any).theme === 'dark') patch.theme = (s as any).theme
       // assetDir 不自动应用（来源机器路径多半无效），仅当用户显式想用时手动改
       useAppStore.setState(patch)
       pushSettingsNow()
@@ -811,16 +813,18 @@ export default function SettingsPage() {
 
   return (
     <>
-    <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 64px)', overflow: 'hidden' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden' }}>
       <Tabs
         defaultActiveKey="nodes"
         style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}
+        tabBarStyle={{ padding: '0 24px', margin: 0, background: token.colorBgContainer, borderBottom: `1px solid ${token.colorBorder}` }}
         items={[
         {
           key: 'nodes',
           label: '节点池与测试',
           children: (
-            <div style={{ padding: '0 24px', maxWidth: 1600, margin: '0 auto', height: '100%', overflow: 'auto' }}>
+            <div style={{ padding: '24px', height: 'calc(100vh - 46px)', overflow: 'auto' }}>
+              <div style={{ maxWidth: 1600, margin: '0 auto' }}>
               <Space direction="vertical" size={16} style={{ width: '100%' }}>
               <Card
                 title="Provider 节点池"
@@ -1060,13 +1064,15 @@ export default function SettingsPage() {
               </Card>
             </Space>
             </div>
+            </div>
           ),
         },
         {
           key: 'advanced',
           label: '高级配置',
           children: (
-            <div style={{ padding: '0 24px', maxWidth: 1600, margin: '0 auto', height: '100%', overflow: 'auto' }}>
+            <div style={{ padding: '24px', height: 'calc(100vh - 46px)', overflow: 'auto' }}>
+              <div style={{ maxWidth: 1600, margin: '0 auto' }}>
               <Space direction="vertical" size={16} style={{ width: '100%' }}>
               <Card
                 title="章节检测模式池"
@@ -1161,13 +1167,15 @@ export default function SettingsPage() {
               </Card>
             </Space>
             </div>
+            </div>
           ),
         },
         {
           key: 'general',
           label: '通用设置',
           children: (
-            <div style={{ padding: '0 24px', maxWidth: 1600, margin: '0 auto', height: '100%', overflow: 'auto' }}>
+            <div style={{ padding: '24px', height: 'calc(100vh - 46px)', overflow: 'auto' }}>
+              <div style={{ maxWidth: 1600, margin: '0 auto' }}>
               <Space direction="vertical" size={16} style={{ width: '100%' }}>
               <Card title="主题外观">
                 <Space direction="vertical" size={12} style={{ width: '100%' }}>
@@ -1213,13 +1221,15 @@ export default function SettingsPage() {
               </Card>
             </Space>
             </div>
+            </div>
           ),
         },
         {
           key: 'backup',
           label: '备份与恢复',
           children: (
-            <div style={{ padding: '0 24px', maxWidth: 1600, margin: '0 auto', height: '100%', overflow: 'auto' }}>
+            <div style={{ padding: '24px', height: 'calc(100vh - 46px)', overflow: 'auto' }}>
+              <div style={{ maxWidth: 1600, margin: '0 auto' }}>
               <Space direction="vertical" size={16} style={{ width: '100%' }}>
               <Card title="设置导入 / 导出">
                 <Typography.Paragraph type="secondary" style={{ marginBottom: 8 }}>
@@ -1264,6 +1274,7 @@ export default function SettingsPage() {
                 </Typography.Paragraph>
               </Card>
             </Space>
+            </div>
             </div>
           ),
         },

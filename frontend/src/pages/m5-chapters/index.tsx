@@ -305,7 +305,6 @@ export default function M5ChaptersPage() {
             </Space>
           )
         }
-        width={Math.min(600, typeof window !== 'undefined' ? window.innerWidth * 0.9 : 600)}
         width={600}
         open={!!report}
         onClose={() => setReport(null)}

@@ -11,6 +11,7 @@ import {
   Space,
   Table,
   Tag,
+  theme,
   Typography,
 } from 'antd'
 import { RobotOutlined, ReloadOutlined, ScissorOutlined } from '@ant-design/icons'
@@ -30,6 +31,7 @@ import type { ImportChapter, SplitPattern } from '../../services/types'
 
 export default function Step2Split() {
   const { message } = App.useApp()
+  const { token } = theme.useToken()
   const session = useAppStore((s) => s.importSession)
   const setState = useAppStore((s) => s.setState)
   const splitPatterns = useAppStore((s) => s.splitPatterns)
@@ -421,7 +423,7 @@ export default function Step2Split() {
                 onClick={() => toggleSelect(i)}
                 style={{
                   cursor: 'pointer',
-                  background: selectedIdx === i ? '#e6f4ff' : undefined,
+                  background: selectedIdx === i ? token.colorPrimaryBg : undefined,
                 }}
               >
                 <Typography.Text type="secondary" style={{ marginRight: 12 }}>
