@@ -144,6 +144,75 @@ export type GeneratedImage = TestHistoryItem
 
 export type ImageInputMode = 'base64' | 'catbox' | 'litterbox' | '0x0' | 'telegraph'
 
+// ==================== 角色交流模块类型 ====================
+
+/** 角色交流模式：Opencode 服务器或本地节点池 */
+export type RoleChatMode = 'opencode' | 'local'
+
+/** 角色对话参与者（统一 Opencode Agent 和本地角色） */
+export interface RoleChatParticipant {
+  id: string
+  name: string
+  /** 模式：opencode = Opencode Agent / local = 本地角色卡 */
+  mode: RoleChatMode
+  /** Opencode 模式：Agent 名称 */
+  agentName?: string
+  /** Opencode 模式：Model 名称 */
+  model?: string
+  /** 本地模式：EntityCard ID */
+  cardId?: string
+  /** 本地模式：选中的节点 ID */
+  nodeId?: string
+  /** 头像（可选，优先级：自定义 > 卡片 fields.avatar > 首字母） */
+  avatar?: string
+  /** 头像颜色（从名称生成） */
+  color: string
+  /** 当前状态：idle/thinking/responding/waiting/done */
+  status: 'idle' | 'thinking' | 'responding' | 'waiting' | 'done'
+}
+
+/** 角色对话消息 */
+export interface RoleChatMessage {
+  id: string
+  participantId: string
+  participantName: string
+  content: string
+  timestamp: number
+  /** 是否为用户消息（非 Agent） */
+  isUser?: boolean
+}
+
+/** 自动循环配置 */
+export interface RoleChatAutoConfig {
+  /** 模式：按次数或时间 */
+  mode: 'count' | 'time'
+  /** 次数模式：每个 Agent 回复次数（±variance） */
+  count: number
+  /** 时间模式：总运行秒数 */
+  duration: number
+  /** 次数波动范围 */
+  variance: number
+  /** 冷却基准值（秒） */
+  cooldownBase: number
+  /** 冷却波动范围（秒） */
+  cooldownVariance: number
+  /** 反应延迟（秒）：Agent "思考"延迟范围 */
+  reactionDelayMin: number
+  reactionDelayMax: number
+}
+
+/** Opencode Agent 信息 */
+export interface OpencodeAgent {
+  name: string
+  description?: string
+}
+
+/** Opencode 会话信息 */
+export interface OpencodeSession {
+  sessionID: string
+  agentName: string
+}
+
 /** M3 推演场景：同一场景可轮流推演多个角色 */
 export interface SimScene {
   id: string

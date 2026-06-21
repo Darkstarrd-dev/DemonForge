@@ -10,6 +10,7 @@ import { settingsRoutes, wasLastReadRecovered } from './routes/settings'
 import { storeRoutes } from './routes/store'
 import { imageRoutes } from './routes/image'
 import { importSessionRoutes } from './routes/importSession'
+import { chatRoutes } from './routes/chat'
 import { getAppDataDir } from './utils/paths'
 import { getAssetDir, readAll } from './store/db'
 
@@ -28,6 +29,7 @@ await app.register(settingsRoutes)
 await app.register(storeRoutes)
 await app.register(imageRoutes)
 await app.register(importSessionRoutes)
+await app.register(chatRoutes)
 app.get('/api/health', async () => ({ ok: true }))
 
 const killByPidFile = (filename: string) => {

@@ -17,6 +17,8 @@ import type {
   TestHistoryItem,
   SplitPattern,
   ImageInputMode,
+  RoleChatMode,
+  RoleChatAutoConfig,
 } from '../services/types'
 import {
   seedBooks,
@@ -148,6 +150,12 @@ export interface AppState {
   m1TestText: string
   /** M1 Step3 清理运行状态（不持久化，仅内存）。跨 Step 页面保持任务控制权。 */
   cleanRun: CleanRunState | null
+  /** 角色交流模式（持久化到 settings.json） */
+  roleChatMode: RoleChatMode
+  /** 角色交流 Opencode Server 地址（持久化到 settings.json） */
+  roleChatOpencodeURL: string
+  /** 角色交流自动循环配置（持久化到 settings.json） */
+  roleChatAutoConfig: RoleChatAutoConfig
 
   setState: (patch: Partial<AppState>) => void
   /** M1 Step3 清洗运行状态合并写入（部分更新）。不持久化。 */
@@ -197,6 +205,18 @@ const seedState = () => ({
   showMenuBar: true,
   mergeCandidates: seedMergeCandidates,
   currentBookId: '',
+  roleChatMode: 'local' as RoleChatMode,
+  roleChatOpencodeURL: 'http://127.0.0.1:4096',
+  roleChatAutoConfig: {
+    mode: 'count',
+    count: 4,
+    duration: 60,
+    variance: 1,
+    cooldownBase: 2,
+    cooldownVariance: 1,
+    reactionDelayMin: 0.5,
+    reactionDelayMax: 2,
+  } as RoleChatAutoConfig,
   importSession: null,
   testHistory: [] as TestHistoryItem[],
   nodeTestGlobalForm: { provider: 'modelscope', nodeId: undefined },
@@ -454,6 +474,9 @@ export async function bootstrapStore(): Promise<void> {
         storeInitialized?: boolean
         imageDemoForm?: ImageDemoForm
         imageDemoGlobalForm?: { provider: string; nodeId?: string }
+        roleChatMode?: RoleChatMode
+        roleChatOpencodeURL?: string
+        roleChatAutoConfig?: RoleChatAutoConfig
         imageDemoFormPerNode?: Record<string, Partial<ImageDemoForm>>
         nodeTestGlobalForm?: { provider: string; nodeId?: string }
         nodeTestFormPerNode?: Record<string, Partial<NodeTestForm>>
@@ -503,6 +526,12 @@ export async function bootstrapStore(): Promise<void> {
       if (typeof d.m1TitleTemplate === 'string') patch.m1TitleTemplate = d.m1TitleTemplate
       // M1 测试文本（旧 settings.json 无此键则沿用 seed 默认样本）
       if (typeof d.m1TestText === 'string') patch.m1TestText = d.m1TestText
+      // 角色交流配置（旧 settings.json 无此键则沿用 seed 默认）
+      if (typeof d.roleChatMode === 'string') patch.roleChatMode = d.roleChatMode as RoleChatMode
+      if (typeof d.roleChatOpencodeURL === 'string') patch.roleChatOpencodeURL = d.roleChatOpencodeURL
+      if (d.roleChatAutoConfig && typeof d.roleChatAutoConfig === 'object') {
+        patch.roleChatAutoConfig = { ...seedState().roleChatAutoConfig, ...d.roleChatAutoConfig }
+      }
       if (Object.keys(patch).length) useAppStore.setState(patch)
     }
   } catch {

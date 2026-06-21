@@ -14,6 +14,7 @@ import M5ChaptersPage from './pages/m5-chapters'
 import BatchGeneratePage from './pages/batch-generate'
 import BookReaderPage from './pages/book-reader'
 import NodeTestPage from './pages/node-test'
+import RoleChatPage from './pages/role-chat'
 import SettingsPage from './pages/settings'
 import { bootstrapStore } from './store/appStore'
 import ErrorBoundary from './components/ErrorBoundary'
@@ -45,6 +46,7 @@ bootstrapStore().finally(() => {
                   <Route path="/book-reader" element={<BookReaderPage />} />
                   <Route path="/node-test" element={<NodeTestPage />} />
                   <Route path="/demo-image" element={<NodeTestPage />} />
+                  <Route path="/role-chat" element={<RoleChatPage />} />
                   <Route path="/demo-3d" element={<Suspense fallback={<Spin size="large" />}><Demo3DPage /></Suspense>} />
                   <Route path="/demo-2d" element={<Suspense fallback={<Spin size="large" />}><Demo2DPage /></Suspense>} />
                   <Route path="/settings" element={<SettingsPage />} />

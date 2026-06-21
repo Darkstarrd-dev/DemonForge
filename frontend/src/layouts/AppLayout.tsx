@@ -14,6 +14,7 @@ import {
   BlockOutlined,
   AppstoreOutlined,
   PictureOutlined,
+  MessageOutlined,
 } from '@ant-design/icons'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useEffect } from 'react'
@@ -28,6 +29,7 @@ const MENU_ITEMS = [
   { key: '/m4', icon: <FileTextOutlined />, label: 'M4 章节生成' },
   { key: '/m5', icon: <FolderOpenOutlined />, label: 'M5 章节管理' },
   { key: '/batch', icon: <RocketOutlined />, label: '批量生产' },
+  { key: '/role-chat', icon: <MessageOutlined />, label: '角色交流' },
   { key: '/demo-3d', icon: <BlockOutlined />, label: '3D环境Demo' },
   { key: '/demo-2d', icon: <AppstoreOutlined />, label: '2D环境Demo' },
   { key: '/node-test', icon: <PictureOutlined />, label: '节点测试' },

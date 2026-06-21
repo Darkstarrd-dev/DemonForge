@@ -36,7 +36,8 @@
       "Bash(git commit -q -m 'docs: 归档阶段B起源流程实施计划为待办（不实施） *)",
       "Bash(where chrome *)",
       "Bash(where msedge *)",
-      "Bash(git commit *)"
+      "Bash(git commit *)",
+      "WebFetch(domain:github.com)"
     ]
   }
 }
