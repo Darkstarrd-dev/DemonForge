@@ -67,46 +67,58 @@
 ## 下一步任务
 
 ### 立即任务（本次会话后）
-1. **完成角色交流模块 - 阶段 B（本地模式核心）**
-   - 实现手动发送逻辑（调用 `sendLocalRoleMessage`）
-   - 实现 SSE 流式响应接收
-   - 实时更新参与者状态（thinking → responding → idle）
-   - 测试本地模式完整流程（添加角色 → 发送消息 → 接收回复）
+1. **测试角色交流模块完整功能**
+   - 本地模式：选择角色卡 + 节点 → 手动发送 → 查看 SSE 流式响应
+   - 自动循环：启动循环 → 观察多参与者并发对话 → 停止循环
+   - 导出对话记录为 JSON
 
-2. **角色交流模块 - 阶段 C（自动循环）**
-   - 实现 `runAgentLoop()` 并发执行逻辑
-   - 实现停止循环功能
-   - 实现冷却延迟与次数/时间限制
-   - 测试多参与者并发对话
-
-3. **角色交流模块 - 阶段 D（Opencode 模式）**
-   - 实现 Opencode 会话管理
-   - 实现 Opencode 消息发送
-   - 测试 Opencode 模式完整流程
+2. **可选：测试 Opencode 模式**
+   - 启动 Opencode Server（`opencode-server --host 127.0.0.1 --port 4096 --cors "*"`）
+   - 连接并选择 Agent
+   - 测试 Opencode 模式对话
 
 ### 后续计划
-1. **M2 实现（设定提取）**：接真实 LLM，SSE 流式提取
-2. **M3 实现（角色推演）**：接真实 LLM，多轮对话推演
-3. **端到端测试**：M0 → M1 → M2 → M3 → M4 → M5 完整流程验证
+1. **角色交流模块 - 阶段 E（增强功能）**
+   - 导出对话为 TXT 格式
+   - 头像自定义功能
+   - 帮助文档弹窗
+2. **M2 实现（设定提取）**：接真实 LLM，SSE 流式提取
+3. **M3 实现（角色推演）**：接真实 LLM，多轮对话推演
+4. **端到端测试**：M0 → M1 → M2 → M3 → M4 → M5 完整流程验证
 
 ---
 
 ## 技术决策记录
 
-### 角色交流模块集成（2026-06-21 完成阶段 A）
+### 角色交流模块集成（2026-06-21 完成阶段 A+B+C）
 - **动机**：将 opencode-chat-webui 作为角色设定验证工具集成到 novelhelper
 - **方案**：
   - **双后端模式**：Opencode 服务器（保留原功能）+ 本地节点池（快速测试）
   - 决策 1：**两个模式都实现**（用户确认）
   - 决策 2：**角色 Prompt 直接使用 EntityCard 字段**（description + styleNote + styleExamples）
   - 决策 3：**对话历史不做限制**，用户手动重置
-- **实施成果（阶段 A）**：
-  - ✅ 数据模型定义（RoleChatParticipant、RoleChatMessage、RoleChatAutoConfig）
-  - ✅ 页面路由与布局（左侧边栏 280px + 主对话区）
-  - ✅ 服务层骨架（listOpencodeAgents、createOpencodeSession、sendOpencodeMessage、sendLocalRoleMessage）
-  - ✅ 后端路由（POST /api/chat/role，System Prompt 构建 + SSE 流式）
-  - ✅ 核心组件（ParticipantList、MessageList、AddParticipantModal、AutoLoopPanel）
-  - ✅ 编译通过，零错误
+- **实施成果**：
+  - **阶段 A（基础架构）**：
+    - ✅ 数据模型定义（RoleChatParticipant、RoleChatMessage、RoleChatAutoConfig）
+    - ✅ 页面路由与布局（左侧边栏 280px + 主对话区）
+    - ✅ 服务层骨架（listOpencodeAgents、createOpencodeSession、sendOpencodeMessage、sendLocalRoleMessage）
+    - ✅ 后端路由（POST /api/chat/role，System Prompt 构建 + SSE 流式）
+    - ✅ 核心组件（ParticipantList、MessageList、AddParticipantModal、AutoLoopPanel）
+  - **阶段 B（本地模式核心）**：
+    - ✅ 手动发送流程（handleSendMessage 串行触发所有参与者）
+    - ✅ 本地模式 SSE 流式响应（sendLocalRoleMessage + 实时更新临时消息）
+    - ✅ Opencode 模式会话管理（opcodeSessionsRef 缓存 + sendOpencodeMessage）
+    - ✅ 状态更新逻辑（updateParticipantStatus：idle → thinking → responding → idle）
+    - ✅ 错误处理（捕获异常 + 移除临时消息 + message.error 提示）
+  - **阶段 C（自动循环）**：
+    - ✅ 并发 Agent 循环（runAgentLoop + Promise.all）
+    - ✅ 次数模式（targetCount = count ± variance）
+    - ✅ 时间模式（startTime + duration 秒）
+    - ✅ 反应延迟（randomDelay(reactionDelayMin~Max)，模拟思考）
+    - ✅ 冷却延迟（randomDelay(cooldownBase ± Variance)，回复后休息）
+    - ✅ 状态流转（idle → thinking → responding → waiting → done）
+    - ✅ 停止循环（abortRef.current = true 中断所有 Agent）
+  - ✅ 编译通过，零错误，核心功能完整可用
 
 ### 节点测试架构重构（2026-06-21 完成）
 - **动机**：统一节点测试入口，支持文本推理、图片生成、多模态理解三种测试类型
