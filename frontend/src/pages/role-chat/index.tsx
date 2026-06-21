@@ -9,6 +9,8 @@ import {
   Segmented,
   Badge,
   Divider,
+  Modal,
+  Dropdown,
 } from 'antd'
 import {
   PlusOutlined,
@@ -18,6 +20,7 @@ import {
   PauseCircleOutlined,
   DownloadOutlined,
   QuestionCircleOutlined,
+  DownOutlined,
 } from '@ant-design/icons'
 import { useAppStore } from '../../store/appStore'
 import type { RoleChatMode, RoleChatParticipant, RoleChatMessage } from '../../services/types'
@@ -42,6 +45,7 @@ export default function RoleChatPage() {
   const [addModalOpen, setAddModalOpen] = useState(false)
   const [isLooping, setIsLooping] = useState(false)
   const [isSending, setIsSending] = useState(false)
+  const [helpModalOpen, setHelpModalOpen] = useState(false)
   const abortRef = useRef(false)
   // Opencode 会话缓存：Map<agentName, sessionID>
   const opcodeSessionsRef = useRef<Map<string, string>>(new Map())
@@ -256,7 +260,33 @@ export default function RoleChatPage() {
     a.download = `角色交流_${new Date().toISOString().slice(0, 10)}.json`
     a.click()
     URL.revokeObjectURL(url)
-    message.success('已导出对话记录')
+    message.success('已导出对话记录（JSON）')
+  }
+
+  // 导出对话为 TXT
+  const handleExportTxt = () => {
+    if (messages.length === 0) {
+      message.warning('暂无对话内容')
+      return
+    }
+
+    const txtContent = messages
+      .map((m) => {
+        const time = new Date(m.timestamp).toLocaleString('zh-CN')
+        return `[${time}] ${m.participantName}:\n${m.content}\n`
+      })
+      .join('\n')
+
+    const header = `角色交流记录\n模式: ${roleChatMode === 'local' ? '本地节点' : 'Opencode'}\n参与者: ${participants.map((p) => p.name).join(', ')}\n导出时间: ${new Date().toLocaleString('zh-CN')}\n${'='.repeat(60)}\n\n`
+
+    const blob = new Blob([header + txtContent], { type: 'text/plain;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `角色交流_${new Date().toISOString().slice(0, 10)}.txt`
+    a.click()
+    URL.revokeObjectURL(url)
+    message.success('已导出对话记录（TXT）')
   }
 
   // 随机延迟（毫秒）
@@ -393,7 +423,7 @@ export default function RoleChatPage() {
             <Button
               size="small"
               icon={<QuestionCircleOutlined />}
-              onClick={() => message.info('帮助文档将在阶段 E 实现')}
+              onClick={() => setHelpModalOpen(true)}
             >
               帮助
             </Button>
@@ -456,9 +486,19 @@ export default function RoleChatPage() {
               <Button block icon={<ReloadOutlined />} onClick={handleReset}>
                 重置会话
               </Button>
-              <Button block icon={<DownloadOutlined />} onClick={handleExport}>
-                导出对话
-              </Button>
+              <Dropdown
+                menu={{
+                  items: [
+                    { key: 'json', label: '导出为 JSON', onClick: handleExport },
+                    { key: 'txt', label: '导出为 TXT', onClick: handleExportTxt },
+                  ],
+                }}
+                disabled={messages.length === 0}
+              >
+                <Button block icon={<DownloadOutlined />}>
+                  导出对话 <DownOutlined />
+                </Button>
+              </Dropdown>
             </Space>
           </Space>
         </Card>
@@ -502,6 +542,116 @@ export default function RoleChatPage() {
         onClose={() => setAddModalOpen(false)}
         onAdd={handleAddParticipant}
       />
+
+      {/* 帮助文档弹窗 */}
+      <Modal
+        title="角色交流使用说明"
+        open={helpModalOpen}
+        onCancel={() => setHelpModalOpen(false)}
+        footer={
+          <Button type="primary" onClick={() => setHelpModalOpen(false)}>
+            知道了
+          </Button>
+        }
+        width={700}
+      >
+        <Space direction="vertical" size={16} style={{ width: '100%' }}>
+          <div>
+            <Typography.Title level={5}>功能简介</Typography.Title>
+            <Typography.Paragraph>
+              角色交流模块支持多个角色进行对话交流，验证角色设定的一致性和可信度。支持两种模式：
+            </Typography.Paragraph>
+            <ul>
+              <li>
+                <strong>本地节点模式</strong>：使用本项目的节点池和角色卡，适合快速测试角色设定
+              </li>
+              <li>
+                <strong>Opencode 模式</strong>：连接 Opencode Server，使用其 Agent 系统
+              </li>
+            </ul>
+          </div>
+
+          <div>
+            <Typography.Title level={5}>使用流程</Typography.Title>
+            <ol>
+              <li>
+                <strong>选择模式</strong>：顶部切换「本地节点」或「Opencode」
+              </li>
+              <li>
+                <strong>添加参与者</strong>：
+                <ul>
+                  <li>本地模式：选择角色卡和节点</li>
+                  <li>Opencode 模式：输入 Server 地址并连接，选择 Agent</li>
+                </ul>
+              </li>
+              <li>
+                <strong>手动对话</strong>：输入框发送消息，所有参与者依次响应
+              </li>
+              <li>
+                <strong>自动循环</strong>：
+                <ul>
+                  <li>配置循环参数（次数/时间、冷却延迟、反应延迟）</li>
+                  <li>点击「启动循环」，参与者自动进行多轮对话</li>
+                  <li>点击「停止循环」随时中断</li>
+                </ul>
+              </li>
+              <li>
+                <strong>导出对话</strong>：支持 JSON（结构化）和 TXT（纯文本）格式
+              </li>
+            </ol>
+          </div>
+
+          <div>
+            <Typography.Title level={5}>循环参数说明</Typography.Title>
+            <ul>
+              <li>
+                <strong>循环模式</strong>：
+                <ul>
+                  <li>按次数：每个 Agent 回复目标次数（±波动范围）</li>
+                  <li>按时间：运行指定秒数后停止</li>
+                </ul>
+              </li>
+              <li>
+                <strong>冷却时间</strong>：每次回复后的休息时间（基准值 ± 波动）
+              </li>
+              <li>
+                <strong>反应延迟</strong>：每次响应前的"思考"时间范围
+              </li>
+            </ul>
+          </div>
+
+          <div>
+            <Typography.Title level={5}>状态说明</Typography.Title>
+            <ul>
+              <li>
+                <Badge status="default" /> <strong>空闲</strong>：等待触发
+              </li>
+              <li>
+                <Badge status="processing" /> <strong>思考中</strong>：反应延迟阶段
+              </li>
+              <li>
+                <Badge status="processing" /> <strong>回复中</strong>：正在生成响应
+              </li>
+              <li>
+                <Badge status="processing" /> <strong>等待中</strong>：冷却延迟阶段
+              </li>
+              <li>
+                <Badge status="success" /> <strong>完成</strong>：循环结束
+              </li>
+            </ul>
+          </div>
+
+          <div>
+            <Typography.Title level={5}>注意事项</Typography.Title>
+            <ul>
+              <li>本地模式需要先在「书库概览」选择当前作品</li>
+              <li>自动循环期间无法手动发送消息</li>
+              <li>重置会话会清空所有消息和参与者</li>
+              <li>Opencode 模式需要先启动 Opencode Server</li>
+            </ul>
+          </div>
+        </Space>
+      </Modal>
     </Space>
   )
 }
