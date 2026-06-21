@@ -1,4 +1,4 @@
-import { Button, Layout, Menu, Select, Space, Typography } from 'antd'
+import { Button, Layout, Menu, Select, Space, Typography, theme } from 'antd'
 import {
   BookOutlined,
   PoweroffOutlined,
@@ -44,6 +44,10 @@ export default function AppLayout() {
   const showMenuBar = useAppStore((s) => s.showMenuBar)
   const setState = useAppStore((s) => s.setState)
   const projects = books.filter((b) => b.type === 'project')
+  const { token } = theme.useToken()
+
+  // 这些页面不需要显示"当前作品"选择器
+  const hideBookSelector = ['/settings', '/node-test', '/demo-3d', '/demo-2d'].includes(location.pathname)
 
   // 同步 showMenuBar 到 Electron 主进程（兜底，确保前端状态与主窗口一致）
   useEffect(() => {
@@ -95,25 +99,29 @@ export default function AppLayout() {
       <Layout style={{ overflow: 'hidden' }}>
         <Layout.Header
           style={{
-            background: '#fff',
+            background: token.colorBgContainer,
             padding: '0 24px',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
-            borderBottom: '1px solid #f0f0f0',
+            borderBottom: `1px solid ${token.colorBorder}`,
+            height: 64,
+            lineHeight: '64px',
           }}
         >
-          <Space>
-            <Typography.Text type="secondary">当前作品</Typography.Text>
-            <Select
-              style={{ minWidth: 180 }}
-              value={currentBookId}
-              onChange={(v) => setState({ currentBookId: v })}
-              options={projects.map((b) => ({ value: b.id, label: b.title }))}
-            />
-          </Space>
+          {!hideBookSelector && (
+            <Space>
+              <Typography.Text type="secondary">当前作品</Typography.Text>
+              <Select
+                style={{ minWidth: 180 }}
+                value={currentBookId}
+                onChange={(v) => setState({ currentBookId: v })}
+                options={projects.map((b) => ({ value: b.id, label: b.title }))}
+              />
+            </Space>
+          )}
         </Layout.Header>
-        <Layout.Content style={{ padding: 16, overflow: 'auto' }}>
+        <Layout.Content style={{ padding: 24, overflow: 'auto', height: 'calc(100vh - 64px)' }}>
           <Outlet />
         </Layout.Content>
       </Layout>

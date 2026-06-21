@@ -171,7 +171,7 @@ export default function M5ChaptersPage() {
   ]
 
   const chaptersTab = (
-    <Space direction="vertical" size={12} style={{ width: '100%' }}>
+    <Space direction="vertical" size={16} style={{ width: '100%' }}>
       <Space>
         <Typography.Text type="secondary">书籍</Typography.Text>
         <Select
@@ -190,12 +190,19 @@ export default function M5ChaptersPage() {
           message="演示默认：定稿自动触发检查 + 可随时手动检查（最终方案待 DESIGN §7 问题 3 拍板）；检查不阻断定稿。"
         />
       </Space>
-      <Table rowKey="id" size="middle" columns={columns} dataSource={bookChapters} pagination={false} />
+      <Table
+        rowKey="id"
+        size="middle"
+        columns={columns}
+        dataSource={bookChapters}
+        pagination={false}
+        scroll={{ x: 'max-content' }}
+      />
     </Space>
   )
 
   const timelineTab = (
-    <Space direction="vertical" size={12} style={{ width: '100%' }}>
+    <Space direction="vertical" size={16} style={{ width: '100%' }}>
       <Space>
         <Typography.Text type="secondary">按角色筛选</Typography.Text>
         <Select
@@ -210,7 +217,7 @@ export default function M5ChaptersPage() {
           正式版：章节定稿后由 AI 抽取「状态变更事件」入时间线，反哺 M3 推演上下文（取角色当前状态）与本页一致性检查。
         </Typography.Text>
       </Space>
-      <Card size="small">
+      <Card size="small" style={{ maxHeight: '60vh', overflowY: 'auto' }}>
         <Timeline
           items={filteredEvents.map((e) => {
             const entity = cards.find((c) => c.id === e.entityId)
@@ -249,7 +256,7 @@ export default function M5ChaptersPage() {
       {/* 章节详情/编辑 */}
       <Drawer
         title={viewing?.title}
-        width={640}
+        width={Math.min(640, typeof window !== 'undefined' ? window.innerWidth * 0.9 : 640)}
         open={!!viewing}
         onClose={() => {
           setViewing(null)
@@ -298,6 +305,7 @@ export default function M5ChaptersPage() {
             </Space>
           )
         }
+        width={Math.min(600, typeof window !== 'undefined' ? window.innerWidth * 0.9 : 600)}
         width={600}
         open={!!report}
         onClose={() => setReport(null)}

@@ -263,7 +263,8 @@ export default function M0ArchitecturePage() {
   const twistStars = (n?: number) => (n ? '★'.repeat(n) + '☆'.repeat(5 - n) : '—')
 
   return (
-    <Space direction="vertical" size={16} style={{ width: '100%' }}>
+    <div style={{ maxWidth: '100%', width: '100%' }}>
+      <Space direction="vertical" size={24} style={{ width: '100%' }}>
       <Alert
         type="info"
         showIcon
@@ -281,9 +282,9 @@ export default function M0ArchitecturePage() {
         ]}
       />
 
-      <Row gutter={16}>
+      <Row gutter={[16, 16]}>
         {/* 左：输入 + 架构编辑 */}
-        <Col span={9}>
+        <Col xs={24} lg={9} style={{ marginBottom: { xs: 16, lg: 0 } }}>
           <Space direction="vertical" size={12} style={{ width: '100%' }}>
             <Card
               size="small"
@@ -379,7 +380,7 @@ export default function M0ArchitecturePage() {
         </Col>
 
         {/* 右：流式输出 / 蓝图区 */}
-        <Col span={15}>
+        <Col xs={24} lg={15}>
           <Space direction="vertical" size={12} style={{ width: '100%' }}>
             <Card
               size="small"
@@ -428,7 +429,7 @@ export default function M0ArchitecturePage() {
                         rowKey="order"
                         dataSource={blueprintChapters}
                         pagination={false}
-                        scroll={{ y: 320 }}
+                        scroll={{ x: 'max-content', y: 320 }}
                         columns={[
                           { title: '#', dataIndex: 'order', width: 48 },
                           { title: '标题', dataIndex: 'title', width: 140 },
@@ -454,5 +455,6 @@ export default function M0ArchitecturePage() {
         </Col>
       </Row>
     </Space>
+    </div>
   )
 }

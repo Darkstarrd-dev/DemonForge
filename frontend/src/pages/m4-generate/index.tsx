@@ -113,9 +113,10 @@ export default function M4GeneratePage() {
   }
 
   return (
-    <Row gutter={16}>
-      <Col span={9}>
-        <Space direction="vertical" size={12} style={{ width: '100%' }}>
+    <div style={{ maxWidth: '100%', width: '100%' }}>
+      <Row gutter={[16, 16]}>
+      <Col xs={24} lg={9} style={{ marginBottom: { xs: 16, lg: 0 } }}>
+        <Space direction="vertical" size={16} style={{ width: '100%' }}>
           <Card size="small" title="大纲节点">
             <Select
               style={{ width: '100%' }}
@@ -209,7 +210,7 @@ export default function M4GeneratePage() {
         </Space>
       </Col>
 
-      <Col span={15}>
+      <Col xs={24} lg={15}>
         <Card
           size="small"
           title="章节草稿"
@@ -228,7 +229,7 @@ export default function M4GeneratePage() {
             />
           )}
           {generating ? (
-            <div className="stream-pane" style={{ height: 480 }}>
+            <div className="stream-pane" style={{ minHeight: 320, maxHeight: 480 }}>
               {draft || '等待生成…'}
             </div>
           ) : (
@@ -242,5 +243,6 @@ export default function M4GeneratePage() {
         </Card>
       </Col>
     </Row>
+    </div>
   )
 }

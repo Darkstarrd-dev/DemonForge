@@ -76,7 +76,7 @@ export default function Step1Import() {
 
       {session && (
         <>
-          <Descriptions bordered size="small" column={2}>
+          <Descriptions bordered size="small" column={{ xs: 1, sm: 2 }}>
             <Descriptions.Item label="文件名">{session.fileName}</Descriptions.Item>
             <Descriptions.Item label="文本长度">{session.rawText.length} 字符</Descriptions.Item>
             <Descriptions.Item label="检测结果">{session.detectedEncoding}</Descriptions.Item>

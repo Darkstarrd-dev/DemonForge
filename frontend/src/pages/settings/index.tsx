@@ -586,6 +586,7 @@ export default function SettingsPage() {
       if (typeof s.m1AutoRetry === 'boolean') patch.m1AutoRetry = s.m1AutoRetry
       if (typeof s.m1TitleTemplate === 'string') patch.m1TitleTemplate = s.m1TitleTemplate
       if (typeof s.m1TestText === 'string') patch.m1TestText = s.m1TestText
+      if (s.theme === 'light' || s.theme === 'dark') patch.theme = s.theme
       // assetDir 不自动应用（来源机器路径多半无效），仅当用户显式想用时手动改
       useAppStore.setState(patch)
       pushSettingsNow()
@@ -810,15 +811,17 @@ export default function SettingsPage() {
 
   return (
     <>
-    <div style={{ padding: '16px 24px', maxWidth: 1600, margin: '0 auto', height: 'calc(100vh - 80px)', overflow: 'auto' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 64px)', overflow: 'hidden' }}>
       <Tabs
         defaultActiveKey="nodes"
+        style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}
         items={[
         {
           key: 'nodes',
           label: '节点池与测试',
           children: (
-            <Space direction="vertical" size={16} style={{ width: '100%' }}>
+            <div style={{ padding: '0 24px', maxWidth: 1600, margin: '0 auto', height: '100%', overflow: 'auto' }}>
+              <Space direction="vertical" size={16} style={{ width: '100%' }}>
               <Card
                 title="Provider 节点池"
                 extra={
@@ -1056,13 +1059,15 @@ export default function SettingsPage() {
                 </Typography.Paragraph>
               </Card>
             </Space>
+            </div>
           ),
         },
         {
           key: 'advanced',
           label: '高级配置',
           children: (
-            <Space direction="vertical" size={16} style={{ width: '100%' }}>
+            <div style={{ padding: '0 24px', maxWidth: 1600, margin: '0 auto', height: '100%', overflow: 'auto' }}>
+              <Space direction="vertical" size={16} style={{ width: '100%' }}>
               <Card
                 title="章节检测模式池"
                 extra={
@@ -1154,30 +1159,68 @@ export default function SettingsPage() {
                   当前：<Typography.Text code>{assetDir || '（默认 <repo>/assets）'}</Typography.Text>
                 </Typography.Paragraph>
               </Card>
-
-              <Card title="界面设置">
-                <Space>
-                  <Typography.Text>显示菜单栏</Typography.Text>
-                  <Switch
-                    checked={showMenuBar}
-                    onChange={(checked) => {
-                      setState({ showMenuBar: checked })
-                      window.electronAPI?.setMenuBarVisibility(checked)
-                    }}
-                  />
+            </Space>
+            </div>
+          ),
+        },
+        {
+          key: 'general',
+          label: '通用设置',
+          children: (
+            <div style={{ padding: '0 24px', maxWidth: 1600, margin: '0 auto', height: '100%', overflow: 'auto' }}>
+              <Space direction="vertical" size={16} style={{ width: '100%' }}>
+              <Card title="主题外观">
+                <Space direction="vertical" size={12} style={{ width: '100%' }}>
+                  <div>
+                    <Typography.Text strong style={{ marginRight: 8 }}>主题模式</Typography.Text>
+                    <Segmented
+                      value={useAppStore.getState().theme}
+                      onChange={(v) => {
+                        setState({ theme: v as 'light' | 'dark' })
+                        pushSettingsNow()
+                        message.success(`已切换为${v === 'dark' ? '深色' : '浅色'}主题`)
+                      }}
+                      options={[
+                        { value: 'light', label: '🌞 浅色' },
+                        { value: 'dark', label: '🌙 深色' },
+                      ]}
+                    />
+                  </div>
+                  <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
+                    浅色主题采用暖色调设计（奶油色背景 + 土色强调），深色主题采用暖灰色背景以减少眼睛疲劳。
+                  </Typography.Paragraph>
                 </Space>
-                <Typography.Paragraph type="secondary" style={{ marginTop: 8, marginBottom: 0 }}>
-                  控制是否显示 Electron 原生菜单栏（包含文件、编辑等标准菜单项）。关闭后可通过 Alt 键临时唤出。
-                </Typography.Paragraph>
+              </Card>
+
+              <Card title="菜单栏">
+                <Space direction="vertical" size={12} style={{ width: '100%' }}>
+                  <div>
+                    <Typography.Text strong style={{ marginRight: 8 }}>显示菜单栏</Typography.Text>
+                    <Switch
+                      checked={showMenuBar}
+                      onChange={(v) => {
+                        setState({ showMenuBar: v })
+                        pushSettingsNow()
+                        window.electronAPI?.setMenuBarVisibility(v)
+                        message.success(v ? '已显示菜单栏' : '已隐藏菜单栏')
+                      }}
+                    />
+                  </div>
+                  <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
+                    控制 Electron 原生菜单栏（文件/编辑/视图等）是否显示。隐藏后可通过 Alt 键临时显示。
+                  </Typography.Paragraph>
+                </Space>
               </Card>
             </Space>
+            </div>
           ),
         },
         {
           key: 'backup',
           label: '备份与恢复',
           children: (
-            <Space direction="vertical" size={16} style={{ width: '100%' }}>
+            <div style={{ padding: '0 24px', maxWidth: 1600, margin: '0 auto', height: '100%', overflow: 'auto' }}>
+              <Space direction="vertical" size={16} style={{ width: '100%' }}>
               <Card title="设置导入 / 导出">
                 <Typography.Paragraph type="secondary" style={{ marginBottom: 8 }}>
                   导出 Provider 节点池、模块映射、提示词、章节检测模式等配置；换机、分享或重装时用。
@@ -1221,6 +1264,7 @@ export default function SettingsPage() {
                 </Typography.Paragraph>
               </Card>
             </Space>
+            </div>
           ),
         },
       ]}

@@ -82,7 +82,11 @@ export default function HomePage() {
       dataIndex: 'type',
       key: 'type',
       render: (t: Book['type']) =>
-        t === 'project' ? <Tag color="blue">作品库</Tag> : <Tag color="default">素材库</Tag>,
+        t === 'project' ? (
+          <Tag style={{ color: '#C4612F', borderColor: '#C4612F', background: '#FFF' }}>作品库</Tag>
+        ) : (
+          <Tag style={{ color: '#5C635D', borderColor: '#E7E1D7', background: '#FFF' }}>素材库</Tag>
+        ),
     },
     {
       title: '作者',
@@ -114,7 +118,7 @@ export default function HomePage() {
       key: 'action',
       width: 240,
       render: (_: unknown, b: Book) => (
-        <Space size={4} onClick={(e) => e.stopPropagation()}>
+        <Space size={4} wrap onClick={(e) => e.stopPropagation()}>
           <Button
             size="small"
             type="primary"
@@ -148,7 +152,8 @@ export default function HomePage() {
     : null
 
   return (
-    <Space direction="vertical" size={16} style={{ width: '100%' }}>
+    <div style={{ maxWidth: '100%', width: '100%' }}>
+      <Space direction="vertical" size={24} style={{ width: '100%' }}>
       <Card title="书库概览">
         <Table
           rowKey="id"
@@ -156,6 +161,7 @@ export default function HomePage() {
           dataSource={books}
           pagination={false}
           size="middle"
+          scroll={{ x: 'max-content' }}
           onRow={(b: Book) => ({
             style: { cursor: 'pointer' },
             onClick: () => navigate(`/book-reader?bookId=${b.id}`),
@@ -169,7 +175,7 @@ export default function HomePage() {
             ),
           }}
         />
-        <Typography.Paragraph type="secondary" style={{ marginTop: 12, marginBottom: 0 }}>
+        <Typography.Paragraph type="secondary" style={{ marginTop: 16, marginBottom: 0 }}>
           素材库 = 他人作品参考（只读提取设定）；作品库 = 自己的创作工作区。M1 导入时选择归属。
         </Typography.Paragraph>
       </Card>
@@ -182,7 +188,7 @@ export default function HomePage() {
         onCancel={closeEdit}
         destroyOnClose
       >
-        <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
+        <Form form={form} layout="vertical">
           <Form.Item name="title" label="书名" rules={[{ required: true, message: '请输入书名' }]}>
             <Input placeholder="书名" />
           </Form.Item>
@@ -217,16 +223,19 @@ export default function HomePage() {
         <Typography.Paragraph style={{ marginBottom: 8 }}>
           将一并删除该作品下的全部关联数据：
         </Typography.Paragraph>
-        <ul style={{ marginTop: 0, color: '#666' }}>
-          <li>章节 {targetStats?.chapters ?? 0} 章</li>
-          <li>设定卡片 {targetStats?.cards ?? 0} 张</li>
-          <li>推演场景 {targetStats?.scenes ?? 0} 个</li>
-          <li>大纲、架构、状态事件、一致性报告</li>
-        </ul>
+        <Typography.Paragraph type="secondary" style={{ marginBottom: 8 }}>
+          <ul style={{ marginTop: 0, paddingLeft: 20 }}>
+            <li>章节 {targetStats?.chapters ?? 0} 章</li>
+            <li>设定卡片 {targetStats?.cards ?? 0} 张</li>
+            <li>推演场景 {targetStats?.scenes ?? 0} 个</li>
+            <li>大纲、架构、状态事件、一致性报告</li>
+          </ul>
+        </Typography.Paragraph>
         <Checkbox checked={confirmChecked} onChange={(e) => setConfirmChecked(e.target.checked)}>
           我已了解将删除以上全部数据
         </Checkbox>
       </Modal>
     </Space>
+    </div>
   )
 }

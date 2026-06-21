@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { App, Button, Popconfirm, Space, Typography, Upload, Select, Segmented } from 'antd'
+import { App, Button, Popconfirm, Space, Typography, Upload, Select, Segmented, theme } from 'antd'
 import { DownloadOutlined, DeleteOutlined, PictureOutlined, CloseOutlined, UploadOutlined, MessageOutlined } from '@ant-design/icons'
 import { useAppStore } from '../../store/appStore'
 import { generateImage, streamChat } from '../../services/api'
@@ -31,6 +31,7 @@ type TestMode = 'text' | 'image'
 
 export default function NodeTestPage() {
   const { message } = App.useApp()
+  const { token } = theme.useToken()
   const providers = useAppStore((s) => s.providers)
   const testHistory = useAppStore((s) => s.testHistory)
   const nodeTestFormPerNode = useAppStore((s) => s.nodeTestFormPerNode)
@@ -389,14 +390,14 @@ export default function NodeTestPage() {
   const isDisplayImage = displayResult && testHistory.length > 0 && testHistory[0].testType === 'image'
 
   return (
-    <div style={{ display: 'flex', height: 'calc(100vh - 80px)', overflow: 'hidden', background: '#0d1117' }}>
+    <div style={{ display: 'flex', height: 'calc(100vh - 88px)', overflow: 'hidden', background: token.colorBgContainer }}>
       {/* 中间主画廊区 */}
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', position: 'relative' }}>
         {/* 顶部选择器 */}
-        <div style={{ padding: '16px 24px', borderBottom: '1px solid #30363d', background: '#161b22' }}>
+        <div style={{ padding: '16px 24px', borderBottom: `1px solid ${token.colorBorder}`, background: token.colorBgElevated }}>
           <Space size="large" style={{ width: '100%' }}>
             <div>
-              <Typography.Text style={{ color: '#8b949e', fontSize: 12, display: 'block', marginBottom: 4 }}>测试模式</Typography.Text>
+              <Typography.Text style={{ color: token.colorTextSecondary, fontSize: 12, display: 'block', marginBottom: 4 }}>测试模式</Typography.Text>
               <Segmented
                 value={testMode}
                 onChange={(v) => {
@@ -411,7 +412,7 @@ export default function NodeTestPage() {
               />
             </div>
             <div style={{ flex: 1 }}>
-              <Typography.Text style={{ color: '#8b949e', fontSize: 12, display: 'block', marginBottom: 4 }}>
+              <Typography.Text style={{ color: token.colorTextSecondary, fontSize: 12, display: 'block', marginBottom: 4 }}>
                 {testMode === 'text' ? '文本推理节点' : '图片生成节点'}
               </Typography.Text>
               <Select
@@ -433,7 +434,7 @@ export default function NodeTestPage() {
             </div>
             {isImageMode && isModelScope && (
               <div>
-                <Typography.Text style={{ color: '#8b949e', fontSize: 12, display: 'block', marginBottom: 4 }}>分辨率</Typography.Text>
+                <Typography.Text style={{ color: token.colorTextSecondary, fontSize: 12, display: 'block', marginBottom: 4 }}>分辨率</Typography.Text>
                 <Select
                   style={{ width: 180 }}
                   value={nodeTestForm.resolution}
@@ -477,7 +478,7 @@ export default function NodeTestPage() {
                       borderRadius: '50%',
                       animation: 'spin 1s linear infinite',
                     }} />
-                    <Typography.Text style={{ color: '#c9d1d9', marginTop: 12 }}>生成中...</Typography.Text>
+                    <Typography.Text style={{ color: token.colorText, marginTop: 12 }}>生成中...</Typography.Text>
                   </div>
                 )}
               </div>
@@ -485,13 +486,13 @@ export default function NodeTestPage() {
               <div style={{ maxWidth: '900px', width: '100%' }}>
                 <div style={{
                   padding: '24px',
-                  background: '#161b22',
+                  background: token.colorBgElevated,
                   borderRadius: 12,
-                  border: '1px solid #30363d',
-                  boxShadow: '0 4px 12px rgba(0,0,0,0.3)'
+                  border: `1px solid ${token.colorBorder}`,
+                  boxShadow: token.boxShadow
                 }}>
                   <Typography.Text style={{
-                    color: '#c9d1d9',
+                    color: token.colorText,
                     fontSize: 15,
                     lineHeight: 1.7,
                     whiteSpace: 'pre-wrap',
@@ -501,16 +502,16 @@ export default function NodeTestPage() {
                     {currentTextResponse || displayResult}
                   </Typography.Text>
                   {busy && (
-                    <div style={{ marginTop: 16, display: 'flex', alignItems: 'center', gap: 8, paddingTop: 12, borderTop: '1px solid #30363d' }}>
+                    <div style={{ marginTop: 16, display: 'flex', alignItems: 'center', gap: 8, paddingTop: 12, borderTop: `1px solid ${token.colorBorder}` }}>
                       <div style={{
                         width: 16,
                         height: 16,
-                        border: '2px solid rgba(88,166,255,0.3)',
-                        borderTop: '2px solid #58a6ff',
+                        border: `2px solid ${token.colorPrimary}33`,
+                        borderTop: `2px solid ${token.colorPrimary}`,
                         borderRadius: '50%',
                         animation: 'spin 1s linear infinite',
                       }} />
-                      <Typography.Text style={{ color: '#8b949e', fontSize: 13 }}>推理中...</Typography.Text>
+                      <Typography.Text style={{ color: token.colorTextSecondary, fontSize: 13 }}>推理中...</Typography.Text>
                     </div>
                   )}
                 </div>
@@ -520,20 +521,20 @@ export default function NodeTestPage() {
             <div style={{ textAlign: 'center', opacity: 0.4 }}>
               {testMode === 'image' ? (
                 <>
-                  <PictureOutlined style={{ fontSize: 64, color: '#8b949e', marginBottom: 16 }} />
-                  <Typography.Text style={{ color: '#8b949e', display: 'block', fontSize: 15 }}>选择图片生成节点，描述你想看到的画面</Typography.Text>
+                  <PictureOutlined style={{ fontSize: 64, color: token.colorTextSecondary, marginBottom: 16 }} />
+                  <Typography.Text style={{ color: token.colorTextSecondary, display: 'block', fontSize: 15 }}>选择图片生成节点，描述你想看到的画面</Typography.Text>
                   {availableNodes.some(n => n.supportsImageEdit) && (
-                    <Typography.Text style={{ color: '#6e7681', display: 'block', fontSize: 13, marginTop: 8 }}>
+                    <Typography.Text style={{ color: token.colorTextTertiary, display: 'block', fontSize: 13, marginTop: 8 }}>
                       支持图生图（Ctrl+V 粘贴或上传图片）
                     </Typography.Text>
                   )}
                 </>
               ) : (
                 <>
-                  <MessageOutlined style={{ fontSize: 64, color: '#8b949e', marginBottom: 16 }} />
-                  <Typography.Text style={{ color: '#8b949e', display: 'block', fontSize: 15 }}>选择文本推理节点，输入问题开始对话</Typography.Text>
+                  <MessageOutlined style={{ fontSize: 64, color: token.colorTextSecondary, marginBottom: 16 }} />
+                  <Typography.Text style={{ color: token.colorTextSecondary, display: 'block', fontSize: 15 }}>选择文本推理节点，输入问题开始对话</Typography.Text>
                   {availableNodes.some(n => n.isMultimodal) && (
-                    <Typography.Text style={{ color: '#6e7681', display: 'block', fontSize: 13, marginTop: 8 }}>
+                    <Typography.Text style={{ color: token.colorTextTertiary, display: 'block', fontSize: 13, marginTop: 8 }}>
                       👁️ 多模态节点支持视觉理解（Ctrl+V 粘贴或上传图片）
                     </Typography.Text>
                   )}
@@ -547,9 +548,9 @@ export default function NodeTestPage() {
         <div style={{ padding: '0 24px 24px', borderTop: '1px solid #30363d' }}>
           {/* 图片预览 */}
           {(supportsEdit || isMultimodal) && selectedImages.length > 0 && (
-            <div style={{ marginBottom: 12, padding: 12, background: '#161b22', borderRadius: 8, border: '1px solid #30363d' }}>
+            <div style={{ marginBottom: 12, padding: 12, background: token.colorBgElevated, borderRadius: 8, border: `1px solid ${token.colorBorder}` }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                <Typography.Text style={{ color: '#8b949e', fontSize: 12 }}>
+                <Typography.Text style={{ color: token.colorTextSecondary, fontSize: 12 }}>
                   {isImageMode ? '🖼️ 图生图输入' : '👁️ 多模态输入'} ({selectedImages.length} 张图片)
                 </Typography.Text>
                 <Button
@@ -594,7 +595,7 @@ export default function NodeTestPage() {
               >
                 <Button
                   icon={<UploadOutlined />}
-                  style={{ background: '#161b22', border: '1px solid #30363d', color: '#c9d1d9', height: 56 }}
+                  style={{ background: token.colorBgElevated, border: `1px solid ${token.colorBorder}`, color: token.colorText, height: 56 }}
                   title={isImageMode ? '上传图片用于图生图' : '上传图片用于多模态理解'}
                 >
                   图片
@@ -620,11 +621,11 @@ export default function NodeTestPage() {
               rows={2}
               style={{
                 flex: 1,
-                background: '#0d1117',
-                border: '1px solid #30363d',
+                background: token.colorBgContainer,
+                border: `1px solid ${token.colorBorder}`,
                 borderRadius: 8,
                 padding: 12,
-                color: '#c9d1d9',
+                color: token.colorText,
                 fontSize: 14,
                 resize: 'none',
                 fontFamily: 'inherit',
@@ -647,7 +648,7 @@ export default function NodeTestPage() {
             )}
           </div>
           {busy && (
-            <div style={{ marginTop: 8, color: '#8b949e', fontSize: 13 }}>
+            <div style={{ marginTop: 8, color: token.colorTextSecondary, fontSize: 13 }}>
               {PHASE_TEXT[phase]} {statusText && <span>· {statusText}</span>}
             </div>
           )}
@@ -659,13 +660,13 @@ export default function NodeTestPage() {
         </div>
 
         {/* 底部历史栏 */}
-        <div style={{ padding: '12px 24px', borderTop: '1px solid #30363d', background: '#161b22', overflowX: 'auto', overflowY: 'hidden' }}>
+        <div style={{ padding: '12px 24px', borderTop: '1px solid #30363d', background: token.colorBgElevated, overflowX: 'auto', overflowY: 'hidden' }}>
           <div style={{ marginBottom: 8, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <Typography.Text style={{ color: '#8b949e', fontSize: 12 }}>
+            <Typography.Text style={{ color: token.colorTextSecondary, fontSize: 12 }}>
               最近测试 ({testHistory.filter(item => isImageMode ? item.testType === 'image' : item.testType !== 'image').length})
             </Typography.Text>
             {selectedImages.length > 0 && (isMultimodal || supportsEdit) && (
-              <Typography.Text style={{ color: '#58a6ff', fontSize: 11 }}>
+              <Typography.Text style={{ color: token.colorPrimary, fontSize: 11 }}>
                 💡 提示：已选择 {selectedImages.length} 张图片
               </Typography.Text>
             )}
@@ -686,7 +687,7 @@ export default function NodeTestPage() {
                     border: currentResult === (item.imageResponse || item.textResponse) ? '2px solid #58a6ff' : '2px solid transparent',
                     borderRadius: 6,
                     overflow: 'hidden',
-                    background: '#0d1117',
+                    background: token.colorBgContainer,
                   }}
                   onClick={() => handleClickImage(item)}
                 >
@@ -707,7 +708,7 @@ export default function NodeTestPage() {
                       <Typography.Text style={{ fontSize: 20, marginBottom: 4 }}>
                         {item.testType === 'multimodal' ? '👁️' : '💬'}
                       </Typography.Text>
-                      <Typography.Text style={{ fontSize: 9, color: '#8b949e', lineHeight: 1.3 }} ellipsis>
+                      <Typography.Text style={{ fontSize: 9, color: token.colorTextSecondary, lineHeight: 1.3 }} ellipsis>
                         {item.prompt.slice(0, 15)}
                       </Typography.Text>
                     </div>
@@ -719,14 +720,14 @@ export default function NodeTestPage() {
       </div>
 
       {/* 右侧设置面板 */}
-      <div style={{ width: 320, background: '#161b22', borderLeft: '1px solid #30363d', overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
+      <div style={{ width: 320, background: token.colorBgElevated, borderLeft: `1px solid ${token.colorBorder}`, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
         <div style={{ padding: 16, flex: 1 }}>
-          <Typography.Title level={5} style={{ color: '#c9d1d9', marginBottom: 16 }}>参数设置</Typography.Title>
+          <Typography.Title level={5} style={{ color: token.colorText, marginBottom: 16 }}>参数设置</Typography.Title>
 
           {isImageMode ? (
             <>
               <div style={{ marginBottom: 16 }}>
-                <Typography.Text style={{ color: '#8b949e', fontSize: 12, display: 'block', marginBottom: 4 }}>反向提示词</Typography.Text>
+                <Typography.Text style={{ color: token.colorTextSecondary, fontSize: 12, display: 'block', marginBottom: 4 }}>反向提示词</Typography.Text>
                 <textarea
                   value={nodeTestForm.negativePrompt ?? ''}
                   onChange={(e) => setForm({ negativePrompt: e.target.value })}
@@ -735,11 +736,11 @@ export default function NodeTestPage() {
                   rows={3}
                   style={{
                     width: '100%',
-                    background: '#0d1117',
-                    border: '1px solid #30363d',
+                    background: token.colorBgContainer,
+                    border: `1px solid ${token.colorBorder}`,
                     borderRadius: 6,
                     padding: 8,
-                    color: '#c9d1d9',
+                    color: token.colorText,
                     fontSize: 13,
                     resize: 'none',
                     fontFamily: 'inherit',
@@ -749,7 +750,7 @@ export default function NodeTestPage() {
 
               {(supportsEdit || isMultimodal) && (
                 <div style={{ marginBottom: 16 }}>
-                  <Typography.Text style={{ color: '#8b949e', fontSize: 12, display: 'block', marginBottom: 4 }}>图片输入方式</Typography.Text>
+                  <Typography.Text style={{ color: token.colorTextSecondary, fontSize: 12, display: 'block', marginBottom: 4 }}>图片输入方式</Typography.Text>
                   <Select
                     value={nodeTestForm.imageInputMode || 'base64'}
                     onChange={(mode) => setForm({ imageInputMode: mode as ImageInputMode })}
@@ -769,7 +770,7 @@ export default function NodeTestPage() {
               {isModelScope && (
                 <>
                   <div style={{ marginBottom: 16 }}>
-                    <Typography.Text style={{ color: '#8b949e', fontSize: 12, display: 'block', marginBottom: 4 }}>采样步数</Typography.Text>
+                    <Typography.Text style={{ color: token.colorTextSecondary, fontSize: 12, display: 'block', marginBottom: 4 }}>采样步数</Typography.Text>
                     <input
                       type="number"
                       value={nodeTestForm.steps ?? ''}
@@ -780,18 +781,18 @@ export default function NodeTestPage() {
                       max={100}
                       style={{
                         width: '100%',
-                        background: '#0d1117',
-                        border: '1px solid #30363d',
+                        background: token.colorBgContainer,
+                        border: `1px solid ${token.colorBorder}`,
                         borderRadius: 6,
                         padding: 8,
-                        color: '#c9d1d9',
+                        color: token.colorText,
                         fontSize: 13,
                       }}
                     />
                   </div>
 
                   <div style={{ marginBottom: 16 }}>
-                    <Typography.Text style={{ color: '#8b949e', fontSize: 12, display: 'block', marginBottom: 4 }}>引导系数</Typography.Text>
+                    <Typography.Text style={{ color: token.colorTextSecondary, fontSize: 12, display: 'block', marginBottom: 4 }}>引导系数</Typography.Text>
                     <input
                       type="number"
                       value={nodeTestForm.guidance ?? ''}
@@ -801,18 +802,18 @@ export default function NodeTestPage() {
                       step={0.5}
                       style={{
                         width: '100%',
-                        background: '#0d1117',
-                        border: '1px solid #30363d',
+                        background: token.colorBgContainer,
+                        border: `1px solid ${token.colorBorder}`,
                         borderRadius: 6,
                         padding: 8,
-                        color: '#c9d1d9',
+                        color: token.colorText,
                         fontSize: 13,
                       }}
                     />
                   </div>
 
                   <div style={{ marginBottom: 16 }}>
-                    <Typography.Text style={{ color: '#8b949e', fontSize: 12, display: 'block', marginBottom: 4 }}>随机种子</Typography.Text>
+                    <Typography.Text style={{ color: token.colorTextSecondary, fontSize: 12, display: 'block', marginBottom: 4 }}>随机种子</Typography.Text>
                     <input
                       type="number"
                       value={nodeTestForm.seed ?? ''}
@@ -822,11 +823,11 @@ export default function NodeTestPage() {
                       min={0}
                       style={{
                         width: '100%',
-                        background: '#0d1117',
-                        border: '1px solid #30363d',
+                        background: token.colorBgContainer,
+                        border: `1px solid ${token.colorBorder}`,
                         borderRadius: 6,
                         padding: 8,
-                        color: '#c9d1d9',
+                        color: token.colorText,
                         fontSize: 13,
                       }}
                     />
@@ -837,7 +838,7 @@ export default function NodeTestPage() {
           ) : (
             <>
               <div style={{ marginBottom: 16 }}>
-                <Typography.Text style={{ color: '#8b949e', fontSize: 12, display: 'block', marginBottom: 4 }}>Temperature</Typography.Text>
+                <Typography.Text style={{ color: token.colorTextSecondary, fontSize: 12, display: 'block', marginBottom: 4 }}>Temperature</Typography.Text>
                 <input
                   type="number"
                   value={nodeTestForm.temperature ?? 0.7}
@@ -849,18 +850,18 @@ export default function NodeTestPage() {
                   step={0.1}
                   style={{
                     width: '100%',
-                    background: '#0d1117',
-                    border: '1px solid #30363d',
+                    background: token.colorBgContainer,
+                    border: `1px solid ${token.colorBorder}`,
                     borderRadius: 6,
                     padding: 8,
-                    color: '#c9d1d9',
+                    color: token.colorText,
                     fontSize: 13,
                   }}
                 />
               </div>
 
               <div style={{ marginBottom: 16 }}>
-                <Typography.Text style={{ color: '#8b949e', fontSize: 12, display: 'block', marginBottom: 4 }}>Top P</Typography.Text>
+                <Typography.Text style={{ color: token.colorTextSecondary, fontSize: 12, display: 'block', marginBottom: 4 }}>Top P</Typography.Text>
                 <input
                   type="number"
                   value={nodeTestForm.topP ?? 0.9}
@@ -872,18 +873,18 @@ export default function NodeTestPage() {
                   step={0.05}
                   style={{
                     width: '100%',
-                    background: '#0d1117',
-                    border: '1px solid #30363d',
+                    background: token.colorBgContainer,
+                    border: `1px solid ${token.colorBorder}`,
                     borderRadius: 6,
                     padding: 8,
-                    color: '#c9d1d9',
+                    color: token.colorText,
                     fontSize: 13,
                   }}
                 />
               </div>
 
               <div style={{ marginBottom: 16 }}>
-                <Typography.Text style={{ color: '#8b949e', fontSize: 12, display: 'block', marginBottom: 4 }}>Max Tokens</Typography.Text>
+                <Typography.Text style={{ color: token.colorTextSecondary, fontSize: 12, display: 'block', marginBottom: 4 }}>Max Tokens</Typography.Text>
                 <input
                   type="number"
                   value={nodeTestForm.maxTokens ?? 2000}
@@ -894,11 +895,11 @@ export default function NodeTestPage() {
                   max={100000}
                   style={{
                     width: '100%',
-                    background: '#0d1117',
-                    border: '1px solid #30363d',
+                    background: token.colorBgContainer,
+                    border: `1px solid ${token.colorBorder}`,
                     borderRadius: 6,
                     padding: 8,
-                    color: '#c9d1d9',
+                    color: token.colorText,
                     fontSize: 13,
                   }}
                 />
@@ -906,7 +907,7 @@ export default function NodeTestPage() {
 
               {isMultimodal && (
                 <div style={{ marginBottom: 16 }}>
-                  <Typography.Text style={{ color: '#8b949e', fontSize: 12, display: 'block', marginBottom: 4 }}>图片输入方式</Typography.Text>
+                  <Typography.Text style={{ color: token.colorTextSecondary, fontSize: 12, display: 'block', marginBottom: 4 }}>图片输入方式</Typography.Text>
                   <Select
                     value={nodeTestForm.imageInputMode || 'base64'}
                     onChange={(mode) => setForm({ imageInputMode: mode as ImageInputMode })}
@@ -927,16 +928,16 @@ export default function NodeTestPage() {
 
           {(debugPayload || debugResponses) && (
             <>
-              <Typography.Title level={5} style={{ color: '#c9d1d9', marginTop: 24, marginBottom: 12 }}>调试信息</Typography.Title>
+              <Typography.Title level={5} style={{ color: token.colorText, marginTop: 24, marginBottom: 12 }}>调试信息</Typography.Title>
               <div style={{ marginBottom: 12 }}>
-                <Typography.Text style={{ color: '#8b949e', fontSize: 11 }}>Payload</Typography.Text>
+                <Typography.Text style={{ color: token.colorTextSecondary, fontSize: 11 }}>Payload</Typography.Text>
                 <pre style={{
-                  background: '#0d1117',
-                  border: '1px solid #30363d',
+                  background: token.colorBgContainer,
+                  border: `1px solid ${token.colorBorder}`,
                   borderRadius: 6,
                   padding: 8,
                   fontSize: 11,
-                  color: '#c9d1d9',
+                  color: token.colorText,
                   maxHeight: 150,
                   overflow: 'auto',
                   fontFamily: 'monospace',
@@ -947,14 +948,14 @@ export default function NodeTestPage() {
                 </pre>
               </div>
               <div>
-                <Typography.Text style={{ color: '#8b949e', fontSize: 11 }}>Response</Typography.Text>
+                <Typography.Text style={{ color: token.colorTextSecondary, fontSize: 11 }}>Response</Typography.Text>
                 <pre style={{
-                  background: '#0d1117',
-                  border: '1px solid #30363d',
+                  background: token.colorBgContainer,
+                  border: `1px solid ${token.colorBorder}`,
                   borderRadius: 6,
                   padding: 8,
                   fontSize: 11,
-                  color: '#c9d1d9',
+                  color: token.colorText,
                   maxHeight: 200,
                   overflow: 'auto',
                   fontFamily: 'monospace',
@@ -971,7 +972,7 @@ export default function NodeTestPage() {
         {/* 底部历史管理 */}
         <div style={{ padding: 16, borderTop: '1px solid #30363d' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-            <Typography.Text style={{ color: '#c9d1d9', fontSize: 14 }}>测试历史 ({testHistory.length})</Typography.Text>
+            <Typography.Text style={{ color: token.colorText, fontSize: 14 }}>测试历史 ({testHistory.length})</Typography.Text>
             {testHistory.length > 0 && (
               <Popconfirm
                 title="清空全部历史？"
@@ -987,7 +988,7 @@ export default function NodeTestPage() {
             )}
           </div>
           {testHistory.length === 0 ? (
-            <Typography.Text style={{ color: '#8b949e', fontSize: 12 }}>尚未进行测试</Typography.Text>
+            <Typography.Text style={{ color: token.colorTextSecondary, fontSize: 12 }}>尚未进行测试</Typography.Text>
           ) : (
               <div style={{ maxHeight: 200, overflowY: 'auto' }}>
                 <Space direction="vertical" size={8} style={{ width: '100%' }}>
@@ -1000,9 +1001,9 @@ export default function NodeTestPage() {
                         gap: 8,
                         alignItems: 'center',
                         padding: 8,
-                        background: '#0d1117',
+                        background: token.colorBgContainer,
                         borderRadius: 6,
-                        border: '1px solid #30363d',
+                        border: `1px solid ${token.colorBorder}`,
                         cursor: 'pointer',
                         transition: 'border-color 0.2s',
                       }}
@@ -1018,7 +1019,7 @@ export default function NodeTestPage() {
                           display: 'flex',
                           alignItems: 'center',
                           justifyContent: 'center',
-                          background: '#161b22',
+                          background: token.colorBgElevated,
                           borderRadius: 4,
                           fontSize: 18
                         }}>
@@ -1027,7 +1028,7 @@ export default function NodeTestPage() {
                       )}
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
-                          <Typography.Text ellipsis style={{ color: '#c9d1d9', fontSize: 12, flex: 1 }}>
+                          <Typography.Text ellipsis style={{ color: token.colorText, fontSize: 12, flex: 1 }}>
                             {item.prompt.slice(0, 25)}
                           </Typography.Text>
                           {item.testType === 'image' && (
@@ -1064,7 +1065,7 @@ export default function NodeTestPage() {
                             }}>文本</span>
                           )}
                         </div>
-                        <Typography.Text style={{ color: '#8b949e', fontSize: 10 }}>
+                        <Typography.Text style={{ color: token.colorTextSecondary, fontSize: 10 }}>
                           {item.modelName}
                         </Typography.Text>
                       </div>
@@ -1075,7 +1076,7 @@ export default function NodeTestPage() {
                             type="text"
                             icon={<DownloadOutlined />}
                             onClick={(e) => { e.stopPropagation(); downloadImage(item.imageResponse!, `test-${item.id}`) }}
-                            style={{ color: '#8b949e' }}
+                            style={{ color: token.colorTextSecondary }}
                           />
                         )}
                         <Popconfirm

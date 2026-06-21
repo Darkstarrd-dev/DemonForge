@@ -12,6 +12,28 @@ body,
 
 body {
   font-family: system-ui, 'Segoe UI', 'Microsoft YaHei', Roboto, sans-serif;
+  overflow: hidden;
+}
+
+/* 响应式页面容器 */
+.page-container {
+  width: 100%;
+  max-width: 100%;
+  padding: 0;
+  margin: 0;
+  box-sizing: border-box;
+  overflow: visible;
+}
+
+/* Space 组件响应式修复 */
+.ant-space {
+  max-width: 100%;
+}
+
+/* Row 组件响应式修复 */
+.ant-row {
+  margin-left: 0 !important;
+  margin-right: 0 !important;
 }
 
 /* ===== M1 双栏对齐 diff ===== */
@@ -88,6 +110,13 @@ body {
   border-radius: 6px;
   white-space: pre-wrap;
   word-break: break-all;
+}
+
+/* 深色主题下的流式输出窗口 */
+[data-theme='dark'] .stream-pane {
+  background: #0a0806;
+  color: #e8e6e3;
+  border: 1px solid #3c3835;
 }
 
 /* 正文阅读区 */

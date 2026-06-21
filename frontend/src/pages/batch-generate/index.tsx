@@ -231,7 +231,8 @@ export default function BatchGeneratePage() {
   }
 
   return (
-    <Space direction="vertical" size={16} style={{ width: '100%' }}>
+    <div style={{ maxWidth: '100%', width: '100%' }}>
+      <Space direction="vertical" size={24} style={{ width: '100%' }}>
       <Alert
         type="info"
         showIcon
@@ -239,7 +240,7 @@ export default function BatchGeneratePage() {
         description="选择大纲节点批量生成章节，每章自动执行 draft（生成正文）→ finalize（提取摘要+状态）流程。失败时立即停止以避免剧情崩坏。"
       />
 
-      <Card size="small" title="章节选择">
+      <Card title="章节选择" style={{ maxHeight: 400, overflowY: 'auto' }}>
         <Checkbox.Group
           value={selectedIds}
           onChange={(v) => setSelectedIds(v as string[])}
@@ -258,7 +259,7 @@ export default function BatchGeneratePage() {
         {bookOutline.length === 0 && <Typography.Text type="secondary">当前作品无大纲，请先在 M0 立项生成蓝图</Typography.Text>}
       </Card>
 
-      <Card size="small" title="节点配置">
+      <Card title="节点配置">
         <Typography.Text type="secondary">
           {enabledNodes.length} 个节点已启用，总并发：{batchNodes.reduce((sum, n) => sum + n.maxConcurrency, 0)}
         </Typography.Text>
@@ -267,8 +268,8 @@ export default function BatchGeneratePage() {
         )}
       </Card>
 
-      <Card size="small" title="控制">
-        <Space>
+      <Card title="控制">
+        <Space wrap>
           <Button
             type="primary"
             icon={<ThunderboltOutlined />}
@@ -287,7 +288,7 @@ export default function BatchGeneratePage() {
       </Card>
 
       {taskStates.size > 0 && (
-        <Card size="small" title="进度">
+        <Card title="进度">
           <List
             size="small"
             dataSource={Array.from(taskStates.values())}
@@ -317,5 +318,6 @@ export default function BatchGeneratePage() {
         </Card>
       )}
     </Space>
+    </div>
   )
 }

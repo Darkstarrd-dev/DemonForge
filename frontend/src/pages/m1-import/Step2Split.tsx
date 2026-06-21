@@ -305,7 +305,6 @@ export default function Step2Split() {
   const renamePanel = (
     <Collapse
       size="small"
-      style={{ marginBottom: 8 }}
       items={[
         {
           key: 'rename',

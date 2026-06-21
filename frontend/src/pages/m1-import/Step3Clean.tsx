@@ -783,8 +783,8 @@ export default function Step3Clean() {
       )}
 
       {/* 活跃任务 + 实时窗口 */}
-      <Row gutter={16} style={{ height: 460 }}>
-        <Col span={8} style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+      <Row gutter={[16, 16]} style={{ minHeight: { xs: 'auto', lg: 460 } }}>
+        <Col xs={24} lg={8} style={{ height: { xs: 'auto', lg: '100%' }, display: 'flex', flexDirection: 'column', marginBottom: { xs: 16, lg: 0 } }}>
           <Tabs
             className="m1-tabs-panel"
             size="small"
@@ -853,7 +853,7 @@ export default function Step3Clean() {
             ]}
           />
         </Col>
-        <Col span={16} style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+        <Col xs={24} lg={16} style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
           <Typography.Title level={5} style={{ marginBottom: 8 }}>
             实时窗口（左：发送原文 / 右：流式输出）
             {viewingChapter && (

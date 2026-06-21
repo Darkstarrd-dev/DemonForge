@@ -156,6 +156,8 @@ export interface AppState {
   roleChatOpencodeURL: string
   /** 角色交流自动循环配置（持久化到 settings.json） */
   roleChatAutoConfig: RoleChatAutoConfig
+  /** UI 主题模式（持久化到 settings.json） */
+  theme: 'light' | 'dark'
 
   setState: (patch: Partial<AppState>) => void
   /** M1 Step3 清洗运行状态合并写入（部分更新）。不持久化。 */
@@ -273,6 +275,7 @@ const seedState = () => ({
 （ 备用2群893964460）
 以上群号搜不到可以加qq264235286`,
   cleanRun: null,
+  theme: 'light' as const,
 })
 
 export const useAppStore = create<AppState>()((set, get) => ({
@@ -486,6 +489,7 @@ export async function bootstrapStore(): Promise<void> {
         m1AutoRetry?: boolean
         m1TitleTemplate?: string
         m1TestText?: string
+        theme?: 'light' | 'dark'
       }
       storeInitialized = d.storeInitialized === true
       const patch: Partial<AppState> = {}
@@ -532,6 +536,8 @@ export async function bootstrapStore(): Promise<void> {
       if (d.roleChatAutoConfig && typeof d.roleChatAutoConfig === 'object') {
         patch.roleChatAutoConfig = { ...seedState().roleChatAutoConfig, ...d.roleChatAutoConfig }
       }
+      // 主题配置（旧 settings.json 无此键则默认 light）
+      if (d.theme === 'light' || d.theme === 'dark') patch.theme = d.theme
       if (Object.keys(patch).length) useAppStore.setState(patch)
     }
   } catch {
@@ -738,6 +744,7 @@ export const settingsPayload = (s: AppState) => ({
   m1AutoRetry: s.m1AutoRetry,
   m1TitleTemplate: s.m1TitleTemplate,
   m1TestText: s.m1TestText,
+  theme: s.theme,
 })
 
 let settingsTimer: ReturnType<typeof setTimeout> | null = null
@@ -756,7 +763,8 @@ useAppStore.subscribe((s, prev) => {
     s.cleanNodeOverrides === prev.cleanNodeOverrides &&
     s.m1AutoRetry === prev.m1AutoRetry &&
     s.m1TitleTemplate === prev.m1TitleTemplate &&
-    s.m1TestText === prev.m1TestText
+    s.m1TestText === prev.m1TestText &&
+    s.theme === prev.theme
   ) {
     return
   }
