@@ -7,6 +7,7 @@ import {
   Col,
   Collapse,
   Empty,
+  Grid,
   Input,
   InputNumber,
   List,
@@ -61,6 +62,7 @@ interface NodeRuntime {
 }
 
 export default function Step3Clean() {
+  const screens = Grid.useBreakpoint()
   const { message } = App.useApp()
   const { token } = theme.useToken()
   const session = useAppStore((s) => s.importSession)
@@ -785,8 +787,8 @@ export default function Step3Clean() {
       )}
 
       {/* 活跃任务 + 实时窗口 */}
-      <Row gutter={[16, 16]} style={{ minHeight: { xs: 'auto', lg: 460 } }}>
-        <Col xs={24} lg={8} style={{ height: { xs: 'auto', lg: '100%' }, display: 'flex', flexDirection: 'column', marginBottom: { xs: 16, lg: 0 } }}>
+      <Row gutter={[16, 16]} style={{ minHeight: screens.lg ? 460 : 'auto' }}>
+        <Col xs={24} lg={8} style={{ height: screens.lg ? '100%' : 'auto', display: 'flex', flexDirection: 'column', marginBottom: screens.lg ? 0 : 16 }}>
           <Tabs
             className="m1-tabs-panel"
             size="small"

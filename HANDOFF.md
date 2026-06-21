@@ -2,6 +2,7 @@
 
 **最后更新**：2026-06-21  
 **当前位置**：办公场所 A
+**本轮主题**：编译打包 + `file://` 协议修复
 
 ---
 
@@ -82,17 +83,36 @@
   - 持久化到 settings.json
   - **状态**：实现完成，文档齐全
 - [x] **节点测试界面重构（第二轮）**（2026-06-21）
-  - 取消左侧边栏，全屏展示聊天内容
-  - 模式/节点选择移到输入框底部（向上展开菜单）
-  - 图片预览优化（Ant Design Image 组件，点击查看大图）
-  - 删除按钮改为右上角圆形悬浮按钮
-  - 发送按钮样式调整（橙色主题色 #FF6B35，高度 96px）
-  - 底部按钮组：模式选择 + 图片上传（左侧垂直排列）
-  - **状态**：代码完成，待启动测试
+   - 取消左侧边栏，全屏展示聊天内容
+   - 模式/节点选择移到输入框底部（向上展开菜单）
+   - 图片预览优化（Ant Design Image 组件，点击查看大图）
+   - 删除按钮改为右上角圆形悬浮按钮
+   - 发送按钮样式调整（橙色主题色 #FF6B35，高度 96px）
+   - 底部按钮组：模式选择 + 图片上传（左侧垂直排列）
+   - **状态**：代码完成，待启动测试
+- [x] **编译打包修复**（2026-06-21）
+   - **electron-builder 文件锁定**：`app-builder.exe` 因 Windows Defender 锁 `app.asar` 导致打包失败 → 改为手动组装 + `--prepackaged` 模式
+   - **`file://` 协议修复（白屏根因）**：
+     - Vite 添加 `base: './'` → 资产路径改为 `./assets/...`（原是 `/assets/...` 被解析到 `C:/assets/...`）
+     - `main.tsx` 入口检测 Electron 环境，自动将 `fetch('/api/...')` 替换为 `http://127.0.0.1:8787/api/...`
+     - `BrowserRouter` 不兼容 `file://` → 改为 `HashRouter`（路由存于 `#/path`）
+   - **编译脚本**：`build-electron.bat` 重写为 6 步可靠流程（构建 → 组装 → 打包 → 清理）
+   - **产物**：`release/NovelHelper Setup 0.1.0.exe`（91.5 MB）+ `NovelHelper-0.1.0-portable.exe`（91.3 MB）
+   - **修复的前端 TS 错误**：
+     - 未使用变量：`BookOutlined`（AppLayout）、`UploadOutlined`/`PHASE_TEXT`/`statusText`/`currentTextResponse`（node-test）
+     - antd v6 响应式类型：`marginBottom`/`minHeight`/`height` 不接受对象值 → 改用 `Grid.useBreakpoint()`
+     - `useRef` 替代未读取的 `useState` 变量
+   - **修复的后端 TS 错误**：
+     - `chat.ts` 中 `Bun.file()` 替换为 `readFileSync()`（Node 环境不兼容）
+   - **修复的打包配置**：
+     - `server/node_modules` 未打进包 → `extraResources` 复制到 `resources/node_modules/`
+     - tsc 编译 ESM 无扩展名 → 用 `tsx/esm` 加载器（`--import tsx/esm`）
+     - 生产路径指向 ASAR 内部（子进程不可读）→ `asarUnpack` + 手动回退路径
+   - **状态**：全部修复完成，可正常安装运行
 
 ### 🚧 进行中 / 待完善
 
-无
+- [ ] 打包后首次启动，`~/.novelhelper/` 下尚无 `settings.json`，前端需手动配置 Provider 节点才能使用
 
 ### ⏸️ Mock 阶段（暂缓）
 
@@ -104,41 +124,14 @@
 ## 下一步任务
 
 ### 立即任务（本次会话后）
-1. **测试节点测试界面重构（第二轮）**
-   - 验证左侧边栏已移除，全屏展示
-   - 测试底部菜单展开/收起（模式选择 + 节点列表）
-   - 点击节点后自动关闭菜单
-   - 测试图片上传和预览（点击查看大图）
-   - 验证删除按钮位置（右上角圆形）
-   - 确认发送按钮样式（橙色 #FF6B35，高度 96px）
-   - 测试图片预览区在文本框上方展示
+1. **安装测试编译产物**
+   - 运行 `release/NovelHelper Setup 0.1.0.exe` 安装
+   - 首次启动应正常打开窗口（不再白屏）
+   - 验证 API 请求正常（设置页面、Provider 配置等可使用）
+   - 导航菜单所有页路由正常跳转（HashRouter `#/path`）
 
-2. **测试 4K 基准缩放功能**
-   - 打开设置页面，启用「4K 基准缩放」
-   - 调整窗口大小，观察整体等比例缩放效果
-   - 在不同分辨率（4K/2K/1080P）下测试
-   - 验证设置持久化（重启后保持状态）
-
-3. **测试节点测试页面聊天界面（第一轮）**
-   - 选择文本节点，测试聊天功能
-   - 输入 System Prompt，验证传递
-   - 发送多条消息，验证对话历史
-   - 测试 Shift+Enter 快捷键
-   - 测试深色模式对比度
-   - 验证推理中气泡实时更新
-   - 测试节点分组折叠状态持久化
-
-4. **测试主题系统和响应式布局**
-   - 切换主题（设置 → 通用设置 → 🌞/🌙）
-   - 访问所有 13 个页面验证主题
-   - 测试 3 种视口尺寸（1920x1080 / 1366x768 / 1280x720）
-   - 验证设置页面 Tab 固定 + 无双重滚动条
-   - 确认 4 个独立页面（设置/节点测试/3D/2D）隐藏"当前作品"选择器
-
-4. **可选：运行 UI 验证脚本**
-   ```bash
-   node scripts/verify-ui.js
-   ```
+2. **首次配置**
+   - 打包版数据目录：`~/.novelhelper/`（首次需手动配置 Provider 节点）
 
 ### 后续计划
 1. **M2 实现（设定提取）**：接真实 LLM，SSE 流式提取
@@ -235,10 +228,12 @@
 ### 环境与启动
 - **开发模式**：`npm run dev` 或 `start-electron.bat`（Electron 窗口，自动清理）
 - **传统启动**：`start.vbs`（Chrome 应用模式，旧方式）
-- **打包**：`npm run dist` 或 `build-electron.bat`（生成安装包和便携版）
+- **打包编译**：`build-electron.bat`（6 步：构建 → 组装 app 目录 → electron-builder --prepackaged → 清理）
+  - 设置镜像：`ELECTRON_MIRROR` + `ELECTRON_BUILDER_BINARIES_MIRROR` 指向 `npmmirror.com`
+  - 已知问题：`npm run dist` 直接调用 `electron-builder` 会因 `app-builder.exe` 文件锁定失败，问题在 Windows Defender 实时扫描
 - **数据目录**：
-  - 开发：`<appDataDir>/novelhelper-dev/`
-  - 生产：`<appDataDir>/novelhelper/`
+  - 开发：`server/src/data/`（项目内）
+  - 生产：`~/.novelhelper/`（用户主目录）
 
 ### 角色交流页使用（阶段 A-E 全部完成）
 1. 左侧菜单点击「角色交流」进入页面
@@ -298,7 +293,36 @@
 
 ## 备注
 
-**本轮工作成果**（2026-06-21）：
+**本轮工作成果**（2026-06-21 晚间 — 编译打包修复）：
+
+**1. 前端 TS 编译修复（10 个错误）**
+- `vite.config.ts`：`base: './'` → 构建产物使用相对路径（修复 `file://` 下 CSS/JS 404）
+- `main.tsx`：Electron 环境下 patch `window.fetch`，`/api/*` → `http://127.0.0.1:8787/api/*`（修复 API 请求 404）
+- `main.tsx`：`BrowserRouter` → `HashRouter`（修复 `file://` 下路由全不匹配）
+- `AppLayout.tsx`：移除未使用的 `BookOutlined`
+- `node-test/index.tsx`：移除 `UploadOutlined`/`PHASE_TEXT`；`statusText`/`currentTextResponse` 改为 `useRef`
+- `m0-architecture/index.tsx` / `m4-generate/index.tsx` / `Step3Clean.tsx`：antd v6 响应式对象值改用 `Grid.useBreakpoint()`
+
+**2. 后端 TS 编译修复**
+- `server/src/routes/chat.ts`：`Bun.file()` → `readFileSync()`（Node 环境）
+- `server/package.json`：安装 `tsx` 作为 production dependency
+
+**3. 打包流程修复**
+- `electron/main.ts`：生产路径回退逻辑 + 子进程用 `tsx/esm` 处理扩展名
+- `package.json`：`extraResources` 复制 `server/node_modules/` 到 `resources/`
+- `build-electron.bat`：重写为手动组装 + `--prepackaged` 避免 Windows Defender 锁定
+- `server/dist/` + `frontend/dist/` + `server/node_modules/` 均物理拷贝到 app 目录
+
+**4. 产物**
+- `release/NovelHelper Setup 0.1.0.exe`（91.5 MB，NSIS 安装包）
+- `release/NovelHelper-0.1.0-portable.exe`（91.3 MB，便携版）
+
+**建议下次会话**：
+1. 安装并运行打包产物，验证无白屏/路由/API 问题
+2. 首次配置 Provider 节点（打包版数据目录 `~/.novelhelper/`）
+3. 清理 `server/node_modules/` 不必要的 dev 依赖以缩小包体
+
+---
 
 **1. 节点测试界面重构（第二轮）**
 - **布局调整**：

@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import type { FastifyInstance } from 'fastify'
 import { chatStream } from '../llmClient'
 import { getDb } from '../store/db'
@@ -41,7 +42,7 @@ export async function chatRoutes(app: FastifyInstance) {
     const settingsPath = new URL('../data/settings.json', import.meta.url).pathname
     let provider: any
     try {
-      const settingsText = await Bun.file(settingsPath).text()
+      const settingsText = readFileSync(settingsPath, 'utf-8')
       const settings = JSON.parse(settingsText)
       provider = settings.providers?.find((p: any) => p.id === nodeId)
       if (!provider) {

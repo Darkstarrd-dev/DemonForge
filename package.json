@@ -12,6 +12,7 @@
     "build": "npm run build:backend && npm run build:frontend && npm run build:electron",
     "pack": "npm run build && electron-builder --dir",
     "dist": "npm run build && electron-builder",
+    "dist:prepackaged": "npm run build && electron-builder --win --x64 --prepackaged \"_build_temp\\win-unpacked\"",
     "postinstall": "cd frontend && npm install && cd ../server && npm install"
   },
   "dependencies": {
@@ -36,9 +37,17 @@
     "files": [
       "dist-electron/**/*",
       "frontend/dist/**/*",
+      "server/dist/**/*"
+    ],
+    "asarUnpack": [
       "server/dist/**/*",
-      "server/node_modules/**/*",
-      "!server/node_modules/.cache/**/*"
+      "frontend/dist/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "server/node_modules",
+        "to": "node_modules"
+      }
     ],
     "win": {
       "target": [

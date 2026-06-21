@@ -1,6 +1,5 @@
 import { Button, Layout, Menu, Select, Segmented, Typography } from 'antd'
 import {
-  BookOutlined,
   PoweroffOutlined,
   HomeOutlined,
   DeploymentUnitOutlined,

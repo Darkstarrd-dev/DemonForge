@@ -164,20 +164,38 @@ function cleanupStaleAppPorts(): void {
 }
 
 /**
+ * 获取生产模式下 server/frontend 的物理目录。
+ * 因 server/dist/** 被打包入 app.asar，子进程（node）无法透明读取 ASAR，
+ * 故通过 asarUnpack 将 server/ 与 frontend/dist/ 解压到 app.asar.unpacked/；
+ * 手动组装（非 electron-builder）场景则直接使用 resources/app/ 下的目录。
+ */
+function getProdResourceDir(subdir: string): string {
+  const asarUnpacked = join(process.resourcesPath, 'app.asar.unpacked', subdir)
+  // asarUnpacked 目录不存在时回退到 resources/app/<subdir>
+  return existsSync(asarUnpacked) ? asarUnpacked : join(process.resourcesPath, 'app', subdir)
+}
+
+/**
  * 启动后端服务器（Fastify）
  */
 function startBackend(): Promise<void> {
   return new Promise((resolve, reject) => {
     const serverDir = isDev
       ? join(ROOT, 'server')
-      : join(process.resourcesPath, 'server')
+      : getProdResourceDir('server')
 
-    // 开发模式：npm run dev（tsx watch）
-    // 生产模式：node dist/index.js
+    // 开发模式：npm run dev（tsx watch），生产模式：node dist/index.js
+    // 生产代码位于 app.asar.unpacked/server/dist/（子进程可读），
+    // node_modules 由 extraResources 复制到 resources/node_modules/，
+    // Node 沿目录树向上查找即可找到。
     const command = isDev ? 'npm' : 'node'
     const args = isDev
       ? ['run', 'dev']
-      : [join(serverDir, 'dist', 'index.js')]
+      : [
+          // tsx 处理 tsc 编译输出的 extensionless import 问题
+          '--import', 'tsx/esm',
+          join(serverDir, 'dist', 'index.js'),
+        ]
 
     backendProcess = spawn(command, args, {
       cwd: serverDir,
@@ -186,15 +204,15 @@ function startBackend(): Promise<void> {
         ...process.env,
         PORT: String(BACKEND_PORT),
         NODE_ENV: isDev ? 'development' : 'production',
-        ELECTRON_APP: '1', // 标记运行在 Electron 中
-        // 数据目录单一真相源：消除 tsx(跑 src) 与 node(跑 dist) 的解析分裂。
-        // 开发模式锚定项目内的 server/src/data（与既有位置一致，用户 settings.json 无需迁移）；
-        // 生产模式锚定用户主目录 ~/.novelhelper。
+        // 标记运行在 Electron 中
+        ELECTRON_APP: '1',
+        // 数据目录单一真相源
         NOVELHELPER_DATA_DIR: isDev
           ? join(ROOT, 'server', 'src', 'data')
           : join(homedir(), '.novelhelper'),
       },
-      shell: true,
+      // 生产模式不依赖 shell（直接调用 node 二进制，避免 cmd.exe 依赖）
+      shell: isDev,
     })
 
     backendProcess.stdout?.on('data', (data) => {
@@ -317,12 +335,18 @@ function createWindow(showMenuBar = true) {
   if (isDev) {
     mainWindow.loadURL(`http://localhost:${FRONTEND_PORT}`)
   } else {
-    const indexPath = join(process.resourcesPath, 'frontend', 'dist', 'index.html')
+    const frontendDir = getProdResourceDir('frontend')
+    const indexPath = join(frontendDir, 'dist', 'index.html')
     if (existsSync(indexPath)) {
       mainWindow.loadFile(indexPath)
     } else {
-      // Fallback：开发构建
-      mainWindow.loadFile(join(ROOT, 'frontend', 'dist', 'index.html'))
+      // Fallback：尝试 resourcesPath 直读（非 asarUnpack 场景）
+      const fallbackPath = join(process.resourcesPath, 'frontend', 'dist', 'index.html')
+      if (existsSync(fallbackPath)) {
+        mainWindow.loadFile(fallbackPath)
+      } else {
+        mainWindow.loadFile(join(ROOT, 'frontend', 'dist', 'index.html'))
+      }
     }
   }
 
@@ -442,6 +466,13 @@ app.whenReady().then(async () => {
     ipcMain.on('set-menu-bar', (_event, visible: boolean) => {
       mainWindow?.setMenuBarVisibility(visible)
       mainWindow?.setAutoHideMenuBar(!visible)
+    })
+
+    // 注册 IPC：前端设置 4K 基准缩放比例
+    ipcMain.on('set-zoom-factor', (_event, factor: number) => {
+      if (mainWindow && typeof factor === 'number' && factor > 0 && factor <= 5) {
+        mainWindow.webContents.setZoomFactor(factor)
+      }
     })
 
     console.log('[App] Creating main window...')

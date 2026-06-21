@@ -12,4 +12,5 @@ const { contextBridge, ipcRenderer } = require('electron')
 
 contextBridge.exposeInMainWorld('electronAPI', {
   setMenuBarVisibility: (visible) => ipcRenderer.send('set-menu-bar', visible),
+  setZoomFactor: (factor) => ipcRenderer.send('set-zoom-factor', factor),
 })

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { App, Button, Card, Popconfirm, Space, Typography, Upload, Select, Segmented, theme, Tooltip, Image } from 'antd'
-import { DownloadOutlined, DeleteOutlined, PictureOutlined, CloseOutlined, UploadOutlined, MessageOutlined, CopyOutlined, SendOutlined, FileImageOutlined } from '@ant-design/icons'
+import { DownloadOutlined, DeleteOutlined, PictureOutlined, CloseOutlined, MessageOutlined, CopyOutlined, SendOutlined, FileImageOutlined } from '@ant-design/icons'
 import { useAppStore } from '../../store/appStore'
 import { generateImage, streamChat } from '../../services/api'
 import { genId, pushSettingsNow } from '../../store/appStore'
@@ -17,15 +17,6 @@ const RESOLUTIONS = [
 ]
 
 type Phase = 'idle' | 'submitted' | 'polling' | 'done' | 'error' | 'streaming'
-
-const PHASE_TEXT: Record<Phase, string> = {
-  idle: '',
-  submitted: '已提交任务，等待排队…',
-  polling: '生成中…',
-  streaming: '推理中…',
-  done: '完成',
-  error: '失败',
-}
 
 type TestMode = 'text' | 'image'
 
@@ -69,9 +60,11 @@ export default function NodeTestPage() {
   }, [providers, testMode])
 
   const [phase, setPhase] = useState<Phase>('idle')
-  const [statusText, setStatusText] = useState('')
-  const [currentResult, setCurrentResult] = useState<string | null>(null) // 文本或图片 data URL
-  const [currentTextResponse, setCurrentTextResponse] = useState<string>('') // 流式文本累积
+  const statusTextRef = useRef('')
+  const setStatusText = (v: string) => { statusTextRef.current = v }
+  const [currentResult, setCurrentResult] = useState<string | null>(null)
+  const currentTextResponseRef = useRef('')
+  const setCurrentTextResponse = (v: string) => { currentTextResponseRef.current = v } // 文本或图片 data URL
   const [error, setError] = useState<string | null>(null)
   const [selectedImages, setSelectedImages] = useState<File[]>([])
   const [debugPayload, setDebugPayload] = useState<string>('')

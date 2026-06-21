@@ -6,6 +6,7 @@ import {
   Card,
   Checkbox,
   Col,
+  Grid,
   Input,
   Row,
   Select,
@@ -18,6 +19,7 @@ import { useAppStore, genId } from '../../store/appStore'
 import { generateChapterDraft } from '../../services/api'
 
 export default function M4GeneratePage() {
+  const screens = Grid.useBreakpoint()
   const { message, modal } = App.useApp()
   const currentBookId = useAppStore((s) => s.currentBookId)
   const outline = useAppStore((s) => s.outline)
@@ -115,7 +117,7 @@ export default function M4GeneratePage() {
   return (
     <div style={{ maxWidth: '100%', width: '100%' }}>
       <Row gutter={[16, 16]}>
-      <Col xs={24} lg={9} style={{ marginBottom: { xs: 16, lg: 0 } }}>
+      <Col xs={24} lg={9} style={{ marginBottom: screens.lg ? 0 : 16 }}>
         <Space direction="vertical" size={16} style={{ width: '100%' }}>
           <Card size="small" title="大纲节点">
             <Select

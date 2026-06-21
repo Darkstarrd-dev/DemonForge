@@ -158,6 +158,8 @@ export interface AppState {
   roleChatAutoConfig: RoleChatAutoConfig
   /** UI 主题模式（持久化到 settings.json） */
   theme: 'light' | 'dark'
+  /** 4K 基准缩放开关（持久化到 settings.json，默认关闭） */
+  enable4KScale: boolean
   /** 节点池分组折叠状态（持久化到 settings.json）：key = groupKey (baseURL + groupName), value = 是否展开 */
   nodeGroupExpanded: Record<string, boolean>
 
@@ -278,6 +280,7 @@ const seedState = () => ({
 以上群号搜不到可以加qq264235286`,
   cleanRun: null,
   theme: 'light' as const,
+  enable4KScale: false,
   nodeGroupExpanded: {},
 })
 
@@ -735,7 +738,7 @@ export async function pushStoreNowChecked(): Promise<void> {
 
 // 设置回写：providers/moduleMapping/m1SystemPrompt/assetDir/currentBookId/nodeTestGlobalForm/nodeTestFormPerNode/
 // showMenuBar/splitPatterns/cleanNodeOverrides/m1AutoRetry/m1TitleTemplate 变化时 debounce POST
-/** 设置载荷构造（12 个键）。导出供 backup.ts 组装备份 bundle 复用。 */
+/** 设置载荷构造（13 个键）。导出供 backup.ts 组装备份 bundle 复用。 */
 export const settingsPayload = (s: AppState) => ({
   providers: s.providers,
   moduleMapping: s.moduleMapping,
@@ -751,6 +754,7 @@ export const settingsPayload = (s: AppState) => ({
   m1TitleTemplate: s.m1TitleTemplate,
   m1TestText: s.m1TestText,
   theme: s.theme,
+  enable4KScale: s.enable4KScale,
   nodeGroupExpanded: s.nodeGroupExpanded,
 })
 
@@ -772,6 +776,7 @@ useAppStore.subscribe((s, prev) => {
     s.m1TitleTemplate === prev.m1TitleTemplate &&
     s.m1TestText === prev.m1TestText &&
     s.theme === prev.theme &&
+    s.enable4KScale === prev.enable4KScale &&
     s.nodeGroupExpanded === prev.nodeGroupExpanded
   ) {
     return

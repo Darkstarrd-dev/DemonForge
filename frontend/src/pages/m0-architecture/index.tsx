@@ -5,6 +5,7 @@ import {
   Button,
   Card,
   Col,
+  Grid,
   Input,
   InputNumber,
   Row,
@@ -60,6 +61,7 @@ const ARCH_FIELDS: {
 ]
 
 export default function M0ArchitecturePage() {
+  const screens = Grid.useBreakpoint()
   const { message, modal } = App.useApp()
   const providers = useAppStore((s) => s.providers)
   const moduleMapping = useAppStore((s) => s.moduleMapping)
@@ -284,7 +286,7 @@ export default function M0ArchitecturePage() {
 
       <Row gutter={[16, 16]}>
         {/* 左：输入 + 架构编辑 */}
-        <Col xs={24} lg={9} style={{ marginBottom: { xs: 16, lg: 0 } }}>
+        <Col xs={24} lg={9} style={{ marginBottom: screens.lg ? 0 : 16 }}>
           <Space direction="vertical" size={12} style={{ width: '100%' }}>
             <Card
               size="small"
