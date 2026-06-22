@@ -349,9 +349,10 @@ export default function Step2Split() {
   )
 
   return (
-    <Space direction="vertical" size={16} style={{ width: '100%' }}>
+    <Space data-slot="step2" direction="vertical" size={16} style={{ width: '100%' }}>
       {detect && (
         <Alert
+          data-slot="alert-detect-result"
           type={detect.patternKey === 'custom' ? 'warning' : detectHigh ? 'success' : 'info'}
           showIcon
           icon={<RobotOutlined />}
@@ -366,14 +367,15 @@ export default function Step2Split() {
             ) : undefined
           }
           action={
-            <Button size="small" icon={<ReloadOutlined />} onClick={() => runDetect(false)}>
+            <Button data-slot="btn-redetect" size="small" icon={<ReloadOutlined />} onClick={() => runDetect(false)}>
               重新检测
             </Button>
           }
         />
       )}
-      <Space wrap align="center">
+      <Space data-slot="config-panel" wrap align="center">
         <Radio.Group
+          data-slot="select-pattern"
           value={patternKey}
           onChange={(e) => setPatternKey(e.target.value)}
           options={radioOptions}
@@ -381,6 +383,7 @@ export default function Step2Split() {
       </Space>
       {patternKey === 'custom' && (
         <Input
+          data-slot="input-custom-regex"
           style={{ maxWidth: 420 }}
           value={customRegex}
           onChange={(e) => setCustomRegex(e.target.value)}
@@ -389,7 +392,7 @@ export default function Step2Split() {
         />
       )}
       <Space>
-        <Checkbox checked={keepPrologue} onChange={(e) => setKeepPrologue(e.target.checked)}>
+        <Checkbox data-slot="toggle-keep-prologue" checked={keepPrologue} onChange={(e) => setKeepPrologue(e.target.checked)}>
           保留第一章之前的内容为「序章」
         </Checkbox>
         {patternKey === 'custom' && !regex && (
@@ -403,6 +406,7 @@ export default function Step2Split() {
         <>
           {renamePanel}
           <Alert
+            data-slot="alert-preview-summary"
             type={preview.length > 1 ? 'success' : 'warning'}
             showIcon
             message={
@@ -414,12 +418,14 @@ export default function Step2Split() {
             }
           />
           <List
+            data-slot="list-chapters"
             size="small"
             bordered
             style={{ maxHeight: 280, overflow: 'auto' }}
             dataSource={preview}
             renderItem={(item, i) => (
               <List.Item
+                data-slot={`item-${i}`}
                 onClick={() => toggleSelect(i)}
                 style={{
                   cursor: 'pointer',
@@ -442,8 +448,9 @@ export default function Step2Split() {
             )}
           />
           {selectedIdx !== null && preview[selectedIdx] && (
-            <Space direction="vertical" size={8} style={{ width: '100%' }}>
+            <Space data-slot="split-panel" direction="vertical" size={8} style={{ width: '100%' }}>
               <Input.TextArea
+                data-slot="preview-text"
                 ref={textareaRef as never}
                 value={`【${preview[selectedIdx].title}】\n\n${preview[selectedIdx].content}`}
                 readOnly
@@ -459,6 +466,7 @@ export default function Step2Split() {
                     光标位置：第 {cursorPos} 字符（点击文本可重新定位）
                   </Typography.Text>
                   <Input
+                    data-slot="input-split-title"
                     size="small"
                     style={{ width: 220 }}
                     placeholder={`新章标题（留空自动检测，否则用「${preview[selectedIdx].title}（续）」）`}
@@ -466,6 +474,7 @@ export default function Step2Split() {
                     onChange={(e) => setSplitTitle(e.target.value)}
                   />
                   <Button
+                    data-slot="btn-split"
                     size="small"
                     type="primary"
                     icon={<ScissorOutlined />}

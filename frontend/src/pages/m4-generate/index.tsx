@@ -115,12 +115,13 @@ export default function M4GeneratePage() {
   }
 
   return (
-    <div style={{ maxWidth: '100%', width: '100%' }}>
+    <div data-slot="m4-generate" style={{ maxWidth: '100%', width: '100%' }}>
       <Row gutter={[16, 16]}>
       <Col xs={24} lg={9} style={{ marginBottom: screens.lg ? 0 : 16 }}>
         <Space direction="vertical" size={16} style={{ width: '100%' }}>
-          <Card size="small" title="大纲节点">
+          <Card data-slot="context-panel" size="small" title="大纲节点">
             <Select
+              data-slot="select-chapter"
               style={{ width: '100%' }}
               placeholder="选择本章对应的大纲节点"
               value={nodeId}
@@ -146,6 +147,7 @@ export default function M4GeneratePage() {
                   本章大纲（可编辑）
                 </Typography.Title>
                 <Input.TextArea
+                  data-slot="editor-summary"
                   value={summary}
                   onChange={(e) => setSummaryDraft(e.target.value)}
                   autoSize={{ minRows: 3 }}
@@ -160,6 +162,7 @@ export default function M4GeneratePage() {
                 <Typography.Text type="secondary">{prevSummary}</Typography.Text>
               </Card>
               <Card
+                data-slot="fragment-panel"
                 size="small"
                 title={
                   <span>
@@ -173,6 +176,7 @@ export default function M4GeneratePage() {
                   </Typography.Text>
                 ) : (
                   <Checkbox.Group
+                    data-slot="checkbox-group"
                     style={{ width: '100%' }}
                     value={selectedFragIds}
                     onChange={(v) => setSelectedFragIds(v as string[])}
@@ -198,6 +202,7 @@ export default function M4GeneratePage() {
                 )}
               </Card>
               <Button
+                data-slot="btn-draft"
                 type="primary"
                 size="large"
                 block
@@ -214,10 +219,11 @@ export default function M4GeneratePage() {
 
       <Col xs={24} lg={15}>
         <Card
+          data-slot="output-panel"
           size="small"
           title="章节草稿"
           extra={
-            <Button type="primary" icon={<FileAddOutlined />} disabled={!draft.trim() || generating} onClick={save}>
+            <Button data-slot="btn-save" type="primary" icon={<FileAddOutlined />} disabled={!draft.trim() || generating} onClick={save}>
               保存为草稿（入 M5）
             </Button>
           }
@@ -231,11 +237,12 @@ export default function M4GeneratePage() {
             />
           )}
           {generating ? (
-            <div className="stream-pane" style={{ minHeight: 320, maxHeight: 480 }}>
+            <div data-slot="stream-text" className="stream-pane" style={{ minHeight: 320, maxHeight: 480 }}>
               {draft || '等待生成…'}
             </div>
           ) : (
             <Input.TextArea
+              data-slot="editor-draft"
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
               placeholder="生成后在此编辑，或直接手写"

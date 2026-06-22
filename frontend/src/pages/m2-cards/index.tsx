@@ -156,8 +156,9 @@ export default function M2CardsPage() {
 
   const cardsTab = (
     <Space direction="vertical" size={16} style={{ width: '100%' }}>
-      <Space wrap>
+      <Space data-slot="filter-panel" wrap>
         <Radio.Group
+          data-slot="select-scope"
           value={scope}
           onChange={(e) => setScope(e.target.value)}
           options={[
@@ -167,6 +168,7 @@ export default function M2CardsPage() {
           optionType="button"
         />
         <Select
+          data-slot="select-type"
           style={{ minWidth: 120 }}
           value={typeFilter}
           onChange={setTypeFilter}
@@ -176,20 +178,21 @@ export default function M2CardsPage() {
           ]}
         />
         <Input.Search
+          data-slot="input-search"
           placeholder="搜索名称/别名/描述（正式版为语义检索）"
           style={{ width: 280 }}
           allowClear
           onSearch={setKeyword}
           onChange={(e) => !e.target.value && setKeyword('')}
         />
-        <Button type="primary" icon={<ExperimentOutlined />} onClick={() => setExtractOpen(true)}>
+        <Button data-slot="btn-extract" type="primary" icon={<ExperimentOutlined />} onClick={() => setExtractOpen(true)}>
           从章节提取设定
         </Button>
       </Space>
       {filtered.length === 0 ? (
         <Empty description="无匹配卡片" />
       ) : (
-        <Row gutter={[12, 12]}>
+        <Row data-slot="list-panel" gutter={[12, 12]}>
           {filtered.map((c) => {
             const book = books.find((b) => b.id === c.bookId)
             return (
@@ -200,6 +203,7 @@ export default function M2CardsPage() {
                   style={{ display: newIds.includes(c.id) ? undefined : 'none' }}
                 >
                   <Card
+                    data-slot={`card-${c.id}`}
                     size="small"
                     hoverable
                     onClick={() => {
@@ -294,8 +298,9 @@ export default function M2CardsPage() {
   )
 
   return (
-    <>
+    <div data-slot="m2-cards">
       <Tabs
+        data-slot="tabs"
         activeKey={activeTab}
         onChange={(key) => setActiveTab(key as 'cards' | 'merge')}
         items={[
@@ -490,6 +495,6 @@ export default function M2CardsPage() {
           )}
         </Form>
       </Modal>
-    </>
+    </div>
   )
 }

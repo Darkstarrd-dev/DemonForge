@@ -171,10 +171,11 @@ export default function M5ChaptersPage() {
   ]
 
   const chaptersTab = (
-    <Space direction="vertical" size={16} style={{ width: '100%' }}>
+    <Space data-slot="list-panel" direction="vertical" size={16} style={{ width: '100%' }}>
       <Space>
         <Typography.Text type="secondary">书籍</Typography.Text>
         <Select
+          data-slot="select-book"
           style={{ minWidth: 200 }}
           value={bookId}
           onChange={setBookId}
@@ -191,6 +192,7 @@ export default function M5ChaptersPage() {
         />
       </Space>
       <Table
+        data-slot="table-chapters"
         rowKey="id"
         size="middle"
         columns={columns}
@@ -202,10 +204,11 @@ export default function M5ChaptersPage() {
   )
 
   const timelineTab = (
-    <Space direction="vertical" size={16} style={{ width: '100%' }}>
+    <Space data-slot="timeline-panel" direction="vertical" size={16} style={{ width: '100%' }}>
       <Space>
         <Typography.Text type="secondary">按角色筛选</Typography.Text>
         <Select
+          data-slot="select-character"
           style={{ minWidth: 180 }}
           allowClear
           placeholder="全部角色"
@@ -245,8 +248,9 @@ export default function M5ChaptersPage() {
   )
 
   return (
-    <>
+    <div data-slot="m5-chapters">
       <Tabs
+        data-slot="tabs"
         items={[
           { key: 'chapters', label: '章节管理', children: chaptersTab },
           { key: 'timeline', label: `状态时间线（${bookEvents.length}）`, children: timelineTab },
@@ -255,6 +259,7 @@ export default function M5ChaptersPage() {
 
       {/* 章节详情/编辑 */}
       <Drawer
+        data-slot="viewer-panel"
         title={viewing?.title}
         width={Math.min(640, typeof window !== 'undefined' ? window.innerWidth * 0.9 : 640)}
         open={!!viewing}
@@ -264,10 +269,11 @@ export default function M5ChaptersPage() {
         }}
         extra={
           viewing && editText === null ? (
-            <Button onClick={() => setEditText(viewing.content)}>编辑</Button>
+            <Button data-slot="btn-edit" onClick={() => setEditText(viewing.content)}>编辑</Button>
           ) : viewing ? (
             <Space>
               <Button
+                data-slot="btn-save"
                 type="primary"
                 onClick={() => {
                   updateChapter(viewing.id, {
@@ -370,6 +376,6 @@ export default function M5ChaptersPage() {
             />
           ))}
       </Drawer>
-    </>
+    </div>
   )
 }

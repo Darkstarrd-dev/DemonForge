@@ -56,8 +56,9 @@ export default function M1ImportPage() {
   }
 
   return (
-    <Card>
+    <Card data-slot="m1-import">
       <Steps
+        data-slot="steps"
         current={step}
         onChange={gotoStep}
         items={[

@@ -265,9 +265,10 @@ export default function M0ArchitecturePage() {
   const twistStars = (n?: number) => (n ? '★'.repeat(n) + '☆'.repeat(5 - n) : '—')
 
   return (
-    <div style={{ maxWidth: '100%', width: '100%' }}>
+    <div style={{ maxWidth: '100%', width: '100%' }} data-slot="m0-architecture">
       <Space direction="vertical" size={24} style={{ width: '100%' }}>
       <Alert
+        data-slot="alert"
         type="info"
         showIcon
         message="M0 立项 · 架构"
@@ -275,6 +276,7 @@ export default function M0ArchitecturePage() {
       />
 
       <Steps
+        data-slot="steps"
         size="small"
         current={createdArch ? (blueprintChapters.length ? 2 : 1) : 0}
         items={[
@@ -289,6 +291,7 @@ export default function M0ArchitecturePage() {
         <Col xs={24} lg={9} style={{ marginBottom: screens.lg ? 0 : 16 }}>
           <Space direction="vertical" size={12} style={{ width: '100%' }}>
             <Card
+              data-slot="arch-input"
               size="small"
               title={
                 <span>
@@ -297,19 +300,21 @@ export default function M0ArchitecturePage() {
               }
             >
               <Space direction="vertical" size={8} style={{ width: '100%' }}>
-                <Input placeholder="主题（如：落魄剑客卷入皇权之争）" value={topic} onChange={(e) => setTopic(e.target.value)} />
-                <Input placeholder="类型（如：武侠/悬疑/科幻）" value={genre} onChange={(e) => setGenre(e.target.value)} />
+                <Input data-slot="input-topic" placeholder="主题（如：落魄剑客卷入皇权之争）" value={topic} onChange={(e) => setTopic(e.target.value)} />
+                <Input data-slot="input-genre" placeholder="类型（如：武侠/悬疑/科幻）" value={genre} onChange={(e) => setGenre(e.target.value)} />
                 <Space>
                   <span style={{ color: '#888' }}>预估章节数</span>
-                  <InputNumber min={1} max={500} value={chapters} onChange={(v) => setChapters(Number(v) || 30)} style={{ width: 100 }} />
+                  <InputNumber data-slot="input-chapters" min={1} max={500} value={chapters} onChange={(v) => setChapters(Number(v) || 30)} style={{ width: 100 }} />
                 </Space>
                 <Input.TextArea
+                  data-slot="input-guidance"
                   placeholder="核心梗概 / 指导（可选）"
                   value={guidance}
                   onChange={(e) => setGuidance(e.target.value)}
                   autoSize={{ minRows: 2 }}
                 />
                 <Select
+                  data-slot="select-node"
                   style={{ width: '100%' }}
                   placeholder="生成节点（默认取设置页 M0 架构设计映射）"
                   value={archNodeId ?? resolveArchNode()}
@@ -318,6 +323,7 @@ export default function M0ArchitecturePage() {
                   notFoundContent="无可用节点，请到设置页启用"
                 />
                 <Button
+                  data-slot="btn-generate"
                   type="primary"
                   block
                   icon={<ThunderboltOutlined />}
@@ -330,6 +336,7 @@ export default function M0ArchitecturePage() {
             </Card>
 
             <Card
+              data-slot="arch-editor"
               size="small"
               title={
                 <span>
@@ -337,7 +344,7 @@ export default function M0ArchitecturePage() {
                 </span>
               }
               extra={
-                <Button type="primary" size="small" icon={<DeploymentUnitOutlined />} onClick={adoptArch} disabled={!!createdArch}>
+                <Button data-slot="btn-adopt" type="primary" size="small" icon={<DeploymentUnitOutlined />} onClick={adoptArch} disabled={!!createdArch}>
                   {createdArch ? '已采纳' : '采纳架构（建新书）'}
                 </Button>
               }
@@ -354,6 +361,7 @@ export default function M0ArchitecturePage() {
                       {f.label}
                     </Typography.Text>
                     <Input.TextArea
+                      data-slot={`editor-${f.key.replace(/([A-Z])/g, '-$1').toLowerCase()}`}
                       value={editingArch[f.key]}
                       onChange={(e) => setEditingArch({ ...editingArch, [f.key]: e.target.value })}
                       placeholder={f.template}
@@ -363,6 +371,7 @@ export default function M0ArchitecturePage() {
                   </div>
                 ))}
                 <Button
+                  data-slot="btn-fill-template"
                   size="small"
                   type="link"
                   disabled={!!createdArch}
@@ -385,17 +394,19 @@ export default function M0ArchitecturePage() {
         <Col xs={24} lg={15}>
           <Space direction="vertical" size={12} style={{ width: '100%' }}>
             <Card
+              data-slot="arch-output"
               size="small"
               title="架构生成（流式）"
               extra={createdArch ? <Tag color="green">已采纳 · 作品已建</Tag> : undefined}
             >
-              <div className="stream-pane" style={{ height: genArching ? 320 : 'auto', minHeight: 120 }}>
+              <div data-slot="stream-text" className="stream-pane" style={{ height: genArching ? 320 : 'auto', minHeight: 120 }}>
                 {genArchText || '（点击「生成架构」后，流式输出将显示于此）'}
               </div>
             </Card>
 
             {createdArch && (
               <Card
+                data-slot="blueprint"
                 size="small"
                 title={
                   <span>
@@ -407,19 +418,20 @@ export default function M0ArchitecturePage() {
                   <Space wrap>
                     <span style={{ color: '#888' }}>蓝图生成节点</span>
                     <Select
+                      data-slot="select-node"
                       style={{ minWidth: 240 }}
                       value={blueprintNodeId ?? resolveBpNode()}
                       onChange={(v) => setBlueprintNodeId(v)}
                       options={nodeOptions}
                       notFoundContent="无可用节点"
                     />
-                    <Button type="primary" icon={<ThunderboltOutlined />} loading={genBping} onClick={runBlueprint}>
+                    <Button data-slot="btn-generate" type="primary" icon={<ThunderboltOutlined />} loading={genBping} onClick={runBlueprint}>
                       {genBping ? '生成中…' : '生成蓝图'}
                     </Button>
                   </Space>
 
                   {genBping && (
-                    <div className="stream-pane" style={{ height: 280 }}>
+                    <div data-slot="stream-text" className="stream-pane" style={{ height: 280 }}>
                       {genBpText || '等待生成…'}
                     </div>
                   )}
@@ -427,6 +439,7 @@ export default function M0ArchitecturePage() {
                   {blueprintChapters.length > 0 && (
                     <>
                       <Table<ParsedBlueprintChapter>
+                        data-slot="table-preview"
                         size="small"
                         rowKey="order"
                         dataSource={blueprintChapters}
@@ -443,10 +456,10 @@ export default function M0ArchitecturePage() {
                         ]}
                       />
                       <Space>
-                        <Button type="primary" icon={<CheckOutlined />} onClick={() => adoptBlueprint(false)}>
+                        <Button data-slot="btn-write" type="primary" icon={<CheckOutlined />} onClick={() => adoptBlueprint(false)}>
                           写入大纲
                         </Button>
-                        <Button onClick={() => adoptBlueprint(true)}>继续生成后续章节（追加）</Button>
+                        <Button data-slot="btn-append" onClick={() => adoptBlueprint(true)}>继续生成后续章节（追加）</Button>
                       </Space>
                     </>
                   )}

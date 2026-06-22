@@ -129,15 +129,17 @@ export default function M3SimulatePage() {
   }
 
   return (
-    <Row gutter={16}>
+    <Row data-slot="m3-simulate" gutter={16}>
       {/* 左：场景设置 */}
       <Col span={8}>
         <Card
+          data-slot="input-panel"
           size="small"
           title="场景"
           extra={
             <Space>
               <Select
+                data-slot="select-scene"
                 size="small"
                 style={{ minWidth: 150 }}
                 placeholder="选择已有场景"
@@ -150,6 +152,7 @@ export default function M3SimulatePage() {
                 }}
               />
               <Button
+                data-slot="btn-create-scene"
                 size="small"
                 icon={<PlusOutlined />}
                 onClick={() => {
@@ -180,7 +183,7 @@ export default function M3SimulatePage() {
                   placeholder="选择在场角色"
                 />
               </Form.Item>
-              <Button type="primary" onClick={saveScene}>
+              <Button type="primary" onClick={saveScene} data-slot="btn-save-scene">
                 保存场景
               </Button>
             </Form>
@@ -209,6 +212,7 @@ export default function M3SimulatePage() {
         {scene && (
           <Card size="small" title="目标角色（一次只推演一个）" style={{ marginTop: 12 }}>
             <Select
+              data-slot="select-character"
               style={{ width: '100%' }}
               placeholder="选择本次推演的角色"
               value={targetId}
@@ -222,6 +226,7 @@ export default function M3SimulatePage() {
               }))}
             />
             <Button
+              data-slot="btn-simulate"
               type="primary"
               icon={<PlayCircleOutlined />}
               block

@@ -231,17 +231,19 @@ export default function BatchGeneratePage() {
   }
 
   return (
-    <div style={{ maxWidth: '100%', width: '100%' }}>
+    <div style={{ maxWidth: '100%', width: '100%' }} data-slot="batch-generate">
       <Space direction="vertical" size={24} style={{ width: '100%' }}>
       <Alert
+        data-slot="alert"
         type="info"
         showIcon
         message="批量章节生成"
         description="选择大纲节点批量生成章节，每章自动执行 draft（生成正文）→ finalize（提取摘要+状态）流程。失败时立即停止以避免剧情崩坏。"
       />
 
-      <Card title="章节选择" style={{ maxHeight: 400, overflowY: 'auto' }}>
+      <Card data-slot="selection-panel" title="章节选择" style={{ maxHeight: 400, overflowY: 'auto' }}>
         <Checkbox.Group
+          data-slot="checkbox-group"
           value={selectedIds}
           onChange={(v) => setSelectedIds(v as string[])}
           disabled={running}
@@ -249,7 +251,7 @@ export default function BatchGeneratePage() {
         >
           <Space direction="vertical" style={{ width: '100%' }}>
             {bookOutline.map((node) => (
-              <Checkbox key={node.id} value={node.id}>
+              <Checkbox key={node.id} value={node.id} data-slot={`checkbox-${node.id}`}>
                 第 {node.order} 章 {node.title}
               </Checkbox>
             ))}
@@ -259,8 +261,8 @@ export default function BatchGeneratePage() {
         {bookOutline.length === 0 && <Typography.Text type="secondary">当前作品无大纲，请先在 M0 立项生成蓝图</Typography.Text>}
       </Card>
 
-      <Card title="节点配置">
-        <Typography.Text type="secondary">
+      <Card data-slot="node-config-panel" title="节点配置">
+        <Typography.Text type="secondary" data-slot="node-summary">
           {enabledNodes.length} 个节点已启用，总并发：{batchNodes.reduce((sum, n) => sum + n.maxConcurrency, 0)}
         </Typography.Text>
         {enabledNodes.length === 0 && (
@@ -268,9 +270,10 @@ export default function BatchGeneratePage() {
         )}
       </Card>
 
-      <Card title="控制">
+      <Card data-slot="control-panel" title="控制">
         <Space wrap>
           <Button
+            data-slot="btn-start"
             type="primary"
             icon={<ThunderboltOutlined />}
             onClick={startBatch}
@@ -278,37 +281,39 @@ export default function BatchGeneratePage() {
           >
             开始批量生成
           </Button>
-          <Button icon={paused ? <PlayCircleOutlined /> : <PauseOutlined />} onClick={togglePause} disabled={!running}>
+          <Button data-slot="btn-pause" icon={paused ? <PlayCircleOutlined /> : <PauseOutlined />} onClick={togglePause} disabled={!running}>
             {paused ? '继续' : '暂停'}
           </Button>
-          <Button icon={<StopOutlined />} onClick={stop} disabled={!running} danger>
+          <Button data-slot="btn-stop" icon={<StopOutlined />} onClick={stop} disabled={!running} danger>
             停止
           </Button>
         </Space>
       </Card>
 
       {taskStates.size > 0 && (
-        <Card title="进度">
+        <Card data-slot="progress-panel" title="进度">
           <List
+            data-slot="list-tasks"
             size="small"
             dataSource={Array.from(taskStates.values())}
             renderItem={(task) => (
-              <List.Item>
+              <List.Item data-slot={`item-${task.id}`}>
                 <Space style={{ width: '100%' }} direction="vertical" size={4}>
                   <Space>
-                    <Typography.Text strong>{task.title}</Typography.Text>
-                    <Tag color={statusColor(task.status)}>{statusText(task.status)}</Tag>
+                    <Typography.Text strong data-slot="title">{task.title}</Typography.Text>
+                    <Tag data-slot="status-tag" color={statusColor(task.status)}>{statusText(task.status)}</Tag>
                   </Space>
-                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                  <Typography.Text data-slot="progress-text" type="secondary" style={{ fontSize: 12 }}>
                     {task.progress || '—'}
                   </Typography.Text>
-                  {task.error && <Typography.Text type="danger" style={{ fontSize: 12 }}>{task.error}</Typography.Text>}
+                  {task.error && <Typography.Text data-slot="error-text" type="danger" style={{ fontSize: 12 }}>{task.error}</Typography.Text>}
                 </Space>
               </List.Item>
             )}
           />
           <div style={{ marginTop: 12 }}>
             <Progress
+              data-slot="progress-bar"
               percent={Math.round(
                 (Array.from(taskStates.values()).filter((t) => t.status === 'completed').length / taskStates.size) * 100,
               )}

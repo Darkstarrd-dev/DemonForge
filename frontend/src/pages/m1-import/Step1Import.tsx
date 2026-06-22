@@ -57,8 +57,9 @@ export default function Step1Import() {
   }
 
   return (
-    <Space direction="vertical" size={16} style={{ width: '100%' }}>
+    <Space data-slot="step1" direction="vertical" size={16} style={{ width: '100%' }}>
       <Upload.Dragger
+        data-slot="input-file"
         accept=".txt"
         showUploadList={false}
         beforeUpload={loadFile}
@@ -70,18 +71,19 @@ export default function Step1Import() {
         <p className="ant-upload-text">拖拽或点击选择 raw TXT 文件</p>
         <p className="ant-upload-hint">编码自动检测（BOM + UTF-8/GBK 启发式评分），可手动切换重解码</p>
       </Upload.Dragger>
-      <Button icon={<FileTextOutlined />} onClick={loadDemo}>
+      <Button data-slot="btn-load-demo" icon={<FileTextOutlined />} onClick={loadDemo}>
         载入内置演示文件（含混杂标题 / 广告 / 乱码）
       </Button>
 
       {session && (
         <>
-          <Descriptions bordered size="small" column={{ xs: 1, sm: 2 }}>
+          <Descriptions data-slot="file-info" bordered size="small" column={{ xs: 1, sm: 2 }}>
             <Descriptions.Item label="文件名">{session.fileName}</Descriptions.Item>
             <Descriptions.Item label="文本长度">{session.rawText.length} 字符</Descriptions.Item>
             <Descriptions.Item label="检测结果">{session.detectedEncoding}</Descriptions.Item>
             <Descriptions.Item label="当前编码">
               <Select
+                data-slot="select-encoding"
                 size="small"
                 style={{ minWidth: 130 }}
                 value={session.encoding}
@@ -96,6 +98,7 @@ export default function Step1Import() {
             </Descriptions.Item>
           </Descriptions>
           <div
+            data-slot="preview-text"
             className="prose-view"
             style={{
               maxHeight: 240,
@@ -109,9 +112,10 @@ export default function Step1Import() {
             {session.rawText.length > 2000 && '\n……（预览前 2000 字符）'}
           </div>
           {session.rawText.includes('�') && (
-            <Alert type="warning" showIcon message="文本含替换字符（�），可能编码不正确，请尝试切换编码。" />
+            <Alert data-slot="alert-encoding-warning" type="warning" showIcon message="文本含替换字符（�），可能编码不正确，请尝试切换编码。" />
           )}
           <Button
+            data-slot="btn-next"
             type="primary"
             onClick={() => setState({ importSession: { ...session, step: 1 } })}
           >
