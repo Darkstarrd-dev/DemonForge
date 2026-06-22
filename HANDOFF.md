@@ -2,7 +2,7 @@
 
 **最后更新**：2026-06-22  
 **当前位置**：办公场所 A
-**本轮主题**：代码维护拆分 - 全部阶段完成 ✅
+**本轮主题**：沉浸式阅读器改造 ✅
 
 ---
 
@@ -163,6 +163,21 @@
   - 布局：左侧控制面板 + 中央画布 + 底部时间轴
   - 路由：`/image-helper` - 图片辅助（`PictureOutlined` 图标）
   - **状态**：✅ 核心功能完成，编译通过
+- [x] **沉浸式阅读器改造**（2026-06-22）✨ 📖
+  - **入口变更**：书库「打开」直接进入全屏沉浸式阅读，旧的「左列表 + 右编辑」双栏模式移除
+  - **4K 留白修复**：正文限宽居中（普通屏 860px / ≥2200px 屏 1100px），解决全屏大量空白
+  - **底部工具栏**（鼠标移到屏幕底部浮现）：
+    - 左：返回书库 / 章节列表(左侧滑出) / 上一章 / 下一章
+    - 中：字体(Popover 滑条 14–40px) / 自动播放(逐屏) / 自动翻页(连续滚动 + hover 调速) / TTS(占位禁用) / 编辑正文
+    - 右：书签(左侧滑出,增删跳转) / 主题切换(浅/深双配色) / 退出
+  - **预读取**：隐藏预渲染相邻章节（预热 CJK 字形布局）+ `useLayoutEffect` 即时定位，消除切章延迟
+  - **章节面板**：列章节 + 高亮当前 + 内联改章节名（`updateChapter` + `pushStoreNow`）
+  - **书签**：每条显示章节名/进度%/时间，可删除，点击按进度%恢复定位；持久化 `localStorage`（按 bookId 分组）
+  - **编辑正文**：全屏编辑浮层，保存走 `updateChapter` + `pushStoreNow`
+  - **配色**：CSS 变量双主题（深色=暗灰底/浅字/蓝强调；浅色=暖纸底/深字/橙强调），初值取全局 theme
+  - **键盘**：`Esc` 退出（面板打开时先关面板）、`←/→` 切章
+  - **关键文件**：`pages/book-reader/ImmersiveReader.tsx`（新建）+ `ImmersiveReader.css`（新建）+ `index.tsx`（重写为壳）
+  - **状态**：✅ 完成，`vite build` 通过，book-reader 三文件 `tsc` 零错误
 
 ### 🚧 进行中 / 待完善
 
@@ -559,6 +574,59 @@
 ---
 
 ## 备注
+
+**本轮工作成果**（2026-06-22 — 沉浸式阅读器改造）：
+
+**1. 入口与模式重构**
+- 书库概览「打开」按钮 → `/book-reader` → 直接进入全屏沉浸式阅读
+- 旧「左章节列表 + 右正文编辑」双栏模式整体移除
+- `pages/book-reader/index.tsx` 重写为纯壳：选书 + 空态兜底，渲染 `ImmersiveReader`
+- 编辑能力（正文 / 章节名）下沉到阅读器内，复用 store 的 `updateChapter` + `pushStoreNow`
+
+**2. 4K 全屏留白修复**
+- 正文限宽居中：普通屏 `max-width: 860px`，≥2200px 屏 `1100px`
+- 窄屏（≤1100px）按钮自动隐藏文字仅留图标
+- 彻底解决 4K 全屏下文字两侧大量空白问题
+
+**3. 底部工具栏（hover 浮现）**
+- 显隐：`mousemove` 监听光标进入屏幕底部 170px 区域；面板/弹层打开时 pinned 常显
+- 左：返回书库 / 章节列表 / 上一章 / 下一章
+- 中：字体 / 自动播放 / 自动翻页 / TTS(禁用) / 编辑正文
+- 右：书签 / 主题切换 / 退出
+- 层级：阅读器 `z-index:1000` 覆盖 AppLayout；工具栏 `z:7` 高于面板遮罩(5)/面板(6)，面板打开仍可操作；编辑浮层 `z:10` 最高
+
+**4. 预读取消除切章延迟**
+- 隐藏层预渲染相邻（prev/next）章节正文，预热 CJK 字形与文本布局缓存
+- 切章用 `useLayoutEffect` 即时设置 `scrollTop`（去掉原 smooth 动画）
+- 进度 `setState` 取整 + React 同值 bail-out，避免滚动驱动重排大段正文（正文 `useMemo` 隔离）
+
+**5. 字体 / 自动播放 / 自动翻页**
+- 字体：`Popover`(click) + `Slider` 14–40px，拖动即时生效（修复原 Dropdown `dropdownRender` 失效）
+- 自动播放（逐屏）：`setInterval` 每 3s 翻一屏，到底自动续下一章
+- 自动翻页（连续滚动）：`requestAnimationFrame` 逐帧滚动，hover 按钮弹 `Popover` 速度滑条(1–10)，到底自动续章；与自动播放互斥
+- 均持久化 `localStorage`（`imm-font-size` / `imm-scroll-speed` / `imm-theme`）
+
+**6. 左侧滑出面板（章节 / 书签）**
+- 自定义滑入面板（非 antd Drawer），带遮罩，`Esc`/点遮罩关闭
+- 章节面板：高亮当前章、点击跳转、hover 显编辑按钮内联改名
+- 书签面板：「添加当前位置」+ 列表（章节名/进度%/时间）+ 逐条删除 + 点击按进度%跳回
+- 书签按 bookId 分组存 `localStorage`（`imm-bm-${bookId}`，上限 50 条）
+
+**7. 双主题配色**
+- CSS 变量驱动：`.theme-dark`（暗灰 #1a1a1c 底 / 浅字 / 蓝 #4096ff 强调）、`.theme-light`（暖纸 #f6f1e7 底 / 深字 / 橙 #c4612f 强调）
+- 工具栏主题切换按钮，初值取全局 `theme`，独立持久化
+- 弹层（Popover）经 `rootClassName` 单独适配深浅色（portal 不继承阅读器 CSS 变量）
+
+**8. 编译验证**
+- ✅ `vite build` 通过
+- ✅ book-reader 三文件 `tsc` 零错误
+- ⚠️ 注意：`settings/index.tsx` 存在 3 个**预先存在**的未使用导入错误（`CloudUploadOutlined`/`DEFAULT_SPLIT_PATTERNS`/`seedModuleMapping`），非本轮引入，会阻断 `npm run dist`（`tsc -b`），但不影响 `npm run dev`（vite 不全量 tsc）。待后续清理。
+
+**建议下次会话**：
+1. `npm run dev` 启动，从「书库概览 → 打开」实测：① 切章延迟是否消除 ② 自动翻页 hover 调速 ③ 浅/深主题配色 ④ 书签增删跳转 ⑤ 编辑正文/章节名落库
+2. 可选：顺手清理 `settings/index.tsx` 3 个未使用导入，恢复 `npm run dist` 打包
+
+---
 
 **本轮工作成果**（2026-06-22 — 代码维护拆分·全部阶段完成）：
 

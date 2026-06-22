@@ -1,0 +1,431 @@
+/* ============ 沉浸式阅读器 ============ */
+
+.immersive-reader {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  overflow: hidden;
+  background: var(--imm-bg);
+  color: var(--imm-text);
+  transition: background 0.3s ease, color 0.3s ease;
+}
+
+/* 主题变量 */
+.immersive-reader.theme-dark {
+  --imm-bg: #1a1a1c;
+  --imm-text: #c8c8c8;
+  --imm-title: #f0f0f0;
+  --imm-bar-bg: rgba(24, 24, 27, 0.92);
+  --imm-btn-text: rgba(255, 255, 255, 0.82);
+  --imm-btn-bg: rgba(255, 255, 255, 0.06);
+  --imm-btn-hover: rgba(255, 255, 255, 0.16);
+  --imm-panel-bg: #232326;
+  --imm-panel-item-hover: rgba(255, 255, 255, 0.06);
+  --imm-border: rgba(255, 255, 255, 0.1);
+  --imm-accent: #4096ff;
+  --imm-accent-soft: rgba(64, 150, 255, 0.18);
+  --imm-scrollbar: rgba(255, 255, 255, 0.2);
+  --imm-muted: rgba(255, 255, 255, 0.45);
+}
+.immersive-reader.theme-light {
+  --imm-bg: #f6f1e7;
+  --imm-text: #3a352c;
+  --imm-title: #211d15;
+  --imm-bar-bg: rgba(250, 247, 240, 0.95);
+  --imm-btn-text: #4a443a;
+  --imm-btn-bg: rgba(0, 0, 0, 0.04);
+  --imm-btn-hover: rgba(0, 0, 0, 0.1);
+  --imm-panel-bg: #fbf8f1;
+  --imm-panel-item-hover: rgba(0, 0, 0, 0.04);
+  --imm-border: rgba(0, 0, 0, 0.1);
+  --imm-accent: #c4612f;
+  --imm-accent-soft: rgba(196, 97, 47, 0.14);
+  --imm-scrollbar: rgba(0, 0, 0, 0.2);
+  --imm-muted: rgba(0, 0, 0, 0.4);
+}
+
+/* 正文区 */
+.immersive-content {
+  width: 100%;
+  height: 100%;
+  overflow-y: auto;
+  padding: 70px 0 130px;
+  box-sizing: border-box;
+}
+.immersive-content-inner {
+  max-width: 860px;
+  margin: 0 auto;
+  padding: 0 56px;
+}
+.immersive-title {
+  color: var(--imm-title);
+  font-size: 1.6em;
+  font-weight: 600;
+  text-align: center;
+  letter-spacing: 0.04em;
+  margin: 0 0 36px;
+}
+.immersive-text {
+  color: var(--imm-text);
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  text-indent: 2em;
+  text-align: justify;
+}
+
+/* 预读取隐藏层 */
+.immersive-preload {
+  position: absolute;
+  left: -99999px;
+  top: 0;
+  width: 860px;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+/* 滚动条 */
+.immersive-content::-webkit-scrollbar {
+  width: 8px;
+}
+.immersive-content::-webkit-scrollbar-thumb {
+  background: var(--imm-scrollbar);
+  border-radius: 4px;
+}
+.immersive-content::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* ============ 底部控制栏 ============ */
+.immersive-controls {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 7; /* 高于面板(6)/遮罩(5)，面板打开时仍可操作工具栏 */
+  opacity: 0;
+  transform: translateY(16px);
+  transition: opacity 0.28s ease, transform 0.28s ease;
+  pointer-events: none;
+}
+.immersive-controls.visible {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+
+/* 进度条 */
+.immersive-progress-bar {
+  position: relative;
+  height: 4px;
+  background: var(--imm-border);
+  cursor: pointer;
+}
+.immersive-progress-bar:hover {
+  height: 6px;
+}
+.immersive-progress-fill {
+  height: 100%;
+  background: var(--imm-accent);
+  transition: width 0.15s linear;
+}
+.immersive-progress-label {
+  position: absolute;
+  right: 16px;
+  top: -22px;
+  font-size: 12px;
+  color: var(--imm-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 工具栏 */
+.immersive-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 20px 18px;
+  background: var(--imm-bar-bg);
+  backdrop-filter: blur(12px);
+  border-top: 1px solid var(--imm-border);
+}
+.toolbar-section {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.toolbar-btn.ant-btn {
+  color: var(--imm-btn-text);
+  background: var(--imm-btn-bg);
+  border: none;
+  border-radius: 6px;
+  height: auto;
+  padding: 6px 12px;
+  font-size: 14px;
+  transition: all 0.18s ease;
+}
+.toolbar-btn.ant-btn:hover:not(:disabled) {
+  color: var(--imm-accent);
+  background: var(--imm-btn-hover);
+  transform: translateY(-1px);
+}
+.toolbar-btn.ant-btn:disabled {
+  color: var(--imm-muted);
+  background: transparent;
+}
+.toolbar-btn.ant-btn.on {
+  color: var(--imm-accent);
+  background: var(--imm-accent-soft);
+}
+.toolbar-btn .anticon {
+  font-size: 16px;
+}
+
+/* ============ 左侧滑出面板 ============ */
+.imm-panel-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+  z-index: 5;
+  animation: imm-fade 0.2s ease;
+}
+.imm-panel {
+  position: fixed;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 340px;
+  max-width: 80vw;
+  z-index: 6;
+  background: var(--imm-panel-bg);
+  border-right: 1px solid var(--imm-border);
+  box-shadow: 4px 0 24px rgba(0, 0, 0, 0.25);
+  display: flex;
+  flex-direction: column;
+  animation: imm-slide-in 0.24s ease;
+}
+@keyframes imm-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes imm-slide-in {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(0); }
+}
+.imm-panel-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--imm-border);
+}
+.imm-panel-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--imm-title);
+  flex: 1;
+}
+.imm-panel-close.ant-btn {
+  color: var(--imm-muted);
+}
+.imm-panel-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 6px 0 88px; /* 底部留白避让工具栏 */
+}
+.imm-panel-body::-webkit-scrollbar {
+  width: 8px;
+}
+.imm-panel-body::-webkit-scrollbar-thumb {
+  background: var(--imm-scrollbar);
+  border-radius: 4px;
+}
+
+/* 章节条目 */
+.imm-chapter-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 16px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+.imm-chapter-item:hover {
+  background: var(--imm-panel-item-hover);
+}
+.imm-chapter-item.active {
+  background: var(--imm-accent-soft);
+}
+.imm-chapter-item.active .imm-chapter-name {
+  color: var(--imm-accent);
+  font-weight: 600;
+}
+.imm-chapter-idx {
+  color: var(--imm-muted);
+  font-size: 12px;
+  min-width: 24px;
+  text-align: right;
+}
+.imm-chapter-name {
+  flex: 1;
+  color: var(--imm-text);
+  font-size: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.imm-chapter-len {
+  color: var(--imm-muted);
+  font-size: 11px;
+}
+.imm-chapter-edit.ant-btn {
+  color: var(--imm-muted);
+  opacity: 0;
+}
+.imm-chapter-item:hover .imm-chapter-edit.ant-btn {
+  opacity: 1;
+}
+.imm-title-edit {
+  display: flex;
+  gap: 4px;
+  width: 100%;
+  align-items: center;
+}
+.imm-title-edit .ant-input {
+  flex: 1;
+}
+
+/* 书签条目 */
+.imm-bm-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+.imm-bm-item:hover {
+  background: var(--imm-panel-item-hover);
+}
+.imm-bm-main {
+  flex: 1;
+  overflow: hidden;
+}
+.imm-bm-name {
+  color: var(--imm-text);
+  font-size: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.imm-bm-meta {
+  color: var(--imm-muted);
+  font-size: 12px;
+  margin-top: 2px;
+  font-variant-numeric: tabular-nums;
+}
+.imm-empty {
+  color: var(--imm-muted);
+  text-align: center;
+  padding: 40px 16px;
+  font-size: 13px;
+}
+
+/* ============ 编辑正文浮层 ============ */
+.imm-edit-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10; /* 编辑时覆盖工具栏与面板 */
+  background: var(--imm-bg);
+  display: flex;
+  flex-direction: column;
+  padding: 24px max(56px, calc((100vw - 860px) / 2));
+  box-sizing: border-box;
+}
+.imm-edit-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+.imm-edit-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--imm-title);
+}
+.imm-edit-textarea.ant-input {
+  flex: 1;
+  resize: none;
+  font-size: 16px;
+  line-height: 1.8;
+  background: var(--imm-panel-bg);
+  color: var(--imm-text);
+  border-color: var(--imm-border);
+}
+
+/* ============ 弹层（字体/速度滑条）主题 ============ */
+.imm-slider-pop {
+  padding: 6px 4px 2px;
+}
+.imm-slider-label {
+  font-size: 13px;
+  margin-bottom: 8px;
+}
+.imm-pop-dark .ant-popover-inner {
+  background: #232326;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+.imm-pop-dark .ant-popover-arrow::before {
+  background: #232326;
+}
+.imm-pop-dark .imm-slider-label {
+  color: rgba(255, 255, 255, 0.8);
+}
+.imm-pop-dark .ant-slider-rail {
+  background: rgba(255, 255, 255, 0.16);
+}
+.imm-pop-dark .ant-slider-track {
+  background: #4096ff;
+}
+.imm-pop-light .imm-slider-label {
+  color: #4a443a;
+}
+.imm-pop-light .ant-slider-track {
+  background: #c4612f;
+}
+
+/* ============ 响应式 ============ */
+@media (max-width: 1100px) {
+  .immersive-content-inner {
+    max-width: 100%;
+    padding: 0 36px;
+  }
+  /* 窄屏隐藏按钮文字，仅留图标 */
+  .toolbar-btn.ant-btn > span:not(.anticon) {
+    display: none;
+  }
+}
+
+/* 4K / 超宽屏 */
+@media (min-width: 2200px) {
+  .immersive-content-inner {
+    max-width: 1100px;
+    padding: 0 80px;
+  }
+  .immersive-preload {
+    width: 1100px;
+  }
+  .immersive-title {
+    font-size: 1.9em;
+  }
+  .immersive-progress-bar {
+    height: 5px;
+  }
+  .toolbar-btn.ant-btn {
+    font-size: 15px;
+    padding: 8px 16px;
+  }
+  .toolbar-btn .anticon {
+    font-size: 18px;
+  }
+}
