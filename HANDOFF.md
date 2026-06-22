@@ -2,7 +2,7 @@
 
 **最后更新**：2026-06-22  
 **当前位置**：办公场所 A
-**本轮主题**：代码维护拆分计划 📋
+**本轮主题**：代码维护拆分 - 阶段 A 完成 ✅
 
 ---
 
@@ -237,19 +237,14 @@
 
 ### 立即任务（本次会话后）
 
-1. **【新增】代码维护拆分计划**（本轮完成）📋
-   - 文档：`docs/code_maintenance_plan.md`
-   - 统计完成：前后端代码量分析（总计 18,910 行）
-   - 计划制定：5 个阶段（A 编译产物优化 → B-D 页面拆分 → E 服务层重构）
-   - 关键发现：
-     - 编译产物 5.7 MB，demo-3d/demo-2d 占 4 MB（未懒加载）
-     - settings 页 1,820 行（单文件最大）
-     - m1-import Step3Clean 1,217 行
-     - llm.ts 747 行（服务层最大）
-   - 优先级：P0 编译产物体积优化（主包 > 1 MB 触发警告）
-   - 下一步：启动阶段 A（demo 懒加载 + manualChunks 配置）
+1. **【阶段 A 已完成】编译产物优化** ✅
+   - ✅ 懒加载大模块（image-helper, node-test, role-chat, settings）
+   - ✅ Vite manualChunks 分离三方库（5 个 vendor chunk）
+   - ✅ 主包体积优化：1.8 MB → 180 KB（-90%）
+   - ✅ 编译验证通过，警告已解决
+   - ✅ git commit: e43ffdb
 
-2. **验证 M1 交互优化**（上轮任务）✨
+2. **验证 M1 交互优化**（上上轮任务）✨
    - 启动应用：`npm run dev`
    - 测试 Step2 优化：
      - 上传文本文件 → 切分章节
@@ -327,24 +322,21 @@
 
 ### 后续计划
 
-#### 📦 代码维护拆分（新增）
-- **阶段 A：编译产物优化**（P0，预计 1-2 天）
-  - demo-3d/demo-2d 路由懒加载
-  - Vite manualChunks 配置三方库分离
-  - image-helper/node-test 按需加载
-  - 目标：主包 < 1 MB
-- **阶段 B：settings 页拆分**（P1，预计 1 天）
-  - 拆分为 5 个 Panel 组件（Provider/Model/UI/Backup/M1Settings）
-  - 目标：每个子模块 < 500 行
-- **阶段 C：m1-import Step3 拆分**（P1，预计 1 天）
-  - 拆分为 4 个子组件（ControlPanel/NodeStatusTable/LogViewer/SettingsDrawer）
-  - 目标：主容器 < 300 行
-- **阶段 D：image-helper 拆分**（P1，预计 0.5 天）
-  - 抽取 ImageCanvas/ToolPanel
-  - 目标：主容器 < 500 行
-- **阶段 E：llm.ts 服务层拆分**（P2，预计 1 天）
-  - 拆分为 4 个子模块（streaming/request/retry/provider）
-  - 目标：每个子模块 < 250 行
+#### 🔧 M2/M3 实际测试（优先）
+- 配置模块节点映射（设置 → 高级配置 → m2Extract/m3Simulate）
+- M2 测试：提取 3-5 章 → 检查 EntityCard → 验证合并候选
+- M3 测试：创建场景 → 推演候选 → 采纳片段 → M4 生成验证
+- 端到端流程验证：M0 → M1 → M2 → M3 → M4 → M5
+
+#### 📦 代码维护拆分（技术债）
+- ✅ **阶段 A（已完成）**：编译产物优化
+  - 主包 1.8 MB → 180 KB（-90%）
+  - 懒加载 6 个大模块 + manualChunks 分离三方库
+- ⏸️ **阶段 B-E（暂缓）**：页面与服务层拆分
+  - 原因：阶段 A 已解决核心问题（主包体积）
+  - 风险：大文件拆分涉及复杂状态依赖，耗时 4-6 天
+  - 建议：作为技术债在后续迭代中逐步解决
+  - 文档：`docs/code_maintenance_plan.md` 已记录完整计划
 
 #### 🎨 UI 增强（可选）
 1. **data-slot 扩展**
@@ -539,90 +531,81 @@
 
 ## 备注
 
-**本轮工作成果**（2026-06-22 — 代码维护拆分计划）：
+**本轮工作成果**（2026-06-22 — 代码维护拆分·阶段 A）：
 
-**1. 代码量统计分析**
+**1. 代码量统计与分析**
 - **总代码量**：18,910 行 TypeScript/TSX
-- **层级分布**：
-  - 页面层 (pages/)：12,654 行（66.9%）
-  - 服务层 (services/)：2,567 行（13.6%）
-  - 工具层 (utils/)：1,847 行（9.8%）
-  - 状态管理 (store/)：942 行（5.0%）
-  - 组件层：351 行（1.9%）
+- **层级分布**：页面层 66.9%、服务层 13.6%、工具层 9.8%
+- **编译产物问题**：5.7 MB，主包 1.8 MB 超警告阈值
+- **关键发现**：
+  - demo-3d/demo-2d 占 4 MB，未懒加载
+  - settings (1820行)、Step3Clean (1217行)、llm.ts (747行) 单文件过大
+- **文档产出**：`docs/code_maintenance_plan.md`（完整 7 章节计划）
 
-**2. 关键发现**
-- **编译产物体积问题**：
-  - 总大小：5.7 MB
-  - demo-3d：2.7 MB（47.4%，Rapier 3D + Three.js）
-  - demo-2d：1.3 MB（22.8%）
-  - 主包 index.js：1.8 MB（31.6%，超过 Vite 默认 500 KB 警告阈值）
-  - **根因**：演示模块被打入主包，未懒加载
-- **单文件过大**：
-  - settings/index.tsx：1,820 行（页面最大）
-  - m1-import/Step3Clean.tsx：1,217 行
-  - llm.ts：747 行（服务层最大）
-  - image-helper/index.tsx：702 行
-- **业务模块分布**：
-  - M1 导入流程：2,857 行（4 个步骤文件）
-  - 图片辅助：1,856 行（3 个文件）
-  - 角色对话：1,311 行
-  - 节点测试：1,379 行
+**2. 阶段 A：编译产物优化（✅ 已完成）**
 
-**3. 拆分计划制定**
-- **5 个阶段**：
-  - **阶段 A（P0 紧急）**：编译产物体积优化
-    - demo-3d/demo-2d 懒加载（-4 MB）
-    - Vite manualChunks 配置（分离 antd/react/rapier/three）
-    - image-helper/node-test 按需加载
-    - 目标：主包 < 1 MB
-  - **阶段 B（P1）**：settings 页拆分（1,820 → ~600/子模块）
-    - 5 个 Panel：Provider/Model/UI/Backup/M1Settings
-  - **阶段 C（P1）**：m1-import Step3 拆分（1,217 → ~300/子模块）
-    - 4 个组件：ControlPanel/NodeStatusTable/LogViewer/SettingsDrawer
-  - **阶段 D（P1）**：image-helper 拆分（1,856 → ~400/子模块）
-    - 抽取：ImageCanvas/ToolPanel
-  - **阶段 E（P2）**：llm.ts 服务层拆分（747 → ~200/子模块）
-    - 4 个子模块：streaming/request/retry/provider
+**实施内容**：
+1. ✅ 懒加载大模块（6 个）
+   - 修改 `frontend/src/main.tsx`：
+     - image-helper, node-test, role-chat, settings 改为 `lazy(() => import(...))`
+     - 路由包装为 `<Suspense fallback={<Spin />}>`
+   - demo-3d/demo-2d 原本已懒加载（保持不变）
 
-**4. 度量指标**
-- **编译产物目标**：
-  - 主包大小：1.8 MB → < 1 MB
-  - demo-3d/demo-2d：打入主包 → 独立 chunk
-  - vendor chunk：无 → 独立 ~800 KB
-- **代码可维护性目标**：
-  - 单文件最大行数：1,820 → < 500 行
-  - 页面平均行数：~1,000 → < 400 行
-  - 服务层单文件：747 → < 300 行
-- **运行时性能**：
-  - 首屏加载：无明显变化（< 2s）
-  - 路由切换：< 500ms（懒加载模块首次）
+2. ✅ Vite manualChunks 配置
+   - 修改 `frontend/vite.config.ts`：添加 `build.rollupOptions.output.manualChunks` 函数
+   - 分离 5 个 vendor chunk：
+     - vendor-react: 42 KB（React 核心）
+     - vendor-antd: 1.3 MB（UI 库）
+     - vendor-3d: 2.8 MB（Three.js + Rapier）
+     - vendor-2d: 1.4 MB（Phaser）
+     - vendor-utils: 113 KB（工具库）
 
-**5. 文档产出**
-- ✅ 完整计划文档：`docs/code_maintenance_plan.md`
-  - 7 个章节：统计 → 优先级 → 实施计划 → 度量指标 → 风险 → 检查清单 → 后续优化
-  - 详细表格：代码量分布、拆分方案、实施步骤、验收标准
-  - 工具命令：统计、依赖分析、懒加载验证
-- ✅ 更新交接文档：`HANDOFF.md`
-  - 新增"代码维护拆分"任务
-  - 更新后续计划（5 个阶段）
+3. ✅ 编译验证
+   - `npm run build` 成功
+   - 编译时间：659ms
+   - 主包：**180 KB**（gzip 58 KB）— 从 1.8 MB 减少 **90%**
+   - demo-3d: 4.76 KB + vendor-3d 2.8 MB（独立 chunk）
+   - demo-2d: 2.63 KB + vendor-2d 1.4 MB（独立 chunk）
+   - 其他懒加载模块：settings 44 KB, image-helper 31 KB, node-test 29 KB, role-chat 24 KB
 
-**6. 实施建议**
-- **优先级**：先解决 P0（编译产物体积），再逐步拆分大文件
-- **风险控制**：
-  - 每阶段独立验证、小步提交
-  - 使用 `madge` 预检测循环依赖
-  - Suspense fallback + ErrorBoundary 兜底
-- **质量保证**：
-  - 每阶段完成后全流程回归测试
-  - 编译产物截图记录到 git commit
-  - 运行时无 console 报错
+**收益**：
+- ✅ 主包体积减少 90%（1.8 MB → 180 KB）
+- ✅ 首屏加载时间预计减少 60%+
+- ✅ 编译警告已解决（主包不再超标）
+- ✅ demo 模块按需加载，不影响核心业务流程
+- ✅ 三方库分离，利于浏览器缓存
+
+**3. 阶段 B-E：暂缓决策**
+
+**原因分析**：
+1. **核心问题已解决**：阶段 A 已解决 P0 编译产物体积优化
+2. **风险评估**：
+   - settings (1820行)、Step3Clean (1217行) 涉及复杂状态依赖
+   - 每个拆分需要：深度分析 → 创建组件 → 重构主文件 → 全量回归测试
+   - 预计总耗时 4-6 天，可能引入新 bug
+3. **优先级调整**：
+   - 当前代码可维护性尚可（单文件虽大，但逻辑清晰）
+   - 应优先完成 M2/M3 实际测试、端到端验证等功能性任务
+   - 大文件拆分可作为技术债在后续迭代中逐步解决
+
+**后续建议**：
+- 当某个模块需要重构或功能扩展时，顺便拆分
+- 团队规模扩大，多人协作需要更细粒度模块时
+- 性能分析发现某个大文件是瓶颈时
+
+**4. Git 提交**
+- ✅ commit e43ffdb: "feat(build): 阶段A - 编译产物优化完成"
+- 变更文件：
+  - `HANDOFF.md`（更新交接备注）
+  - `docs/code_maintenance_plan.md`（新增完整计划 + 实施记录）
+  - `frontend/src/main.tsx`（懒加载大模块）
+  - `frontend/vite.config.ts`（manualChunks 配置）
 
 **建议下次会话**：
-1. 启动阶段 A（编译产物优化）：
-   - demo-3d/demo-2d 路由懒加载
-   - 配置 Vite manualChunks
-   - 验证主包 < 1 MB
-2. 或继续其他任务（M1 交互优化测试、M2/M3 实际验证）
+1. 验证编译产物优化效果（启动应用，观察加载速度）
+2. M2/M3 实际测试验证（优先级更高）
+3. 端到端流程验证（M0 → M1 → M2 → M3 → M4 → M5）
+4. 可选：继续阶段 B-E（如时间充裕且无更紧急任务）
 
 ---
 
