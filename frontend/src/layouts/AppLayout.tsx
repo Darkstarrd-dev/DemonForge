@@ -14,6 +14,7 @@ import {
   AppstoreOutlined,
   PictureOutlined,
   MessageOutlined,
+  ExperimentOutlined,
 } from '@ant-design/icons'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useState, useEffect } from 'react'
@@ -29,9 +30,10 @@ const MENU_ITEMS = [
   { key: '/m5', icon: <FolderOpenOutlined />, label: 'M5 章节管理' },
   { key: '/batch', icon: <RocketOutlined />, label: '批量生产' },
   { key: '/role-chat', icon: <MessageOutlined />, label: '角色交流' },
+  { key: '/image-helper', icon: <PictureOutlined />, label: '图片辅助' },
   { key: '/demo-3d', icon: <BlockOutlined />, label: '3D环境Demo' },
   { key: '/demo-2d', icon: <AppstoreOutlined />, label: '2D环境Demo' },
-  { key: '/node-test', icon: <PictureOutlined />, label: '节点测试' },
+  { key: '/node-test', icon: <ExperimentOutlined />, label: '节点测试' },
   { key: '/settings', icon: <SettingOutlined />, label: '系统设置' },
 ]
 
@@ -155,7 +157,7 @@ export default function AppLayout() {
 
           {/* 当前作品选择器（移到 sidebar） */}
           <div style={{
-            padding: '8px 4px 8px 7px',
+            padding: '8px 12px',
             borderBottom: theme === 'dark' ? '1px solid #303030' : '1px solid #f0f0f0',
           }}>
             {projects.length > 0 ? (
@@ -184,7 +186,6 @@ export default function AppLayout() {
               flex: 1,
               background: theme === 'dark' ? '#141414' : '#ffffff',
               paddingTop: 0,
-              paddingLeft: 3,
             }}
           />
           <div style={{
