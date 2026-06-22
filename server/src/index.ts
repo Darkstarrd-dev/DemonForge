@@ -1,4 +1,5 @@
 import Fastify from 'fastify'
+import cors from '@fastify/cors'
 import { execSync } from 'node:child_process'
 import { existsSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
@@ -22,6 +23,12 @@ const ROOT = dirname(dirname(fileURLToPath(import.meta.url)))
 // .catch(() => {}) 吞掉错误、message.success 误报「已入库」→ 书只活内存 → 重启后消失。
 // 50MB 足够任何规模小说（百万字 UTF-8 ≈ 3MB），同时不至于被滥用。
 const app = Fastify({ logger: true, bodyLimit: 50 * 1024 * 1024 })
+
+// CORS 支持：允许前端开发服务器（localhost:5173）跨域访问
+await app.register(cors, {
+  origin: ['http://localhost:5173', 'http://127.0.0.1:5173'],
+  credentials: true,
+})
 
 await app.register(llmRoutes)
 await app.register(creationRoutes)

@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import { Button, Space, Card, Typography, App } from 'antd'
+import { Button, App } from 'antd'
 import { ReloadOutlined } from '@ant-design/icons'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
@@ -269,15 +269,22 @@ export default function Demo3DPage() {
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', gap: 12 }}>
-      <Card size="small">
-        <Space>
-          <Typography.Text strong>3D 刚体演示</Typography.Text>
-          <Typography.Text type="secondary">Three.js + Rapier3D · 鼠标拖拽旋转视角</Typography.Text>
-          <Button icon={<ReloadOutlined />} onClick={handleReset}>复位</Button>
-        </Space>
-      </Card>
-      <div ref={containerRef} style={{ flex: 1, minHeight: 0, borderRadius: 8, overflow: 'hidden', background: '#1a1a2e' }} />
+    <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+      <div ref={containerRef} style={{ width: '100%', height: '100%', background: '#1a1a2e' }} />
+      <div
+        style={{
+          position: 'absolute',
+          top: 16,
+          right: 16,
+          zIndex: 1000,
+          background: 'rgba(255, 255, 255, 0.9)',
+          borderRadius: 8,
+          padding: '8px 12px',
+          boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+        }}
+      >
+        <Button icon={<ReloadOutlined />} onClick={handleReset}>复位</Button>
+      </div>
     </div>
   )
 }

@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import { Button, Space, Card, Typography } from 'antd'
+import { Button } from 'antd'
 import { ReloadOutlined } from '@ant-design/icons'
 import Phaser from 'phaser'
 
@@ -143,18 +143,25 @@ export default function Demo2DPage() {
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', gap: 12 }}>
-      <Card size="small">
-        <Space>
-          <Typography.Text strong>2D 刚体演示</Typography.Text>
-          <Typography.Text type="secondary">Phaser + Matter.js · 方块掉落碰撞</Typography.Text>
-          <Button icon={<ReloadOutlined />} onClick={handleReset}>复位</Button>
-        </Space>
-      </Card>
+    <div style={{ position: 'relative', width: '100%', height: '100%', overflow: 'hidden' }}>
       <div
         ref={wrapperRef}
-        style={{ flex: 1, minHeight: 400, borderRadius: 8, overflow: 'hidden', background: '#1a1a2e', position: 'relative' }}
+        style={{ width: '100%', height: '100%', background: '#1a1a2e', position: 'relative' }}
       />
+      <div
+        style={{
+          position: 'absolute',
+          top: 16,
+          right: 16,
+          zIndex: 1000,
+          background: 'rgba(255, 255, 255, 0.9)',
+          borderRadius: 8,
+          padding: '8px 12px',
+          boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+        }}
+      >
+        <Button icon={<ReloadOutlined />} onClick={handleReset}>复位</Button>
+      </div>
     </div>
   )
 }

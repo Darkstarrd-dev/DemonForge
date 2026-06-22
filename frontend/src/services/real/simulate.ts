@@ -1,7 +1,7 @@
 // M3 角色推演真实服务层——调用后端 /api/llm/simulate 网关，返回双候选流式推演。
 
 import type { SimScene, EntityCard } from '../types'
-import { streamSSE } from './creation'
+// import { streamSSE } from './creation'
 
 export interface SimulateParams {
   baseURL: string

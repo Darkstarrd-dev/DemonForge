@@ -52,6 +52,8 @@ import {
   type BackupBundle,
   type BundleKind,
 } from '../../utils/backup'
+import { DEFAULT_SPLIT_PATTERNS } from '../../utils/split'
+import { seedModuleMapping } from '../../mocks/seed'
 
 const MODULE_LABELS: Record<ModuleKey, string> = {
   m0Arch: 'M0 架构设计',
@@ -561,35 +563,116 @@ export default function SettingsPage() {
     return false // 阻止 antd Upload 自动上传
   }
 
-  /** 确认导入设置（合并到当前 store，立即落库）。 */
+  /** 确认导入设置（增量导入：仅添加当前不存在的项，不覆盖现有）。 */
   const confirmImportSettings = async (bundle: BackupBundle, replaceBusiness: boolean) => {
     setImportBusy(true)
     try {
       const patch: Record<string, unknown> = {}
       const s = bundle.settings
-      if (Array.isArray(s.providers)) patch.providers = s.providers
-      if (s.moduleMapping) patch.moduleMapping = s.moduleMapping
-      if (typeof s.m1SystemPrompt === 'string') patch.m1SystemPrompt = s.m1SystemPrompt
-      if (typeof s.showMenuBar === 'boolean') patch.showMenuBar = s.showMenuBar
-      // 节点测试表单：优先新结构 nodeTestGlobalForm，兼容旧 imageDemoForm
-      if ((s as any).nodeTestGlobalForm) patch.nodeTestGlobalForm = (s as any).nodeTestGlobalForm
-      else if ((s as any).imageDemoGlobalForm) patch.nodeTestGlobalForm = (s as any).imageDemoGlobalForm
-      if ((s as any).nodeTestFormPerNode) patch.nodeTestFormPerNode = (s as any).nodeTestFormPerNode
-      else if ((s as any).imageDemoFormPerNode) patch.nodeTestFormPerNode = (s as any).imageDemoFormPerNode
-      // 旧格式迁移
-      if ((s as any).imageDemoForm && !(s as any).nodeTestFormPerNode && !(s as any).imageDemoFormPerNode) {
-        const rawForm = (s as any).imageDemoForm as any
-        const { nodeId, provider, ...params } = rawForm
-        patch.nodeTestGlobalForm = { provider: (provider as string) || 'modelscope', nodeId: nodeId as string | undefined }
-        patch.nodeTestFormPerNode = nodeId ? { [nodeId]: params } : {}
+      const currentState = useAppStore.getState()
+
+      // providers：仅添加当前不存在的节点（按 baseURL+model 判定重复）
+      if (Array.isArray(s.providers)) {
+        const existingKeys = new Set(
+          currentState.providers.map((p) => `${p.baseURL}|||${p.model}`)
+        )
+        const toAdd = s.providers.filter(
+          (p) => !existingKeys.has(`${p.baseURL}|||${p.model}`)
+        )
+        if (toAdd.length > 0) {
+          patch.providers = [...currentState.providers, ...toAdd]
+        }
       }
-      if (Array.isArray(s.splitPatterns)) patch.splitPatterns = s.splitPatterns
-      if (s.cleanNodeOverrides) patch.cleanNodeOverrides = s.cleanNodeOverrides
-      if (typeof s.m1AutoRetry === 'boolean') patch.m1AutoRetry = s.m1AutoRetry
-      if (typeof s.m1TitleTemplate === 'string') patch.m1TitleTemplate = s.m1TitleTemplate
-      if (typeof s.m1TestText === 'string') patch.m1TestText = s.m1TestText
-      if ((s as any).theme === 'light' || (s as any).theme === 'dark') patch.theme = (s as any).theme
-      // assetDir 不自动应用（来源机器路径多半无效），仅当用户显式想用时手动改
+
+      // moduleMapping：仅填充当前缺失的模块映射
+      if (s.moduleMapping) {
+        const merged = { ...currentState.moduleMapping }
+        let hasNew = false
+        for (const key of Object.keys(s.moduleMapping) as ModuleKey[]) {
+          if (!merged[key] || !merged[key].nodeId) {
+            merged[key] = s.moduleMapping[key]
+            hasNew = true
+          }
+        }
+        if (hasNew) patch.moduleMapping = merged
+      }
+
+      // splitPatterns：仅添加当前不存在的模式（按 key 判重）
+      if (Array.isArray(s.splitPatterns)) {
+        const existingKeys = new Set(currentState.splitPatterns.map((p) => p.key))
+        const toAdd = s.splitPatterns.filter((p) => !existingKeys.has(p.key))
+        if (toAdd.length > 0) {
+          patch.splitPatterns = [...currentState.splitPatterns, ...toAdd]
+        }
+      }
+
+      // 其他标量配置：仅当当前为默认值/空时才导入
+      if (typeof s.m1SystemPrompt === 'string' && !currentState.m1SystemPrompt) {
+        patch.m1SystemPrompt = s.m1SystemPrompt
+      }
+      if (typeof s.m1TestText === 'string' && !currentState.m1TestText) {
+        patch.m1TestText = s.m1TestText
+      }
+      if (typeof s.m1TitleTemplate === 'string' && currentState.m1TitleTemplate === '第{0n}章 {title}') {
+        patch.m1TitleTemplate = s.m1TitleTemplate
+      }
+
+      // nodeTestGlobalForm：仅当当前未配置节点时导入
+      const importGlobal = (s as any).nodeTestGlobalForm || (s as any).imageDemoGlobalForm
+      if (importGlobal && !currentState.nodeTestGlobalForm.nodeId) {
+        patch.nodeTestGlobalForm = importGlobal
+      }
+
+      // nodeTestFormPerNode：仅添加当前不存在的节点表单
+      const importPerNode = (s as any).nodeTestFormPerNode || (s as any).imageDemoFormPerNode
+      if (importPerNode && typeof importPerNode === 'object') {
+        const merged = { ...currentState.nodeTestFormPerNode }
+        let hasNew = false
+        for (const nodeId of Object.keys(importPerNode)) {
+          if (!merged[nodeId]) {
+            merged[nodeId] = importPerNode[nodeId]
+            hasNew = true
+          }
+        }
+        if (hasNew) patch.nodeTestFormPerNode = merged
+      }
+
+      // 旧格式迁移（仅当当前完全没配置时）
+      if ((s as any).imageDemoForm && !(s as any).nodeTestFormPerNode && !(s as any).imageDemoFormPerNode) {
+        if (!currentState.nodeTestGlobalForm.nodeId) {
+          const rawForm = (s as any).imageDemoForm as any
+          const { nodeId, provider, ...params } = rawForm
+          patch.nodeTestGlobalForm = { provider: (provider as string) || 'modelscope', nodeId: nodeId as string | undefined }
+          if (nodeId && !currentState.nodeTestFormPerNode[nodeId]) {
+            patch.nodeTestFormPerNode = { ...currentState.nodeTestFormPerNode, [nodeId]: params }
+          }
+        }
+      }
+
+      // cleanNodeOverrides：合并不存在的节点覆盖配置
+      if (s.cleanNodeOverrides && typeof s.cleanNodeOverrides === 'object') {
+        const merged = { ...currentState.cleanNodeOverrides }
+        let hasNew = false
+        for (const nodeId of Object.keys(s.cleanNodeOverrides)) {
+          if (!merged[nodeId]) {
+            merged[nodeId] = s.cleanNodeOverrides[nodeId]
+            hasNew = true
+          }
+        }
+        if (hasNew) patch.cleanNodeOverrides = merged
+      }
+
+      // 布尔/枚举值：当前已有配置则不覆盖
+      if (typeof s.showMenuBar === 'boolean' && currentState.showMenuBar === true) {
+        patch.showMenuBar = s.showMenuBar
+      }
+      if (typeof s.m1AutoRetry === 'boolean' && currentState.m1AutoRetry === true) {
+        patch.m1AutoRetry = s.m1AutoRetry
+      }
+      if ((s as any).theme && currentState.theme === 'light') {
+        patch.theme = (s as any).theme
+      }
+
       useAppStore.setState(patch)
       pushSettingsNow()
 
@@ -1272,6 +1355,36 @@ export default function SettingsPage() {
                   <Upload accept=".json,application/json" beforeUpload={handleImportFile} showUploadList={false}>
                     <Button icon={<CloudUploadOutlined />}>从备份恢复</Button>
                   </Upload>
+                  <Popconfirm
+                    title="恢复出厂设置？"
+                    description="将清空所有设置（Provider 节点池、模块映射、提示词等），但不删除已入库的书籍和章节数据。此操作不可撤销！"
+                    okText="确认恢复出厂"
+                    okButtonProps={{ danger: true }}
+                    cancelText="取消"
+                    onConfirm={async () => {
+                      const defaultState = {
+                        providers: [],
+                        moduleMapping: seedModuleMapping,
+                        m1SystemPrompt: '',
+                        assetDir: '',
+                        showMenuBar: true,
+                        m1AutoRetry: true,
+                        m1TitleTemplate: '第{0n}章 {title}',
+                        m1TestText: useAppStore.getState().m1TestText, // 保留测试文本
+                        splitPatterns: DEFAULT_SPLIT_PATTERNS.map((p) => ({ ...p })),
+                        cleanNodeOverrides: {},
+                        nodeTestGlobalForm: { provider: 'modelscope', nodeId: undefined },
+                        nodeTestFormPerNode: {},
+                        theme: 'light' as const,
+                        nodeGroupExpanded: {},
+                      }
+                      setState(defaultState)
+                      await pushSettingsNow()
+                      message.success('已恢复出厂设置（业务数据未删除）')
+                    }}
+                  >
+                    <Button danger>恢复出厂</Button>
+                  </Popconfirm>
                 </Space>
                 <Typography.Paragraph type="warning" style={{ marginTop: 8, marginBottom: 0 }}>
                   <Typography.Text strong>注意</Typography.Text>：恢复业务数据是高影响操作，导入前会弹出预览

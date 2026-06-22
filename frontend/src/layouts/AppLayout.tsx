@@ -16,7 +16,7 @@ import {
   MessageOutlined,
 } from '@ant-design/icons'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
-import { useEffect } from 'react'
+import { useState, useEffect } from 'react'
 import { useAppStore, flushStoreWrites, pushSettingsNow } from '../store/appStore'
 
 const MENU_ITEMS = [
@@ -44,6 +44,8 @@ export default function AppLayout() {
   const theme = useAppStore((s) => s.theme)
   const setState = useAppStore((s) => s.setState)
   const projects = books.filter((b) => b.type === 'project')
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+  const [floatingButtonHovered, setFloatingButtonHovered] = useState(false)
 
   // 同步 showMenuBar 到 Electron 主进程（兜底，确保前端状态与主窗口一致）
   useEffect(() => {
@@ -68,92 +70,139 @@ export default function AppLayout() {
 
   return (
     <Layout style={{ height: '100vh' }}>
-      <Layout.Sider
-        theme={theme === 'dark' ? 'dark' : 'light'}
-        width={208}
-        style={{
-          display: 'flex',
-          flexDirection: 'column',
-          height: '100%',
-          background: theme === 'dark' ? '#141414' : '#ffffff',
-          borderRight: theme === 'dark' ? '1px solid #303030' : '1px solid #f0f0f0',
-        }}
-      >
-        <div style={{
-          padding: '16px 20px',
-          color: theme === 'dark' ? '#fff' : '#1F2421',
-          fontSize: 17,
-          fontWeight: 600,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          gap: '12px',
-          borderBottom: theme === 'dark' ? '1px solid #303030' : '1px solid #f0f0f0',
-        }}>
-          <span style={{ flex: 1 }}>NovelHelper</span>
-          <Segmented
-            value={theme}
-            onChange={(v) => {
-              setState({ theme: v as 'light' | 'dark' })
-              pushSettingsNow()
-            }}
-            options={[
-              { value: 'light', label: '🌞' },
-              { value: 'dark', label: '🌙' },
-            ]}
-            size="small"
-            style={{ flexShrink: 0 }}
-          />
-        </div>
-
-        {/* 当前作品选择器（移到 sidebar） */}
-        <div style={{
-          padding: '8px 4px 8px 7px',
-          borderBottom: theme === 'dark' ? '1px solid #303030' : '1px solid #f0f0f0',
-        }}>
-          {projects.length > 0 ? (
-            <Select
-              style={{ width: '100%' }}
-              size="small"
-              value={currentBookId}
-              onChange={(v) => setState({ currentBookId: v })}
-              options={projects.map((b) => ({ value: b.id, label: b.title }))}
-              placeholder="选择作品"
-            />
-          ) : (
-            <Typography.Text type="secondary" style={{ fontSize: 12, paddingLeft: 8 }}>
-              暂无作品
-            </Typography.Text>
+      {/* 折叠后的悬浮按钮（鼠标悬停区域触发显示） */}
+      {sidebarCollapsed && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            width: 120,
+            height: 80,
+            zIndex: 1000,
+          }}
+          onMouseEnter={() => setFloatingButtonHovered(true)}
+          onMouseLeave={() => setFloatingButtonHovered(false)}
+        >
+          {floatingButtonHovered && (
+            <div
+              style={{
+                position: 'absolute',
+                top: 16,
+                left: 16,
+                background: theme === 'dark' ? '#141414' : '#ffffff',
+                borderRadius: 8,
+                boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+                padding: '12px 16px',
+                cursor: 'pointer',
+                fontWeight: 600,
+                fontSize: 17,
+                color: theme === 'dark' ? '#fff' : '#1F2421',
+                transition: 'opacity 0.2s',
+              }}
+              onClick={() => setSidebarCollapsed(false)}
+            >
+              NovelHelper
+            </div>
           )}
         </div>
+      )}
 
-        <Menu
+      {/* Sidebar */}
+      {!sidebarCollapsed && (
+        <Layout.Sider
           theme={theme === 'dark' ? 'dark' : 'light'}
-          mode="inline"
-          items={MENU_ITEMS}
-          selectedKeys={[location.pathname]}
-          onClick={(e) => navigate(e.key)}
+          width={208}
           style={{
-            flex: 1,
+            display: 'flex',
+            flexDirection: 'column',
+            height: '100%',
             background: theme === 'dark' ? '#141414' : '#ffffff',
-            paddingTop: 0,
-            paddingLeft: 3,
+            borderRight: theme === 'dark' ? '1px solid #303030' : '1px solid #f0f0f0',
           }}
-        />
-        <div style={{
-          padding: '8px 12px',
-          borderTop: theme === 'dark' ? '1px solid #303030' : '1px solid #f0f0f0',
-        }}>
-          <Button
-            block
-            danger
-            icon={<PoweroffOutlined />}
-            onClick={handleExit}
-          >
-            退出系统
-          </Button>
-        </div>
-      </Layout.Sider>
+        >
+          <div style={{
+            padding: '16px 20px',
+            color: theme === 'dark' ? '#fff' : '#1F2421',
+            fontSize: 17,
+            fontWeight: 600,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '12px',
+            borderBottom: theme === 'dark' ? '1px solid #303030' : '1px solid #f0f0f0',
+          }}>
+            <span
+              style={{ flex: 1, cursor: 'pointer' }}
+              onClick={() => setSidebarCollapsed(true)}
+            >
+              NovelHelper
+            </span>
+            <Segmented
+              value={theme}
+              onChange={(v) => {
+                setState({ theme: v as 'light' | 'dark' })
+                pushSettingsNow()
+              }}
+              options={[
+                { value: 'light', label: '🌞' },
+                { value: 'dark', label: '🌙' },
+              ]}
+              size="small"
+              style={{ flexShrink: 0 }}
+            />
+          </div>
+
+          {/* 当前作品选择器（移到 sidebar） */}
+          <div style={{
+            padding: '8px 4px 8px 7px',
+            borderBottom: theme === 'dark' ? '1px solid #303030' : '1px solid #f0f0f0',
+          }}>
+            {projects.length > 0 ? (
+              <Select
+                style={{ width: '100%' }}
+                size="small"
+                value={currentBookId}
+                onChange={(v) => setState({ currentBookId: v })}
+                options={projects.map((b) => ({ value: b.id, label: b.title }))}
+                placeholder="选择作品"
+              />
+            ) : (
+              <Typography.Text type="secondary" style={{ fontSize: 12, paddingLeft: 8 }}>
+                暂无作品
+              </Typography.Text>
+            )}
+          </div>
+
+          <Menu
+            theme={theme === 'dark' ? 'dark' : 'light'}
+            mode="inline"
+            items={MENU_ITEMS}
+            selectedKeys={[location.pathname]}
+            onClick={(e) => navigate(e.key)}
+            style={{
+              flex: 1,
+              background: theme === 'dark' ? '#141414' : '#ffffff',
+              paddingTop: 0,
+              paddingLeft: 3,
+            }}
+          />
+          <div style={{
+            padding: '8px 12px',
+            borderTop: theme === 'dark' ? '1px solid #303030' : '1px solid #f0f0f0',
+          }}>
+            <Button
+              block
+              danger
+              icon={<PoweroffOutlined />}
+              onClick={handleExit}
+            >
+              退出系统
+            </Button>
+          </div>
+        </Layout.Sider>
+      )}
+
       <Layout style={{ overflow: 'hidden' }}>
         <Layout.Content style={{ padding: 0, overflow: 'auto', height: '100vh' }}>
           <Outlet />

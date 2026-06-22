@@ -451,12 +451,32 @@ export const businessPayload = (s: AppState) => ({
   testHistory: s.testHistory,
 })
 
-const pushStore = (payload: Record<string, unknown>) =>
-  fetch('/api/store', {
+const pushStore = (payload: Record<string, unknown>) => {
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), 60000) // 60秒超时（增加到60秒）
+
+  // 预先计算 JSON 大小，避免过大数据导致浏览器崩溃
+  let jsonString: string
+  try {
+    jsonString = JSON.stringify(payload)
+    const sizeInMB = new Blob([jsonString]).size / 1024 / 1024
+    console.log(`[pushStore] 数据大小: ${sizeInMB.toFixed(2)} MB`)
+
+    if (sizeInMB > 45) {
+      console.warn(`[pushStore] 警告: 数据量过大 (${sizeInMB.toFixed(2)} MB)，可能导致失败`)
+    }
+  } catch (err) {
+    console.error('[pushStore] JSON.stringify 失败:', err)
+    throw new Error(`序列化数据失败：${err instanceof Error ? err.message : String(err)}`)
+  }
+
+  return fetch('/api/store', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  })
+    body: jsonString,
+    signal: controller.signal,
+  }).finally(() => clearTimeout(timeoutId))
+}
 
 /** 显式删除请求（DELETE /api/store）。syncAll 已改为纯 upsert，删除走此端点。 */
 const deleteStore = (deletes: Record<string, string[]>) =>
@@ -720,7 +740,21 @@ export async function pushStoreNowChecked(): Promise<void> {
     clearTimeout(storeTimer)
     storeTimer = null
   }
-  const res = await pushStore(businessPayload(useAppStore.getState()))
+
+  let res: Response
+  try {
+    res = await pushStore(businessPayload(useAppStore.getState()))
+  } catch (err) {
+    // 网络错误、超时、序列化失败等
+    if (err instanceof Error) {
+      if (err.name === 'AbortError') {
+        throw new Error('请求超时（超过 60 秒），数据量可能过大。建议分批入库或清理旧数据。')
+      }
+      throw new Error(`网络请求失败：${err.message}`)
+    }
+    throw new Error(`未知错误：${String(err)}`)
+  }
+
   if (!res.ok) {
     // 解析后端错误信息（Fastify 413/500 等返回 {message:...}），附 HTTP 状态码
     const txt = await res.text().catch(() => '')
@@ -730,7 +764,7 @@ export async function pushStoreNowChecked(): Promise<void> {
       if (j.message) detail += `：${j.message}`
       else if (j.error) detail += `：${j.error}`
     } catch {
-      /* 非 JSON 响应，仅用状态码 */
+      if (txt) detail += `：${txt.slice(0, 200)}`
     }
     throw new Error(`写入后端失败（${detail}）`)
   }

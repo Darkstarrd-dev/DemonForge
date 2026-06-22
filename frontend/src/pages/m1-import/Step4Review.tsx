@@ -30,7 +30,7 @@ import {
 import { useAppStore, genId, pushStoreNowChecked } from '../../store/appStore'
 import { alignedDiff, applyLineDecisions } from '../../utils/alignedDiff'
 import DiffView, { type DiffViewHandle } from './DiffView'
-import type { BookType, Chapter, CleanStatus, ImportChapter, LineDecision } from '../../services/types'
+import type { BookType, Chapter, CleanStatus, ImportChapter, LineDecision, Book } from '../../services/types'
 
 const STATUS_META: Record<CleanStatus, { icon: React.ReactNode; text: string; color: string }> = {
   pending: { icon: <ClockCircleOutlined />, text: '待处理', color: 'default' },
@@ -52,7 +52,7 @@ export default function Step4Review() {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [storeOpen, setStoreOpen] = useState(false)
   const [editDraft, setEditDraft] = useState<{ field: 'content' | 'cleanedContent'; text: string } | null>(null)
-  const [form] = Form.useForm<{ title: string; type: BookType }>()
+  const [form] = Form.useForm<{ title: string; type: BookType; author?: string; platform?: string }>()
   const [rejectNodeOpen, setRejectNodeOpen] = useState(false)
   const [rejectNodeIds, setRejectNodeIds] = useState<string[]>([])
   const diffViewRef = useRef<DiffViewHandle>(null)
@@ -284,7 +284,7 @@ export default function Step4Review() {
   }
 
   const doStore = async () => {
-    const { title, type } = await form.validateFields()
+    const { title, type, author, platform } = await form.validateFields()
     const notReviewed = chapters.filter(
       (c) => c.cleanStatus !== 'accepted' && c.cleanStatus !== 'rejected',
     ).length
@@ -300,8 +300,39 @@ export default function Step4Review() {
         status: 'cleaned',
         updatedAt: now,
       }))
+
+      // 预检查：计算总内容大小
+      const totalContentSize = newChapters.reduce((sum, ch) => sum + ch.content.length, 0)
+      const totalSizeMB = totalContentSize / 1024 / 1024
+      console.log(`[M1入库] 章节数: ${newChapters.length}, 总内容大小: ${totalSizeMB.toFixed(2)} MB`)
+
+      if (totalSizeMB > 30) {
+        const confirmed = await new Promise<boolean>((resolve) => {
+          modal.confirm({
+            title: '数据量较大',
+            content: `即将入库 ${newChapters.length} 章，总计 ${totalSizeMB.toFixed(2)} MB 内容。数据量较大可能导致入库缓慢或失败，建议分批入库。确认继续？`,
+            okText: '继续入库',
+            cancelText: '取消',
+            onOk: () => resolve(true),
+            onCancel: () => resolve(false),
+          })
+        })
+        if (!confirmed) return
+      }
+
+      const newBook: Book = {
+        id: bookId,
+        title,
+        type,
+        createdAt: now,
+      }
+      // 素材库才添加作者和平台字段
+      if (type === 'reference') {
+        if (author && author.trim()) newBook.author = author.trim()
+        if (platform && platform.trim()) newBook.platform = platform.trim()
+      }
       setState({
-        books: [...books, { id: bookId, title, type, createdAt: now }],
+        books: [...books, newBook],
         chapters: [...allChapters, ...newChapters],
         importSession: null,
       })
@@ -315,7 +346,9 @@ export default function Step4Review() {
         fetch('/api/import-session', { method: 'DELETE' }).catch(() => {})
         message.success(`已入库《${title}》共 ${newChapters.length} 章（状态 cleaned）。可到 M2 提取设定、M5 查看章节。`)
       } catch (e) {
-        message.error(`入库失败：${e instanceof Error ? e.message : String(e)}。数据未保存，请重试或检查章节内容大小。`)
+        const errMsg = e instanceof Error ? e.message : String(e)
+        console.error('[M1入库] 失败:', errMsg)
+        message.error(`入库失败：${errMsg}`, 10)
         // 入库失败 → 撤回内存中的入库操作，避免「看似入库」的假象
         setState({ books, chapters: allChapters, importSession: session })
       }
@@ -528,6 +561,20 @@ export default function Step4Review() {
               <Radio value="reference">素材库（他人作品参考）</Radio>
               <Radio value="project">作品库（自己的创作）</Radio>
             </Radio.Group>
+          </Form.Item>
+          <Form.Item shouldUpdate={(prev, cur) => prev.type !== cur.type} noStyle>
+            {({ getFieldValue }) =>
+              getFieldValue('type') === 'reference' ? (
+                <>
+                  <Form.Item name="author" label="作者">
+                    <Input placeholder="可选，留空表示未知" />
+                  </Form.Item>
+                  <Form.Item name="platform" label="平台">
+                    <Input placeholder="可选，如：起点、晋江等" />
+                  </Form.Item>
+                </>
+              ) : null
+            }
           </Form.Item>
           <Typography.Text type="secondary">
             已接受章节使用「清理结果 + 行级决策」生成的最终文本；其余章节以原文入库。章节状态均为 cleaned。
