@@ -2,7 +2,7 @@
 
 **最后更新**：2026-06-22  
 **当前位置**：办公场所 A
-**本轮主题**：沉浸式阅读器改造 ✅
+**本轮主题**：M1 文本导入合并到书库概览 ✅
 
 ---
 
@@ -178,6 +178,15 @@
   - **键盘**：`Esc` 退出（面板打开时先关面板）、`←/→` 切章
   - **关键文件**：`pages/book-reader/ImmersiveReader.tsx`（新建）+ `ImmersiveReader.css`（新建）+ `index.tsx`（重写为壳）
   - **状态**：✅ 完成，`vite build` 通过，book-reader 三文件 `tsc` 零错误
+- [x] **M1 文本导入合并到书库概览**（2026-06-22）✨
+  - **入口合并**：M1 不再独立菜单入口，侧边栏移除「M1 文本导入」项；导入入口改为书库概览 Card 标题右侧「导入文件」按钮
+  - **新建模式**：点「导入文件」→ 清空 importSession → `/m1` 4 步完整流程 → 入库生成新 Book
+  - **清理模式**：已入库书操作栏加「清理」按钮 → 从 Book+Chapters 构造 importSession（step=2, targetBookId）→ `/m1` 仅显示 2 步（文本清理 + 审核与入库）→ 入库覆盖原 Book
+  - **覆盖入库**：复用原 chapter.id 原地更新；多余旧章走 `pushDeleteNow` 删除；二次确认弹窗；书名/归属库 disabled
+  - **Steps 动态渲染**：`isCleanMode` 判断 + items/current 映射 + gotoStep 仅允许 2↔3
+  - **Step3Clean 适配**：「新增节点去设置页」按钮清理模式下直接 `navigate('/settings')`
+  - **文件变更**：types.ts / home/index.tsx / m1-import/index.tsx / Step3Clean.tsx / Step4Review.tsx / AppLayout.tsx
+  - **状态**：✅ `tsc` 零错误 + `vite build` 通过
 
 ### 🚧 进行中 / 待完善
 
@@ -252,7 +261,14 @@
 
 ### 立即任务（本次会话后）
 
-1. **【全部阶段已完成】代码维护拆分** ✅
+1. **验证 M1 合并到书库概览** ✨
+   - 书库概览 Card 右上角「导入文件」按钮 → 4 步完整流程 → 入库新 Book
+   - 已入库书操作栏「清理」按钮 → 2 步流程（文本清理 + 审核入库）→ 覆盖入库
+   - 清理模式 Steps 仅显示 2 项，无法回到导入/切分
+   - 清理模式入库弹窗：书名/归属库 disabled，二次确认覆盖
+   - 侧边栏无「M1 文本导入」菜单项
+
+2. **【全部阶段已完成】代码维护拆分** ✅
    - ✅ 阶段 A：编译产物优化（主包 1.8 MB → 180 KB，-90%）
    - ✅ 阶段 B：settings 页内部重组（提取 4 个 Tab 组件）
    - ✅ 阶段 C-E：经评估，现有结构已合理
@@ -574,6 +590,62 @@
 ---
 
 ## 备注
+
+**本轮工作成果**（2026-06-22 — M1 文本导入合并到书库概览）：
+
+**1. 入口合并**
+- 侧边栏移除「M1 文本导入」菜单项（`AppLayout.tsx`）
+- 书库概览 Card `extra` 加「导入文件」按钮：`setState({ importSession: null })` + `navigate('/m1')`
+- 空态提示更新：引导点击右上角「导入文件」
+
+**2. 清理模式入口**
+- 已入库书操作栏 Space 加「清理」按钮（`ClearOutlined` 图标）
+- onClick：从 Book + Chapters 构造 `ImportSession`（step=2, targetBookId, chapters 复用原 chapter.id）
+- M1 恢复逻辑守卫 `if (session) return` 确保 store 已有 session 时不恢复后端旧数据
+- 操作列宽度 240→300 容纳新按钮
+
+**3. ImportSession 类型扩展**
+- `services/types.ts`：`ImportSession` 增加可选字段 `targetBookId?: string`
+- 存在 = 清理模式（仅 Step2/3，覆盖入库）；undefined = 新建模式
+
+**4. M1 主容器模式适配**（`m1-import/index.tsx`）
+- `isCleanMode = !!session?.targetBookId`
+- Steps items 动态：清理模式 2 项 [文本清理, 审核与入库]；新建模式 4 项
+- `displayCurrent` 映射：清理模式 step 2→0, 3→1
+- `gotoStep` 清理模式仅允许 2↔3，不允许回到 0/1
+- `onChange` 回调映射显示 index → 内部 step
+
+**5. Step3Clean 适配**（`Step3Clean.tsx`）
+- 引入 `useNavigate`
+- 「新增节点去设置页」按钮：清理模式下 `navigate('/settings')`（不跳不存在的 step 1）
+
+**6. Step4Review 覆盖入库**（`Step4Review.tsx`）
+- 引入 `pushDeleteNow`
+- `isCleanMode`/`targetBook` 判断
+- `useEffect` 监听 `storeOpen` 预填原书信息到 form
+- `doStore` 新增清理模式分支：
+  - 二次确认弹窗（danger 按钮「确认覆盖」）
+  - 复用 `ImportChapter.id`（= 原 chapter.id）构建新 chapters
+  - 更新现有 Book 记录（author/platform 可改）
+  - 内存替换：移除该 book 旧 chapters + 加入新 chapters
+  - `pushStoreNowChecked()` 落库 + `pushDeleteNow({ chapters: deletedIds })` 删除多余旧章
+- 入库弹窗 Modal：
+  - 标题：清理模式「覆盖入库」
+  - 确认按钮：清理模式「确认覆盖」(danger)
+  - 书名/归属库 `disabled={isCleanMode}`
+  - 底部提示文案区分两种模式
+
+**7. 编译验证**
+- ✅ `tsc --noEmit` 零错误
+- ✅ `vite build` 通过（16.14s）
+
+**建议下次会话**：
+1. `npm run dev` 启动，测试新建模式（导入文件 → 4 步 → 入库）
+2. 测试清理模式（已入库书 → 清理 → 2 步 → 覆盖入库 → 确认章节内容已更新）
+3. 测试清理模式 Steps 限制（无法回到导入/切分）
+4. 测试清理模式弹窗（书名/归属库只读，二次确认）
+
+---
 
 **本轮工作成果**（2026-06-22 — 沉浸式阅读器改造）：
 

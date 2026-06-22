@@ -376,4 +376,6 @@ export interface ImportSession {
   detectedEncoding: string
   step: number
   chapters: ImportChapter[]
+  /** 清理模式目标书 ID。存在 = 清理模式（仅 Step2/3，覆盖入库）；undefined = 新建模式 */
+  targetBookId?: string
 }

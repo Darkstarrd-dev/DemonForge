@@ -27,7 +27,7 @@ import {
   UpOutlined,
   DownOutlined,
 } from '@ant-design/icons'
-import { useAppStore, genId, pushStoreNowChecked } from '../../store/appStore'
+import { useAppStore, genId, pushStoreNowChecked, pushDeleteNow } from '../../store/appStore'
 import { alignedDiff, applyLineDecisions } from '../../utils/alignedDiff'
 import DiffView, { type DiffViewHandle } from './DiffView'
 import type { BookType, Chapter, CleanStatus, ImportChapter, LineDecision, Book } from '../../services/types'
@@ -58,8 +58,24 @@ export default function Step4Review() {
   const diffViewRef = useRef<DiffViewHandle>(null)
   const [currentDiffRowIdx, setCurrentDiffRowIdx] = useState(0) // 当前章节内的修改行索引
 
+  // 清理模式：targetBookId 存在 = 对已入库的书重新清理后覆盖入库
+  const targetBook = session?.targetBookId ? books.find((b) => b.id === session.targetBookId) : null
+  const isCleanMode = !!targetBook
+
   const chapters = useMemo(() => session?.chapters ?? [], [session?.chapters])
   const current = useMemo(() => chapters.find((c) => c.id === selectedId) ?? chapters[0] ?? null, [chapters, selectedId])
+
+  // 清理模式：入库弹窗打开时预填原书信息（initialValues 仅首次生效，需手动 set）
+  useEffect(() => {
+    if (storeOpen && isCleanMode && targetBook) {
+      form.setFieldsValue({
+        title: targetBook.title,
+        type: targetBook.type,
+        author: targetBook.author,
+        platform: targetBook.platform,
+      })
+    }
+  }, [storeOpen, isCleanMode, targetBook, form])
 
   // 自动标记：completed 但无任何修改的章节自动置为 accepted
   useEffect(() => {
@@ -288,9 +304,105 @@ export default function Step4Review() {
     const notReviewed = chapters.filter(
       (c) => c.cleanStatus !== 'accepted' && c.cleanStatus !== 'rejected',
     ).length
+
+    // 清理模式：二次确认覆盖
+    if (isCleanMode) {
+      const overwriteConfirmed = await new Promise<boolean>((resolve) => {
+        modal.confirm({
+          title: '确认覆盖入库',
+          content: `将覆盖《${targetBook!.title}》现有 ${chapters.length} 章内容，此操作不可撤销。已接受的清理结果将替换原章节正文。`,
+          okText: '确认覆盖',
+          okButtonProps: { danger: true },
+          cancelText: '取消',
+          onOk: () => resolve(true),
+          onCancel: () => resolve(false),
+        })
+      })
+      if (!overwriteConfirmed) return
+    }
+
     const proceed = async () => {
-      const bookId = genId('book')
       const now = new Date().toISOString()
+
+      // ===== 清理模式：覆盖入库 =====
+      if (isCleanMode) {
+        const bookId = targetBook!.id
+
+        // 构建新 chapters：复用 ImportChapter.id（= 原 chapter.id），保留引用关系
+        const newChapters: Chapter[] = chapters.map((c, i) => ({
+          id: c.id,
+          bookId,
+          index: i + 1,
+          title: c.title,
+          content: c.cleanStatus === 'accepted' ? (c.finalText ?? c.content) : c.content,
+          status: 'cleaned',
+          updatedAt: now,
+        }))
+
+        // 预检查：计算总内容大小
+        const totalContentSize = newChapters.reduce((sum, ch) => sum + ch.content.length, 0)
+        const totalSizeMB = totalContentSize / 1024 / 1024
+        console.log(`[M1清理入库] 章节数: ${newChapters.length}, 总内容大小: ${totalSizeMB.toFixed(2)} MB`)
+
+        if (totalSizeMB > 30) {
+          const confirmed = await new Promise<boolean>((resolve) => {
+            modal.confirm({
+              title: '数据量较大',
+              content: `即将入库 ${newChapters.length} 章，总计 ${totalSizeMB.toFixed(2)} MB 内容。数据量较大可能导致入库缓慢或失败，建议分批入库。确认继续？`,
+              okText: '继续入库',
+              cancelText: '取消',
+              onOk: () => resolve(true),
+              onCancel: () => resolve(false),
+            })
+          })
+          if (!confirmed) return
+        }
+
+        // 收集需删除的旧 chapter id（该 book 下不在 newChapters 中的）
+        const oldBookChapters = allChapters.filter((c) => c.bookId === bookId)
+        const newChapterIds = new Set(newChapters.map((c) => c.id))
+        const deletedChapterIds = oldBookChapters
+          .filter((c) => !newChapterIds.has(c.id))
+          .map((c) => c.id)
+
+        // 更新 book 记录（书名/归属库 disabled 不变，author/platform 可改）
+        const updatedBook: Book = {
+          ...targetBook!,
+          ...(type === 'reference'
+            ? { author: author?.trim() || undefined, platform: platform?.trim() || undefined }
+            : { author: undefined, platform: undefined }),
+        }
+
+        // 内存更新：替换 book + 替换 chapters
+        setState({
+          books: books.map((b) => (b.id === bookId ? updatedBook : b)),
+          chapters: [
+            ...allChapters.filter((c) => c.bookId !== bookId),
+            ...newChapters,
+          ],
+          importSession: null,
+        })
+        setStoreOpen(false)
+
+        try {
+          await pushStoreNowChecked()
+          // 删除被移除的旧 chapters（syncAll 是 upsert 不删除，需走 DELETE）
+          if (deletedChapterIds.length > 0) {
+            pushDeleteNow({ chapters: deletedChapterIds })
+          }
+          fetch('/api/import-session', { method: 'DELETE' }).catch(() => {})
+          message.success(`已更新《${title}》共 ${newChapters.length} 章（清理结果已覆盖）`)
+        } catch (e) {
+          const errMsg = e instanceof Error ? e.message : String(e)
+          console.error('[M1清理入库] 失败:', errMsg)
+          message.error(`入库失败：${errMsg}`, 10)
+          setState({ books, chapters: allChapters, importSession: session })
+        }
+        return
+      }
+
+      // ===== 新建模式：原有逻辑 =====
+      const bookId = genId('book')
       const newChapters: Chapter[] = chapters.map((c, i) => ({
         id: genId('ch'),
         bookId,
@@ -540,11 +652,12 @@ export default function Step4Review() {
       </Row>
 
       <Modal
-        title="入库"
+        title={isCleanMode ? '覆盖入库' : '入库'}
         open={storeOpen}
         onOk={doStore}
         onCancel={() => setStoreOpen(false)}
-        okText="确认入库"
+        okText={isCleanMode ? '确认覆盖' : '确认入库'}
+        okButtonProps={isCleanMode ? { danger: true } : undefined}
         width={Math.min(600, window.innerWidth - 48)}
       >
         <Form
@@ -554,10 +667,10 @@ export default function Step4Review() {
           style={{ marginTop: 8 }}
         >
           <Form.Item name="title" label="书名" rules={[{ required: true }]}>
-            <Input />
+            <Input disabled={isCleanMode} />
           </Form.Item>
           <Form.Item name="type" label="归属库" rules={[{ required: true }]}>
-            <Radio.Group>
+            <Radio.Group disabled={isCleanMode}>
               <Radio value="reference">素材库（他人作品参考）</Radio>
               <Radio value="project">作品库（自己的创作）</Radio>
             </Radio.Group>
@@ -577,7 +690,9 @@ export default function Step4Review() {
             }
           </Form.Item>
           <Typography.Text type="secondary">
-            已接受章节使用「清理结果 + 行级决策」生成的最终文本；其余章节以原文入库。章节状态均为 cleaned。
+            {isCleanMode
+              ? '覆盖入库：已接受章节使用「清理结果 + 行级决策」生成的最终文本替换原章节正文；其余章节以原文覆盖。章节状态均为 cleaned。'
+              : '已接受章节使用「清理结果 + 行级决策」生成的最终文本；其余章节以原文入库。章节状态均为 cleaned。'}
           </Typography.Text>
         </Form>
       </Modal>

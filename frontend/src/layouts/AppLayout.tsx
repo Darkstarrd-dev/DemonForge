@@ -3,7 +3,6 @@ import {
   PoweroffOutlined,
   HomeOutlined,
   DeploymentUnitOutlined,
-  ImportOutlined,
   IdcardOutlined,
   PlayCircleOutlined,
   FileTextOutlined,
@@ -23,7 +22,6 @@ import { useAppStore, flushStoreWrites, pushSettingsNow } from '../store/appStor
 const MENU_ITEMS = [
   { key: '/', icon: <HomeOutlined />, label: '书库概览' },
   { key: '/m0', icon: <DeploymentUnitOutlined />, label: 'M0 立项·架构' },
-  { key: '/m1', icon: <ImportOutlined />, label: 'M1 文本导入' },
   { key: '/m2', icon: <IdcardOutlined />, label: 'M2 设定卡片' },
   { key: '/m3', icon: <PlayCircleOutlined />, label: 'M3 角色推演' },
   { key: '/m4', icon: <FileTextOutlined />, label: 'M4 章节生成' },

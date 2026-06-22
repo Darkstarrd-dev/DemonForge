@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { App, Button, Card, Checkbox, Form, Input, Modal, Table, Tag, Typography, Space } from 'antd'
-import { DeleteOutlined, FolderOpenOutlined, EditOutlined, DownloadOutlined } from '@ant-design/icons'
+import { DeleteOutlined, FolderOpenOutlined, EditOutlined, DownloadOutlined, ImportOutlined, ClearOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import { useAppStore } from '../../store/appStore'
 import type { Book } from '../../services/types'
@@ -116,7 +116,7 @@ export default function HomePage() {
     {
       title: '操作',
       key: 'action',
-      width: 240,
+      width: 300,
       render: (_: unknown, b: Book) => (
         <Space size={4} wrap onClick={(e) => e.stopPropagation()}>
           <Button
@@ -127,6 +127,41 @@ export default function HomePage() {
             onClick={() => navigate(`/book-reader?bookId=${b.id}`)}
           >
             打开
+          </Button>
+          <Button
+            size="small"
+            icon={<ClearOutlined />}
+            onClick={() => {
+              const bookChapters = chapters
+                .filter((c) => c.bookId === b.id)
+                .sort((a, z) => a.index - z.index)
+              if (bookChapters.length === 0) {
+                message.warning('该书暂无章节，无法清理')
+                return
+              }
+              setState({
+                importSession: {
+                  fileName: b.title,
+                  rawText: '',
+                  encoding: 'utf-8',
+                  detectedEncoding: '已入库（清理模式）',
+                  step: 2,
+                  chapters: bookChapters.map((c) => ({
+                    id: c.id,
+                    title: c.title,
+                    content: c.content,
+                    cleanStatus: 'pending' as const,
+                    cleanedContent: undefined,
+                    lineDecisions: {},
+                    retryCount: 0,
+                  })),
+                  targetBookId: b.id,
+                },
+              })
+              navigate('/m1')
+            }}
+          >
+            清理
           </Button>
           <Button size="small" icon={<DownloadOutlined />} onClick={() => exportTxt(b)}>
             导出
@@ -154,7 +189,18 @@ export default function HomePage() {
   return (
     <div style={{ maxWidth: '100%', width: '100%' }}>
       <Space direction="vertical" size={24} style={{ width: '100%' }}>
-      <Card title="书库概览">
+      <Card title="书库概览" extra={
+        <Button
+          type="primary"
+          icon={<ImportOutlined />}
+          onClick={() => {
+            setState({ importSession: null })
+            navigate('/m1')
+          }}
+        >
+          导入文件
+        </Button>
+      }>
         <Table
           rowKey="id"
           columns={columns}
@@ -170,7 +216,7 @@ export default function HomePage() {
             emptyText: (
               <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
                 书库暂无作品。可前往 <Typography.Link onClick={() => navigate('/m0')}>M0 立项·架构</Typography.Link>{' '}
-                新建一个作品，或经 <Typography.Link onClick={() => navigate('/m1')}>M1 文本导入</Typography.Link> 导入素材。
+                新建一个作品，或点击右上角「导入文件」导入素材。
               </Typography.Paragraph>
             ),
           }}

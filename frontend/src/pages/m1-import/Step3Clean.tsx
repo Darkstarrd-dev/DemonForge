@@ -31,6 +31,7 @@ import {
 } from '@ant-design/icons'
 import { useAppStore, pushImportSessionNow, type CleanRunNodeSession } from '../../store/appStore'
 import { startCleanQueue, getDefaultPrompt, type CleanNode, type CleanQueueHandle, type CleanQueueDebugEvent } from '../../services/api'
+import { useNavigate } from 'react-router-dom'
 
 interface DebugEntry {
   chapterId: string
@@ -65,6 +66,7 @@ export default function Step3Clean() {
   const screens = Grid.useBreakpoint()
   const { message } = App.useApp()
   const { token } = theme.useToken()
+  const navigate = useNavigate()
   const session = useAppStore((s) => s.importSession)
   const providers = useAppStore((s) => s.providers)
   const m1SystemPrompt = useAppStore((s) => s.m1SystemPrompt)
@@ -771,7 +773,14 @@ export default function Step3Clean() {
         <Button
           size="small"
           icon={<PlusOutlined />}
-          onClick={() => setState({ importSession: { ...useAppStore.getState().importSession!, step: 1, fileName: '' } })}
+          onClick={() => {
+            const cur = useAppStore.getState().importSession
+            if (cur?.targetBookId) {
+              navigate('/settings')
+            } else {
+              setState({ importSession: { ...cur!, step: 1, fileName: '' } })
+            }
+          }}
         >
           新增节点去设置页
         </Button>
