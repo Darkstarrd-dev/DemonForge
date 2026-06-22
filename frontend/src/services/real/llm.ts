@@ -116,8 +116,9 @@ interface ChapterTask {
 }
 
 // ── 单章 SSE 流式请求（batchSize=1 时用） ──
+// 同时被 startCleanQueue 内部调用，以及全屏阅读模式单章清理直接调用。
 
-async function streamSingleChapter(
+export async function streamSingleChapter(
   node: CleanNode,
   content: string,
   chapterId: string,

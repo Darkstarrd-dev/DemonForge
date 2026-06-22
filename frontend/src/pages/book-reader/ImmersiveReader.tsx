@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, useCallback } from 'react'
-import { App, Button, Input, Popover, Slider, Tooltip } from 'antd'
+import { App, Button, Input, Popover, Slider, Tooltip, Tag } from 'antd'
 import {
   ArrowLeftOutlined,
   UnorderedListOutlined,
@@ -19,16 +19,70 @@ import {
   DeleteOutlined,
   PlusOutlined,
   CheckOutlined,
+  SearchOutlined,
+  ThunderboltOutlined,
+  StopOutlined,
+  ReloadOutlined,
 } from '@ant-design/icons'
 import { useAppStore, pushStoreNow } from '../../store/appStore'
-import type { Chapter } from '../../services/types'
+import type { Chapter, LineDecision } from '../../services/types'
+import DiffView from '../m1-import/DiffView'
+import { alignedDiff, applyLineDecisions } from '../../utils/alignedDiff'
+import { streamSingleChapter } from '../../services/api'
+import type { CleanNode, CleanQueueCallbacks } from '../../services/api'
 import './ImmersiveReader.css'
+
+// ── Find/Replace types ──
+interface FindResult {
+  chapterId: string
+  chapterTitle: string
+  paraIdx: number
+  paraText: string
+}
+
+// ── Helpers ──
+function buildFindRegex(pattern: string, useRegex: boolean, caseSensitive: boolean): RegExp | null {
+  try {
+    const src = useRegex ? pattern : pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    return new RegExp(src, caseSensitive ? 'g' : 'gi')
+  } catch {
+    return null
+  }
+}
+
+function highlightParts(text: string, regex: RegExp | null): { text: string; hl: boolean }[] {
+  if (!regex) return [{ text, hl: false }]
+  const parts: { text: string; hl: boolean }[] = []
+  const re = new RegExp(regex.source, regex.flags)
+  let last = 0
+  let m: RegExpExecArray | null
+  while ((m = re.exec(text)) !== null) {
+    if (m.index > last) parts.push({ text: text.slice(last, m.index), hl: false })
+    parts.push({ text: m[0], hl: true })
+    last = m.index + m[0].length
+    if (m[0].length === 0) re.lastIndex++
+  }
+  if (last < text.length) parts.push({ text: text.slice(last), hl: false })
+  return parts.length > 0 ? parts : [{ text, hl: false }]
+}
+
+function buildFindResults(chapters: Chapter[], regex: RegExp): FindResult[] {
+  const out: FindResult[] = []
+  for (const ch of chapters) {
+    const paras = ch.content.split('\n')
+    for (let i = 0; i < paras.length; i++) {
+      const clone = new RegExp(regex.source, regex.flags)
+      if (clone.test(paras[i])) out.push({ chapterId: ch.id, chapterTitle: ch.title, paraIdx: i, paraText: paras[i] })
+    }
+  }
+  return out
+}
 
 interface Bookmark {
   id: string
   chapterId: string
   chapterTitle: string
-  progress: number // 0-100
+  progress: number
   createdAt: string
 }
 
@@ -41,19 +95,9 @@ interface ImmersiveReaderProps {
 
 type ReaderTheme = 'light' | 'dark'
 type LeftPanel = 'chapters' | 'bookmarks' | null
+type CleanPhase = 'selecting' | 'streaming' | 'review' | 'error'
+type ReplaceMode = 'preview' | 'apply'
 
-/**
- * 沉浸式全屏阅读器
- *
- * 交互总览：
- *  - 全屏黑/浅底正文，鼠标移到屏幕底部浮现进度条 + 工具栏
- *  - 工具栏：返回书库 / 章节列表(左侧抽屉) / 上下章(预读取) / 字体(滑条) /
- *            自动播放(逐屏) / 自动翻页(连续滚动+调速) / TTS(占位) / 编辑正文 /
- *            书签(左侧抽屉,可增删) / 主题切换 / 退出
- *  - 章节与书签均从左侧滑出面板；章节面板内可改章节名
- *
- * 写入复用 store：updateChapter + pushStoreNow（与原 book-reader 一致）。
- */
 export default function ImmersiveReader({
   chapters,
   initialChapterId,
@@ -63,13 +107,18 @@ export default function ImmersiveReader({
   const { message } = App.useApp()
   const updateChapter = useAppStore((s) => s.updateChapter)
   const globalTheme = useAppStore((s) => s.theme)
+  const providers = useAppStore((s) => s.providers)
+  const m1SystemPrompt = useAppStore((s) => s.m1SystemPrompt)
+  const consumeProviderUsage = useAppStore((s) => s.consumeProviderUsage)
 
   const readerRef = useRef<HTMLDivElement>(null)
   const contentRef = useRef<HTMLDivElement>(null)
-  // 章节跳转后要恢复到的进度（书签跳转用）；null 表示回到顶部
   const pendingProgressRef = useRef<number | null>(null)
-  const scrollAccRef = useRef(0) // 连续滚动的小数像素累加
+  const pendingParaRef = useRef<number | null>(null)
+  const scrollAccRef = useRef(0)
+  const cleanAbortRef = useRef<AbortController | null>(null)
 
+  // ── Reading state ──
   const [currentId, setCurrentId] = useState(initialChapterId)
   const [fontSize, setFontSize] = useState(() => {
     const v = Number(localStorage.getItem('imm-font-size'))
@@ -82,42 +131,71 @@ export default function ImmersiveReader({
     const v = Number(localStorage.getItem('imm-scroll-speed'))
     return v >= 1 && v <= 10 ? v : 3
   })
-
+  const [playSpeed, setPlaySpeed] = useState(() => {
+    const v = Number(localStorage.getItem('imm-play-speed'))
+    return v >= 1 && v <= 10 ? v : 8
+  })
   const [progress, setProgress] = useState(0)
   const [hovering, setHovering] = useState(false)
   const [leftPanel, setLeftPanel] = useState<LeftPanel>(null)
   const [fontOpen, setFontOpen] = useState(false)
   const [speedOpen, setSpeedOpen] = useState(false)
-
-  const [isAutoPlaying, setIsAutoPlaying] = useState(false) // 逐屏翻页
-  const [isAutoScrolling, setIsAutoScrolling] = useState(false) // 连续滚动
-
+  const [playOpen, setPlayOpen] = useState(false)
+  const [isAutoPlaying, setIsAutoPlaying] = useState(false)
+  const [isAutoScrolling, setIsAutoScrolling] = useState(false)
   const [editingContent, setEditingContent] = useState<string | null>(null)
   const [titleDraft, setTitleDraft] = useState<{ id: string; title: string } | null>(null)
-
   const [bookmarks, setBookmarks] = useState<Bookmark[]>(() => {
-    try {
-      return JSON.parse(localStorage.getItem(`imm-bm-${bookId}`) || '[]')
-    } catch {
-      return []
-    }
+    try { return JSON.parse(localStorage.getItem(`imm-bm-${bookId}`) || '[]') } catch { return [] }
   })
 
+  // ── Find/Replace state ──
+  const [findOpen, setFindOpen] = useState(false)
+  const [findText, setFindText] = useState('')
+  const [replaceText, setReplaceText] = useState('')
+  const [useRegex, setUseRegex] = useState(false)
+  const [caseSensitive, setCaseSensitive] = useState(false)
+  const [replaceMode, setReplaceMode] = useState<ReplaceMode>('preview')
+  const [findWindowStart, setFindWindowStart] = useState(0)
+  const PAGE_SIZE = 30
+
+  // ── Single-chapter AI Clean state ──
+  const [cleanChapterId, setCleanChapterId] = useState<string | null>(null)
+  const [cleanPhase, setCleanPhase] = useState<CleanPhase>('selecting')
+  const [cleanedContent, setCleanedContent] = useState<string | null>(null)
+  const [liveAcc, setLiveAcc] = useState('')
+  const [lineDecisions, setLineDecisions] = useState<Record<number, LineDecision>>({})
+  const [cleanError, setCleanError] = useState<string | null>(null)
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
+
+  // ── Computed ──
   const currentIndex = chapters.findIndex((c) => c.id === currentId)
   const current = chapters[currentIndex] ?? chapters[0] ?? null
   const prevChapter = currentIndex > 0 ? chapters[currentIndex - 1] : null
-  const nextChapter =
-    currentIndex >= 0 && currentIndex < chapters.length - 1 ? chapters[currentIndex + 1] : null
+  const nextChapter = currentIndex >= 0 && currentIndex < chapters.length - 1 ? chapters[currentIndex + 1] : null
+  const cleanChapter = cleanChapterId ? chapters.find((c) => c.id === cleanChapterId) : null
+  const readerMode: 'read' | 'clean' = cleanChapterId ? 'clean' : 'read'
 
-  // ---- 持久化 ----
+  // ── Find regex ──
+  const findRegex = useMemo(
+    () => (findText.trim() ? buildFindRegex(findText, useRegex, caseSensitive) : null),
+    [findText, useRegex, caseSensitive],
+  )
+  const findResults = useMemo(
+    () => (findRegex ? buildFindResults(chapters, findRegex) : []),
+    [chapters, findRegex],
+  )
+
+  // ── Persistence effects ──
   useEffect(() => void localStorage.setItem('imm-font-size', String(fontSize)), [fontSize])
   useEffect(() => void localStorage.setItem('imm-theme', theme), [theme])
   useEffect(() => void localStorage.setItem('imm-scroll-speed', String(scrollSpeed)), [scrollSpeed])
+  useEffect(() => void localStorage.setItem('imm-play-speed', String(playSpeed)), [playSpeed])
   useEffect(() => {
     localStorage.setItem(`imm-bm-${bookId}`, JSON.stringify(bookmarks))
   }, [bookmarks, bookId])
 
-  // ---- 进度计算 ----
+  // ── Progress ──
   const recalcProgress = useCallback(() => {
     const el = contentRef.current
     if (!el) return
@@ -126,27 +204,32 @@ export default function ImmersiveReader({
   }, [])
 
   useEffect(() => {
+    if (readerMode !== 'read') return
     const el = contentRef.current
     if (!el) return
     el.addEventListener('scroll', recalcProgress, { passive: true })
     return () => el.removeEventListener('scroll', recalcProgress)
-  }, [recalcProgress])
+  }, [recalcProgress, readerMode])
 
-  // ---- 切章后定位（顶部 / 书签进度），useLayoutEffect 避免闪烁 ----
   useLayoutEffect(() => {
+    if (readerMode !== 'read') return
     const el = contentRef.current
     if (!el) return
     if (pendingProgressRef.current != null) {
       const max = el.scrollHeight - el.clientHeight
       el.scrollTop = max > 0 ? (pendingProgressRef.current / 100) * max : 0
       pendingProgressRef.current = null
+    } else if (pendingParaRef.current != null) {
+      const paraEl = el.querySelector(`[data-para-idx="${pendingParaRef.current}"]`)
+      if (paraEl) paraEl.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      pendingParaRef.current = null
     } else {
       el.scrollTop = 0
     }
     recalcProgress()
-  }, [currentId, recalcProgress])
+  }, [currentId, recalcProgress, readerMode])
 
-  // ---- 章节切换 ----
+  // ── Navigation ──
   const goToChapter = useCallback((id: string, opts?: { keepAuto?: boolean }) => {
     setCurrentId(id)
     if (!opts?.keepAuto) {
@@ -162,9 +245,9 @@ export default function ImmersiveReader({
     if (currentIndex < chapters.length - 1) goToChapter(chapters[currentIndex + 1].id)
   }, [currentIndex, chapters, goToChapter])
 
-  // ---- 自动播放（逐屏，每 3 秒翻一屏）----
+  // ── Auto-play / auto-scroll ──
   useEffect(() => {
-    if (!isAutoPlaying) return
+    if (!isAutoPlaying || readerMode !== 'read') return
     const timer = window.setInterval(() => {
       const el = contentRef.current
       if (!el) return
@@ -175,13 +258,12 @@ export default function ImmersiveReader({
       } else {
         el.scrollBy({ top: el.clientHeight * 0.9, behavior: 'smooth' })
       }
-    }, 3000)
+    }, (11 - playSpeed) * 1000)
     return () => clearInterval(timer)
-  }, [isAutoPlaying, currentIndex, chapters, goToChapter])
+  }, [isAutoPlaying, playSpeed, currentIndex, chapters, goToChapter, readerMode])
 
-  // ---- 自动翻页（连续滚动，rAF）----
   useEffect(() => {
-    if (!isAutoScrolling) return
+    if (!isAutoScrolling || readerMode !== 'read') return
     let raf = 0
     const pxPerFrame = scrollSpeed * 0.4
     const step = () => {
@@ -191,7 +273,7 @@ export default function ImmersiveReader({
         if (el.scrollTop >= max - 1) {
           if (currentIndex < chapters.length - 1) {
             goToChapter(chapters[currentIndex + 1].id, { keepAuto: true })
-            return // 切章后本 effect 会重建，停止当前循环
+            return
           } else {
             setIsAutoScrolling(false)
             return
@@ -208,7 +290,7 @@ export default function ImmersiveReader({
     }
     raf = requestAnimationFrame(step)
     return () => cancelAnimationFrame(raf)
-  }, [isAutoScrolling, scrollSpeed, currentIndex, chapters, goToChapter])
+  }, [isAutoScrolling, scrollSpeed, currentIndex, chapters, goToChapter, readerMode])
 
   const toggleAutoPlay = () => {
     setIsAutoPlaying((v) => !v)
@@ -219,30 +301,16 @@ export default function ImmersiveReader({
     setIsAutoPlaying(false)
   }
 
-  // ---- 工具栏显隐：靠近底部或有面板/弹层打开时显示 ----
+  // ── Toolbar visibility ──
   useEffect(() => {
     const onMove = (e: MouseEvent) => setHovering(e.clientY > window.innerHeight - 170)
     window.addEventListener('mousemove', onMove)
     return () => window.removeEventListener('mousemove', onMove)
   }, [])
-  const pinned = leftPanel !== null || fontOpen || speedOpen
+  const pinned = leftPanel !== null || fontOpen || speedOpen || playOpen || findOpen || readerMode === 'clean'
   const showControls = hovering || pinned
 
-  // ---- 键盘：Esc 退出 / 左右切章 ----
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (editingContent !== null || titleDraft) return
-      if (e.key === 'Escape') {
-        if (leftPanel) setLeftPanel(null)
-        else onExit()
-      } else if (e.key === 'ArrowLeft') goPrev()
-      else if (e.key === 'ArrowRight') goNext()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [editingContent, titleDraft, leftPanel, onExit, goPrev, goNext])
-
-  // ---- 进度条点击跳转 ----
+  // ── Progress bar seek ──
   const seek = (e: React.MouseEvent<HTMLDivElement>) => {
     const el = contentRef.current
     if (!el) return
@@ -253,7 +321,7 @@ export default function ImmersiveReader({
     setIsAutoScrolling(false)
   }
 
-  // ---- 书签 ----
+  // ── Bookmarks ──
   const addBookmark = () => {
     if (!current) return
     const bm: Bookmark = {
@@ -280,7 +348,7 @@ export default function ImmersiveReader({
     setLeftPanel(null)
   }
 
-  // ---- 编辑正文 ----
+  // ── Edit content ──
   const startEditContent = () => current && setEditingContent(current.content)
   const saveContent = () => {
     if (!current || editingContent === null) return
@@ -290,7 +358,7 @@ export default function ImmersiveReader({
     message.success('正文已保存')
   }
 
-  // ---- 编辑章节名（在章节面板内）----
+  // ── Edit title ──
   const saveTitle = () => {
     if (!titleDraft) return
     updateChapter(titleDraft.id, { title: titleDraft.title })
@@ -299,31 +367,258 @@ export default function ImmersiveReader({
     message.success('章节标题已保存')
   }
 
-  // 正文渲染独立 memo：滚动驱动的 progress 变化不重排大段文字
-  const contentBody = useMemo(
-    () => (
-      <div className="immersive-content-inner" style={{ fontSize, lineHeight: 1.85 }}>
-        <h1 className="immersive-title">{current?.title}</h1>
-        <div className="immersive-text">{current?.content}</div>
+  // ── Find/Replace logic ──
+  const jumpToFindResult = (r: FindResult) => {
+    if (r.chapterId !== currentId) {
+      pendingParaRef.current = r.paraIdx
+      goToChapter(r.chapterId)
+    } else {
+      pendingParaRef.current = r.paraIdx
+      const el = contentRef.current
+      if (el) {
+        const paraEl = el.querySelector(`[data-para-idx="${r.paraIdx}"]`)
+        if (paraEl) paraEl.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      }
+    }
+  }
+
+  const doReplaceAll = () => {
+    if (!findRegex) return
+    const chapterIds = [...new Set(findResults.map((r) => r.chapterId))]
+    for (const chId of chapterIds) {
+      const ch = chapters.find((c) => c.id === chId)
+      if (!ch) continue
+      updateChapter(chId, { content: ch.content.replace(findRegex, replaceText), updatedAt: new Date().toISOString() })
+    }
+    pushStoreNow()
+    message.success(`已替换 ${chapterIds.length} 个章节中的匹配项`)
+  }
+
+  // ── Clean mode logic ──
+  const exitCleanMode = useCallback(() => {
+    cleanAbortRef.current?.abort()
+    setCleanChapterId(null)
+    setLeftPanel(null)
+  }, [])
+
+  const enterCleanMode = (chId: string) => {
+    setCleanChapterId(chId)
+    setCleanPhase('selecting')
+    setCleanedContent(null)
+    setLiveAcc('')
+    setLineDecisions({})
+    setCleanError(null)
+    setSelectedNodeId(null)
+    setLeftPanel('chapters')
+  }
+
+  const startClean = async () => {
+    if (!cleanChapter || !selectedNodeId) return
+    const node = providers.find((p) => p.id === selectedNodeId)
+    if (!node) { message.error('节点不存在'); return }
+    if (!consumeProviderUsage(node.id)) { message.error('该节点今日额度已用完'); return }
+
+    const cleanNode: CleanNode = {
+      id: node.id, name: node.name, baseURL: node.baseURL, apiKey: node.apiKey || undefined,
+      model: node.model, maxConcurrency: 1, batchChars: 999999, intervalSec: 0,
+    }
+
+    const ac = new AbortController()
+    cleanAbortRef.current = ac
+    setCleanPhase('streaming')
+    setLiveAcc('')
+    setCleanError(null)
+    setCleanedContent(null)
+    setLineDecisions({})
+
+    const cb: CleanQueueCallbacks = {
+      onStart: () => {},
+      onChunk: (_id, acc) => setLiveAcc(acc),
+      onDone: (_id, cleaned) => {
+        setCleanedContent(cleaned)
+        setCleanPhase('review')
+        setLiveAcc('')
+      },
+      onError: () => {},
+      onFinish: () => {},
+    }
+
+    try {
+      await streamSingleChapter(cleanNode, cleanChapter.content, cleanChapter.id, cb, ac.signal, m1SystemPrompt || undefined)
+    } catch (e) {
+      if (ac.signal.aborted) return
+      setCleanPhase('error')
+      setCleanError(e instanceof Error ? e.message : String(e))
+    }
+  }
+
+  const cancelClean = () => {
+    cleanAbortRef.current?.abort()
+    setCleanPhase('selecting')
+    setLiveAcc('')
+  }
+
+  const acceptClean = () => {
+    if (!cleanChapter || !cleanedContent) return
+    const rows = alignedDiff(cleanChapter.content, cleanedContent)
+    const finalText = applyLineDecisions(rows, lineDecisions)
+    updateChapter(cleanChapter.id, { content: finalText, updatedAt: new Date().toISOString() })
+    pushStoreNow()
+    message.success('已接受清理结果')
+    exitCleanMode()
+  }
+
+  const rejectClean = () => {
+    exitCleanMode()
+  }
+
+  const retryClean = () => {
+    setCleanPhase('selecting')
+    setCleanedContent(null)
+    setLiveAcc('')
+    setLineDecisions({})
+    setCleanError(null)
+    setSelectedNodeId(null)
+  }
+
+  const onLineDecide = (idx: number, decision: LineDecision | null) => {
+    setLineDecisions((prev) => {
+      if (decision === null) {
+        const next = { ...prev }
+        delete next[idx]
+        return next
+      }
+      return { ...prev, [idx]: decision }
+    })
+  }
+
+  // ── Keyboard ──
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (editingContent !== null || titleDraft) return
+      if (e.key === 'Escape') {
+        if (readerMode === 'clean') {
+          if (cleanPhase === 'streaming') {
+            cleanAbortRef.current?.abort()
+            setCleanPhase('selecting')
+            setLiveAcc('')
+            setCleanError('已取消')
+          } else {
+            exitCleanMode()
+          }
+        } else if (leftPanel) {
+          setLeftPanel(null)
+        } else {
+          onExit()
+        }
+      } else if (e.key === 'ArrowLeft' && readerMode === 'read') goPrev()
+      else if (e.key === 'ArrowRight' && readerMode === 'read') goNext()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [editingContent, titleDraft, leftPanel, onExit, goPrev, goNext, readerMode, cleanPhase, exitCleanMode])
+
+  // ── Content rendering ──
+  const contentBody = useMemo(() => {
+    if (!current) return null
+    const textBody = findOpen && findRegex ? (
+      <div className="immersive-text-para">
+        {current.content.split('\n').map((p, i) => {
+          const parts = highlightParts(p, findRegex)
+          return (
+            <p key={i} data-para-idx={i}>
+              {parts.map((pt, j) =>
+                pt.hl ? <mark key={j} className="imm-find-hl">{pt.text}</mark> : pt.text,
+              )}
+            </p>
+          )
+        })}
       </div>
-    ),
-    [current?.id, current?.title, current?.content, fontSize],
+    ) : (
+      <div className="immersive-text">{current.content}</div>
+    )
+
+    return (
+      <div className="immersive-content-inner" style={{ fontSize, lineHeight: 1.85 }}>
+        <h1 className="immersive-title">{current.title}</h1>
+        {textBody}
+      </div>
+    )
+  }, [current, fontSize, findOpen, findRegex])
+
+  // ── Content body for reading vs clean mode ──
+  const readingContent = (
+    <div ref={contentRef} className="immersive-content">
+      {contentBody}
+    </div>
   )
+
+  const cleanContent = cleanChapter ? (
+    <div className="imm-clean-wrapper">
+      <div className="imm-dual-pane">
+        <div className="imm-clean-left">
+          <div className="imm-clean-pane-head">原文</div>
+          <div className="imm-clean-pane-body">
+            <div style={{ whiteSpace: 'pre-wrap', fontSize: Math.max(13, fontSize - 2), lineHeight: 1.6 }}>
+              {cleanChapter.content}
+            </div>
+          </div>
+        </div>
+        <div className="imm-clean-right">
+          <div className="imm-clean-pane-head">审阅后</div>
+          <div className="imm-clean-pane-body">
+            {cleanPhase === 'streaming' && (
+              <div className="imm-clean-stream">
+                <pre style={{ whiteSpace: 'pre-wrap', fontSize: Math.max(13, fontSize - 2), lineHeight: 1.6, margin: 0 }}>
+                  {liveAcc || '等待响应…'}
+                </pre>
+              </div>
+            )}
+            {cleanPhase === 'review' && cleanedContent && (
+              <DiffView
+                original={cleanChapter.content}
+                cleaned={cleanedContent}
+                decisions={lineDecisions}
+                onDecide={onLineDecide}
+                autoScrollToFirstDiff
+              />
+            )}
+            {cleanPhase === 'error' && (
+              <div style={{ padding: 24, color: 'var(--imm-muted)', textAlign: 'center' }}>
+                <div style={{ marginBottom: 12, color: '#ff4d4f' }}>清理失败：{cleanError || '未知错误'}</div>
+                <Button size="small" icon={<ReloadOutlined />} onClick={retryClean}>重选节点</Button>
+              </div>
+            )}
+            {cleanPhase === 'selecting' && (
+              <div style={{ padding: 24, color: 'var(--imm-muted)', textAlign: 'center' }}>
+                请在左侧面板选择清理节点
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  ) : null
+
+  // ── Left panel override for clean mode ──
+  const effectiveLeftPanel = readerMode === 'clean' ? 'chapters' : leftPanel
+
+  // ── Find result pagination ──
+  const findWindowEnd = Math.min(findWindowStart + PAGE_SIZE, findResults.length)
+  const findPage = findResults.slice(findWindowStart, findWindowEnd)
 
   const popClass = `imm-pop imm-pop-${theme}`
 
   return (
-    <div ref={readerRef} className={`immersive-reader theme-${theme}`}>
-      {/* 预读取相邻章节：隐藏渲染，预热 CJK 字形/布局，切章近乎无延迟 */}
+    <div ref={readerRef} className={`immersive-reader theme-${theme}${readerMode === 'clean' ? ' imm-clean-active' : ''}`}>
+      {/* 预读取隐藏层 */}
       <div className="immersive-preload" aria-hidden style={{ fontSize }}>
         {prevChapter && <div className="immersive-text">{prevChapter.content}</div>}
         {nextChapter && <div className="immersive-text">{nextChapter.content}</div>}
       </div>
 
-      {/* 正文滚动区 */}
-      <div ref={contentRef} className="immersive-content">
-        {contentBody}
-      </div>
+      {/* 正文区：阅读模式 / 清理对比模式 */}
+      {readerMode === 'clean' ? cleanContent : readingContent}
 
       {/* 编辑正文浮层 */}
       {editingContent !== null && (
@@ -331,9 +626,7 @@ export default function ImmersiveReader({
           <div className="imm-edit-head">
             <span className="imm-edit-title">编辑正文 · {current?.title}</span>
             <span style={{ flex: 1 }} />
-            <Button type="primary" icon={<CheckOutlined />} onClick={saveContent}>
-              保存
-            </Button>
+            <Button type="primary" icon={<CheckOutlined />} onClick={saveContent}>保存</Button>
             <Button onClick={() => setEditingContent(null)}>取消</Button>
           </div>
           <Input.TextArea
@@ -345,31 +638,108 @@ export default function ImmersiveReader({
         </div>
       )}
 
-      {/* 左侧滑出面板（章节 / 书签） */}
-      {leftPanel && (
+      {/* 左侧滑出面板 */}
+      {effectiveLeftPanel && (
         <>
-          <div className="imm-panel-backdrop" onClick={() => setLeftPanel(null)} />
+          {readerMode !== 'clean' && <div className="imm-panel-backdrop" onClick={() => setLeftPanel(null)} />}
           <div className="imm-panel">
             <div className="imm-panel-head">
               <span className="imm-panel-title">
-                {leftPanel === 'chapters' ? `章节列表（${chapters.length}）` : `书签（${bookmarks.length}）`}
+                {readerMode === 'clean'
+                  ? `AI 清理 · ${cleanChapter?.title ?? ''}`
+                  : leftPanel === 'chapters'
+                    ? `章节列表（${chapters.length}）`
+                    : `书签（${bookmarks.length}）`}
               </span>
-              {leftPanel === 'bookmarks' && (
-                <Button size="small" type="primary" icon={<PlusOutlined />} onClick={addBookmark}>
-                  添加当前位置
-                </Button>
+              {readerMode !== 'clean' && leftPanel === 'bookmarks' && (
+                <Button size="small" type="primary" icon={<PlusOutlined />} onClick={addBookmark}>添加当前位置</Button>
               )}
-              <Button
-                size="small"
-                type="text"
-                icon={<CloseOutlined />}
-                className="imm-panel-close"
-                onClick={() => setLeftPanel(null)}
-              />
+              {readerMode !== 'clean' && (
+                <Button size="small" type="text" icon={<CloseOutlined />} className="imm-panel-close" onClick={() => setLeftPanel(null)} />
+              )}
             </div>
 
             <div className="imm-panel-body">
-              {leftPanel === 'chapters' &&
+              {/* Clean mode panel content */}
+              {readerMode === 'clean' && (
+                <div className="imm-clean-panel">
+                  {/* Review phase: accept/reject controls */}
+                  {cleanPhase === 'review' && (
+                    <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--imm-border)' }}>
+                      <div style={{ marginBottom: 10, fontSize: 13, color: 'var(--imm-muted)' }}>
+                        审阅下方对比结果，逐行决定接受或拒绝。
+                      </div>
+                      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                        <Button type="primary" icon={<CheckOutlined />} onClick={acceptClean}>接受</Button>
+                        <Button danger icon={<CloseOutlined />} onClick={rejectClean}>拒绝</Button>
+                        <Button icon={<ReloadOutlined />} onClick={retryClean}>重新清理</Button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Streaming phase: progress */}
+                  {cleanPhase === 'streaming' && (
+                    <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--imm-border)' }}>
+                      <div style={{ fontSize: 13, color: 'var(--imm-accent)', marginBottom: 8 }}>
+                        正在清理…{liveAcc ? `（已收到 ${liveAcc.length} 字符）` : ''}
+                      </div>
+                      <Button size="small" danger icon={<StopOutlined />} onClick={cancelClean}>取消</Button>
+                    </div>
+                  )}
+
+                  {/* Error phase */}
+                  {cleanPhase === 'error' && (
+                    <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--imm-border)' }}>
+                      <div style={{ fontSize: 13, color: '#ff4d4f', marginBottom: 8 }}>
+                        {cleanError || '清理失败，请重试'}
+                      </div>
+                      <Button size="small" icon={<ReloadOutlined />} onClick={retryClean}>重选节点</Button>
+                    </div>
+                  )}
+
+                  {/* Node list (selecting / streaming / error) */}
+                  {(cleanPhase === 'selecting' || cleanPhase === 'streaming' || cleanPhase === 'error') && (
+                    <div style={{ padding: '8px 0' }}>
+                      <div style={{ padding: '8px 16px', fontSize: 13, color: 'var(--imm-muted)', marginBottom: 4 }}>
+                        选择清理节点：
+                      </div>
+                      {providers.filter((p) => p.enabled).map((node) => {
+                        const disabled = cleanPhase !== 'selecting'
+                        const active = selectedNodeId === node.id
+                        return (
+                          <div
+                            key={node.id}
+                            className={`imm-node-item${active ? ' active' : ''}${disabled ? ' disabled' : ''}`}
+                            onClick={() => {
+                              if (disabled) return
+                              setSelectedNodeId(node.id)
+                              startClean()
+                            }}
+                          >
+                            <span className="imm-node-name">{node.name}</span>
+                            <span className="imm-node-model">{node.model}</span>
+                          </div>
+                        )
+                      })}
+                      {providers.filter((p) => p.enabled).length === 0 && (
+                        <div style={{ padding: 16, color: 'var(--imm-muted)', fontSize: 13, textAlign: 'center' }}>
+                          暂无已启用的 Provider 节点。<br />请先在设置中配置并测试。
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Back to reading */}
+                  <div style={{ padding: '12px 16px', borderTop: '1px solid var(--imm-border)' }}>
+                    <Button size="small" type="text" icon={<CloseOutlined />} onClick={exitCleanMode} block>
+                      退出清理模式
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              {/* Normal chapters list */}
+              {readerMode !== 'clean' && leftPanel === 'chapters' &&
                 chapters.map((c, i) => {
                   const editing = titleDraft?.id === c.id
                   const active = c.id === currentId
@@ -392,12 +762,8 @@ export default function ImmersiveReader({
                             onChange={(e) => setTitleDraft({ id: c.id, title: e.target.value })}
                             onPressEnter={saveTitle}
                           />
-                          <Button size="small" type="primary" onClick={saveTitle}>
-                            存
-                          </Button>
-                          <Button size="small" onClick={() => setTitleDraft(null)}>
-                            消
-                          </Button>
+                          <Button size="small" type="primary" onClick={saveTitle}>存</Button>
+                          <Button size="small" onClick={() => setTitleDraft(null)}>消</Button>
                         </div>
                       ) : (
                         <>
@@ -414,13 +780,26 @@ export default function ImmersiveReader({
                               setTitleDraft({ id: c.id, title: c.title })
                             }}
                           />
+                          <Tooltip title="AI 清理本章">
+                            <Button
+                              size="small"
+                              type="text"
+                              className="imm-chapter-clean"
+                              icon={<ThunderboltOutlined />}
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                enterCleanMode(c.id)
+                              }}
+                            />
+                          </Tooltip>
                         </>
                       )}
                     </div>
                   )
                 })}
 
-              {leftPanel === 'bookmarks' &&
+              {/* Normal bookmarks list */}
+              {readerMode !== 'clean' && leftPanel === 'bookmarks' &&
                 (bookmarks.length === 0 ? (
                   <div className="imm-empty">暂无书签，点上方「添加当前位置」</div>
                 ) : (
@@ -437,10 +816,7 @@ export default function ImmersiveReader({
                         type="text"
                         danger
                         icon={<DeleteOutlined />}
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          deleteBookmark(bm.id)
-                        }}
+                        onClick={(e) => { e.stopPropagation(); deleteBookmark(bm.id) }}
                       />
                     </div>
                   ))
@@ -450,140 +826,242 @@ export default function ImmersiveReader({
         </>
       )}
 
+      {/* 查找替换面板 */}
+      {findOpen && (
+        <div className="imm-find-panel">
+          <div className="imm-find-row">
+            <Input
+              className="imm-find-input"
+              placeholder={useRegex ? '正则表达式 · 例如：第[一二三四五六七八九十]章' : '查找文本'}
+              value={findText}
+              onChange={(e) => { setFindText(e.target.value); setFindWindowStart(0) }}
+              allowClear
+              autoFocus
+              prefix={<SearchOutlined style={{ color: 'var(--imm-muted)' }} />}
+            />
+            <Tooltip title="区分大小写">
+              <Button
+                size="small"
+                type={caseSensitive ? 'primary' : 'text'}
+                className="imm-find-opt"
+                onClick={() => { setCaseSensitive((v) => !v); setFindWindowStart(0) }}
+              >Aa</Button>
+            </Tooltip>
+            <Tooltip title="正则表达式模式">
+              <Button
+                size="small"
+                type={useRegex ? 'primary' : 'text'}
+                className="imm-find-opt"
+                onClick={() => { setUseRegex((v) => !v); setFindWindowStart(0) }}
+              >.*</Button>
+            </Tooltip>
+            <span className="imm-find-stat">
+              {findRegex
+                ? `匹配 ${findResults.length} 处 / ${new Set(findResults.map((r) => r.chapterId)).size} 章`
+                : findText.trim() ? '正则无效' : '输入以开始查找'}
+            </span>
+          </div>
+
+          <div className="imm-find-row">
+            <Input
+              className="imm-find-input"
+              placeholder={useRegex ? '替换文本 · 支持 $1/$2 捕获组' : '替换为'}
+              value={replaceText}
+              onChange={(e) => setReplaceText(e.target.value)}
+              allowClear
+            />
+            <Tooltip title={replaceMode === 'preview' ? '预览模式：仅显示替换结果' : '实际修改：写入文本'}>
+              <Button
+                size="small"
+                type={replaceMode === 'apply' ? 'primary' : 'text'}
+                className="imm-find-opt"
+                onClick={() => setReplaceMode((m) => (m === 'preview' ? 'apply' : 'preview'))}
+              >
+                {replaceMode === 'preview' ? '预览' : '修改'}
+              </Button>
+            </Tooltip>
+            {replaceMode === 'apply' && findRegex && replaceText && findResults.length > 0 && (
+              <Button size="small" type="primary" onClick={doReplaceAll}>全部替换</Button>
+            )}
+          </div>
+
+          {findResults.length > 0 && (
+            <>
+              <div className="imm-find-list-head">
+                <span>
+                  第 {findWindowStart + 1}–{findWindowEnd} 条 / 共 {findResults.length} 条
+                </span>
+                <span style={{ display: 'flex', gap: 4 }}>
+                  <Button size="small" disabled={findWindowStart === 0} onClick={() => setFindWindowStart((w) => Math.max(0, w - PAGE_SIZE))}>上一批</Button>
+                  <Button size="small" disabled={findWindowEnd >= findResults.length} onClick={() => setFindWindowStart((w) => w + PAGE_SIZE)}>下一批</Button>
+                </span>
+              </div>
+              <div
+                className="imm-find-list"
+                onScroll={(e) => {
+                  const el = e.currentTarget
+                  if (el.scrollTop + el.clientHeight >= el.scrollHeight - 30 && findWindowEnd < findResults.length) {
+                    setFindWindowStart((w) => w + PAGE_SIZE)
+                  }
+                }}
+              >
+                {findPage.map((r, fi) => {
+                  const displayText = replaceMode === 'preview' && findRegex && replaceText
+                    ? r.paraText.replace(findRegex, replaceText)
+                    : r.paraText
+                  const parts = replaceMode === 'preview'
+                    ? highlightParts(displayText, null) // no highlight in preview mode
+                    : highlightParts(r.paraText, findRegex)
+                  return (
+                    <div
+                      key={`${findWindowStart + fi}`}
+                      className="imm-find-item"
+                      onClick={() => jumpToFindResult(r)}
+                    >
+                      <div className="imm-find-item-head">
+                        <Tag>{r.chapterTitle}</Tag>
+                        <span className="imm-find-item-idx">段 {r.paraIdx + 1}</span>
+                        {replaceMode === 'preview' && findRegex && replaceText && (
+                          <Tag color="purple">预览</Tag>
+                        )}
+                      </div>
+                      <div className="imm-find-item-text">
+                        {parts.map((p, j) =>
+                          p.hl ? <mark key={j} className="imm-find-hl">{p.text}</mark> : p.text,
+                        )}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
       {/* 底部控制栏 */}
       <div className={`immersive-controls${showControls ? ' visible' : ''}`}>
-        <div className="immersive-progress-bar" onClick={seek}>
-          <div className="immersive-progress-fill" style={{ width: `${progress}%` }} />
-          <div className="immersive-progress-label">
-            {currentIndex + 1}/{chapters.length} · {progress}%
+        {readerMode === 'read' && (
+          <div className="immersive-progress-bar" onClick={seek}>
+            <div className="immersive-progress-fill" style={{ width: `${progress}%` }} />
+            <div className="immersive-progress-label">
+              {currentIndex + 1}/{chapters.length} · {progress}%
+            </div>
           </div>
-        </div>
+        )}
 
         <div className="immersive-toolbar">
-          {/* 左：返回 + 章节导航 */}
           <div className="toolbar-section">
             <Tooltip title="返回书库">
               <Button type="text" className="toolbar-btn" icon={<ArrowLeftOutlined />} onClick={onExit} />
             </Tooltip>
-            <Button
-              type="text"
-              className="toolbar-btn"
-              icon={<UnorderedListOutlined />}
-              onClick={() => setLeftPanel((p) => (p === 'chapters' ? null : 'chapters'))}
-            >
-              章节
-            </Button>
-            <Tooltip title="上一章">
+            {readerMode === 'clean' ? (
+              <Tooltip title="清理控制面板">
+                <Button type="text" className="toolbar-btn" icon={<ThunderboltOutlined />}>
+                  清理中
+                </Button>
+              </Tooltip>
+            ) : (
               <Button
                 type="text"
                 className="toolbar-btn"
-                icon={<LeftOutlined />}
-                disabled={currentIndex <= 0}
-                onClick={goPrev}
-              />
-            </Tooltip>
-            <Tooltip title="下一章">
+                icon={<UnorderedListOutlined />}
+                onClick={() => setLeftPanel((p) => (p === 'chapters' ? null : 'chapters'))}
+              >
+                章节
+              </Button>
+            )}
+            {readerMode === 'read' && (
+              <>
+                <Tooltip title="上一章">
+                  <Button type="text" className="toolbar-btn" icon={<LeftOutlined />} disabled={currentIndex <= 0} onClick={goPrev} />
+                </Tooltip>
+                <Tooltip title="下一章">
+                  <Button type="text" className="toolbar-btn" icon={<RightOutlined />} disabled={currentIndex >= chapters.length - 1} onClick={goNext} />
+                </Tooltip>
+              </>
+            )}
+          </div>
+
+          {readerMode === 'read' && (
+            <div className="toolbar-section">
+              <Popover
+                trigger="click"
+                placement="top"
+                rootClassName={popClass}
+                open={fontOpen}
+                onOpenChange={setFontOpen}
+                content={
+                  <div className="imm-slider-pop">
+                    <div className="imm-slider-label">字体大小 {fontSize}px</div>
+                    <Slider min={14} max={40} value={fontSize} onChange={setFontSize} style={{ width: 220 }} />
+                  </div>
+                }
+              >
+                <Button type="text" className="toolbar-btn" icon={<FontSizeOutlined />}>字体</Button>
+              </Popover>
+              <Popover
+                trigger="hover"
+                placement="top"
+                rootClassName={popClass}
+                onOpenChange={setPlayOpen}
+                content={
+                  <div className="imm-slider-pop">
+                    <div className="imm-slider-label">翻页速度 {playSpeed}</div>
+                    <Slider min={1} max={10} value={playSpeed} onChange={setPlaySpeed} style={{ width: 200 }} />
+                  </div>
+                }
+              >
+                <Button
+                  type="text"
+                  className={`toolbar-btn${isAutoPlaying ? ' on' : ''}`}
+                  icon={isAutoPlaying ? <PauseCircleOutlined /> : <PlayCircleOutlined />}
+                  onClick={toggleAutoPlay}
+                >自动播放</Button>
+              </Popover>
+              <Popover
+                trigger="hover"
+                placement="top"
+                rootClassName={popClass}
+                onOpenChange={setSpeedOpen}
+                content={
+                  <div className="imm-slider-pop">
+                    <div className="imm-slider-label">滚动速度 {scrollSpeed}</div>
+                    <Slider min={1} max={10} value={scrollSpeed} onChange={setScrollSpeed} style={{ width: 200 }} />
+                  </div>
+                }
+              >
+                <Button
+                  type="text"
+                  className={`toolbar-btn${isAutoScrolling ? ' on' : ''}`}
+                  icon={isAutoScrolling ? <PauseOutlined /> : <VerticalAlignBottomOutlined />}
+                  onClick={toggleAutoScroll}
+                >自动翻页</Button>
+              </Popover>
+              <Tooltip title="语音朗读（即将上线）">
+                <Button type="text" className="toolbar-btn" icon={<SoundOutlined />} disabled>TTS</Button>
+              </Tooltip>
+              <Button type="text" className="toolbar-btn" icon={<EditOutlined />} onClick={startEditContent}>编辑正文</Button>
+              <Tooltip title="查找替换">
+                <Button
+                  type="text"
+                  className={`toolbar-btn${findOpen ? ' on' : ''}`}
+                  icon={<SearchOutlined />}
+                  onClick={() => { setFindOpen((v) => !v); if (!findOpen) { setFindText(''); setReplaceText(''); setFindWindowStart(0) } }}
+                >查找</Button>
+              </Tooltip>
+            </div>
+          )}
+
+          <div className="toolbar-section">
+            {readerMode === 'read' && (
               <Button
                 type="text"
                 className="toolbar-btn"
-                icon={<RightOutlined />}
-                disabled={currentIndex >= chapters.length - 1}
-                onClick={goNext}
-              />
-            </Tooltip>
-          </div>
-
-          {/* 中：阅读功能 */}
-          <div className="toolbar-section">
-            <Popover
-              trigger="click"
-              placement="top"
-              rootClassName={popClass}
-              open={fontOpen}
-              onOpenChange={setFontOpen}
-              content={
-                <div className="imm-slider-pop">
-                  <div className="imm-slider-label">字体大小 {fontSize}px</div>
-                  <Slider
-                    min={14}
-                    max={40}
-                    value={fontSize}
-                    onChange={setFontSize}
-                    style={{ width: 220 }}
-                  />
-                </div>
-              }
-            >
-              <Button type="text" className="toolbar-btn" icon={<FontSizeOutlined />}>
-                字体
-              </Button>
-            </Popover>
-
-            <Tooltip title="自动播放（逐屏）">
-              <Button
-                type="text"
-                className={`toolbar-btn${isAutoPlaying ? ' on' : ''}`}
-                icon={isAutoPlaying ? <PauseCircleOutlined /> : <PlayCircleOutlined />}
-                onClick={toggleAutoPlay}
-              >
-                自动播放
-              </Button>
-            </Tooltip>
-
-            <Popover
-              trigger="hover"
-              placement="top"
-              rootClassName={popClass}
-              onOpenChange={setSpeedOpen}
-              content={
-                <div className="imm-slider-pop">
-                  <div className="imm-slider-label">滚动速度 {scrollSpeed}</div>
-                  <Slider
-                    min={1}
-                    max={10}
-                    value={scrollSpeed}
-                    onChange={setScrollSpeed}
-                    style={{ width: 200 }}
-                  />
-                </div>
-              }
-            >
-              <Button
-                type="text"
-                className={`toolbar-btn${isAutoScrolling ? ' on' : ''}`}
-                icon={isAutoScrolling ? <PauseOutlined /> : <VerticalAlignBottomOutlined />}
-                onClick={toggleAutoScroll}
-              >
-                自动翻页
-              </Button>
-            </Popover>
-
-            <Tooltip title="语音朗读（即将上线）">
-              <Button type="text" className="toolbar-btn" icon={<SoundOutlined />} disabled>
-                TTS
-              </Button>
-            </Tooltip>
-
-            <Button
-              type="text"
-              className="toolbar-btn"
-              icon={<EditOutlined />}
-              onClick={startEditContent}
-            >
-              编辑正文
-            </Button>
-          </div>
-
-          {/* 右：书签 + 主题 + 退出 */}
-          <div className="toolbar-section">
-            <Button
-              type="text"
-              className="toolbar-btn"
-              icon={<BookOutlined />}
-              onClick={() => setLeftPanel((p) => (p === 'bookmarks' ? null : 'bookmarks'))}
-            >
-              书签
-            </Button>
+                icon={<BookOutlined />}
+                onClick={() => setLeftPanel((p) => (p === 'bookmarks' ? null : 'bookmarks'))}
+              >书签</Button>
+            )}
             <Tooltip title={theme === 'dark' ? '切换浅色' : '切换深色'}>
               <Button
                 type="text"

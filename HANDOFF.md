@@ -1,8 +1,8 @@
 # HANDOFF.md — novelhelper 交接备忘
 
-**最后更新**：2026-06-22  
+**最后更新**：2026-06-23  
 **当前位置**：办公场所 A
-**本轮主题**：M1 文本导入合并到书库概览 ✅
+**本轮主题**：全屏阅读模式 · 查找替换 + 单章 AI 清理 ✅
 
 ---
 
@@ -179,14 +179,33 @@
   - **关键文件**：`pages/book-reader/ImmersiveReader.tsx`（新建）+ `ImmersiveReader.css`（新建）+ `index.tsx`（重写为壳）
   - **状态**：✅ 完成，`vite build` 通过，book-reader 三文件 `tsc` 零错误
 - [x] **M1 文本导入合并到书库概览**（2026-06-22）✨
-  - **入口合并**：M1 不再独立菜单入口，侧边栏移除「M1 文本导入」项；导入入口改为书库概览 Card 标题右侧「导入文件」按钮
-  - **新建模式**：点「导入文件」→ 清空 importSession → `/m1` 4 步完整流程 → 入库生成新 Book
-  - **清理模式**：已入库书操作栏加「清理」按钮 → 从 Book+Chapters 构造 importSession（step=2, targetBookId）→ `/m1` 仅显示 2 步（文本清理 + 审核与入库）→ 入库覆盖原 Book
-  - **覆盖入库**：复用原 chapter.id 原地更新；多余旧章走 `pushDeleteNow` 删除；二次确认弹窗；书名/归属库 disabled
-  - **Steps 动态渲染**：`isCleanMode` 判断 + items/current 映射 + gotoStep 仅允许 2↔3
-  - **Step3Clean 适配**：「新增节点去设置页」按钮清理模式下直接 `navigate('/settings')`
-  - **文件变更**：types.ts / home/index.tsx / m1-import/index.tsx / Step3Clean.tsx / Step4Review.tsx / AppLayout.tsx
-  - **状态**：✅ `tsc` 零错误 + `vite build` 通过
+   - **入口合并**：M1 不再独立菜单入口，侧边栏移除「M1 文本导入」项；导入入口改为书库概览 Card 标题右侧「导入文件」按钮
+   - **新建模式**：点「导入文件」→ 清空 importSession → `/m1` 4 步完整流程 → 入库生成新 Book
+   - **清理模式**：已入库书操作栏加「清理」按钮 → 从 Book+Chapters 构造 importSession（step=2, targetBookId）→ `/m1` 仅显示 2 步（文本清理 + 审核与入库）→ 入库覆盖原 Book
+   - **覆盖入库**：复用原 chapter.id 原地更新；多余旧章走 `pushDeleteNow` 删除；二次确认弹窗；书名/归属库 disabled
+   - **Steps 动态渲染**：`isCleanMode` 判断 + items/current 映射 + gotoStep 仅允许 2↔3
+   - **Step3Clean 适配**：「新增节点去设置页」按钮清理模式下直接 `navigate('/settings')`
+   - **文件变更**：types.ts / home/index.tsx / m1-import/index.tsx / Step3Clean.tsx / Step4Review.tsx / AppLayout.tsx
+   - **状态**：✅ `tsc` 零错误 + `vite build` 通过
+- [x] **全屏阅读 · 查找替换**（2026-06-23）🔍
+   - **查找**：全书所有章节遍历，按自然段（`\n` 分割）正则/字面量匹配
+   - **结果列表**：底部面板展示，每页 30 条段落数据，滚到底自动加载下一批（窗口分页）
+   - **替换**：两种模式——预览（仅显示替换结果，不写回）/ 实际修改（写回 store）
+   - **正则支持**：查找输入支持正则表达式；替换输入支持 `$1`/`$&` 等捕获组引用
+   - **段落跳转**：点击结果条目 → 切章 + 滚动定位到对应段落
+   - **正文高亮**：findOpen 时当前章正文按段渲染，匹配处高亮（`mark.imm-find-hl`）
+   - **文件变更**：`ImmersiveReader.tsx`（新增 find/state/logic/panel） + `ImmersiveReader.css`
+- [x] **全屏阅读 · 单章 AI 清理**（2026-06-23）⚡
+   - **入口**：章节列表每章新增「清理」按钮（`ThunderboltOutlined`，hover 显示）
+   - **流程**：点击清理按钮 → 章节列表切为节点列表 + 正文区切为双栏对比
+   - **节点选择**：仅列出已启用的 Provider 节点名称，点击即开始（无并发/批量/间隔配置）
+   - **流式显示**：清理进行中右侧实时流式显示累积文本；左侧显示原文
+   - **DiffView 审阅**：流式完成后右侧自动切换为完整 DiffView（行级对齐+字符高亮+决策按钮）
+   - **接受/拒绝**：接受 → applyLineDecisions → finalText 覆盖 chapter.content → pushStoreNow；拒绝 → 丢弃清理结果
+   - **暂停/取消**：streaming 时 ESC 或点「取消」按钮 abort 请求；出错后可重选节点重试
+   - **数据模型**：运行时态（内存），不进 store/数据库；原文丢失由 git/备份兜底
+   - **复用**：`streamSingleChapter`（export 后复用）+ `DiffView` 组件 + `alignedDiff/applyLineDecisions`
+   - **文件变更**：`services/real/llm.ts`（export streamSingleChapter）+ `services/api.ts`（re-export）+ `ImmersiveReader.tsx`（+220 行 clean 逻辑）+ `ImmersiveReader.css`
 
 ### 🚧 进行中 / 待完善
 
@@ -261,98 +280,32 @@
 
 ### 立即任务（本次会话后）
 
-1. **验证 M1 合并到书库概览** ✨
-   - 书库概览 Card 右上角「导入文件」按钮 → 4 步完整流程 → 入库新 Book
-   - 已入库书操作栏「清理」按钮 → 2 步流程（文本清理 + 审核入库）→ 覆盖入库
-   - 清理模式 Steps 仅显示 2 项，无法回到导入/切分
-   - 清理模式入库弹窗：书名/归属库 disabled，二次确认覆盖
-   - 侧边栏无「M1 文本导入」菜单项
+1. **验证全屏阅读 · 查找替换**
+   - 从书库打开一本书进入全屏阅读模式
+   - 底部工具栏点击「查找」按钮打开查找替换面板
+   - 测试字面量查找 + 正则查找 + 区分大小写
+   - 测试结果列表分页（30条/批）、上一批/下一批
+   - 测试预览替换模式（显示替换后文本，不写回）
+   - 测试实际修改模式 + 全部替换（确认章节内容已更新）
+   - 测试点击结果条目跳转到对应章节段落
+   - 测试正文匹配高亮（当前章段落模式）
 
-2. **【全部阶段已完成】代码维护拆分** ✅
-   - ✅ 阶段 A：编译产物优化（主包 1.8 MB → 180 KB，-90%）
-   - ✅ 阶段 B：settings 页内部重组（提取 4 个 Tab 组件）
-   - ✅ 阶段 C-E：经评估，现有结构已合理
-   - ✅ git commits: e43ffdb (阶段A), 0ff0d23 (文档), f427175 (阶段B)
+2. **验证全屏阅读 · 单章 AI 清理**
+   - 章节列表 hover 显示清理按钮
+   - 点击清理按钮 → 确认章节列表变为节点列表
+   - 选择节点 → 确认开始流式清理
+   - 观察右侧实时流式显示累积文本
+   - 清理完成后确认 DiffView 自动出现
+   - 测试行级决策（接受/拒绝/编辑/重置）
+   - 测试「接受」按钮 → 确认 finalText 覆盖原文
+   - 测试「拒绝」按钮 → 确认丢弃清理结果
+   - 测试 streaming 中按 ESC 取消
+   - 测试出错后重选节点重试
 
-2. **验证编译产物优化效果**
-   - 启动应用：`npm run dev`
-   - 观察首屏加载速度（应比之前快 60%+）
-   - 测试懒加载模块（settings, image-helper, node-test, role-chat）首次访问
-
-3. **验证 M1 交互优化**（上轮任务）✨
-   - 测试 Step2 优化：
-     - 上传文本文件 → 切分章节
-     - 点击"应用切分" → 验证界面简化（检测/模式/列表隐藏，显示取消/AI清理按钮）
-     - 批量重命名面板仅显示一次（在已应用视图下）
-     - 点击"取消" → 回到预览状态
-     - 再次"应用切分" → 确认可重复操作
-   - 测试 Step3 优化：
-     - 进入 Step3 清理步骤
-     - 点击"开始清理" → 验证节点池自动折叠
-     - 观察任务列表和实时窗口是否更易访问
-
-4. **验证 data-slot 实施**（上轮任务）
-   - 启动应用：`npm run dev`
-   - 打开浏览器开发者工具（F12）→ Elements 标签
-   - 访问已实施页面（批量生成、M0、M1、M2、M3、M4、M5）
-   - 测试定位功能：
-     - Elements 面板搜索：`data-slot="btn-start"`
-     - Console 命令：`document.querySelector('[data-slot="btn-start"]')`
-     - CSS 临时样式：`[data-slot="control-panel"] { outline: 2px solid red; }`
-   - 验证覆盖率：检查关键交互元素是否都有 data-slot
-   - 参考文档：`docs/data_slot_quick_reference.md`
-
-3. **测试图片辅助模块**（如果之前未测试）
-   - 访问 `/image-helper` 页面
-   - 测试核心功能：
-     - 图片/GIF 导入（拖拽、点击上传）
-     - 魔棒透明（抠图）- 颜色选择器 + 容差调节
-     - 边缘修正（上下左右裁剪）
-     - 网格切分（行列输入 → 执行切片）
-     - 画布控制（缩放、复位、自适应）
-     - 帧序列管理（删除、复制、延迟调整）
-   - 测试导出功能：
-     - GIF 导出（需验证 CDN worker 加载）
-     - ZIP 序列帧导出（批量 PNG）
-     - Sprite Sheet 导出（拼图布局）
-   - 测试高级功能：
-     - 图层编辑（添加文字/图片图层）
-     - 全局裁剪（框选 → 应用到所有帧）
-     - 图层同步（同步到其他帧）
-   
-4. **测试 UI 优化**（如果之前未测试）
-   - 浅色模式下检查左侧选择器空隙是否修复
-   - 切换深浅主题验证显示正常
-   
-5. **⚠️ 重启后端服务（必须！）**（如果之前未重启）
-   - CORS 配置需要重启后端才能生效
-   - 停止当前后端服务
-   - 重新运行 `npm run dev`
-   
-6. **验证 M1 入库功能**（如果之前未验证）
-   - 启动应用后尝试 M1 入库
-   - 打开浏览器开发者工具（F12）查看 Network 标签
-   - 确认 `/api/store` 请求包含 `Access-Control-Allow-Origin` 响应头
-   
-7. **M2/M3 实际测试验证**（原计划任务）
-   - 启动应用：`npm run dev`
-   - 配置模块节点：设置 → 高级配置 → 模块节点映射
-     - `m2Extract`: 选择文本节点（用于实体提取）
-     - `m3Simulate`: 选择文本节点（用于角色推演）
-   - M2 测试流程：
-     - 进入 M2 卡片库 → 点击"从章节提取设定"
-     - 选择书籍（3-5 章）→ 观察三阶段进度（chunk/merge/embed）
-     - 检查生成的 EntityCard（type/name/description/refs）
-     - 若有 MergeCandidate，验证合并裁决功能
-   - M3 测试流程：
-     - 创建场景（填写 desc/goal/prevSummary，选择在场角色）
-     - 选择目标角色（需先填写 styleNote/styleExamples）
-     - 点击"生成推演候选" → 观察双候选实时流式输出
-     - 采纳候选 → 检查场景序列 → M4 生成验证片段保留
-
-8. **端到端流程验证**
-   - 完整链路：M0 → M1 → M2 → M3 → M4 → M5
-   - 数据流验证：M2 卡片 → M3 推演 → M4 生成（含已采纳片段）→ M5 状态事件
+3. **回归验证**
+   - 阅读模式原有功能不受影响（字体/自动播放/书签/编辑正文/主题切换）
+   - 清理模式退出后回到正常阅读
+   - 查找面板关闭后正文恢复纯文本渲染
 
 ### 后续计划
 
@@ -1168,4 +1121,60 @@
 - UI 验证：
   - `scripts/verify-ui.js`
 
+---
 
+**本轮工作成果**（2026-06-23 — 全屏阅读模式 · 查找替换 + 单章 AI 清理）：
+
+**1. 查找替换功能**
+
+- **查找**：全书所有章节遍历，按自然段（`\n` 分割）正则/字面量匹配
+  - 辅助函数：`buildFindRegex()` / `highlightParts()` / `buildFindResults()`
+  - 结果列表窗口分页（PAGE_SIZE=30），滚动触底自动加载下一批
+  - 上一批/下一批按钮 + "第 x–y 条 / 共 z 条"指示
+- **替换**：两种模式
+  - 预览模式：结果列表显示替换后文本（`replaceText`），不写回 store
+  - 实际修改模式：「全部替换」按钮 → 遍历唯一 chapterIds → `updateChapter` + `pushStoreNow`
+  - 支持正则捕获组引用（`$1`/`$&` 等，JS String.replace 原生支持）
+- **正文高亮**：`findOpen` 时当前章正文从纯文本 div 切换为按段 `<p data-para-idx>` 渲染，匹配处 `<mark className="imm-find-hl">` 高亮
+- **段落跳转**：点击结果条目 → `goToChapter` + `pendingParaRef` → `scrollIntoView`
+- **UI 位置**：查找面板（`.imm-find-panel`）固定在底部工具栏上方，`findOpen` 时强制显示
+
+**2. 单章 AI 清理功能**
+
+- **入口**：章节列表每章 hover 显示「清理」按钮（`ThunderboltOutlined`）
+- **状态机**：`readerMode: 'read' | 'clean'` → `cleanPhase: 'selecting' | 'streaming' | 'review' | 'error'`
+- **节点选择**：仅列出 `providers.filter(p => p.enabled)` 的名称+模型，点击即开始
+  - streaming 中节点列表置灰不可点；出错后恢复可点
+  - 完成后节点列表隐藏，显示审阅操作按钮
+- **流式清理**：直接调用 `streamSingleChapter`（不需要调度器/暂停停止/节点池）
+  - `onChunk` → `setLiveAcc(acc)` 实时显示
+  - `onDone` → `setCleanedContent(cleaned); setCleanPhase('review')`
+  - `onError` / catch → `setCleanPhase('error'); setCleanError(msg)`
+  - 取消：`cleanAbortRef.current?.abort()` → 回 selecting
+- **双栏对比**：正文区从单栏阅读切换为 `.imm-dual-pane`
+  - 左栏：原文（`cleanChapter.content`）
+  - 右栏：streaming 时显示 `liveAcc` 累积文本；review 时挂载 `<DiffView>`
+- **审阅操作**（左侧面板）：
+  - 「接受」：`alignedDiff(orig, cleaned)` + `applyLineDecisions(rows, lineDecisions)` → `finalText` → `updateChapter(content: finalText)` → `pushStoreNow`
+  - 「拒绝」：丢弃清理结果 → `exitCleanMode()`
+  - 「重新清理」：回 selecting 重选节点
+  - 行级决策：复用 DiffView 的 onDecide 回调 → 写入 `lineDecisions` state
+- **数据模型**：运行时态（组件 state，不进 store/数据库），原文丢失由 git/备份兜底
+
+**3. 复用与基础设施变更**
+
+- `services/real/llm.ts:120`：`streamSingleChapter` 从私有函数改为 `export`
+- `services/api.ts:13`：re-export `streamSingleChapter`
+- `ImmersiveReader.tsx`：新增 ~300 行（查找替换 ~100 + 单章清理 ~200），总行数 ~1080
+- `ImmersiveReader.css`：新增 ~180 行（查找面板/双栏对比/节点列表/清理模式样式）
+
+**4. 编译验证**
+
+- ✅ `tsc --noEmit` 零错误
+- ✅ `bun run lint` ImmersiveReader.tsx 零问题
+- 其他文件的 lint 错误均为预先存在，非本轮引入
+
+**建议下次会话**：
+1. `npm run dev` 启动，打开一本书进入全屏阅读 → 测试查找替换（正则/预览/实际修改/段落跳转）
+2. 测试单章 AI 清理完整流程（节点选择 → 流式 → DiffView → 接受覆盖原文）
+3. 回归验证阅读模式原有功能不受影响

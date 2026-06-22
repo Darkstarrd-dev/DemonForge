@@ -10,7 +10,7 @@ export {
   checkConsistency, // 暂时保留 mock 版本（包含本地死亡角色规则），阶段 C 完成后再整合真实 LLM 审校
 } from './mock/impl'
 
-export { testProvider, startCleanQueue, getDefaultPrompt } from './real/llm'
+export { testProvider, startCleanQueue, streamSingleChapter, getDefaultPrompt } from './real/llm'
 export type { CleanQueueCallbacks, CleanQueueHandle, CleanNode, TestResult, CleanQueueDebugEvent } from './real/llm'
 
 // M2 提取已接真实后端（services/real/extract）。

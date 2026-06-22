@@ -394,6 +394,245 @@
   background: #c4612f;
 }
 
+/* ============ 查找替换面板 ============ */
+.imm-find-panel {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 11;
+  background: var(--imm-bar-bg);
+  backdrop-filter: blur(12px);
+  border-top: 1px solid var(--imm-border);
+  padding: 10px 20px 56px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 340px;
+}
+.imm-find-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.imm-find-input.ant-input {
+  flex: 1;
+  background: var(--imm-panel-bg);
+  color: var(--imm-text);
+  border-color: var(--imm-border);
+}
+.imm-find-input.ant-input::placeholder {
+  color: var(--imm-muted);
+}
+.imm-find-opt.ant-btn {
+  color: var(--imm-muted);
+  font-size: 11px;
+  min-width: 32px;
+  height: 28px;
+  padding: 0 6px;
+}
+.imm-find-opt.ant-btn-primary {
+  color: #fff;
+}
+.imm-find-stat {
+  font-size: 12px;
+  color: var(--imm-muted);
+  white-space: nowrap;
+}
+.imm-find-list-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 0 8px;
+  font-size: 12px;
+  color: var(--imm-muted);
+  flex-shrink: 0;
+}
+.imm-find-list {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 50px;
+}
+.imm-find-list::-webkit-scrollbar {
+  width: 6px;
+}
+.imm-find-list::-webkit-scrollbar-thumb {
+  background: var(--imm-scrollbar);
+  border-radius: 3px;
+}
+.imm-find-item {
+  padding: 8px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+  margin-bottom: 4px;
+}
+.imm-find-item:hover {
+  background: var(--imm-panel-item-hover);
+}
+.imm-find-item-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+.imm-find-item-head .ant-tag {
+  margin: 0;
+  font-size: 11px;
+}
+.imm-find-item-idx {
+  font-size: 11px;
+  color: var(--imm-muted);
+}
+.imm-find-item-text {
+  font-size: 13px;
+  color: var(--imm-text);
+  line-height: 1.55;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.imm-find-hl {
+  background: var(--imm-accent-soft);
+  color: var(--imm-accent);
+  border-radius: 2px;
+  padding: 0 1px;
+}
+mark.imm-find-hl {
+  background: var(--imm-accent-soft);
+  color: inherit;
+}
+
+/* 正文段落模式（find highlight） */
+.immersive-text-para {
+  color: var(--imm-text);
+  text-indent: 2em;
+  text-align: justify;
+}
+.immersive-text-para p {
+  margin: 0 0 0.6em;
+}
+.immersive-text-para mark.imm-find-hl {
+  background: var(--imm-accent-soft);
+  color: var(--imm-accent);
+  padding: 0 1px;
+  border-radius: 2px;
+}
+
+/* 章节条目新增清理按钮 */
+.imm-chapter-clean.ant-btn {
+  color: var(--imm-muted);
+  opacity: 0;
+}
+.imm-chapter-item:hover .imm-chapter-clean.ant-btn {
+  opacity: 1;
+}
+.imm-chapter-clean.ant-btn:hover {
+  color: var(--imm-accent) !important;
+}
+
+/* ============ 清理模式双栏对比 ============ */
+.imm-clean-wrapper {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  z-index: 1;
+}
+.imm-dual-pane {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+.imm-clean-left,
+.imm-clean-right {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.imm-clean-left {
+  border-right: 1px solid var(--imm-border);
+}
+.imm-clean-pane-head {
+  padding: 8px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--imm-muted);
+  border-bottom: 1px solid var(--imm-border);
+  background: var(--imm-panel-bg);
+  flex-shrink: 0;
+}
+.imm-clean-pane-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px 16px;
+}
+.imm-clean-pane-body::-webkit-scrollbar {
+  width: 6px;
+}
+.imm-clean-pane-body::-webkit-scrollbar-thumb {
+  background: var(--imm-scrollbar);
+  border-radius: 3px;
+}
+.imm-clean-stream {
+  color: var(--imm-text);
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+/* 清理模式 — 面板内节点列表 */
+.imm-clean-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+.imm-node-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 16px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+.imm-node-item:hover:not(.disabled) {
+  background: var(--imm-panel-item-hover);
+}
+.imm-node-item.active {
+  background: var(--imm-accent-soft);
+}
+.imm-node-item.disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.imm-node-name {
+  color: var(--imm-text);
+  font-size: 14px;
+}
+.imm-node-item.active .imm-node-name {
+  color: var(--imm-accent);
+  font-weight: 600;
+}
+.imm-node-model {
+  color: var(--imm-muted);
+  font-size: 11px;
+}
+
+/* DiffView 在清理模式双栏中的样式适配 */
+.imm-clean-right .diff-table {
+  font-size: 13px;
+}
+.imm-clean-right [style*="max-height"] {
+  max-height: none !important;
+  height: 100%;
+}
+
+/* 清理模式工具栏覆盖 */
+.imm-clean-active .immersive-toolbar {
+  padding-bottom: 18px;
+}
+
 /* ============ 响应式 ============ */
 @media (max-width: 1100px) {
   .immersive-content-inner {
