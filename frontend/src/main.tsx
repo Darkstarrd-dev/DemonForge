@@ -25,20 +25,25 @@ import M4GeneratePage from './pages/m4-generate'
 import M5ChaptersPage from './pages/m5-chapters'
 import BatchGeneratePage from './pages/batch-generate'
 import BookReaderPage from './pages/book-reader'
-import NodeTestPage from './pages/node-test'
-import RoleChatPage from './pages/role-chat'
-import ImageHelperPage from './pages/image-helper'
-import SettingsPage from './pages/settings'
 import { bootstrapStore, useAppStore } from './store/appStore'
 import ErrorBoundary from './components/ErrorBoundary'
 import ScaleWrapper from './components/ScaleWrapper'
 import { lightTheme, darkTheme } from './styles/theme'
 import './index.css'
 
+// 懒加载大型模块（减少主包体积）
 // eslint-disable-next-line react-refresh/only-export-components
 const Demo3DPage = lazy(() => import('./pages/demo-3d'))
 // eslint-disable-next-line react-refresh/only-export-components
 const Demo2DPage = lazy(() => import('./pages/demo-2d'))
+// eslint-disable-next-line react-refresh/only-export-components
+const ImageHelperPage = lazy(() => import('./pages/image-helper'))
+// eslint-disable-next-line react-refresh/only-export-components
+const NodeTestPage = lazy(() => import('./pages/node-test'))
+// eslint-disable-next-line react-refresh/only-export-components
+const RoleChatPage = lazy(() => import('./pages/role-chat'))
+// eslint-disable-next-line react-refresh/only-export-components
+const SettingsPage = lazy(() => import('./pages/settings'))
 
 // 主题包装组件
 function AppWithTheme() {
@@ -66,13 +71,13 @@ function AppWithTheme() {
                   <Route path="/m5" element={<M5ChaptersPage />} />
                   <Route path="/batch" element={<BatchGeneratePage />} />
                   <Route path="/book-reader" element={<BookReaderPage />} />
-                  <Route path="/node-test" element={<NodeTestPage />} />
-                  <Route path="/demo-image" element={<NodeTestPage />} />
-                  <Route path="/role-chat" element={<RoleChatPage />} />
-                  <Route path="/image-helper" element={<ImageHelperPage />} />
+                  <Route path="/node-test" element={<Suspense fallback={<Spin size="large" />}><NodeTestPage /></Suspense>} />
+                  <Route path="/demo-image" element={<Suspense fallback={<Spin size="large" />}><NodeTestPage /></Suspense>} />
+                  <Route path="/role-chat" element={<Suspense fallback={<Spin size="large" />}><RoleChatPage /></Suspense>} />
+                  <Route path="/image-helper" element={<Suspense fallback={<Spin size="large" />}><ImageHelperPage /></Suspense>} />
                   <Route path="/demo-3d" element={<Suspense fallback={<Spin size="large" />}><Demo3DPage /></Suspense>} />
                   <Route path="/demo-2d" element={<Suspense fallback={<Spin size="large" />}><Demo2DPage /></Suspense>} />
-                  <Route path="/settings" element={<SettingsPage />} />
+                  <Route path="/settings" element={<Suspense fallback={<Spin size="large" />}><SettingsPage /></Suspense>} />
                 </Route>
               </Routes>
             </ErrorBoundary>
