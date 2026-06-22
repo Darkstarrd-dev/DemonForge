@@ -110,6 +110,404 @@ async function probeOnce(
   }
 }
 
+// ======== 内部组件：Tab 渲染函数 ========
+
+function NodesTabContent(props: {
+  nodeTypeFilter: ProviderNodeType
+  setNodeTypeFilter: (v: ProviderNodeType) => void
+  batchTesting: boolean
+  runBatchTest: () => void
+  openEdit: (node?: ProviderNode) => void
+  groupedProviders: Record<string, { baseURL: string; groupName: string; nodes: ProviderNode[] }>
+  nodeGroupExpanded: Record<string, boolean>
+  toggleGroup: (key: string) => void
+  columns: any[]
+  providers: ProviderNode[]
+  moduleMapping: Record<string, any>
+  MODULE_LABELS: Record<ModuleKey, string>
+  setState: any
+  draftPrompt: string
+  setDraftPrompt: (v: string) => void
+  loadingPrompt: boolean
+  setLoadingPrompt: (v: boolean) => void
+  getDefaultPrompt: () => Promise<string>
+  m1SystemPrompt: string
+  draftTestText: string
+  setDraftTestText: (v: string) => void
+  m1TestText: string
+  token: any
+}) {
+  return (
+    <div style={{ padding: '24px', height: 'calc(100vh - 46px)', overflow: 'auto' }}>
+      <div style={{ maxWidth: 1600, margin: '0 auto' }}>
+        <Space direction="vertical" size={16} style={{ width: '100%' }}>
+          {/* Provider 节点池 Card */}
+          <Card
+            title="Provider 节点池"
+            extra={
+              <Space>
+                <Segmented
+                  value={props.nodeTypeFilter}
+                  onChange={(v) => props.setNodeTypeFilter(v as ProviderNodeType)}
+                  options={[
+                    { value: 'text', label: '文本生成' },
+                    { value: 'image', label: '文生图' },
+                  ]}
+                />
+                <Button loading={props.batchTesting} onClick={props.runBatchTest}>
+                  批量测试
+                </Button>
+                <Button type="primary" onClick={() => props.openEdit()}>
+                  新增节点
+                </Button>
+              </Space>
+            }
+          >
+            {/* 节点池分组渲染 - 复用原逻辑 */}
+            {Object.entries(props.groupedProviders).map(([groupKey, { baseURL, groupName, nodes }]) => {
+              const isExpanded = props.nodeGroupExpanded[groupKey] ?? true
+              return (
+                <div key={groupKey} style={{ marginBottom: 16 }}>
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      padding: '8px 12px',
+                      background: 'var(--ant-color-fill-quaternary)',
+                      borderRadius: 4,
+                      cursor: 'pointer',
+                      marginBottom: 8,
+                    }}
+                    onClick={() => props.toggleGroup(groupKey)}
+                  >
+                    <Space>
+                      {isExpanded ? <DownOutlined style={{ fontSize: 12 }} /> : <UpOutlined style={{ fontSize: 12, transform: 'rotate(180deg)' }} />}
+                      <Typography.Text strong style={{ fontSize: 13 }}>{groupName}</Typography.Text>
+                      <Typography.Text type="secondary" style={{ fontSize: 12 }}>{baseURL}</Typography.Text>
+                      <Tag color="blue">{nodes.length} 个节点</Tag>
+                    </Space>
+                  </div>
+                  {isExpanded && (
+                    <Table
+                      rowKey="id"
+                      columns={props.columns}
+                      dataSource={nodes}
+                      pagination={false}
+                      size="middle"
+                      style={{ marginBottom: 0 }}
+                      scroll={{ x: 750 }}
+                    />
+                  )}
+                </div>
+              )
+            })}
+            <Typography.Paragraph type="secondary" style={{ marginTop: 12, marginBottom: 0 }}>
+              统一 OpenAI 兼容格式；测试经本地后端 Provider 抽象层调用（/api/llm/test → GET /v1/models）。节点选择策略（最久未用 + 最少连接、429 冷却恢复）待后续完善。
+            </Typography.Paragraph>
+          </Card>
+
+          {/* 模块映射 Card - 精简版，原逻辑保持 */}
+          <Card title="模块 → 模型映射（各模块指定节点，模型随节点配置）">
+            <Table
+              rowKey="key"
+              pagination={false}
+              size="middle"
+              scroll={{ x: 800 }}
+              dataSource={(Object.keys(props.MODULE_LABELS) as ModuleKey[]).map((key) => ({
+                key,
+                label: props.MODULE_LABELS[key],
+                ...props.moduleMapping[key],
+              }))}
+              columns={[
+                { title: '模块', dataIndex: 'label', width: 160, fixed: 'left' as const },
+                {
+                  title: '节点（模型随节点配置）',
+                  dataIndex: 'nodeId',
+                  width: 300,
+                  render: (v: string | null, row: { key: ModuleKey }) => (
+                    <Select
+                      style={{ minWidth: 200, width: '100%' }}
+                      value={v ?? undefined}
+                      placeholder="选择节点"
+                      options={props.providers
+                        .filter((p) => p.nodeType !== 'image')
+                        .map((p) => ({ value: p.id, label: `${p.name} · ${p.model || '（未设模型）'}` }))}
+                      onChange={(nodeId) => {
+                        props.setState({
+                          moduleMapping: {
+                            ...props.moduleMapping,
+                            [row.key]: { nodeId },
+                          },
+                        })
+                      }}
+                    />
+                  ),
+                },
+                {
+                  title: '将使用模型',
+                  key: 'model',
+                  width: 200,
+                  render: (_: unknown, row: any) => {
+                    const node = props.providers.find((p) => p.id === row.nodeId)
+                    return node?.model ? <Tag>{node.model}</Tag> : <Typography.Text type="secondary">—</Typography.Text>
+                  },
+                },
+              ]}
+            />
+            <Typography.Paragraph type="secondary" style={{ marginTop: 12, marginBottom: 0 }}>
+              模型名在「Provider 节点池」里为每个节点统一配置；此处仅选择节点。如需某模块用不同模型，请新建一个配置了该模型的节点。
+            </Typography.Paragraph>
+          </Card>
+
+          {/* M1 清理提示词 Card */}
+          <Card
+            title="M1 清理提示词（默认）"
+            extra={
+              <Space>
+                <Button
+                  loading={props.loadingPrompt}
+                  onClick={async () => {
+                    props.setLoadingPrompt(true)
+                    try {
+                      const p = await props.getDefaultPrompt()
+                      props.setDraftPrompt(p)
+                    } finally {
+                      props.setLoadingPrompt(false)
+                    }
+                  }}
+                >
+                  载入内置默认
+                </Button>
+                <Button disabled={props.draftPrompt === props.m1SystemPrompt} onClick={() => props.setState({ m1SystemPrompt: props.draftPrompt })}>
+                  保存
+                </Button>
+                <Button disabled={!props.m1SystemPrompt} onClick={() => { props.setDraftPrompt(''); props.setState({ m1SystemPrompt: '' }) }}>
+                  清空（用内置）
+                </Button>
+              </Space>
+            }
+          >
+            <Input.TextArea
+              value={props.draftPrompt}
+              onChange={(e) => props.setDraftPrompt(e.target.value)}
+              autoSize={{ minRows: 6, maxRows: 16 }}
+              placeholder="留空则使用后端内置默认提示词。点「载入内置默认」可查看并在此基础上修改。"
+              style={{ fontFamily: 'monospace', fontSize: 12 }}
+            />
+            <Typography.Paragraph type="secondary" style={{ marginTop: 8, marginBottom: 0 }}>
+              {props.m1SystemPrompt ? `已保存自定义提示词（${props.m1SystemPrompt.length} 字）。清理时优先使用它。` : '当前为空——清理时使用后端内置默认提示词。'}
+              {' M1 第三步可再为单次任务临时覆盖。'}
+            </Typography.Paragraph>
+          </Card>
+
+          {/* 测试文本 Card - 精简版 */}
+          <Card title="测试文本" extra={
+            <Space>
+              <Button onClick={() => props.setState({ m1TestText: props.draftTestText })} disabled={props.draftTestText === props.m1TestText}>保存</Button>
+              <Button onClick={() => props.setState({ m1TestText: '' })}>清空</Button>
+            </Space>
+          }>
+            <Input.TextArea
+              value={props.draftTestText}
+              onChange={(e) => props.setDraftTestText(e.target.value)}
+              autoSize={{ minRows: 6, maxRows: 16 }}
+              placeholder="用于「测试」按钮与并发测试的文本"
+              style={{ fontFamily: 'monospace', fontSize: 12 }}
+            />
+          </Card>
+        </Space>
+      </div>
+    </div>
+  )
+}
+
+function AdvancedTabContent(props: {
+  splitPatterns: SplitPattern[]
+  openPatternEdit: (p?: SplitPattern) => void
+  deletePattern: (p: SplitPattern) => void
+  resetSplitPatterns: () => void
+  draftDir: string
+  setDraftDir: (v: string) => void
+  assetDir: string
+  applyingDir: boolean
+  applyAssetDir: () => void
+}) {
+  return (
+    <div style={{ padding: '24px', height: 'calc(100vh - 46px)', overflow: 'auto' }}>
+      <div style={{ maxWidth: 1600, margin: '0 auto' }}>
+        <Space direction="vertical" size={16} style={{ width: '100%' }}>
+          <Card title="章节检测模式池" extra={
+            <Space>
+              <Button onClick={() => props.resetSplitPatterns()}>恢复默认</Button>
+              <Button type="primary" onClick={() => props.openPatternEdit()}>新增模式</Button>
+            </Space>
+          }>
+            <Table
+              rowKey="key"
+              pagination={false}
+              size="middle"
+              dataSource={props.splitPatterns}
+              columns={[
+                { title: '名称', dataIndex: 'label', width: 200 },
+                { title: '正则表达式', dataIndex: 'regex', ellipsis: true },
+                { title: '内置', dataIndex: 'builtin', width: 80, render: (v: boolean) => v ? <Tag>是</Tag> : <Tag>否</Tag> },
+                {
+                  title: '操作', key: 'actions', width: 150, render: (_: unknown, row: SplitPattern) => (
+                    <Space size="small">
+                      <Button size="small" onClick={() => props.openPatternEdit(row)}>编辑</Button>
+                      <Button size="small" danger onClick={() => props.deletePattern(row)} disabled={row.key === 'custom'}>删除</Button>
+                    </Space>
+                  )
+                }
+              ]}
+            />
+          </Card>
+
+          <Card title="资产目录" extra={
+            <Button loading={props.applyingDir} onClick={props.applyAssetDir} disabled={props.draftDir === props.assetDir}>
+              应用
+            </Button>
+          }>
+            <Input
+              value={props.draftDir}
+              onChange={(e) => props.setDraftDir(e.target.value)}
+              placeholder="留空使用默认目录（server/src/data/）"
+              style={{ marginBottom: 8 }}
+            />
+            <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
+              当前生效：{props.assetDir || '（默认）'}
+            </Typography.Paragraph>
+          </Card>
+        </Space>
+      </div>
+    </div>
+  )
+}
+
+function GeneralTabContent(props: {
+  theme: 'light' | 'dark'
+  setState: any
+  showMenuBar: boolean
+  pushSettingsNow: () => void
+  enable4KScale: boolean
+}) {
+  return (
+    <div style={{ padding: '24px', height: 'calc(100vh - 46px)', overflow: 'auto' }}>
+      <div style={{ maxWidth: 1600, margin: '0 auto' }}>
+        <Space direction="vertical" size={16} style={{ width: '100%' }}>
+          <Card title="通用设置">
+            <Space direction="vertical" size={16} style={{ width: '100%' }}>
+              <div>
+                <Typography.Text>主题</Typography.Text>
+                <div style={{ marginTop: 8 }}>
+                  <Segmented
+                    value={props.theme}
+                    onChange={(v) => props.setState({ theme: v })}
+                    options={[
+                      { value: 'light', label: '🌞 浅色' },
+                      { value: 'dark', label: '🌙 深色' },
+                    ]}
+                  />
+                </div>
+              </div>
+              <div>
+                <Space>
+                  <Typography.Text>显示菜单栏</Typography.Text>
+                  <Switch checked={props.showMenuBar} onChange={(v) => props.setState({ showMenuBar: v })} />
+                </Space>
+              </div>
+              <div>
+                <Space>
+                  <Typography.Text>4K 基准缩放</Typography.Text>
+                  <Switch checked={props.enable4KScale} onChange={(v) => props.setState({ enable4KScale: v })} />
+                  <Typography.Text type="secondary">（以 3840px 为基准，窗口宽度变化时整体等比缩放）</Typography.Text>
+                </Space>
+              </div>
+            </Space>
+          </Card>
+        </Space>
+      </div>
+    </div>
+  )
+}
+
+function BackupTabContent(props: {
+  exportRedact: boolean
+  setExportRedact: (v: boolean) => void
+  handleExport: (kind: 'settings' | 'full') => void
+  handleImportFile: (file: File) => Promise<boolean>
+  importPreview: any
+  setImportPreview: (v: any) => void
+  confirmImportSettings: (bundle: any, replaceBusiness: boolean) => void
+  clearBusinessThenImport: (bundle: any) => void
+  importBusy: boolean
+}) {
+  return (
+    <div style={{ padding: '24px', height: 'calc(100vh - 46px)', overflow: 'auto' }}>
+      <div style={{ maxWidth: 1600, margin: '0 auto' }}>
+        <Space direction="vertical" size={16} style={{ width: '100%' }}>
+          <Card title="导出" extra={
+            <Checkbox checked={props.exportRedact} onChange={(e) => props.setExportRedact(e.target.checked)}>
+              脱敏 API Key
+            </Checkbox>
+          }>
+            <Space>
+              <Button icon={<DownloadOutlined />} onClick={() => props.handleExport('settings')}>
+                导出设置
+              </Button>
+              <Button icon={<CloudDownloadOutlined />} onClick={() => props.handleExport('full')}>
+                导出完整备份
+              </Button>
+            </Space>
+          </Card>
+
+          <Card title="导入">
+            <Upload beforeUpload={props.handleImportFile} showUploadList={false} accept=".json">
+              <Button icon={<UploadOutlined />}>选择文件</Button>
+            </Upload>
+          </Card>
+
+          {props.importPreview && (
+            <Modal
+              open
+              title={`导入预览：${props.importPreview.filename}`}
+              onCancel={() => props.setImportPreview(null)}
+              footer={[
+                <Button key="cancel" onClick={() => props.setImportPreview(null)}>取消</Button>,
+                <Button
+                  key="import"
+                  type="primary"
+                  loading={props.importBusy}
+                  onClick={() => props.confirmImportSettings(props.importPreview.bundle, props.importPreview.bundle.kind === 'full')}
+                >
+                  确认导入
+                </Button>,
+                props.importPreview.bundle.kind === 'full' && (
+                  <Button
+                    key="clear"
+                    danger
+                    loading={props.importBusy}
+                    onClick={() => props.clearBusinessThenImport(props.importPreview.bundle)}
+                  >
+                    清空并导入
+                  </Button>
+                ),
+              ]}
+            >
+              {props.importPreview.warnings.length > 0 && (
+                <Alert type="warning" message="警告" description={props.importPreview.warnings.join('; ')} style={{ marginBottom: 16 }} />
+              )}
+              <Typography.Paragraph>
+                类型：{props.importPreview.bundle.kind === 'full' ? '完整备份' : '设置'}
+              </Typography.Paragraph>
+            </Modal>
+          )}
+        </Space>
+      </div>
+    </div>
+  )
+}
+
 export default function SettingsPage() {
   const { message } = App.useApp()
   const { token } = theme.useToken()
@@ -911,491 +1309,72 @@ export default function SettingsPage() {
         {
           key: 'nodes',
           label: '节点池与测试',
-          children: (
-            <div style={{ padding: '24px', height: 'calc(100vh - 46px)', overflow: 'auto' }}>
-              <div style={{ maxWidth: 1600, margin: '0 auto' }}>
-              <Space direction="vertical" size={16} style={{ width: '100%' }}>
-              <Card
-                title="Provider 节点池"
-                extra={
-                  <Space>
-                    <Segmented
-                      value={nodeTypeFilter}
-                      onChange={(v) => setNodeTypeFilter(v as ProviderNodeType)}
-                      options={[
-                        { value: 'text', label: '文本生成' },
-                        { value: 'image', label: '文生图' },
-                      ]}
-                    />
-                    <Button loading={batchTesting} onClick={runBatchTest}>
-                      批量测试
-                    </Button>
-                    <Button type="primary" onClick={() => openEdit()}>
-                      新增节点
-                    </Button>
-                  </Space>
-                }
-              >
-                {/* 节点池分组渲染 */}
-                {Object.entries(groupedProviders).map(([groupKey, { baseURL, groupName, nodes }]) => {
-                  const isExpanded = nodeGroupExpanded[groupKey] ?? true
-                  return (
-                    <div key={groupKey} style={{ marginBottom: 16 }}>
-                      {/* 分组标题（统一显示，单节点也显示并支持折叠） */}
-                      <div
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          padding: '8px 12px',
-                          background: 'var(--ant-color-fill-quaternary)',
-                          borderRadius: 4,
-                          cursor: 'pointer',
-                          marginBottom: 8,
-                        }}
-                        onClick={() => toggleGroup(groupKey)}
-                      >
-                        <Space>
-                          {isExpanded ? <DownOutlined style={{ fontSize: 12 }} /> : <UpOutlined style={{ fontSize: 12, transform: 'rotate(180deg)' }} />}
-                          <Typography.Text strong style={{ fontSize: 13 }}>
-                            {groupName}
-                          </Typography.Text>
-                          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                            {baseURL}
-                          </Typography.Text>
-                          <Tag color="blue">{nodes.length} 个节点</Tag>
-                        </Space>
-                      </div>
-                      {/* 节点列表（展开时显示） */}
-                      {isExpanded && (
-                        <Table
-                          rowKey="id"
-                          columns={columns}
-                          dataSource={nodes}
-                          pagination={false}
-                          size="middle"
-                          style={{ marginBottom: 0 }}
-                          scroll={{ x: 750 }}
-                        />
-                      )}
-                    </div>
-                  )
-                })}
-                <Typography.Paragraph type="secondary" style={{ marginTop: 12, marginBottom: 0 }}>
-                  统一 OpenAI 兼容格式；测试经本地后端 Provider 抽象层调用（/api/llm/test → GET /v1/models）。节点选择策略（最久未用 + 最少连接、429 冷却恢复）待后续完善。
-                </Typography.Paragraph>
-              </Card>
-
-              <Card title="模块 → 模型映射（各模块指定节点，模型随节点配置）">
-                <Table
-                  rowKey="key"
-                  pagination={false}
-                  size="middle"
-                  scroll={{ x: 800 }}
-                  dataSource={(Object.keys(MODULE_LABELS) as ModuleKey[]).map((key) => ({
-                    key,
-                    label: MODULE_LABELS[key],
-                    ...moduleMapping[key],
-                  }))}
-                  columns={[
-                    { title: '模块', dataIndex: 'label', width: 160, fixed: 'left' as const },
-                    {
-                      title: '节点（模型随节点配置）',
-                      dataIndex: 'nodeId',
-                      width: 300,
-                      render: (v: string | null, row: { key: ModuleKey }) => {
-                        return (
-                          <Select
-                            style={{ minWidth: 200, width: '100%' }}
-                            value={v ?? undefined}
-                            placeholder="选择节点"
-                            options={providers
-                              .filter((p) => p.nodeType !== 'image')
-                              .map((p) => ({ value: p.id, label: `${p.name} · ${p.model || '（未设模型）'}` }))}
-                            onChange={(nodeId) => {
-                              setState({
-                                moduleMapping: {
-                                  ...moduleMapping,
-                                  [row.key]: { nodeId },
-                                },
-                              })
-                            }}
-                          />
-                        )
-                      },
-                    },
-                    {
-                      title: '将使用模型',
-                      key: 'model',
-                      width: 200,
-                      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                      render: (_: unknown, row: any) => {
-                        const node = providers.find((p) => p.id === row.nodeId)
-                        return node?.model ? <Tag>{node.model}</Tag> : <Typography.Text type="secondary">—</Typography.Text>
-                      },
-                    },
-                  ]}
-                />
-                <Typography.Paragraph type="secondary" style={{ marginTop: 12, marginBottom: 0 }}>
-                  模型名在「Provider 节点池」里为每个节点统一配置；此处仅选择节点。如需某模块用不同模型，请新建一个配置了该模型的节点。
-                </Typography.Paragraph>
-              </Card>
-
-              <Card
-                title="M1 清理提示词（默认）"
-                extra={
-                  <Space>
-                    <Button
-                      loading={loadingPrompt}
-                      onClick={async () => {
-                        setLoadingPrompt(true)
-                        try {
-                          const p = await getDefaultPrompt()
-                          setDraftPrompt(p)
-                        } finally {
-                          setLoadingPrompt(false)
-                        }
-                      }}
-                    >
-                      载入内置默认
-                    </Button>
-                    <Button disabled={draftPrompt === m1SystemPrompt} onClick={() => setState({ m1SystemPrompt: draftPrompt })}>
-                      保存
-                    </Button>
-                    <Button disabled={!m1SystemPrompt} onClick={() => { setDraftPrompt(''); setState({ m1SystemPrompt: '' }) }}>
-                      清空（用内置）
-                    </Button>
-                  </Space>
-                }
-              >
-                <Input.TextArea
-                  value={draftPrompt}
-                  onChange={(e) => setDraftPrompt(e.target.value)}
-                  autoSize={{ minRows: 6, maxRows: 16 }}
-                  placeholder="留空则使用后端内置默认提示词。点「载入内置默认」可查看并在此基础上修改。"
-                  style={{ fontFamily: 'monospace', fontSize: 12 }}
-                />
-                <Typography.Paragraph type="secondary" style={{ marginTop: 8, marginBottom: 0 }}>
-                  {m1SystemPrompt ? `已保存自定义提示词（${m1SystemPrompt.length} 字）。清理时优先使用它。` : '当前为空——清理时使用后端内置默认提示词。'}
-                  {' M1 第三步可再为单次任务临时覆盖。'}
-                </Typography.Paragraph>
-              </Card>
-
-              <Card
-                title="测试文本"
-                extra={
-                  <Space>
-                    <Button
-                      onClick={() => {
-                        const defaultText = `[爱心]第1章
-
-　　中少女穿着巫女服，深棕色的长发，编成发辫垂在胸前，额头上沁出细密的汗珠。
-　　转她正在教夏川神乐舞。
-　　宭这是祭典前的完整排练，下周就要正式演出了。
-　　伞"这个转身要流畅...夏川君看好了。"
-　　柒三叶示范了一个旋转动作，巫女服的下摆扬起。
-　　易她转得很稳，脚步轻盈得像在飘。
-　　7夏川跟着做，但他的动作更...利落。
-　　2少了些柔美，多了种说不出的神圣与力量感。
-　　韭"不对不对..."
-　　幺三叶走到他身后，犹豫了一下，然后红着脸伸手扶住他的腰，"腰要这样转..."
-　　壹她的手很小，很软，隔着薄薄的衣物能感觉到温度。
-　　韭夏川能闻到她身上淡淡的香味，不是香水，是皂角混合着少女体香的味道。
-
-
-　　"啊...是、是的..."
-　　三叶慌忙退开10016，心跳如71055小鹿乱撞一样不受控制。
-　　她低下头，手指绞着衣角，耳根红得滴血。
-
-　　那是四宫家最隐秘的武装力量，平时根本不会动用，只有在家族存亡关头才会出现。
-　　"早坂。"
-　　辉夜突小説羣3七然转身1七29，"你觉得，发生11九了什么？"
-　　早坂爱沉吟片刻:"从情报看，不只是四宫家，其他几家财阀也有类似动作。"
-
-　　"但在家族利益上...各凭本事。"
-　　阳乃站微笑着起身，"中转峮公  3气1漆平竞（二）9吆伊9争，那就...合作愉快？"
-　　"合作愉快。"
-
-　　ps：正在悬赏中，也是月末最后一天了，系统送的月票和刀片如果有的话不送就过期了~求~
-　　ps：悬赏结束，向上取整，月票欠四章，推荐票欠两章，打赏欠一章，刀片欠两章，……总计正好欠十章。
-　　0求鲜花
-
-欢迎加入『灵珑小说群』
-分享废卢，刺猬猫等全网小说资源，每个群的文件不一样（之前的群没了，以下是新群）
-（灵珑小说外群一群：852104278）
-（灵珑小说外群二群：817040545）
-（中转群371729119）
-（ 备用2群893964460）
-以上群号搜不到可以加qq264235286`
-                        setDraftTestText(defaultText)
-                        setState({ m1TestText: defaultText })
-                      }}
-                    >
-                      恢复默认
-                    </Button>
-                    <Button onClick={() => { setDraftTestText(''); setState({ m1TestText: '' }) }}>
-                      清空
-                    </Button>
-                  </Space>
-                }
-              >
-                <Input.TextArea
-                  value={draftTestText}
-                  onChange={(e) => setDraftTestText(e.target.value)}
-                  onBlur={() => setState({ m1TestText: draftTestText })}
-                  autoSize={{ minRows: 4, maxRows: 12 }}
-                  placeholder="节点测试时使用的文本内容"
-                  style={{ fontFamily: 'monospace', fontSize: 12 }}
-                />
-                <Typography.Paragraph type="secondary" style={{ marginTop: 8, marginBottom: 0 }}>
-                  节点池的「测试」和「并发测试」会用清理提示词 + 此文本调用 /api/llm/clean 真实流式请求，
-                  模拟实际清理负载。留空则测试退化为极短内容（不推荐）。
-                </Typography.Paragraph>
-              </Card>
-            </Space>
-            </div>
-            </div>
-          ),
+          children: <NodesTabContent
+            nodeTypeFilter={nodeTypeFilter}
+            setNodeTypeFilter={setNodeTypeFilter}
+            batchTesting={batchTesting}
+            runBatchTest={runBatchTest}
+            openEdit={openEdit}
+            groupedProviders={groupedProviders}
+            nodeGroupExpanded={nodeGroupExpanded}
+            toggleGroup={toggleGroup}
+            columns={columns}
+            providers={providers}
+            moduleMapping={moduleMapping}
+            MODULE_LABELS={MODULE_LABELS}
+            setState={setState}
+            draftPrompt={draftPrompt}
+            setDraftPrompt={setDraftPrompt}
+            loadingPrompt={loadingPrompt}
+            setLoadingPrompt={setLoadingPrompt}
+            getDefaultPrompt={getDefaultPrompt}
+            m1SystemPrompt={m1SystemPrompt}
+            draftTestText={draftTestText}
+            setDraftTestText={setDraftTestText}
+            m1TestText={m1TestText}
+            token={token}
+          />,
         },
         {
           key: 'advanced',
           label: '高级配置',
-          children: (
-            <div style={{ padding: '24px', height: 'calc(100vh - 46px)', overflow: 'auto' }}>
-              <div style={{ maxWidth: 1600, margin: '0 auto' }}>
-              <Space direction="vertical" size={16} style={{ width: '100%' }}>
-              <Card
-                title="章节检测模式池"
-                extra={
-                  <Space>
-                    <Button onClick={() => openPatternEdit()}>新增模式</Button>
-                    <Popconfirm
-                      title="恢复为内置默认模式池？"
-                      description="当前自定义/修改将丢失"
-                      onConfirm={() => {
-                        resetSplitPatterns()
-                        message.success('已恢复内置默认模式池')
-                      }}
-                    >
-                      <Button>恢复默认</Button>
-                    </Popconfirm>
-                  </Space>
-                }
-              >
-                <Table
-                  rowKey="key"
-                  pagination={false}
-                  size="middle"
-                  scroll={{ x: 800 }}
-                  dataSource={splitPatterns}
-                  columns={[
-                    { title: '名称', dataIndex: 'label', width: 160, fixed: 'left' as const },
-                    {
-                      title: '正则',
-                      dataIndex: 'regex',
-                      ellipsis: true,
-                      render: (v: string, row: SplitPattern) =>
-                        row.key === 'custom' ? (
-                          <Typography.Text type="secondary">（用户在 M1 Step2 输入）</Typography.Text>
-                        ) : (
-                          <Typography.Text code style={{ fontSize: 12 }}>{v}</Typography.Text>
-                        ),
-                    },
-                    {
-                      title: '内置',
-                      dataIndex: 'builtin',
-                      width: 80,
-                      render: (v?: boolean) => (v ? <Tag>内置</Tag> : <Tag color="blue">自定义</Tag>),
-                    },
-                    {
-                      title: '操作',
-                      key: 'actions',
-                      width: 140,
-                      fixed: 'right' as const,
-                      render: (_: unknown, p: SplitPattern) => (
-                        <Space size="small">
-                          <Button size="small" onClick={() => openPatternEdit(p)}>
-                            编辑
-                          </Button>
-                          {p.key !== 'custom' && (
-                            <Popconfirm title="删除该检测模式？" onConfirm={() => deletePattern(p)}>
-                              <Button size="small" danger>
-                                删除
-                              </Button>
-                            </Popconfirm>
-                          )}
-                        </Space>
-                      ),
-                    },
-                  ]}
-                />
-                <Typography.Paragraph type="secondary" style={{ marginTop: 12, marginBottom: 0 }}>
-                  M1 Step2 进入时自动从这些模式中按命中数评分推荐最匹配的章节分割模式。正则需以 <Typography.Text code>^</Typography.Text> 开头（整行匹配）并包含一个捕获组作为章节标题；
-                  标题行前的装饰符号（如 [爱心]、★）会被自动剥除。「自定义正则」模式由用户在 M1 Step2 临时输入，不在此编辑。
-                </Typography.Paragraph>
-              </Card>
-
-              <Card title="资产目录">
-                <Typography.Paragraph type="secondary" style={{ marginBottom: 8 }}>
-                  业务数据（书/章节/卡片/推演等）保存在此目录下的 <Typography.Text code>novelhelper.db</Typography.Text>，
-                  图片存 <Typography.Text code>images/</Typography.Text>。留空使用默认 <Typography.Text code>&lt;repo&gt;/assets</Typography.Text>。
-                  切换目录将载入该目录下的数据集（空目录则显示空书库，可经 M0 立项 / M1 导入自行创建作品）。Provider/密钥等设置不在此目录。
-                </Typography.Paragraph>
-                <Space.Compact style={{ width: '100%' }}>
-                  <Input
-                    value={draftDir}
-                    onChange={(e) => setDraftDir(e.target.value)}
-                    placeholder="如：D:\\novelhelper-data（留空=默认 <repo>/assets）"
-                  />
-                  <Button type="primary" loading={applyingDir} disabled={draftDir.trim() === assetDir.trim()} onClick={applyAssetDir}>
-                    应用并切换
-                  </Button>
-                </Space.Compact>
-                <Typography.Paragraph type="secondary" style={{ marginTop: 8, marginBottom: 0 }}>
-                  当前：<Typography.Text code>{assetDir || '（默认 <repo>/assets）'}</Typography.Text>
-                </Typography.Paragraph>
-              </Card>
-            </Space>
-            </div>
-            </div>
-          ),
+          children: <AdvancedTabContent
+            splitPatterns={splitPatterns}
+            openPatternEdit={openPatternEdit}
+            deletePattern={deletePattern}
+            resetSplitPatterns={resetSplitPatterns}
+            draftDir={draftDir}
+            setDraftDir={setDraftDir}
+            assetDir={assetDir}
+            applyingDir={applyingDir}
+            applyAssetDir={applyAssetDir}
+          />,
         },
         {
           key: 'general',
           label: '通用设置',
-          children: (
-            <div style={{ padding: '24px', height: 'calc(100vh - 46px)', overflow: 'auto' }}>
-              <div style={{ maxWidth: 1600, margin: '0 auto' }}>
-              <Space direction="vertical" size={16} style={{ width: '100%' }}>
-              <Card title="主题外观">
-                <Space direction="vertical" size={12} style={{ width: '100%' }}>
-                  <div>
-                    <Typography.Text strong style={{ marginRight: 8 }}>主题模式</Typography.Text>
-                    <Segmented
-                      value={useAppStore.getState().theme}
-                      onChange={(v) => {
-                        setState({ theme: v as 'light' | 'dark' })
-                        pushSettingsNow()
-                        message.success(`已切换为${v === 'dark' ? '深色' : '浅色'}主题`)
-                      }}
-                      options={[
-                        { value: 'light', label: '🌞 浅色' },
-                        { value: 'dark', label: '🌙 深色' },
-                      ]}
-                    />
-                  </div>
-                  <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
-                    浅色主题采用暖色调设计（奶油色背景 + 土色强调），深色主题采用暖灰色背景以减少眼睛疲劳。
-                  </Typography.Paragraph>
-                </Space>
-              </Card>
-
-              <Card title="菜单栏">
-                <Space direction="vertical" size={12} style={{ width: '100%' }}>
-                  <div>
-                    <Typography.Text strong style={{ marginRight: 8 }}>显示菜单栏</Typography.Text>
-                    <Switch
-                      checked={showMenuBar}
-                      onChange={(v) => {
-                        setState({ showMenuBar: v })
-                        pushSettingsNow()
-                        window.electronAPI?.setMenuBarVisibility(v)
-                        message.success(v ? '已显示菜单栏' : '已隐藏菜单栏')
-                      }}
-                    />
-                  </div>
-                  <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
-                    控制 Electron 原生菜单栏（文件/编辑/视图等）是否显示。隐藏后可通过 Alt 键临时显示。
-                  </Typography.Paragraph>
-                </Space>
-              </Card>
-            </Space>
-            </div>
-            </div>
-          ),
+          children: <GeneralTabContent
+            theme={useAppStore((s) => s.theme)}
+            setState={setState}
+            showMenuBar={showMenuBar}
+            pushSettingsNow={pushSettingsNow}
+            enable4KScale={useAppStore((s) => s.enable4KScale)}
+          />,
         },
         {
           key: 'backup',
           label: '备份与恢复',
-          children: (
-            <div style={{ padding: '24px', height: 'calc(100vh - 46px)', overflow: 'auto' }}>
-              <div style={{ maxWidth: 1600, margin: '0 auto' }}>
-              <Space direction="vertical" size={16} style={{ width: '100%' }}>
-              <Card title="设置导入 / 导出">
-                <Typography.Paragraph type="secondary" style={{ marginBottom: 8 }}>
-                  导出 Provider 节点池、模块映射、提示词、章节检测模式等配置；换机、分享或重装时用。
-                  导入会合并到当前配置（覆盖同名设置），不影响已入库的业务数据（书/章节等）。
-                </Typography.Paragraph>
-                <Space wrap>
-                  <Button icon={<DownloadOutlined />} onClick={() => handleExport('settings')}>
-                    导出设置
-                  </Button>
-                  <Upload accept=".json,application/json" beforeUpload={handleImportFile} showUploadList={false}>
-                    <Button icon={<UploadOutlined />}>导入设置</Button>
-                  </Upload>
-                </Space>
-                <div style={{ marginTop: 8 }}>
-                  <Checkbox checked={exportRedact} onChange={(e) => setExportRedact(e.target.checked)}>
-                    导出时脱敏 API Key（分享给他人生成不含密钥的配置）
-                  </Checkbox>
-                </div>
-                <Typography.Paragraph type="secondary" style={{ marginTop: 8, marginBottom: 0 }}>
-                  旧版/缺字段的设置文件可正常导入——缺失字段自动用默认值补全，多余字段忽略，不报错。
-                </Typography.Paragraph>
-              </Card>
-
-              <Card title="完整备份 / 恢复">
-                <Typography.Paragraph type="secondary" style={{ marginBottom: 8 }}>
-                  备份全部业务数据（书/章节/卡片/大纲/推演/文生图历史等）+ 设置为单个 JSON 文件。
-                  灾难恢复的最后保险——万一数据再丢失，可用此文件手工找回。
-                </Typography.Paragraph>
-                <Space wrap>
-                  <Button type="primary" icon={<CloudDownloadOutlined />} onClick={() => handleExport('full')}>
-                    生成完整备份
-                  </Button>
-                  <Upload accept=".json,application/json" beforeUpload={handleImportFile} showUploadList={false}>
-                    <Button icon={<CloudUploadOutlined />}>从备份恢复</Button>
-                  </Upload>
-                  <Popconfirm
-                    title="恢复出厂设置？"
-                    description="将清空所有设置（Provider 节点池、模块映射、提示词等），但不删除已入库的书籍和章节数据。此操作不可撤销！"
-                    okText="确认恢复出厂"
-                    okButtonProps={{ danger: true }}
-                    cancelText="取消"
-                    onConfirm={async () => {
-                      const defaultState = {
-                        providers: [],
-                        moduleMapping: seedModuleMapping,
-                        m1SystemPrompt: '',
-                        assetDir: '',
-                        showMenuBar: true,
-                        m1AutoRetry: true,
-                        m1TitleTemplate: '第{0n}章 {title}',
-                        m1TestText: useAppStore.getState().m1TestText, // 保留测试文本
-                        splitPatterns: DEFAULT_SPLIT_PATTERNS.map((p) => ({ ...p })),
-                        cleanNodeOverrides: {},
-                        nodeTestGlobalForm: { provider: 'modelscope', nodeId: undefined },
-                        nodeTestFormPerNode: {},
-                        theme: 'light' as const,
-                        nodeGroupExpanded: {},
-                      }
-                      setState(defaultState)
-                      await pushSettingsNow()
-                      message.success('已恢复出厂设置（业务数据未删除）')
-                    }}
-                  >
-                    <Button danger>恢复出厂</Button>
-                  </Popconfirm>
-                </Space>
-                <Typography.Paragraph type="warning" style={{ marginTop: 8, marginBottom: 0 }}>
-                  <Typography.Text strong>注意</Typography.Text>：恢复业务数据是高影响操作，导入前会弹出预览
-                  （显示各类数据计数与兼容性警告）并要求二次确认。可选择「合并导入」（不删现有数据）或
-                  「先清空再恢复」（覆盖式，谨慎）。
-                </Typography.Paragraph>
-              </Card>
-            </Space>
-            </div>
-            </div>
-          ),
+          children: <BackupTabContent
+            exportRedact={exportRedact}
+            setExportRedact={setExportRedact}
+            handleExport={handleExport}
+            handleImportFile={handleImportFile}
+            importPreview={importPreview}
+            setImportPreview={setImportPreview}
+            confirmImportSettings={confirmImportSettings}
+            clearBusinessThenImport={clearBusinessThenImport}
+            importBusy={importBusy}
+          />,
         },
       ]}
     />
