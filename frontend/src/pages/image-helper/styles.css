@@ -6,7 +6,7 @@
 
 .workspace {
   display: grid;
-  grid-template-columns: 280px 1fr;
+  grid-template-columns: 280px 1fr 300px;
   grid-template-rows: 1fr 180px;
   height: 100vh;
   overflow: hidden;
@@ -106,7 +106,7 @@
 }
 
 .timeline-area {
-  grid-column: 2;
+  grid-column: 2 / 4;
   grid-row: 2;
   padding: 12px;
   overflow-x: auto;
@@ -194,4 +194,30 @@
 
 [data-theme='dark'] .slice-tools {
   background: rgba(255, 255, 255, 0.03);
+}
+
+.layer-editor-panel {
+  grid-column: 3;
+  grid-row: 1;
+  overflow-y: auto;
+  border-left: 1px solid;
+}
+
+[data-theme='light'] .layer-editor-panel {
+  background: #fafafa;
+  border-left-color: #f0f0f0;
+}
+
+[data-theme='dark'] .layer-editor-panel {
+  background: #141414;
+  border-left-color: #303030;
+}
+
+.layer-editor-panel::-webkit-scrollbar {
+  width: 6px;
+}
+
+.layer-editor-panel::-webkit-scrollbar-thumb {
+  background: #888;
+  border-radius: 3px;
 }

@@ -1,25 +1,14 @@
 import { useState, useRef, useEffect } from 'react'
 import { useAppStore } from '../../store/appStore'
-import { Button, Input, Slider, Space, Upload, Typography } from 'antd'
-import { UploadOutlined, ScissorOutlined, DeleteOutlined, CopyOutlined } from '@ant-design/icons'
+import { Button, Input, Slider, Space, Upload, Typography, message, Modal } from 'antd'
+import { UploadOutlined, ScissorOutlined, DeleteOutlined, CopyOutlined, BorderOutlined } from '@ant-design/icons'
+import GlobalCropPanel from './GlobalCropPanel'
+import LayerEditor, { type Layer, type SyncScope } from './LayerEditor'
+import { parseGifFile, exportGif } from './gifUtils'
+import { exportZip, exportSpriteSheet as exportSprite } from './exportUtils'
 import './styles.css'
 
 const { Text } = Typography
-
-interface Layer {
-  id: number
-  type: 'text' | 'image'
-  content?: string
-  color?: string
-  size?: number
-  x: number
-  y: number
-  bold?: boolean
-  italic?: boolean
-  img?: HTMLImageElement
-  w?: number
-  h?: number
-}
 
 interface Slice {
   id: number
@@ -35,7 +24,7 @@ export default function ImageHelperPage() {
 
   const [slices, setSlices] = useState<Slice[]>([])
   const [selectedSliceIdx, setSelectedSliceIdx] = useState(-1)
-  const [mode, setMode] = useState<'source' | 'editor'>('source')
+  const [mode, setMode] = useState<'source' | 'editor' | 'global-crop'>('source')
   const [processedImg, setProcessedImg] = useState<HTMLCanvasElement | null>(null)
 
   const [cropT, setCropT] = useState(0)
@@ -50,6 +39,9 @@ export default function ImageHelperPage() {
   const [outScale, setOutScale] = useState(1.0)
   const [quality, setQuality] = useState(10)
 
+  const [spriteRows, setSpriteRows] = useState(3)
+  const [spriteCols, setSpriteCols] = useState(3)
+
   const [scale, setScale] = useState(1)
   const [panX, setPanX] = useState(0)
   const [panY, setPanY] = useState(0)
@@ -58,6 +50,12 @@ export default function ImageHelperPage() {
   const [keyColor, setKeyColor] = useState('#ffffff')
   const [fuzziness, setFuzziness] = useState(15)
   const [transparencyReady, setTransparencyReady] = useState(false)
+
+  const [selectedLayerId, setSelectedLayerId] = useState<number | null>(null)
+  const [isExporting, setIsExporting] = useState(false)
+  const [exportProgress, setExportProgress] = useState(0)
+  const [previewModalVisible, setPreviewModalVisible] = useState(false)
+  const [previewUrl, setPreviewUrl] = useState('')
 
   useEffect(() => {
     draw()
@@ -118,10 +116,23 @@ export default function ImageHelperPage() {
         s.layers.forEach((l) => {
           ctx.save()
           if (l.type === 'text') {
-            ctx.font = `${l.bold ? 'bold' : 'normal'} ${l.size}px sans-serif`
+            let fontStyle = l.italic ? 'italic' : 'normal'
+            let fontWeight = l.bold ? 'bold' : 'normal'
+            ctx.font = `${fontStyle} ${fontWeight} ${l.size}px sans-serif`
             ctx.fillStyle = l.color || '#ffffff'
             ctx.textBaseline = 'top'
-            ctx.fillText(l.content || '', l.x, l.y)
+            if (l.underline) {
+              const metrics = ctx.measureText(l.content || '')
+              ctx.fillText(l.content || '', l.x, l.y)
+              ctx.strokeStyle = l.color || '#ffffff'
+              ctx.lineWidth = Math.max(1, (l.size || 12) / 12)
+              ctx.beginPath()
+              ctx.moveTo(l.x, l.y + (l.size || 12) + 2)
+              ctx.lineTo(l.x + metrics.width, l.y + (l.size || 12) + 2)
+              ctx.stroke()
+            } else {
+              ctx.fillText(l.content || '', l.x, l.y)
+            }
           } else if (l.img) {
             ctx.drawImage(l.img, l.x, l.y, l.w || 0, l.h || 0)
           }
@@ -148,7 +159,43 @@ export default function ImageHelperPage() {
     ctx.putImageData(d, 0, 0)
   }
 
-  const processFile = (file: File) => {
+  const processFile = async (file: File) => {
+    // Reset transparency settings
+    setEnableTrans(false)
+    setTransparencyReady(false)
+
+    // Check if it's a GIF
+    if (file.type === 'image/gif') {
+      try {
+        message.loading('解析 GIF 中...', 0)
+        const frames = await parseGifFile(file)
+        message.destroy()
+
+        const newSlices: Slice[] = frames.map(frame => ({
+          id: Date.now() + Math.random(),
+          canvas: frame.canvas,
+          delay: frame.delay,
+          layers: []
+        }))
+
+        setSlices(newSlices)
+        setSelectedSliceIdx(0)
+        setMode('editor')
+
+        if (newSlices.length > 0) {
+          setOutW(newSlices[0].canvas.width)
+          setOutH(newSlices[0].canvas.height)
+        }
+
+        message.success(`成功加载 ${frames.length} 帧 GIF`)
+      } catch (err: any) {
+        message.destroy()
+        message.error(err.message || 'GIF 解析失败')
+      }
+      return
+    }
+
+    // Handle regular images
     const reader = new FileReader()
     reader.onload = (evt) => {
       const img = new Image()
@@ -238,6 +285,344 @@ export default function ImageHelperPage() {
     setSelectedSliceIdx(idx + 1)
   }
 
+  const exportSpriteSheet = () => {
+    if (slices.length === 0) {
+      message.warning('没有可导出的帧')
+      return
+    }
+
+    try {
+      // Prepare frames with layers rendered
+      const framesWithLayers = slices.map(slice => {
+        const tempCanvas = document.createElement('canvas')
+        tempCanvas.width = slice.canvas.width
+        tempCanvas.height = slice.canvas.height
+        const ctx = tempCanvas.getContext('2d')!
+
+        ctx.drawImage(slice.canvas, 0, 0)
+
+        // Render layers
+        slice.layers.forEach(layer => {
+          ctx.save()
+          if (layer.type === 'text') {
+            ctx.font = `${layer.italic ? 'italic' : 'normal'} ${layer.bold ? 'bold' : 'normal'} ${layer.size}px sans-serif`
+            ctx.fillStyle = layer.color || '#ffffff'
+            ctx.textBaseline = 'top'
+            ctx.fillText(layer.content || '', layer.x, layer.y)
+            if (layer.underline) {
+              const metrics = ctx.measureText(layer.content || '')
+              ctx.fillRect(layer.x, layer.y + (layer.size || 12) * 1.05, metrics.width, (layer.size || 12) / 15)
+            }
+          } else if (layer.img) {
+            ctx.drawImage(layer.img, layer.x, layer.y, layer.w || 0, layer.h || 0)
+          }
+          ctx.restore()
+        })
+
+        return { canvas: tempCanvas, delay: slice.delay }
+      })
+
+      const dataUrl = exportSprite(framesWithLayers, spriteRows, spriteCols, outW, outH)
+
+      // Download
+      const link = document.createElement('a')
+      link.download = `SpriteSheet_${Date.now()}.png`
+      link.href = dataUrl
+      link.click()
+
+      message.success('Sprite Sheet 导出成功')
+    } catch (err: any) {
+      message.error('导出失败: ' + err.message)
+    }
+  }
+
+  const handleExportGif = async () => {
+    if (slices.length === 0) {
+      message.warning('没有可导出的帧')
+      return
+    }
+
+    try {
+      setIsExporting(true)
+      setExportProgress(0)
+
+      // Prepare frames with layers rendered
+      const framesWithLayers = slices.map(slice => {
+        const tempCanvas = document.createElement('canvas')
+        tempCanvas.width = slice.canvas.width
+        tempCanvas.height = slice.canvas.height
+        const ctx = tempCanvas.getContext('2d')!
+
+        ctx.drawImage(slice.canvas, 0, 0)
+
+        // Render layers
+        slice.layers.forEach(layer => {
+          ctx.save()
+          if (layer.type === 'text') {
+            ctx.font = `${layer.italic ? 'italic' : 'normal'} ${layer.bold ? 'bold' : 'normal'} ${layer.size}px sans-serif`
+            ctx.fillStyle = layer.color || '#ffffff'
+            ctx.textBaseline = 'top'
+            ctx.fillText(layer.content || '', layer.x, layer.y)
+            if (layer.underline) {
+              const metrics = ctx.measureText(layer.content || '')
+              ctx.fillRect(layer.x, layer.y + (layer.size || 12) * 1.05, metrics.width, (layer.size || 12) / 15)
+            }
+          } else if (layer.img) {
+            ctx.drawImage(layer.img, layer.x, layer.y, layer.w || 0, layer.h || 0)
+          }
+          ctx.restore()
+        })
+
+        return { canvas: tempCanvas, delay: slice.delay }
+      })
+
+      const blob = await exportGif(
+        framesWithLayers,
+        outW,
+        outH,
+        quality,
+        enableTrans && transparencyReady,
+        (progress) => setExportProgress(Math.round(progress * 100))
+      )
+
+      const url = URL.createObjectURL(blob)
+      setPreviewUrl(url)
+      setPreviewModalVisible(true)
+      setIsExporting(false)
+      message.success('GIF 生成成功')
+    } catch (err: any) {
+      setIsExporting(false)
+      message.error('GIF 导出失败: ' + err.message)
+    }
+  }
+
+  const handleExportZip = async () => {
+    if (slices.length === 0) {
+      message.warning('没有可导出的帧')
+      return
+    }
+
+    try {
+      setIsExporting(true)
+      setExportProgress(0)
+
+      // Prepare frames with layers rendered
+      const framesWithLayers = slices.map(slice => {
+        const tempCanvas = document.createElement('canvas')
+        tempCanvas.width = slice.canvas.width
+        tempCanvas.height = slice.canvas.height
+        const ctx = tempCanvas.getContext('2d')!
+
+        ctx.drawImage(slice.canvas, 0, 0)
+
+        // Render layers
+        slice.layers.forEach(layer => {
+          ctx.save()
+          if (layer.type === 'text') {
+            ctx.font = `${layer.italic ? 'italic' : 'normal'} ${layer.bold ? 'bold' : 'normal'} ${layer.size}px sans-serif`
+            ctx.fillStyle = layer.color || '#ffffff'
+            ctx.textBaseline = 'top'
+            ctx.fillText(layer.content || '', layer.x, layer.y)
+            if (layer.underline) {
+              const metrics = ctx.measureText(layer.content || '')
+              ctx.fillRect(layer.x, layer.y + (layer.size || 12) * 1.05, metrics.width, (layer.size || 12) / 15)
+            }
+          } else if (layer.img) {
+            ctx.drawImage(layer.img, layer.x, layer.y, layer.w || 0, layer.h || 0)
+          }
+          ctx.restore()
+        })
+
+        return { canvas: tempCanvas, delay: slice.delay }
+      })
+
+      const blob = await exportZip(
+        framesWithLayers,
+        outW,
+        outH,
+        (current, total) => setExportProgress(Math.round((current / total) * 100))
+      )
+
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.download = `Frames_${Date.now()}.zip`
+      link.href = url
+      link.click()
+
+      setIsExporting(false)
+      message.success('ZIP 导出成功')
+    } catch (err: any) {
+      setIsExporting(false)
+      message.error('ZIP 导出失败: ' + err.message)
+    }
+  }
+    const sheetCtx = sheetCanvas.getContext('2d')
+
+    if (!sheetCtx) {
+      alert('无法创建画布')
+      return
+    }
+
+    // Clear with transparent background
+    sheetCtx.clearRect(0, 0, sheetCanvas.width, sheetCanvas.height)
+
+    // Draw each frame into the grid
+    let frameIndex = 0
+    for (let row = 0; row < spriteRows; row++) {
+      for (let col = 0; col < spriteCols; col++) {
+        if (frameIndex >= slices.length) break
+
+        const slice = slices[frameIndex]
+        const x = col * frameW
+        const y = row * frameH
+
+        // Create a temp canvas to render the frame with layers at target size
+        const tempCanvas = document.createElement('canvas')
+        tempCanvas.width = frameW
+        tempCanvas.height = frameH
+        const tempCtx = tempCanvas.getContext('2d')
+
+        if (tempCtx) {
+          // Scale the base canvas content
+          tempCtx.drawImage(slice.canvas, 0, 0, frameW, frameH)
+
+          // Draw layers (scaled proportionally)
+          const scaleX = frameW / slice.canvas.width
+          const scaleY = frameH / slice.canvas.height
+          slice.layers.forEach((l) => {
+            tempCtx.save()
+            if (l.type === 'text') {
+              let fontStyle = l.italic ? 'italic' : 'normal'
+              let fontWeight = l.bold ? 'bold' : 'normal'
+              const scaledSize = (l.size || 12) * scaleX
+              tempCtx.font = `${fontStyle} ${fontWeight} ${scaledSize}px sans-serif`
+              tempCtx.fillStyle = l.color || '#ffffff'
+              tempCtx.textBaseline = 'top'
+              const scaledX = l.x * scaleX
+              const scaledY = l.y * scaleY
+              if (l.underline) {
+                const metrics = tempCtx.measureText(l.content || '')
+                tempCtx.fillText(l.content || '', scaledX, scaledY)
+                tempCtx.strokeStyle = l.color || '#ffffff'
+                tempCtx.lineWidth = Math.max(1, scaledSize / 12)
+                tempCtx.beginPath()
+                tempCtx.moveTo(scaledX, scaledY + scaledSize + 2)
+                tempCtx.lineTo(scaledX + metrics.width, scaledY + scaledSize + 2)
+                tempCtx.stroke()
+              } else {
+                tempCtx.fillText(l.content || '', scaledX, scaledY)
+              }
+            } else if (l.img) {
+              tempCtx.drawImage(l.img, l.x * scaleX, l.y * scaleY, (l.w || 0) * scaleX, (l.h || 0) * scaleY)
+            }
+            tempCtx.restore()
+          })
+
+          // Draw the composed frame to sprite sheet
+          sheetCtx.drawImage(tempCanvas, x, y)
+        }
+
+        frameIndex++
+      }
+    }
+
+    // Export as PNG
+    sheetCanvas.toBlob((blob) => {
+      if (!blob) {
+        alert('导出失败')
+        return
+      }
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `sprite-sheet-${spriteRows}x${spriteCols}-${Date.now()}.png`
+      link.click()
+      URL.revokeObjectURL(url)
+    }, 'image/png')
+  }
+
+  const handleLayersChange = (newLayers: Layer[]) => {
+    if (selectedSliceIdx < 0 || selectedSliceIdx >= slices.length) return
+    const newSlices = [...slices]
+    newSlices[selectedSliceIdx].layers = newLayers
+    setSlices(newSlices)
+  }
+
+  const handleSyncToFrames = (layerId: number, scope: SyncScope, rangeStart?: number, rangeEnd?: number) => {
+    if (selectedSliceIdx < 0 || selectedSliceIdx >= slices.length) return
+
+    const sourceLayer = slices[selectedSliceIdx].layers.find((l) => l.id === layerId)
+    if (!sourceLayer) return
+
+    const newSlices = [...slices]
+
+    if (scope === 'current') {
+      message.success('当前帧无需同步')
+      return
+    }
+
+    let targetIndices: number[] = []
+
+    if (scope === 'all') {
+      targetIndices = slices.map((_, i) => i).filter((i) => i !== selectedSliceIdx)
+    } else if (scope === 'range') {
+      const start = Math.max(0, rangeStart || 0)
+      const end = Math.min(slices.length - 1, rangeEnd || slices.length - 1)
+      for (let i = start; i <= end; i++) {
+        if (i !== selectedSliceIdx) {
+          targetIndices.push(i)
+        }
+      }
+    }
+
+    targetIndices.forEach((idx) => {
+      const layerCopy: Layer = {
+        ...sourceLayer,
+        id: Date.now() + Math.random(),
+      }
+      if (sourceLayer.img) {
+        const img = new Image()
+        img.src = sourceLayer.img.src
+        layerCopy.img = img
+      }
+      newSlices[idx].layers.push(layerCopy)
+    })
+
+    setSlices(newSlices)
+    message.success(`已同步图层到 ${targetIndices.length} 帧`)
+  }
+
+  const handleStartGlobalCrop = () => {
+    if (slices.length === 0) {
+      message.warning('没有可裁剪的帧，请先执行切片')
+      return
+    }
+    setMode('global-crop')
+  }
+
+  const handleApplyGlobalCrop = (newSlices: Slice[]) => {
+    setSlices(newSlices)
+    setSelectedSliceIdx(0)
+    setMode('editor')
+  }
+
+  const handleCancelGlobalCrop = () => {
+    setMode('editor')
+  }
+
+  // Show global crop panel if in that mode
+  if (mode === 'global-crop') {
+    return (
+      <div className="image-helper-page" data-theme={theme} style={{ height: 'calc(100vh - 64px)' }}>
+        <GlobalCropPanel
+          slices={slices}
+          onApplyCrop={handleApplyGlobalCrop}
+          onCancel={handleCancelGlobalCrop}
+        />
+      </div>
+    )
+  }
+
   return (
     <div className="image-helper-page" data-theme={theme}>
       <div className="workspace">
@@ -287,8 +672,26 @@ export default function ImageHelperPage() {
             <Space><Input type="number" value={outW} onChange={(e) => setOutW(+e.target.value)} placeholder="宽" style={{ width: 80 }} /><span>×</span><Input type="number" value={outH} onChange={(e) => setOutH(+e.target.value)} placeholder="高" style={{ width: 80 }} /></Space>
             <div style={{ marginTop: 12 }}><Text style={{ fontSize: 12 }}>倍率: {outScale.toFixed(1)}x</Text><Slider min={0.1} max={2.0} step={0.1} value={outScale} onChange={(v) => { setOutScale(v); if (slices.length > 0 && slices[0]) { setOutW(Math.round(slices[0].canvas.width * v)); setOutH(Math.round(slices[0].canvas.height * v)) } }} /></div>
             <div style={{ marginTop: 12 }}><Text style={{ fontSize: 12 }}>GIF 画质: {quality}</Text><Slider min={1} max={10} value={quality} onChange={setQuality} /></div>
-            <Button type="primary" block style={{ marginTop: 10 }}>👁️ 预览 (导出GIF)</Button>
-            <Button block style={{ marginTop: 10 }}>📦 导出序列帧 (ZIP)</Button>
+
+            <div className="group-title" style={{ marginTop: 16 }}>Sprite Sheet 布局</div>
+            <Space>
+              <Input type="number" value={spriteRows} onChange={(e) => setSpriteRows(Math.max(1, +e.target.value))} placeholder="行" style={{ width: 80 }} />
+              <span>×</span>
+              <Input type="number" value={spriteCols} onChange={(e) => setSpriteCols(Math.max(1, +e.target.value))} placeholder="列" style={{ width: 80 }} />
+            </Space>
+            <Text type="secondary" style={{ fontSize: 11, display: 'block', marginTop: 4 }}>
+              将导出 {spriteRows}×{spriteCols} = {spriteRows * spriteCols} 帧 (共 {slices.length} 帧可用)
+            </Text>
+
+            <Button type="primary" block style={{ marginTop: 10 }} onClick={handleExportGif} disabled={slices.length === 0} loading={isExporting}>
+              {isExporting ? `导出中 ${exportProgress}%` : '👁️ 预览 (导出GIF)'}
+            </Button>
+            <Button block style={{ marginTop: 10 }} onClick={handleExportZip} disabled={slices.length === 0} loading={isExporting}>
+              {isExporting ? `打包中 ${exportProgress}%` : '📦 导出序列帧 (ZIP)'}
+            </Button>
+            <Button block style={{ marginTop: 10 }} onClick={exportSpriteSheet} disabled={slices.length === 0}>
+              🖼️ 导出 Sprite Sheet (PNG)
+            </Button>
           </div>
         </aside>
 
@@ -302,6 +705,32 @@ export default function ImageHelperPage() {
             <Button onClick={() => setScale(s => s * 1.2)}>+</Button>
           </div>
         </div>
+
+        {mode === 'editor' && selectedSliceIdx >= 0 && (
+          <aside className="layer-editor-panel">
+            <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border-color)' }}>
+              <Button
+                icon={<BorderOutlined />}
+                onClick={handleStartGlobalCrop}
+                block
+                style={{ marginBottom: 12 }}
+              >
+                全局裁剪 (框选)
+              </Button>
+            </div>
+            <LayerEditor
+              layers={slices[selectedSliceIdx]?.layers || []}
+              selectedLayerId={selectedLayerId}
+              canvasWidth={slices[selectedSliceIdx]?.canvas.width || 300}
+              canvasHeight={slices[selectedSliceIdx]?.canvas.height || 300}
+              onLayersChange={handleLayersChange}
+              onLayerSelect={setSelectedLayerId}
+              onSyncToFrames={handleSyncToFrames}
+              totalFrames={slices.length}
+              currentFrameIndex={selectedSliceIdx}
+            />
+          </aside>
+        )}
 
         <div className="timeline-area">
           {slices.length === 0 ? (
@@ -325,6 +754,32 @@ export default function ImageHelperPage() {
           )}
         </div>
       </div>
+
+      {/* Preview Modal */}
+      <Modal
+        open={previewModalVisible}
+        onCancel={() => setPreviewModalVisible(false)}
+        footer={[
+          <Button key="download" type="primary" onClick={() => {
+            const link = document.createElement('a')
+            link.href = previewUrl
+            link.download = `output_${Date.now()}.gif`
+            link.click()
+          }}>
+            ⬇️ 下载 GIF
+          </Button>,
+          <Button key="close" onClick={() => setPreviewModalVisible(false)}>
+            关闭
+          </Button>
+        ]}
+        width={800}
+        centered
+      >
+        <div style={{ textAlign: 'center', padding: '20px 0' }}>
+          <h3>GIF 预览</h3>
+          {previewUrl && <img src={previewUrl} alt="GIF Preview" style={{ maxWidth: '100%', border: '1px solid #ddd', marginTop: 16 }} />}
+        </div>
+      </Modal>
     </div>
   )
 }
