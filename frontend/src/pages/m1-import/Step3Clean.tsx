@@ -551,9 +551,9 @@ export default function Step3Clean() {
 
   return (
     <Space direction="vertical" size={16} style={{ width: '100%' }}>
-      {/* 节点池（可折叠） */}
+      {/* 节点池（可折叠）：开始清理后自动折叠 */}
       <Collapse
-        defaultActiveKey={['nodes']}
+        activeKey={running ? [] : ['nodes']}
         items={[
           {
             key: 'nodes',

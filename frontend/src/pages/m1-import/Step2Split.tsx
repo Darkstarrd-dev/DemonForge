@@ -55,6 +55,8 @@ export default function Step2Split() {
   const [titleTemplate, setTitleTemplate] = useState(m1TitleTemplate)
   const [renamePreview, setRenamePreview] = useState<{ old: string; new: string }[]>([])
   const [aiSplitting, setAiSplitting] = useState<string | null>(null)
+  /** 是否处于"已应用切分"视图模式（隐藏检测/选择/列表，显示表格） */
+  const [appliedViewMode, setAppliedViewMode] = useState(false)
   /** 点击展开的预览章节索引（再次点击同项收起） */
   const [selectedIdx, setSelectedIdx] = useState<number | null>(null)
   /** 展开章节内光标偏移（content 坐标系，不含【标题】前缀）；null=未定位 */
@@ -138,7 +140,12 @@ export default function Step2Split() {
       skipClean: p.isVolume === true,
     }))
     setState({ importSession: { ...session, chapters } })
+    setAppliedViewMode(true)
     message.success(`已应用切分：${chapters.length} 章`)
+  }
+
+  const cancelApplied = () => {
+    setAppliedViewMode(false)
   }
 
   const runAiSplit = async (ch: ImportChapter) => {
@@ -350,7 +357,8 @@ export default function Step2Split() {
 
   return (
     <Space data-slot="step2" direction="vertical" size={16} style={{ width: '100%' }}>
-      {detect && (
+      {/* 检测结果：应用后隐藏 */}
+      {!appliedViewMode && detect && (
         <Alert
           data-slot="alert-detect-result"
           type={detect.patternKey === 'custom' ? 'warning' : detectHigh ? 'success' : 'info'}
@@ -373,15 +381,19 @@ export default function Step2Split() {
           }
         />
       )}
-      <Space data-slot="config-panel" wrap align="center">
-        <Radio.Group
-          data-slot="select-pattern"
-          value={patternKey}
-          onChange={(e) => setPatternKey(e.target.value)}
-          options={radioOptions}
-        />
-      </Space>
-      {patternKey === 'custom' && (
+      {/* 模式选择：应用后隐藏 */}
+      {!appliedViewMode && (
+        <Space data-slot="config-panel" wrap align="center">
+          <Radio.Group
+            data-slot="select-pattern"
+            value={patternKey}
+            onChange={(e) => setPatternKey(e.target.value)}
+            options={radioOptions}
+          />
+        </Space>
+      )}
+      {/* 自定义正则：应用后隐藏 */}
+      {!appliedViewMode && patternKey === 'custom' && (
         <Input
           data-slot="input-custom-regex"
           style={{ maxWidth: 420 }}
@@ -391,20 +403,23 @@ export default function Step2Split() {
           status={regex ? undefined : 'error'}
         />
       )}
-      <Space>
-        <Checkbox data-slot="toggle-keep-prologue" checked={keepPrologue} onChange={(e) => setKeepPrologue(e.target.checked)}>
-          保留第一章之前的内容为「序章」
-        </Checkbox>
-        {patternKey === 'custom' && !regex && (
-          <Typography.Text type="danger" style={{ fontSize: 12 }}>
-            自定义正则无效
-          </Typography.Text>
-        )}
-      </Space>
+      {/* 序章选项：应用后隐藏 */}
+      {!appliedViewMode && (
+        <Space>
+          <Checkbox data-slot="toggle-keep-prologue" checked={keepPrologue} onChange={(e) => setKeepPrologue(e.target.checked)}>
+            保留第一章之前的内容为「序章」
+          </Checkbox>
+          {patternKey === 'custom' && !regex && (
+            <Typography.Text type="danger" style={{ fontSize: 12 }}>
+              自定义正则无效
+            </Typography.Text>
+          )}
+        </Space>
+      )}
 
-      {preview && (
+      {/* 预览区：应用后隐藏 */}
+      {!appliedViewMode && preview && (
         <>
-          {renamePanel}
           <Alert
             data-slot="alert-preview-summary"
             type={preview.length > 1 ? 'success' : 'warning'}
@@ -496,14 +511,25 @@ export default function Step2Split() {
               )}
             </Space>
           )}
-          <Button type="primary" onClick={applySplit}>
-            {applied ? '重新应用切分（覆盖当前章节）' : '应用切分'}
-          </Button>
+          <Space>
+            <Button type="primary" onClick={applySplit}>
+              应用切分
+            </Button>
+          </Space>
         </>
       )}
 
-      {applied && (
+      {/* 已应用视图：按钮 + 批量重命名 + 表格 + AI清理按钮 */}
+      {appliedViewMode && applied && (
         <>
+          <Space>
+            <Button onClick={cancelApplied}>
+              取消
+            </Button>
+            <Button type="primary" icon={<RobotOutlined />} onClick={() => setState({ importSession: { ...useAppStore.getState().importSession!, step: 2 } })}>
+              AI 清理
+            </Button>
+          </Space>
           {renamePanel}
           <Typography.Title level={5} style={{ marginBottom: 0 }}>
             已切分章节（{session.chapters.length}）
@@ -544,12 +570,6 @@ export default function Step2Split() {
               },
             ]}
           />
-          <Button
-            type="primary"
-            onClick={() => setState({ importSession: { ...useAppStore.getState().importSession!, step: 2 } })}
-          >
-            下一步：AI 清理
-          </Button>
         </>
       )}
     </Space>
