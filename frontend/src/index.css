@@ -153,3 +153,12 @@ body {
 .m1-tabs-panel .ant-tabs-tabpane {
   height: 100%;
 }
+
+/* 修复浅色模式下菜单右侧阴影问题 */
+.ant-menu-light {
+  box-shadow: none !important;
+}
+
+.ant-menu-inline {
+  border-inline-end: none !important;
+}
