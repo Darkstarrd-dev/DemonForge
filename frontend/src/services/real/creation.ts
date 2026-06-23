@@ -7,6 +7,18 @@ export interface CreationProvider {
   model: string
 }
 
+export interface ArchInputParams extends CreationProvider {
+  genre?: string
+  chapters?: number
+  guidance?: string
+}
+
+export interface ArchInputResult {
+  topic: string
+  genre: string
+  guidance: string
+}
+
 export interface ArchParams extends CreationProvider {
   topic: string
   genre?: string
@@ -79,6 +91,21 @@ export async function streamSSE(
     if (done) break
   }
   throw new Error('流式响应意外结束')
+}
+
+/** 生成创作方向输入（topic/genre/guidance）——流式，返回 JSON 文本后解析 */
+export async function generateArchInput(
+  params: ArchInputParams,
+  signal?: AbortSignal,
+): Promise<ArchInputResult> {
+  const raw = await streamSSE('/api/llm/arch-input', params, () => {}, signal)
+  const parsed = JSON.parse(raw.trim()) as ArchInputResult
+  if (!parsed.topic) throw new Error('生成失败：模型未返回有效 topic')
+  return {
+    topic: parsed.topic ?? '',
+    genre: parsed.genre ?? '',
+    guidance: parsed.guidance ?? '',
+  }
 }
 
 /** 生成小说架构（雪花法四步）——流式 */

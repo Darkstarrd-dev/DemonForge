@@ -3,6 +3,7 @@ import type { FastifyInstance, FastifyReply } from 'fastify'
 import { chatStream, embed, type ProviderConfig } from '../llmClient'
 import {
   ARCH_SYSTEM_PROMPT,
+  ARCH_INPUT_PROMPT,
   BLUEPRINT_SYSTEM_PROMPT,
   DRAFT_SYSTEM_PROMPT,
   FINALIZE_SYSTEM_PROMPT,
@@ -14,6 +15,7 @@ import { assembleContext, type AssembleInput } from '../contextAssembler'
 import { hijackSSE } from '../utils/sseHelper'
 
 type ArchBody = ProviderConfig & { topic?: string; genre?: string; chapters?: number; guidance?: string }
+type ArchInputBody = ProviderConfig & { genre?: string; chapters?: number; guidance?: string }
 type BlueprintBody = ProviderConfig & {
   architecture?: string
   existingDirectory?: string
@@ -111,6 +113,29 @@ export async function creationRoutes(app: FastifyInstance) {
     await streamChat(reply, { baseURL, apiKey, model }, [
       { role: 'system', content: ARCH_SYSTEM_PROMPT },
       { role: 'user', content: userPrompt },
+    ])
+  })
+
+  // 生成创作方向输入（topic/genre/guidance）——SSE 流式，输出 JSON
+  app.post('/api/llm/arch-input', async (req, reply) => {
+    const { baseURL, apiKey, model, genre, chapters, guidance } = (req.body ?? {}) as ArchInputBody
+    if (!baseURL || !model) {
+      reply.status(400).send({ error: '缺少 baseURL / model' })
+      return
+    }
+    const userPrompt = [
+      genre?.trim() ? `偏好类型：${genre.trim()}` : '',
+      chapters ? `预估总章节数：${chapters}` : '',
+      guidance?.trim() ? `已有思路/梗概：${guidance.trim()}` : '',
+      '',
+      '请按输出格式，脑暴一个完整的创作方向，输出 JSON。',
+    ]
+      .filter(Boolean)
+      .join('\n')
+
+    await streamChat(reply, { baseURL, apiKey, model }, [
+      { role: 'system', content: ARCH_INPUT_PROMPT },
+      { role: 'user', content: userPrompt || '请自由发挥创意，生成一个有趣的小说创作方向。' },
     ])
   })
 
@@ -411,7 +436,7 @@ export async function creationRoutes(app: FastifyInstance) {
 
       send('progress', { stage: 'extracting', total: chapters.length, current: 0 })
 
-      // 2. 并行调用 chatStream 提取实体
+      // 2. 串行逐章提取实体（避免并行触发上游 RPM 限流）
       interface RawEntity {
         type: string
         name: string
@@ -423,58 +448,57 @@ export async function creationRoutes(app: FastifyInstance) {
       const existingSet = new Set(existingCardNames ?? [])
       const entityMap = new Map<string, { entity: RawEntity; refs: { chapterId: string; excerpt: string }[] }>()
 
-      await Promise.all(
-        chapters.map(async (ch, idx) => {
-          if (ac.signal.aborted) return
+      for (let idx = 0; idx < chapters.length; idx++) {
+        if (ac.signal.aborted) break
+        const ch = chapters[idx]
 
-          const userPrompt = `请从以下章节中提取实体（人物、地点、物品、技能、势力）：\n\n${ch.content}`
+        const userPrompt = `请从以下章节中提取实体（人物、地点、物品、技能、势力）：\n\n${ch.content}`
 
+        try {
+          const full = await chatStream(
+            {
+              baseURL,
+              apiKey,
+              model,
+              messages: [
+                { role: 'system', content: EXTRACT_ENTITIES_SYSTEM_PROMPT },
+                { role: 'user', content: userPrompt },
+              ],
+              signal: ac.signal,
+            },
+            () => {}, // 不需要 delta 回调
+          )
+
+          // 解析 JSON 输出
+          let entities: RawEntity[] = []
           try {
-            const full = await chatStream(
-              {
-                baseURL,
-                apiKey,
-                model,
-                messages: [
-                  { role: 'system', content: EXTRACT_ENTITIES_SYSTEM_PROMPT },
-                  { role: 'user', content: userPrompt },
-                ],
-                signal: ac.signal,
-              },
-              () => {}, // 不需要 delta 回调
-            )
-
-            // 解析 JSON 输出
-            let entities: RawEntity[] = []
-            try {
-              entities = JSON.parse(full.trim()) as RawEntity[]
-            } catch (parseErr) {
-              send('error', {
-                message: `章节 ${ch.title} 解析失败：${parseErr instanceof Error ? parseErr.message : String(parseErr)}`,
-              })
-              return
-            }
-
-            // 按 (type, name) 合并出处引用
-            for (const ent of entities) {
-              if (existingSet.has(ent.name)) continue // 去重
-              const key = `${ent.type}:${ent.name}`
-              if (entityMap.has(key)) {
-                entityMap.get(key)!.refs.push({ chapterId: ch.id, excerpt: ent.excerpt })
-              } else {
-                entityMap.set(key, { entity: ent, refs: [{ chapterId: ch.id, excerpt: ent.excerpt }] })
-              }
-            }
-
-            send('progress', { stage: 'extracting', total: chapters.length, current: idx + 1 })
-          } catch (err) {
-            if (ac.signal.aborted) return
+            entities = JSON.parse(full.trim()) as RawEntity[]
+          } catch (parseErr) {
             send('error', {
-              message: `章节 ${ch.title} 提取失败：${err instanceof Error ? err.message : String(err)}`,
+              message: `章节 ${ch.title} 解析失败：${parseErr instanceof Error ? parseErr.message : String(parseErr)}`,
             })
+            continue
           }
-        }),
-      )
+
+          // 按 (type, name) 合并出处引用
+          for (const ent of entities) {
+            if (existingSet.has(ent.name)) continue // 去重
+            const key = `${ent.type}:${ent.name}`
+            if (entityMap.has(key)) {
+              entityMap.get(key)!.refs.push({ chapterId: ch.id, excerpt: ent.excerpt })
+            } else {
+              entityMap.set(key, { entity: ent, refs: [{ chapterId: ch.id, excerpt: ent.excerpt }] })
+            }
+          }
+
+          send('progress', { stage: 'extracting', total: chapters.length, current: idx + 1 })
+        } catch (err) {
+          if (ac.signal.aborted) break
+          send('error', {
+            message: `章节 ${ch.title} 提取失败：${err instanceof Error ? err.message : String(err)}`,
+          })
+        }
+      }
 
       if (ac.signal.aborted) {
         raw.end()

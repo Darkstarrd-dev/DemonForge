@@ -24,7 +24,7 @@ import {
   OrderedListOutlined,
 } from '@ant-design/icons'
 import { useAppStore, genId } from '../../store/appStore'
-import { generateArch, generateBlueprint } from '../../services/api'
+import { generateArch, generateBlueprint, generateArchInput } from '../../services/api'
 import type { OutlineNode } from '../../services/types'
 import { parseArchitecture, parseBlueprint, type ParsedBlueprintChapter } from './parse'
 
@@ -120,20 +120,53 @@ export default function M0ArchitecturePage() {
 
   // ── 生成架构 ──
   const runArch = async () => {
-    if (!topic.trim()) {
-      message.warning('请先填写主题')
-      return
+    let currentTopic = topic.trim()
+    let currentGenre = genre.trim()
+    let currentGuidance = guidance.trim()
+
+    if (!currentTopic) {
+      const inputProv = getProvider(archNodeId ?? resolveArchNode())
+      if (!inputProv) {
+        message.warning('请选择生成节点（设置页配置）')
+        return
+      }
+      setGenArching(true)
+      setGenArchText('')
+      const hideLoading = message.loading('正在生成创作方向…', 0)
+      try {
+        const result = await generateArchInput({
+          ...inputProv,
+          genre: currentGenre,
+          chapters,
+          guidance: currentGuidance,
+        })
+        hideLoading()
+        setTopic(result.topic)
+        setGenre(result.genre)
+        setGuidance(result.guidance)
+        currentTopic = result.topic
+        currentGenre = result.genre
+        currentGuidance = result.guidance
+        message.success('已生成创作方向，继续生成架构…')
+      } catch (e) {
+        hideLoading()
+        message.error(`生成创作方向失败：${e instanceof Error ? e.message : String(e)}`)
+        setGenArching(false)
+        return
+      }
     }
+
     const prov = getProvider(archNodeId ?? resolveArchNode())
     if (!prov) {
       message.warning('请选择生成节点（设置页配置）')
+      setGenArching(false)
       return
     }
-    setGenArching(true)
-    setGenArchText('')
+    if (!genArching) setGenArching(true)
+    if (!genArchText) setGenArchText('')
     try {
       const full = await generateArch(
-        { ...prov, topic: topic.trim(), genre: genre.trim(), chapters, guidance: guidance.trim() },
+        { ...prov, topic: currentTopic, genre: currentGenre, chapters, guidance: currentGuidance },
         (acc) => setGenArchText(acc),
       )
       const parsed = parseArchitecture(full)

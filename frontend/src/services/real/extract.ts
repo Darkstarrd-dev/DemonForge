@@ -3,7 +3,7 @@
 import type { Chapter, EntityCard, MergeCandidate } from '../types'
 
 export interface ExtractProgress {
-  stage: 'chunk' | 'merge' | 'embed'
+  stage: 'extracting' | 'embedding' | 'merging'
   current: number
   total: number
   message?: string
@@ -56,14 +56,12 @@ export async function extractEntities(
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
+      baseURL: node.baseURL,
+      apiKey: node.apiKey,
+      model: node.model,
       bookId,
-      chapters,
-      existingNames,
-      provider: {
-        baseURL: node.baseURL,
-        apiKey: node.apiKey,
-        model: node.model,
-      },
+      chapterIds: chapters.map((ch) => ch.id),
+      existingCardNames: existingNames,
     }),
     signal,
   })

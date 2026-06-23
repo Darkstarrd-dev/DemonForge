@@ -18,8 +18,8 @@ export { extractEntities } from './real/extract'
 export type { ExtractProgress, ExtractResult } from './real/extract'
 
 // M0 起源流程已接真实后端（services/real/creation）。
-export { generateArch, generateBlueprint } from './real/creation'
-export type { ArchParams, BlueprintParams, CreationProvider } from './real/creation'
+export { generateArch, generateBlueprint, generateArchInput } from './real/creation'
+export type { ArchParams, ArchInputParams, ArchInputResult, BlueprintParams, CreationProvider } from './real/creation'
 
 // M3 推演已接真实后端（services/real/simulate）。
 export { simulateCharacter } from './real/simulate'

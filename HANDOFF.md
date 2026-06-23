@@ -2,7 +2,7 @@
 
 **最后更新**：2026-06-24  
 **当前位置**：办公场所 A
-**本轮主题**：节点测试 · 对比模式增强（推理气泡/模型选取/Debug Info/复制全部对话）✅ 已测试 + 打包阻断修复 ✅（`ProviderNodeType` import 缺失）
+**本轮主题**：M0 架构空输入自动生成 ✅ + M2 提取 400 修复 ✅ + M2 并行→串行防 RPM 限流 ✅ + SSE stage 类型对齐 ✅
 
 ---
 
@@ -11,13 +11,25 @@
 ### ✅ 已完成模块
 
 - [x] **M0 立项·架构**（arch/blueprint + SSE 流式 + UI + Context Assembler）
+  - ✅ **M0 空输入自动生成**（2026-06-24）✨
+    - 架构输入 topic 为空时点击「生成架构」→ 先调 `/api/llm/arch-input` 生成创作方向 → 填入输入框 → 自动链式调 `/api/llm/arch` 生成架构
+    - 后端：新增 `ARCH_INPUT_PROMPT`（创意写作教练，输出 JSON `{topic, genre, guidance}`）+ `POST /api/llm/arch-input` SSE 端点
+    - 前端：新增 `generateArchInput()` 服务函数 + `runArch()` 空输入链式调用逻辑
 - [x] **M1 文本清理**（四步骤全流程 + 批量清理调度器 + UI）
 - [x] **M2 设定提取**（2026-06-22）✨
   - 后端：`POST /api/llm/extract-entities` SSE 流式端点
   - Prompt：`EXTRACT_ENTITIES_SYSTEM_PROMPT`（五类实体：character/location/item/skill/faction）
-  - 流程：并行章节提取 → 按 (type, name) 合并出处 → embedding 相似度检测 → 生成 MergeCandidate
-  - SSE 事件：`progress`（chunk/merge/embed）、`entity`、`merge`、`done`、`error`
+  - 流程：串行逐章提取 → 按 (type, name) 合并出处 → embedding 相似度检测 → 生成 MergeCandidate
+  - SSE 事件：`progress`（extracting/embedding/merging）、`entity`、`merge`、`done`、`error`
   - 前端：`services/real/extract.ts` + 进度条 + 自动跳转合并裁决页
+  - ✅ **M2 提取 400 修复**（2026-06-24）🔧
+    - 问题：前端请求体 `{provider: {baseURL,apiKey,model}, chapters: Chapter[], existingNames}` vs 后端期望 `{baseURL,apiKey,model, chapterIds: string[], existingCardNames}`
+    - 修复：`extract.ts` 请求体扁平化 + 字段重命名（`chapters`→`chapterIds`、`existingNames`→`existingCardNames`）
+  - ✅ **SSE progress stage 对齐**（2026-06-24）：`ExtractProgress.stage` 类型从 `chunk|merge|embed` → `extracting|embedding|merging`
+  - ✅ **M2 并行→串行防 RPM 限流**（2026-06-24）🔧
+    - 问题：`Promise.all(chapters.map(...))` 全并发发 N 个请求直打上游 API → `429 rpm exhausted`
+    - 修复：改为 `for` 循环逐章串行提取，每次仅发 1 个请求，绝不超 RPM 限制
+    - 单章失败不中断后续章节（`continue` 非 `break`）
   - **状态**：编译通过，真实 LLM 接入完成，待实际测试
 - [x] **M3 角色推演**（2026-06-22）✨
   - 后端：`POST /api/llm/simulate` SSE 流式端点
@@ -409,6 +421,16 @@
   - `node-test/index.tsx:8` 缺少 `ProviderNodeType` 导入，导致 `tsc -b`（打包用）报 `TS2552 Cannot find name 'ProviderNodeType'`
   - 修复：import 行补上 `ProviderNodeType`
   - 验证：`npx tsc -b --force` → EXIT 0，无错误
+- [x] **M0 空输入自动生成**（2026-06-24）
+  - 后端：新增 `ARCH_INPUT_PROMPT` + `POST /api/llm/arch-input` SSE 端点（输出 JSON `{topic, genre, guidance}`）
+  - 前端：新增 `generateArchInput()` 服务函数 + `runArch()` 空输入链式调用逻辑
+  - 流程：topic 为空 → 生成创作方向 → 填入输入框 → 自动链式生成架构
+  - 验证：`tsc --noEmit` 前后端零错误
+- [x] **M2 提取 400 修复 + SSE stage 对齐 + 串行防 RPM 限流**（2026-06-24）
+  - 修复 `extract.ts` 请求体字段对齐后端 `ExtractEntitiesBody`（provider 扁平化 + chapters→chapterIds + existingNames→existingCardNames）
+  - 对齐 `ExtractProgress.stage` 类型（`chunk|merge|embed` → `extracting|embedding|merging`）
+  - 修复 `creation.ts` 全并发→串行逐章提取（`Promise.all` → `for` 循环），防上游 RPM 限流 429
+  - 验证：`tsc --noEmit` 前后端零错误
 
 ### 立即任务（本次会话后）
 
@@ -507,6 +529,19 @@
    - 阅读模式原有功能不受影响（字体/自动播放/书签/编辑正文/主题切换）
    - 清理模式退出后回到正常阅读
    - 查找面板关闭后正文恢复纯文本渲染
+
+9. **验证 M0 空输入自动生成**
+   - 进入 M0 架构页，不填任何输入，点击「生成架构」
+   - 确认弹出「正在生成创作方向…」loading 提示
+   - 确认 topic/genre/guidance 输入框自动填充生成结果
+   - 确认自动继续流式生成架构
+   - 测试：仅填 genre 不填 topic → 确认基于 genre 生成方向 → 链式架构生成
+   - 测试：topic 已填 → 确认跳过创作方向生成，直接生成架构（不外链式调用）
+
+10. **验证 M2 提取功能**
+   - 配置模块节点映射（设置 → 高级配置 → m2Extract）
+   - 选择一章，点击提取 → 确认不再报 400 错误
+   - 观察 SSE progress 事件 stage 值（应为 extracting/embedding/merging）
 
 ### 后续计划
 
@@ -664,6 +699,11 @@
     - ✅ 帮助文档弹窗（完整使用说明：功能简介、使用流程、循环参数、状态说明、注意事项）
   - ✅ 编译通过，零错误，所有代码完整实现
   - ✅ 代码完成度：100%（5 个阶段全部实现）
+
+### M2 提取并发改串行（2026-06-24 修复）
+- **动机**：`Promise.all` 全并发导致所有章节请求同时直打上游 LLM API，触发 RPM 限流（HTTP 429 `rpm exhausted`）
+- **方案**：改为 `for` 循环逐章串行提取，每次仅发 1 个请求；单章失败 `continue` 不中断后续章节
+- **实施成果**：仅改 `server/src/routes/creation.ts` 第 451 行一处（~10 行净变更），`tsc --noEmit` 零错误
 
 ### 节点测试架构重构（2026-06-21 完成）
 - **动机**：统一节点测试入口，支持文本推理、图片生成、多模态理解三种测试类型
