@@ -65,6 +65,20 @@ export function buildRequestBody(opts: ChatStreamOptions): Record<string, unknow
   return body
 }
 
+/** 已知的 reasoning 字段名（按优先级排序），覆盖主流 OpenAI 兼容 API 的思考过程输出 */
+const REASONING_FIELD_NAMES = [
+  'reasoning_content', // GLM-4, DeepSeek, Gemini, OpenAI o1/o3
+  'reasoning',         // 部分 OpenAI 兼容代理 / LiteLLM
+  'thinking',          // 部分社区模型
+  'think',             // Qwen 等
+] as const
+
+function extractReasoning(delta: Record<string, unknown> | undefined): string {
+  return REASONING_FIELD_NAMES
+    .map((f) => (typeof delta?.[f] === 'string' ? (delta[f] as string) : ''))
+    .find((s) => s !== '') ?? ''
+}
+
 /** POST /v1/chat/completions (stream:true) —— 逐增量回调，返回完整文本；失败抛错由调用方处理。
  * onRaw（可选）：透传每个上游 SSE chunk 的原始 payload，供节点测试 Debug Info 使用。
  * onReasoningDelta（可选）：透传 reasoning 字段的增量（思考过程流式返回）。 */
@@ -106,16 +120,19 @@ export async function chatStream(
         continue
       }
       try {
-        const json = JSON.parse(payload) as { choices?: Array<{ delta?: { content?: string; reasoning?: string } }> }
+        const json = JSON.parse(payload) as {
+          choices?: Array<{ delta?: { content?: string } & Record<string, unknown> }>
+        }
         onRaw?.({ line: payload, json })
-        const delta = json.choices?.[0]?.delta?.content ?? ''
-        const reasoningDelta = json.choices?.[0]?.delta?.reasoning ?? ''
+        const delta = json.choices?.[0]?.delta
+        const contentDelta = typeof delta?.content === 'string' ? delta.content : ''
+        const reasoningDelta = extractReasoning(delta)
         if (reasoningDelta && onReasoningDelta) {
           onReasoningDelta(reasoningDelta)
         }
-        if (delta) {
-          full += delta
-          onDelta(delta)
+        if (contentDelta) {
+          full += contentDelta
+          onDelta(contentDelta)
         }
       } catch {
         // 忽略不完整 / 非 JSON 的 keep-alive 行

@@ -2,7 +2,7 @@
 
 **最后更新**：2026-06-23  
 **当前位置**：办公场所 A
-**本轮主题**：节点测试 · 对比模式与模型切换标记（已完成） ✅ → 修正括号封闭 + 实施计划
+**本轮主题**：节点测试 · 对比模式与模型切换标记（已完成） ✅ → 修正括号封闭 + 实施计划 + **Reasoning 字段鲁棒匹配**
 
 ---
 
@@ -108,6 +108,8 @@
     - 后端：`server/src/llmClient.ts`、`server/src/routes/llm.ts`
     - 前端：`frontend/src/services/types.ts`、`frontend/src/services/real/chat.ts`、`frontend/src/pages/node-test/index.tsx`
   - **状态**：编译通过，功能验证完成，调试日志已清理 ✅
+  - **鲁棒性增强**（2026-06-23）：Reasoning 字段匹配从硬编码 `delta.reasoning` 改为遍历 4 种已知字段名（`reasoning_content` → `reasoning` → `thinking` → `think`），取首非空。方案：常量 `REASONING_FIELD_NAMES` + `extractReasoning()` 函数，仅改 `server/src/llmClient.ts` 一个文件。新增 Provider 只需追加字段名即可。
+  - **状态**：✅ 编译通过（tsc 零错误）
 - [x] **节点测试 · 气泡功能扩展**（2026-06-23）✨
   - **功能目标**：增强聊天气泡交互能力，支持重试/编辑/删除/节点模型名显示
   - **时间戳调整**：从气泡底部移到文字内容顶部（图片之下、reasoning/content 之上）
