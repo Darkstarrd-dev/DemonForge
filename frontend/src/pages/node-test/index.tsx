@@ -1489,10 +1489,7 @@ export default function NodeTestPage() {
                 )}
               </div>
             </div>
-            )
-          )}
-            </div>
-          )}
+          ))}
         </div>
 
         {/* 输入区 */}
