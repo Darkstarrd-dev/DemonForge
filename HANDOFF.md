@@ -2,7 +2,7 @@
 
 **最后更新**：2026-06-23  
 **当前位置**：办公场所 A
-**本轮主题**：节点测试 · 气泡功能扩展（重试/编辑/删除/节点模型名显示） ✅
+**本轮主题**：节点测试 · 对比模式与模型切换标记（进行中） 🚧
 
 ---
 
@@ -145,6 +145,31 @@
     - 修改：`frontend/src/pages/node-test/index.tsx`（气泡渲染重构 + 4 个操作函数 + 重试流程 + 编辑态 + 节点模型名）
     - 修复：`frontend/src/pages/settings/index.tsx`（清理 3 个未使用导入，修复构建错误）
   - **状态**：编译通过（tsc + vite build），功能完整实现，待浏览器验证 ✅
+- [x] **节点测试 · 对比模式与模型切换标记**（2026-06-23）✨ 🚧
+  - **需求 1：清理参数面板标题** ✅
+    - 移除右侧边栏"参数设置"标题文字
+    - 保留 System Instructions 和 Debug Info 按钮
+  - **需求 2：模型切换标记** ✅
+    - 类型扩展：`ChatMessage` 和 `ChatSessionMessage` 增加 `nodeId` 和 `modelName` 字段
+    - 发送时记录：`handleGenerate`、`retryMessage`、`generateImage` 创建消息时记录节点和模型信息
+    - `syncSessionMessages` 正确传递新字段到持久化层
+    - 渲染逻辑：新增 `getModelChanges()` 函数检测相邻 assistant 消息的模型切换点
+    - 气泡底部显示：最后一条 assistant + 所有模型切换点都显示「节点名 · 模型名」
+    - 图片模式切换拦截：`text ↔ image` 双向拦截，弹 Modal 确认清空对话
+    - `prevNodeTypeRef` 追踪节点类型变化，取消时恢复上一个节点
+  - **需求 3：对比模式**（部分完成）✅ 🚧
+    - 状态扩展：10 个新状态（compareMode、activeSide、左右独立的 messages/nodeId/phase/acRef）
+    - UI 基础：右侧边栏顶部对比模式切换按钮（`<ColumnWidthOutlined />`），带 Modal 确认
+    - 历史记录禁用：对比模式下历史记录按钮置灰并显示 Tooltip「对比模式下不可用」
+    - **待完成**：
+      - 底部菜单增加"操作侧"选择器（Segmented：左侧/右侧）
+      - 节点选择逻辑根据 activeSide 设置左右节点
+      - 双栏布局渲染（左右两个独立聊天容器）
+      - 拆分 handleGenerateLeft/Right，并行调用
+  - **文件变更**：
+    - 修改：`frontend/src/services/types.ts`（ChatMessage/ChatSessionMessage 类型扩展）
+    - 修改：`frontend/src/pages/node-test/index.tsx`（+200 行，核心逻辑改造）
+  - **状态**：编译通过（tsc 零错误），部分功能可测试 ✅ 🚧
 - [x] **角色交流模块 - 阶段 A：基础架构**（2026-06-21）
   - 数据模型定义（types.ts）+ 持久化配置（settings.json）
   - 页面路由与布局（`/role-chat` + 左侧菜单栏）

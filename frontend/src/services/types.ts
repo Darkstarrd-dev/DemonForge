@@ -157,6 +157,10 @@ export interface ChatSessionMessage {
   images?: string[]
   /** 思考过程（reasoning 字段） */
   reasoning?: string
+  /** 节点 ID（用于模型切换标记） */
+  nodeId?: string
+  /** 模型名称（用于模型切换标记） */
+  modelName?: string
 }
 
 /** 对话记录（一轮对话流 = 一个 session，多轮累积）。持久化到 chat_sessions 表 */

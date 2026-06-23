@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { App, Button, Space, Typography, Upload, Select, Segmented, theme, Tooltip, Image, Collapse, Popconfirm } from 'antd'
-import { PictureOutlined, CloseOutlined, MessageOutlined, CopyOutlined, SendOutlined, FileImageOutlined, HistoryOutlined, BulbOutlined, RedoOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons'
+import { App, Button, Space, Typography, Upload, Select, Segmented, theme, Tooltip, Image, Collapse, Popconfirm, Modal } from 'antd'
+import { PictureOutlined, CloseOutlined, MessageOutlined, CopyOutlined, SendOutlined, FileImageOutlined, HistoryOutlined, BulbOutlined, RedoOutlined, EditOutlined, DeleteOutlined, ColumnWidthOutlined } from '@ant-design/icons'
 import { useAppStore } from '../../store/appStore'
 import { generateImage, streamChat, generateTitle } from '../../services/api'
 import { genId, pushSettingsNow } from '../../store/appStore'
@@ -31,6 +31,8 @@ interface ChatMessage {
   timestamp: number
   images?: string[]
   reasoning?: string
+  nodeId?: string
+  modelName?: string
 }
 
 export default function NodeTestPage() {
@@ -71,6 +73,18 @@ export default function NodeTestPage() {
   const [editingMsgId, setEditingMsgId] = useState<string | null>(null)
   const [editingText, setEditingText] = useState('')
 
+  // ===== 对比模式状态 =====
+  const [compareMode, setCompareMode] = useState(false)
+  const [activeSide, setActiveSide] = useState<'left' | 'right'>('left')
+  const [chatMessagesLeft, setChatMessagesLeft] = useState<ChatMessage[]>([])
+  const [chatMessagesRight, setChatMessagesRight] = useState<ChatMessage[]>([])
+  const [selectedNodeIdLeft, setSelectedNodeIdLeft] = useState<string | undefined>(undefined)
+  const [selectedNodeIdRight, setSelectedNodeIdRight] = useState<string | undefined>(undefined)
+  const [phaseLeft, setPhaseLeft] = useState<Phase>('idle')
+  const [phaseRight, setPhaseRight] = useState<Phase>('idle')
+  const acRefLeft = useRef<AbortController | null>(null)
+  const acRefRight = useRef<AbortController | null>(null)
+
   // 根据测试模式过滤可用节点
   const availableNodes = useMemo(() => {
     if (testMode === 'image') {
@@ -90,6 +104,7 @@ export default function NodeTestPage() {
   const acRef = useRef<AbortController | null>(null)
   const promptRef = useRef<HTMLTextAreaElement>(null)
   const chatEndRef = useRef<HTMLDivElement>(null)
+  const prevNodeTypeRef = useRef<ProviderNodeType | undefined>(undefined)
 
   useEffect(() => () => acRef.current?.abort(), [])
 
@@ -103,15 +118,55 @@ export default function NodeTestPage() {
     ? availableNodes.find((n) => n.id === effectiveNodeId)
     : undefined
 
-  // 当切换节点时，自动切换测试模式
+  // 当切换节点时，检测节点类型变化并拦截
   useEffect(() => {
-    if (selectedNode) {
-      setTestMode(selectedNode.nodeType === 'image' ? 'image' : 'text')
+    if (!selectedNode) {
+      prevNodeTypeRef.current = undefined
+      return
+    }
+
+    const currentNodeType = selectedNode.nodeType
+    const prevNodeType = prevNodeTypeRef.current
+
+    // 首次选择节点或节点类型未变化
+    if (!prevNodeType || prevNodeType === currentNodeType) {
+      prevNodeTypeRef.current = currentNodeType
+      setTestMode(currentNodeType === 'image' ? 'image' : 'text')
+      return
+    }
+
+    // 节点类型发生变化（text ↔ image），且当前有对话内容
+    if (chatMessages.length > 0) {
+      const targetMode = currentNodeType === 'image' ? '图片生成' : '文本推理'
+      Modal.confirm({
+        title: `切换到${targetMode}模式`,
+        content: `当前对话包含消息，切换模式将清空对话。是否继续？`,
+        okText: '继续',
+        cancelText: '取消',
+        onOk: () => {
+          prevNodeTypeRef.current = currentNodeType
+          setTestMode(currentNodeType === 'image' ? 'image' : 'text')
+          setChatMessages([])
+          setCurrentResult(null)
+          setActiveChatSessionId(null)
+        },
+        onCancel: () => {
+          // 恢复到上一个节点：找到上一个节点类型的第一个节点
+          const prevNodes = availableNodes.filter((n) => n.nodeType === prevNodeType)
+          if (prevNodes.length > 0) {
+            setState({ nodeTestGlobalForm: { ...nodeTestGlobalForm, nodeId: prevNodes[0].id } })
+          }
+        },
+      })
+    } else {
+      // 无对话内容，直接切换
+      prevNodeTypeRef.current = currentNodeType
+      setTestMode(currentNodeType === 'image' ? 'image' : 'text')
       setChatMessages([])
       setCurrentResult(null)
       setActiveChatSessionId(null)
     }
-  }, [selectedNode])
+  }, [selectedNode, chatMessages.length, availableNodes, nodeTestGlobalForm, setState])
 
   // 派生当前节点的表单参数（含默认值）
   const nodeParams = effectiveNodeId ? nodeTestFormPerNode[effectiveNodeId] : {}
@@ -162,6 +217,29 @@ export default function NodeTestPage() {
     return { msgId: lastAsst.id, label }
   }, [chatMessages, chatSessions, activeChatSessionId, providers, selectedNode])
 
+  // 检测模型切换点：返回需要显示模型标记的消息ID及其标签
+  const modelChanges = useMemo(() => {
+    const changes: { msgId: string; label: string }[] = []
+    for (let i = 0; i < chatMessages.length; i++) {
+      const msg = chatMessages[i]
+      if (msg.role !== 'assistant') continue
+
+      // 检查下一条 assistant 消息是否有不同的模型
+      const nextAssistant = chatMessages.slice(i + 1).find((m) => m.role === 'assistant')
+      if (nextAssistant) {
+        const currentModel = msg.modelName || msg.nodeId
+        const nextModel = nextAssistant.modelName || nextAssistant.nodeId
+        if (currentModel && nextModel && currentModel !== nextModel) {
+          // 找到切换点：当前消息是切换前的最后一条
+          const nodeName = msg.nodeId ? providers.find((p) => p.id === msg.nodeId)?.name || '' : ''
+          const label = nodeName ? `${nodeName} · ${msg.modelName}` : msg.modelName || ''
+          changes.push({ msgId: msg.id, label })
+        }
+      }
+    }
+    return changes
+  }, [chatMessages, providers])
+
   const setForm = (patch: Partial<NodeTestForm>) => {
     const nid = nodeTestGlobalForm.nodeId
     if (!nid) return
@@ -185,6 +263,8 @@ export default function NodeTestPage() {
         timestamp: m.timestamp,
         ...(m.images ? { images: m.images } : {}),
         ...(m.reasoning ? { reasoning: m.reasoning } : {}),
+        ...(m.nodeId ? { nodeId: m.nodeId } : {}),
+        ...(m.modelName ? { modelName: m.modelName } : {}),
       })),
       updatedAt: new Date().toISOString(),
     })
@@ -307,6 +387,8 @@ export default function NodeTestPage() {
       role: 'assistant',
       content: '',
       timestamp: Date.now(),
+      nodeId: selectedNode.id,
+      modelName: selectedNode.model,
     }
     setChatMessages((prev) => [...prev, assistantMsg])
 
@@ -369,6 +451,8 @@ export default function NodeTestPage() {
               content: finalText,
               timestamp: Date.now(),
               reasoning: fullReasoning || undefined,
+              nodeId: selectedNode!.id,
+              modelName: selectedNode!.model,
             })
             setChatMessages(finalMessages)
             syncSessionMessages(finalMessages)
@@ -531,12 +615,16 @@ export default function NodeTestPage() {
                 content: nodeTestForm.prompt.trim(),
                 timestamp: Date.now(),
                 ...(imageInputs.length > 0 ? { images: imageInputs } : {}),
+                nodeId: selectedNode!.id,
+                modelName: selectedNode!.model,
               }
               const assistantMsg: ChatMessage = {
                 id: genId('msg'),
                 role: 'assistant',
                 content: dataUrl,
                 timestamp: Date.now(),
+                nodeId: selectedNode!.id,
+                modelName: selectedNode!.model,
               }
               const testType: ChatSession['testType'] = imageInputs.length > 0 ? 'multimodal' : 'image'
               let sessionId = activeChatSessionId
@@ -601,6 +689,8 @@ export default function NodeTestPage() {
           content: nodeTestForm.prompt.trim(),
           timestamp: Date.now(),
           images: imageInputs.length > 0 ? imageInputs : undefined,
+          nodeId: selectedNode.id,
+          modelName: selectedNode.model,
         }
 
         // 立即添加一个助手消息占位符
@@ -610,6 +700,8 @@ export default function NodeTestPage() {
           role: 'assistant',
           content: '',
           timestamp: Date.now(),
+          nodeId: selectedNode.id,
+          modelName: selectedNode.model,
         }
         setChatMessages((prev) => [...prev, userMsg, assistantMsg])
         setCurrentTextResponse('')
@@ -718,6 +810,8 @@ export default function NodeTestPage() {
                 content: nodeTestForm.prompt.trim(),
                 timestamp: Date.now(),
                 ...(imageInputs.length > 0 ? { images: imageInputs } : {}),
+                nodeId: selectedNode!.id,
+                modelName: selectedNode!.model,
               }
               const finalAsst: ChatSessionMessage = {
                 id: genId('msg'),
@@ -725,6 +819,8 @@ export default function NodeTestPage() {
                 content: finalText,
                 timestamp: Date.now(),
                 ...(fullReasoning ? { reasoning: fullReasoning } : {}),
+                nodeId: selectedNode!.id,
+                modelName: selectedNode!.model,
               }
               const testType2: ChatSession['testType'] = isMultimodal && imageInputs.length > 0 ? 'multimodal' : 'text'
               let sid = activeChatSessionId
@@ -957,6 +1053,7 @@ export default function NodeTestPage() {
                   <>
                     {chatMessages.map((msg) => {
                       const isLastAssistant = lastAssistantMeta?.msgId === msg.id
+                      const isModelChange = modelChanges.find((mc) => mc.msgId === msg.id)
                       const isEditing = editingMsgId === msg.id
                       const isStreamingLast = msg.role === 'assistant' && phase === 'streaming' && msg.id === chatMessages[chatMessages.length - 1]?.id
                       return (
@@ -1147,11 +1244,20 @@ export default function NodeTestPage() {
                                 )}
                               </div>
                             )}
-                            {/* 节点·模型名（仅最后一条 assistant） */}
-                            {isLastAssistant && !isEditing && !isStreamingLast && lastAssistantMeta && (
-                              <Typography.Text type="secondary" style={{ fontSize: 11, display: 'block', marginTop: 4 }}>
-                                {lastAssistantMeta.label}
-                              </Typography.Text>
+                            {/* 节点·模型名（最后一条 assistant 或模型切换点） */}
+                            {msg.role === 'assistant' && !isEditing && !isStreamingLast && (
+                              <>
+                                {isLastAssistant && lastAssistantMeta && (
+                                  <Typography.Text type="secondary" style={{ fontSize: 11, display: 'block', marginTop: 4 }}>
+                                    {lastAssistantMeta.label}
+                                  </Typography.Text>
+                                )}
+                                {isModelChange && (
+                                  <Typography.Text type="secondary" style={{ fontSize: 11, display: 'block', marginTop: 4 }}>
+                                    {isModelChange.label}
+                                  </Typography.Text>
+                                )}
+                              </>
                             )}
                           </div>
                         </div>
@@ -1447,9 +1553,32 @@ export default function NodeTestPage() {
           <DebugInfoPanel data={debugInfo} onClose={() => setSidebarView('params')} />
         ) : (
           <>
-            {/* 顶部 header：参数设置标题 + System Instructions 入口 */}
+            {/* 顶部 header：对比模式切换 + System Instructions + Debug Info 按钮 */}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', borderBottom: `1px solid ${token.colorBorder}`, flexShrink: 0 }}>
-              <Typography.Title level={5} style={{ margin: 0, color: token.colorText }}>参数设置</Typography.Title>
+              <Tooltip title={compareMode ? '关闭对比模式' : '对比模式'}>
+                <Button
+                  size="small"
+                  icon={<ColumnWidthOutlined />}
+                  type={compareMode ? 'primary' : 'default'}
+                  onClick={() => {
+                    if (!compareMode && (chatMessages.length > 0 || activeChatSessionId)) {
+                      Modal.confirm({
+                        title: '切换到对比模式',
+                        content: '对比模式下将清空当前对话并禁用历史记录。是否继续？',
+                        okText: '继续',
+                        cancelText: '取消',
+                        onOk: () => {
+                          setCompareMode(true)
+                          setChatMessages([])
+                          setActiveChatSessionId(null)
+                        },
+                      })
+                    } else {
+                      setCompareMode(!compareMode)
+                    }
+                  }}
+                />
+              </Tooltip>
               <Space size={8}>
                 <Button size="small" onClick={() => setSidebarView('sysPrompt')}>System Instructions</Button>
                 <Button size="small" onClick={() => setSidebarView('debug')}>Debug Info</Button>
@@ -1688,9 +1817,11 @@ export default function NodeTestPage() {
 
         {/* 对话记录入口 */}
         <div style={{ padding: 16, borderTop: `1px solid ${token.colorBorder}`, flexShrink: 0 }}>
-          <Button block icon={<HistoryOutlined />} onClick={() => setMainView('history')}>
-            对话记录 ({chatSessions.length})
-          </Button>
+          <Tooltip title={compareMode ? '对比模式下不可用' : ''}>
+            <Button block icon={<HistoryOutlined />} onClick={() => setMainView('history')} disabled={compareMode}>
+              对话记录 ({chatSessions.length})
+            </Button>
+          </Tooltip>
         </div>
           </>
         )}
