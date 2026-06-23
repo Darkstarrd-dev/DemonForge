@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { App, Button, Space, Typography, Upload, Select, Segmented, theme, Tooltip, Image, Collapse } from 'antd'
-import { PictureOutlined, CloseOutlined, MessageOutlined, CopyOutlined, SendOutlined, FileImageOutlined, HistoryOutlined, BulbOutlined } from '@ant-design/icons'
+import { App, Button, Space, Typography, Upload, Select, Segmented, theme, Tooltip, Image, Collapse, Popconfirm } from 'antd'
+import { PictureOutlined, CloseOutlined, MessageOutlined, CopyOutlined, SendOutlined, FileImageOutlined, HistoryOutlined, BulbOutlined, RedoOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons'
 import { useAppStore } from '../../store/appStore'
 import { generateImage, streamChat, generateTitle } from '../../services/api'
 import { genId, pushSettingsNow } from '../../store/appStore'
@@ -67,6 +67,9 @@ export default function NodeTestPage() {
   const [bottomMenuOpen, setBottomMenuOpen] = useState(false)
   // Debug Info（内存态，不持久化；每次发送重置）
   const [debugInfo, setDebugInfo] = useState<DebugInfoData>({ previewBody: null, actualBody: null, sseChunks: [] })
+  // 编辑态
+  const [editingMsgId, setEditingMsgId] = useState<string | null>(null)
+  const [editingText, setEditingText] = useState('')
 
   // 根据测试模式过滤可用节点
   const availableNodes = useMemo(() => {
@@ -140,6 +143,25 @@ export default function NodeTestPage() {
   )
   const activeSystemPrompt = activeSystemPromptPreset?.content ?? ''
 
+  // 最后一条 assistant 消息的元信息（节点名·模型名）
+  const lastAssistantMeta = useMemo(() => {
+    const lastAsst = [...chatMessages].reverse().find((m) => m.role === 'assistant')
+    if (!lastAsst) return null
+    const session = chatSessions.find((s: ChatSession) => s.id === activeChatSessionId)
+    let nodeName = ''
+    let modelName = ''
+    if (session) {
+      modelName = session.modelName || ''
+      const node = providers.find((p) => p.id === session.nodeId)
+      if (node) nodeName = node.name
+    } else if (selectedNode) {
+      nodeName = selectedNode.name
+      modelName = selectedNode.model
+    }
+    const label = nodeName ? `${nodeName} · ${modelName}` : modelName
+    return { msgId: lastAsst.id, label }
+  }, [chatMessages, chatSessions, activeChatSessionId, providers, selectedNode])
+
   const setForm = (patch: Partial<NodeTestForm>) => {
     const nid = nodeTestGlobalForm.nodeId
     if (!nid) return
@@ -149,6 +171,247 @@ export default function NodeTestPage() {
         [nid]: { ...nodeTestFormPerNode[nid], ...patch },
       },
     })
+  }
+
+  // 同步 chatMessages 到 activeChatSession
+  const syncSessionMessages = (nextMessages: ChatMessage[]) => {
+    const sid = activeChatSessionId
+    if (!sid) return
+    updateChatSession(sid, {
+      messages: nextMessages.map((m) => ({
+        id: m.id,
+        role: m.role,
+        content: m.content,
+        timestamp: m.timestamp,
+        ...(m.images ? { images: m.images } : {}),
+        ...(m.reasoning ? { reasoning: m.reasoning } : {}),
+      })),
+      updatedAt: new Date().toISOString(),
+    })
+  }
+
+  // 编辑消息
+  const editMessage = (msgId: string) => {
+    const msg = chatMessages.find((m) => m.id === msgId)
+    if (!msg) return
+    setEditingMsgId(msgId)
+    setEditingText(msg.content)
+  }
+
+  // 提交编辑
+  const commitEdit = () => {
+    if (!editingMsgId) return
+    if (!editingText.trim()) {
+      message.warning('内容不能为空')
+      return
+    }
+    const nextMessages = chatMessages.map((m) =>
+      m.id === editingMsgId ? { ...m, content: editingText } : m
+    )
+    setChatMessages(nextMessages)
+    syncSessionMessages(nextMessages)
+    setEditingMsgId(null)
+    setEditingText('')
+  }
+
+  // 取消编辑
+  const cancelEdit = () => {
+    setEditingMsgId(null)
+    setEditingText('')
+  }
+
+  // 删除消息
+  const deleteMessage = (msgId: string) => {
+    const nextMessages = chatMessages.filter((m) => m.id !== msgId)
+    setChatMessages(nextMessages)
+    syncSessionMessages(nextMessages)
+    if (editingMsgId === msgId) {
+      setEditingMsgId(null)
+      setEditingText('')
+    }
+  }
+
+  // 重试消息（user 或 assistant）
+  const retryMessage = async (msgId: string) => {
+    const index = chatMessages.findIndex((m) => m.id === msgId)
+    if (index === -1) return
+    const msg = chatMessages[index]
+
+    let newMessages: ChatMessage[]
+    let triggerUser: ChatMessage
+
+    if (msg.role === 'user') {
+      // user 重试：截断到该 user 之前，以该 user 作为触发
+      newMessages = chatMessages.slice(0, index)
+      triggerUser = msg
+    } else {
+      // assistant 重试：截断到该 assistant 之前，找触发它的 user
+      newMessages = chatMessages.slice(0, index)
+      const lastUser = [...newMessages].reverse().find((m) => m.role === 'user')
+      if (!lastUser) {
+        message.warning('无法找到触发该回复的用户消息')
+        return
+      }
+      triggerUser = lastUser
+    }
+
+    if (!selectedNode) {
+      message.warning('请先选择一个文本推理节点')
+      return
+    }
+
+    acRef.current?.abort()
+    const ac = new AbortController()
+    acRef.current = ac
+
+    setChatMessages(newMessages)
+    setPhase('streaming')
+    setDebugInfo({ previewBody: null, actualBody: null, sseChunks: [] })
+
+    // 构造消息
+    const messages: any[] = []
+
+    // 添加 system prompt
+    if (activeSystemPrompt.trim()) {
+      messages.push({ role: 'system', content: activeSystemPrompt.trim() })
+    }
+
+    // 添加历史消息（即 newMessages）
+    newMessages.forEach((m) => {
+      if (m.role === 'user' && m.images && m.images.length > 0) {
+        const content: any[] = [{ type: 'text', text: m.content }]
+        m.images.forEach((url) => {
+          content.push({ type: 'image_url', image_url: { url } })
+        })
+        messages.push({ role: m.role, content })
+      } else {
+        messages.push({ role: m.role, content: m.content })
+      }
+    })
+
+    // 添加当前触发 user 消息（重新发送）
+    if (triggerUser.images && triggerUser.images.length > 0) {
+      const content: any[] = [{ type: 'text', text: triggerUser.content }]
+      triggerUser.images.forEach((url) => {
+        content.push({ type: 'image_url', image_url: { url } })
+      })
+      messages.push({ role: 'user', content })
+    } else {
+      messages.push({ role: 'user', content: triggerUser.content })
+    }
+
+    // 新建助手占位消息
+    const assistantMsgId = genId('msg')
+    const assistantMsg: ChatMessage = {
+      id: assistantMsgId,
+      role: 'assistant',
+      content: '',
+      timestamp: Date.now(),
+    }
+    setChatMessages((prev) => [...prev, assistantMsg])
+
+    // Debug Info：预览请求体
+    setDebugInfo((prev) => ({
+      ...prev,
+      previewBody: {
+        model: selectedNode!.model,
+        messages,
+        stream: true,
+        ...(typeof nodeTestForm.temperature === 'number' ? { temperature: nodeTestForm.temperature } : {}),
+        ...(typeof nodeTestForm.topP === 'number' ? { top_p: nodeTestForm.topP } : {}),
+        ...(typeof nodeTestForm.maxTokens === 'number' ? { max_tokens: nodeTestForm.maxTokens } : {}),
+      },
+    }))
+
+    let fullText = ''
+    let fullReasoning = ''
+
+    try {
+      await streamChat(
+        {
+          baseURL: selectedNode.baseURL,
+          apiKey: selectedNode.apiKey,
+          model: selectedNode.model,
+          messages,
+          includeRaw: true,
+          ...(typeof nodeTestForm.temperature === 'number' ? { temperature: nodeTestForm.temperature } : {}),
+          ...(typeof nodeTestForm.topP === 'number' ? { topP: nodeTestForm.topP } : {}),
+          ...(typeof nodeTestForm.maxTokens === 'number' ? { maxTokens: nodeTestForm.maxTokens } : {}),
+        },
+        {
+          reasoningDelta: (delta) => {
+            fullReasoning += delta
+            setChatMessages((prev) =>
+              prev.map((m) =>
+                m.id === assistantMsgId ? { ...m, reasoning: fullReasoning } : m
+              )
+            )
+          },
+          delta: (delta) => {
+            fullText += delta
+            setChatMessages((prev) =>
+              prev.map((m) =>
+                m.id === assistantMsgId ? { ...m, content: fullText } : m
+              )
+            )
+          },
+          requestBody: (body) => {
+            setDebugInfo((prev) => ({ ...prev, actualBody: body as object }))
+          },
+          rawChunk: (raw) => {
+            setDebugInfo((prev) => ({ ...prev, sseChunks: [...prev.sseChunks, raw] }))
+          },
+          done: (finalText) => {
+            const finalMessages = newMessages.map((m) => ({ ...m }))
+            finalMessages.push({
+              id: assistantMsgId,
+              role: 'assistant' as const,
+              content: finalText,
+              timestamp: Date.now(),
+              reasoning: fullReasoning || undefined,
+            })
+            setChatMessages(finalMessages)
+            syncSessionMessages(finalMessages)
+            setPhase('done')
+            setStatusText('')
+          },
+          error: (err) => {
+            const errorMsg: ChatMessage = {
+              id: genId('msg'),
+              role: 'assistant',
+              content: `失败：${err}`,
+              timestamp: Date.now(),
+            }
+            const finalMessages = [...newMessages, errorMsg]
+            setChatMessages(finalMessages)
+            syncSessionMessages(finalMessages)
+            setPhase('error')
+            setStatusText('')
+          },
+        },
+        ac.signal,
+      )
+    } catch (e) {
+      if (ac.signal.aborted) {
+        setPhase('idle')
+        setStatusText('')
+        return
+      }
+      const errMsg = e instanceof Error ? e.message : String(e)
+      const errorMsg: ChatMessage = {
+        id: genId('msg'),
+        role: 'assistant',
+        content: `失败：${errMsg}`,
+        timestamp: Date.now(),
+      }
+      const finalMessages = [...newMessages, errorMsg]
+      setChatMessages(finalMessages)
+      syncSessionMessages(finalMessages)
+      setPhase('error')
+      setStatusText('')
+    } finally {
+      if (acRef.current === ac) acRef.current = null
+    }
   }
 
   // 粘贴图片监听（图生图或多模态时启用）
@@ -431,7 +694,7 @@ export default function NodeTestPage() {
               )
             },
             requestBody: (body) => {
-              setDebugInfo((prev) => ({ ...prev, actualBody: body }))
+              setDebugInfo((prev) => ({ ...prev, actualBody: body as object }))
             },
             rawChunk: (raw) => {
               setDebugInfo((prev) => ({ ...prev, sseChunks: [...prev.sseChunks, raw] }))
@@ -692,113 +955,208 @@ export default function NodeTestPage() {
                   </div>
                 ) : (
                   <>
-                    {chatMessages.map((msg) => (
-                      <div
-                        key={msg.id}
-                        style={{
-                          display: 'flex',
-                          justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start',
-                          marginBottom: 16,
-                        }}
-                      >
+                    {chatMessages.map((msg) => {
+                      const isLastAssistant = lastAssistantMeta?.msgId === msg.id
+                      const isEditing = editingMsgId === msg.id
+                      const isStreamingLast = msg.role === 'assistant' && phase === 'streaming' && msg.id === chatMessages[chatMessages.length - 1]?.id
+                      return (
                         <div
+                          key={msg.id}
                           style={{
-                            maxWidth: '75%',
-                            padding: 12,
-                            borderRadius: 12,
-                            background: msg.role === 'user' ? (token.colorBgBase === '#ffffff' ? token.colorPrimaryBg : 'rgba(22, 119, 255, 0.15)') : (token.colorBgBase === '#ffffff' ? token.colorBgElevated : 'rgba(255, 255, 255, 0.08)'),
-                            border: `1px solid ${msg.role === 'user' ? token.colorPrimaryBorder : token.colorBorder}`,
-                            position: 'relative',
+                            display: 'flex',
+                            justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start',
+                            marginBottom: 16,
                           }}
                         >
-                          {msg.images && msg.images.length > 0 && (
-                            <div style={{ marginBottom: 8, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                              {msg.images.map((img, idx) => (
-                                <img key={idx} src={img} alt="" style={{ width: 80, height: 80, objectFit: 'cover', borderRadius: 6 }} />
-                              ))}
-                            </div>
-                          )}
-                          {/* Reasoning 显示：推理中流式显示，完成后折叠 */}
-                          {msg.role === 'assistant' && msg.reasoning && (
-                            <div style={{ marginBottom: 8 }}>
-                              {msg.content ? (
-                                // 完成后折叠显示
-                                <Collapse
-                                  ghost
-                                  size="small"
-                                  items={[{
-                                    key: 'reasoning',
-                                    label: (
-                                      <Space size={4}>
-                                        <BulbOutlined style={{ fontSize: 12, color: token.colorTextSecondary }} />
-                                        <Typography.Text type="secondary" style={{ fontSize: 12 }}>思考过程</Typography.Text>
-                                      </Space>
-                                    ),
-                                    children: (
-                                      <Typography.Text style={{ whiteSpace: 'pre-wrap', fontSize: 13, color: token.colorTextTertiary, display: 'block' }}>
-                                        {msg.reasoning}
-                                      </Typography.Text>
-                                    ),
-                                  }]}
-                                  style={{
-                                    background: token.colorFillQuaternary,
-                                    borderRadius: 8,
-                                    padding: '4px 8px',
-                                  }}
-                                />
-                              ) : (
-                                // 推理中流式显示
-                                <div style={{
-                                  background: token.colorFillQuaternary,
-                                  borderRadius: 8,
-                                  padding: '8px 12px',
-                                  marginBottom: 4,
-                                }}>
-                                  <Space size={4} style={{ marginBottom: 6 }}>
-                                    <BulbOutlined style={{ fontSize: 12, color: token.colorPrimary }} />
-                                    <Typography.Text type="secondary" style={{ fontSize: 12 }}>推理中...</Typography.Text>
-                                  </Space>
-                                  <Typography.Text style={{ whiteSpace: 'pre-wrap', fontSize: 13, color: token.colorTextTertiary, display: 'block' }}>
-                                    {msg.reasoning}
-                                  </Typography.Text>
-                                </div>
-                              )}
-                            </div>
-                          )}
-                          <Typography.Text style={{ whiteSpace: 'pre-wrap', fontSize: 14, display: 'block' }}>
-                            {msg.content}
-                          </Typography.Text>
-                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 8, gap: 8 }}>
-                            <Typography.Text type="secondary" style={{ fontSize: 11 }}>
+                          <div
+                            style={{
+                              maxWidth: '75%',
+                              padding: 12,
+                              borderRadius: 12,
+                              background: msg.role === 'user' ? (token.colorBgBase === '#ffffff' ? token.colorPrimaryBg : 'rgba(22, 119, 255, 0.15)') : (token.colorBgBase === '#ffffff' ? token.colorBgElevated : 'rgba(255, 255, 255, 0.08)'),
+                              border: `1px solid ${msg.role === 'user' ? token.colorPrimaryBorder : token.colorBorder}`,
+                              position: 'relative',
+                            }}
+                          >
+                            {/* 图片网格 */}
+                            {msg.images && msg.images.length > 0 && (
+                              <div style={{ marginBottom: 8, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                                {msg.images.map((img, idx) => (
+                                  <img key={idx} src={img} alt="" style={{ width: 80, height: 80, objectFit: 'cover', borderRadius: 6 }} />
+                                ))}
+                              </div>
+                            )}
+                            {/* 时间戳（移到顶部） */}
+                            <Typography.Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 4 }}>
                               {new Date(msg.timestamp).toLocaleTimeString()}
                             </Typography.Text>
-                            {msg.role === 'assistant' && phase === 'streaming' && msg.id === chatMessages[chatMessages.length - 1]?.id ? (
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                                <div style={{
-                                  width: 12,
-                                  height: 12,
-                                  border: `2px solid ${token.colorPrimary}33`,
-                                  borderTop: `2px solid ${token.colorPrimary}`,
-                                  borderRadius: '50%',
-                                  animation: 'spin 1s linear infinite',
-                                }} />
-                                <Typography.Text type="secondary" style={{ fontSize: 11 }}>推理中...</Typography.Text>
+                            {/* Reasoning 显示 */}
+                            {msg.role === 'assistant' && msg.reasoning && (
+                              <div style={{ marginBottom: 8 }}>
+                                {msg.content ? (
+                                  // 完成后折叠显示
+                                  <Collapse
+                                    ghost
+                                    size="small"
+                                    items={[{
+                                      key: 'reasoning',
+                                      label: (
+                                        <Space size={4}>
+                                          <BulbOutlined style={{ fontSize: 12, color: token.colorTextSecondary }} />
+                                          <Typography.Text type="secondary" style={{ fontSize: 12 }}>思考过程</Typography.Text>
+                                          <Button
+                                            type="text"
+                                            size="small"
+                                            icon={<CopyOutlined />}
+                                            title="复制思考过程"
+                                            onClick={(e) => {
+                                              e.stopPropagation()
+                                              copyText(msg.reasoning!)
+                                            }}
+                                            style={{ fontSize: 12, height: 20, padding: '0 4px', marginLeft: 4 }}
+                                          />
+                                        </Space>
+                                      ),
+                                      children: (
+                                        <Typography.Text style={{ whiteSpace: 'pre-wrap', fontSize: 13, color: token.colorTextTertiary, display: 'block' }}>
+                                          {msg.reasoning}
+                                        </Typography.Text>
+                                      ),
+                                    }]}
+                                    style={{
+                                      background: token.colorFillQuaternary,
+                                      borderRadius: 8,
+                                      padding: '4px 8px',
+                                    }}
+                                  />
+                                ) : (
+                                  // 推理中流式显示
+                                  <div style={{
+                                    background: token.colorFillQuaternary,
+                                    borderRadius: 8,
+                                    padding: '8px 12px',
+                                    marginBottom: 4,
+                                  }}>
+                                    <Space size={4} style={{ marginBottom: 6 }}>
+                                      <BulbOutlined style={{ fontSize: 12, color: token.colorPrimary }} />
+                                      <Typography.Text type="secondary" style={{ fontSize: 12 }}>推理中...</Typography.Text>
+                                    </Space>
+                                    <Typography.Text style={{ whiteSpace: 'pre-wrap', fontSize: 13, color: token.colorTextTertiary, display: 'block' }}>
+                                      {msg.reasoning}
+                                    </Typography.Text>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                            {/* 正文区：编辑态 vs 普通显示 */}
+                            {isEditing ? (
+                              <div>
+                                <textarea
+                                  value={editingText}
+                                  onChange={(e) => setEditingText(e.target.value)}
+                                  rows={6}
+                                  style={{
+                                    width: '100%',
+                                    background: token.colorBgContainer,
+                                    border: `1px solid ${token.colorBorder}`,
+                                    borderRadius: 6,
+                                    padding: 8,
+                                    color: token.colorText,
+                                    fontSize: 14,
+                                    resize: 'vertical',
+                                    fontFamily: 'inherit',
+                                    marginBottom: 8,
+                                  }}
+                                />
+                                <div style={{ textAlign: 'right' }}>
+                                  <Space size={8}>
+                                    <Button size="small" onClick={cancelEdit}>取消</Button>
+                                    <Button size="small" type="primary" onClick={commitEdit}>保存</Button>
+                                  </Space>
+                                </div>
                               </div>
                             ) : (
-                              <Button
-                                type="text"
-                                size="small"
-                                icon={<CopyOutlined />}
-                                onClick={() => copyText(msg.content)}
-                                style={{ fontSize: 11, height: 20, padding: '0 4px' }}
-                              >
-                                复制
-                              </Button>
+                              <Typography.Text style={{ whiteSpace: 'pre-wrap', fontSize: 14, display: 'block' }}>
+                                {msg.content}
+                              </Typography.Text>
+                            )}
+                            {/* 底部操作行 */}
+                            {!isEditing && (
+                              <div style={{ marginTop: 8 }}>
+                                {isStreamingLast ? (
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                                    <div style={{
+                                      width: 12,
+                                      height: 12,
+                                      border: `2px solid ${token.colorPrimary}33`,
+                                      borderTop: `2px solid ${token.colorPrimary}`,
+                                      borderRadius: '50%',
+                                      animation: 'spin 1s linear infinite',
+                                    }} />
+                                    <Typography.Text type="secondary" style={{ fontSize: 11 }}>推理中...</Typography.Text>
+                                  </div>
+                                ) : (
+                                  <Space size={4}>
+                                    <Tooltip title="重试">
+                                      <Button
+                                        type="text"
+                                        size="small"
+                                        icon={<RedoOutlined />}
+                                        onClick={() => retryMessage(msg.id)}
+                                        disabled={busy}
+                                        style={{ fontSize: 12, height: 20, padding: '0 4px' }}
+                                      />
+                                    </Tooltip>
+                                    <Tooltip title="复制">
+                                      <Button
+                                        type="text"
+                                        size="small"
+                                        icon={<CopyOutlined />}
+                                        onClick={() => copyText(msg.content)}
+                                        style={{ fontSize: 12, height: 20, padding: '0 4px' }}
+                                      />
+                                    </Tooltip>
+                                    <Tooltip title="编辑">
+                                      <Button
+                                        type="text"
+                                        size="small"
+                                        icon={<EditOutlined />}
+                                        onClick={() => editMessage(msg.id)}
+                                        disabled={busy}
+                                        style={{ fontSize: 12, height: 20, padding: '0 4px' }}
+                                      />
+                                    </Tooltip>
+                                    <Popconfirm
+                                      title="删除该条消息？"
+                                      onConfirm={() => deleteMessage(msg.id)}
+                                      okText="删除"
+                                      cancelText="取消"
+                                      okButtonProps={{ danger: true }}
+                                    >
+                                      <Tooltip title="删除">
+                                        <Button
+                                          type="text"
+                                          size="small"
+                                          icon={<DeleteOutlined />}
+                                          disabled={busy}
+                                          style={{ fontSize: 12, height: 20, padding: '0 4px' }}
+                                        />
+                                      </Tooltip>
+                                    </Popconfirm>
+                                  </Space>
+                                )}
+                              </div>
+                            )}
+                            {/* 节点·模型名（仅最后一条 assistant） */}
+                            {isLastAssistant && !isEditing && !isStreamingLast && lastAssistantMeta && (
+                              <Typography.Text type="secondary" style={{ fontSize: 11, display: 'block', marginTop: 4 }}>
+                                {lastAssistantMeta.label}
+                              </Typography.Text>
                             )}
                           </div>
                         </div>
-                      </div>
-                    ))}
+                      )
+                    })}
                     <div ref={chatEndRef} />
                   </>
                 )}

@@ -26,7 +26,6 @@ import {
 } from 'antd'
 import {
   CloudDownloadOutlined,
-  CloudUploadOutlined,
   DownloadOutlined,
   DownOutlined,
   UploadOutlined,
@@ -52,8 +51,6 @@ import {
   type BackupBundle,
   type BundleKind,
 } from '../../utils/backup'
-import { DEFAULT_SPLIT_PATTERNS } from '../../utils/split'
-import { seedModuleMapping } from '../../mocks/seed'
 
 const MODULE_LABELS: Record<ModuleKey, string> = {
   m0Arch: 'M0 架构设计',

@@ -2,7 +2,7 @@
 
 **最后更新**：2026-06-23  
 **当前位置**：办公场所 A
-**本轮主题**：节点测试 · Reasoning 字段支持（思考过程流式显示） ✅
+**本轮主题**：节点测试 · 气泡功能扩展（重试/编辑/删除/节点模型名显示） ✅
 
 ---
 
@@ -108,6 +108,43 @@
     - 后端：`server/src/llmClient.ts`、`server/src/routes/llm.ts`
     - 前端：`frontend/src/services/types.ts`、`frontend/src/services/real/chat.ts`、`frontend/src/pages/node-test/index.tsx`
   - **状态**：编译通过，功能验证完成，调试日志已清理 ✅
+- [x] **节点测试 · 气泡功能扩展**（2026-06-23）✨
+  - **功能目标**：增强聊天气泡交互能力，支持重试/编辑/删除/节点模型名显示
+  - **时间戳调整**：从气泡底部移到文字内容顶部（图片之下、reasoning/content 之上）
+  - **复制按钮优化**：
+    - 去掉「复制」文字，仅保留图标
+    - 折叠的思考过程新增复制按钮（复制 reasoning 全文）
+  - **重试功能**（user 和 assistant 都可重试）：
+    - user 重试：删除该 user 及其后所有消息，以该 user 消息重新生成
+    - assistant 重试：删除该 assistant 及其后所有消息，找到触发它的 user 重新生成
+    - 重试按钮显示在所有气泡（非仅 assistant）
+    - 重试中间消息会截断其后所有消息
+  - **编辑功能**（user/assistant 都可编辑）：
+    - 点击编辑图标进入编辑态（textarea + 保存/取消按钮）
+    - 多模态气泡编辑时图片保留，仅编辑文字
+    - 空内容校验：trim() 为空则 warning 阻止保存
+    - 同步持久化：编辑保存立即写回 chatSession
+  - **删除功能**：
+    - Popconfirm 二次确认（「删除该条消息？」+ danger 按钮）
+    - 删除后同步持久化到 chatSession
+    - 删除正在编辑的消息会清空编辑态
+  - **节点·模型名显示**：
+    - 仅最后一条 assistant 气泡底部显示「节点名 · 模型名」
+    - 取值优先级：chatSession.modelName + providers[nodeId].name，兜底 selectedNode
+    - 流式中、编辑态时不显示
+  - **操作按钮排序**：重试 → 复制 → 编辑 → 删除（全部仅图标 + Tooltip）
+  - **持久化逻辑**：
+    - 新增 `syncSessionMessages(nextMessages)` 函数
+    - 编辑保存、删除确认、重试 done/error 时立即同步
+    - 无 activeChatSessionId 时直接 return（首轮对话尚未创建 session）
+  - **边界保障**：
+    - busy 时禁用所有操作按钮
+    - 重试截断后无 user 提示「无法找到触发该回复的用户消息」
+    - 历史记录加载的对话同样支持全部操作
+  - **文件变更**：
+    - 修改：`frontend/src/pages/node-test/index.tsx`（气泡渲染重构 + 4 个操作函数 + 重试流程 + 编辑态 + 节点模型名）
+    - 修复：`frontend/src/pages/settings/index.tsx`（清理 3 个未使用导入，修复构建错误）
+  - **状态**：编译通过（tsc + vite build），功能完整实现，待浏览器验证 ✅
 - [x] **角色交流模块 - 阶段 A：基础架构**（2026-06-21）
   - 数据模型定义（types.ts）+ 持久化配置（settings.json）
   - 页面路由与布局（`/role-chat` + 左侧菜单栏）
@@ -335,7 +372,29 @@
 
 ### 立即任务（本次会话后）
 
-1. **验证节点测试 · 对话记录**
+1. **验证节点测试 · 气泡功能扩展**
+   - 基础样式：时间戳在文字顶部、复制按钮无文字、折叠思考过程有复制按钮
+   - 重试功能：
+     - 点击 user 气泡重试 → 该 user 及其后消息消失 → 重新生成
+     - 点击 assistant 气泡重试 → 该 assistant 及其后消息消失 → 从触发 user 重新生成
+     - 编辑 user 后点击重试 → 使用编辑后内容重新生成
+     - 重试中间消息确认截断其后所有消息
+   - 编辑功能：
+     - 编辑 user/assistant 气泡 → textarea + 保存/取消按钮
+     - 多模态消息编辑时图片保留
+     - 空内容保存提示「内容不能为空」
+     - 保存后关闭应用重开确认持久化
+   - 删除功能：
+     - 点击删除图标 → Popconfirm 确认
+     - 确认后消息消失
+     - 关闭应用重开确认已删除
+   - 节点模型名：
+     - 最后一条 assistant 底部显示「节点名 · 模型名」
+     - 最后一条为 user 时不显示
+     - 流式中显示 spinner + 「推理中...」，无操作按钮和节点模型名
+   - 边界情况：busy 时操作按钮禁用、历史记录加载后功能正常
+
+2. **验证节点测试 · 对话记录**
    - 文本模式：发送消息 → 确认第一轮完成后自动生成标题
    - 多轮对话：继续发送 → 确认消息追加到同一 session
    - 右侧边栏"对话记录"按钮 → 主区域切为历史列表
@@ -366,7 +425,7 @@
    - 图片模式显示按钮但不发送 system
    - 关闭/重开应用 → 确认列表 + 激活项持久化
 
-2. **验证全屏阅读 · 查找替换**
+4. **验证全屏阅读 · 查找替换**
    - 从书库打开一本书进入全屏阅读模式
    - 底部工具栏点击「查找」按钮打开查找替换面板
    - 测试字面量查找 + 正则查找 + 区分大小写
@@ -376,7 +435,7 @@
    - 测试点击结果条目跳转到对应章节段落
    - 测试正文匹配高亮（当前章段落模式）
 
-2. **验证全屏阅读 · 单章 AI 清理**
+5. **验证全屏阅读 · 单章 AI 清理**
    - 章节列表 hover 显示清理按钮
    - 点击清理按钮 → 确认章节列表变为节点列表
    - 选择节点 → 确认开始流式清理
@@ -388,7 +447,7 @@
    - 测试 streaming 中按 ESC 取消
    - 测试出错后重选节点重试
 
-3. **回归验证**
+6. **回归验证**
    - 阅读模式原有功能不受影响（字体/自动播放/书签/编辑正文/主题切换）
    - 清理模式退出后回到正常阅读
    - 查找面板关闭后正文恢复纯文本渲染
@@ -1206,6 +1265,129 @@
   - `docs/theme-layout-final-report.md`
 - UI 验证：
   - `scripts/verify-ui.js`
+
+---
+
+**本轮工作成果**（2026-06-23 — 节点测试 · 气泡功能扩展）：
+
+**1. 需求与实施范围**
+- **核心目标**：增强聊天气泡交互能力，支持重试/编辑/删除操作，显示节点模型名
+- **改动集中**：单文件改动（`frontend/src/pages/node-test/index.tsx`），不涉及后端/类型/新文件
+- **边界明确**：仅针对文本模式聊天气泡，图片模式走中央展示分支不受影响
+
+**2. 时间戳与复制按钮调整**
+- **时间戳位置**：从气泡底部移到文字内容顶部（图片之下、reasoning/content 之上）
+  - 样式：`type="secondary" fontSize:11 display:block marginBottom:4`
+- **复制按钮优化**：
+  - 去掉「复制」文字，仅保留 `<CopyOutlined />` 图标
+  - 折叠的思考过程（Collapse label）新增复制按钮，点击复制 reasoning 全文
+  - `stopPropagation` 避免展开/折叠冲突
+
+**3. 重试功能（user 和 assistant 都可重试）**
+- **函数重构**：`retryAssistant` → `retryMessage(msgId)`，支持两种角色
+- **user 重试语义**：删除该 user 及其后所有消息 → 以该 user 消息作为新一轮输入重新生成
+- **assistant 重试语义**：删除该 assistant 及其后所有消息 → 找到触发它的 user 消息重新生成
+- **重试按钮显示**：所有气泡（user 和 assistant）都显示重试按钮，不再限制仅 assistant
+- **截断逻辑**：重试中间消息会截断其后所有消息再从该位置重新生成
+- **容错处理**：截断后找不到触发 user 提示「无法找到触发该回复的用户消息」
+- **流式生成**：复用 `streamChat`，done 时同步持久化到 chatSession
+
+**4. 编辑功能（user/assistant 都可编辑）**
+- **编辑态管理**：`editingMsgId / editingText` state
+- **编辑触发**：点击编辑图标 → `setEditingMsgId(msgId)` + `setEditingText(msg.content)`
+- **编辑界面**：
+  - 正文区切换为 `<textarea>`（全宽 rows=6 可调整大小）
+  - 右下角「取消」「保存」小按钮（`size="small"`）
+  - 图片保留：多模态气泡编辑时图片网格仍渲染，仅替换文字部分
+- **空内容校验**：`trim()` 为空则 `message.warning('内容不能为空')`，保留编辑态
+- **提交逻辑**：`commitEdit()` → 更新 chatMessages → `syncSessionMessages(nextMessages)` 立即持久化
+- **取消逻辑**：`cancelEdit()` → 清空编辑态
+
+**5. 删除功能**
+- **删除确认**：`<Popconfirm>` 包裹删除按钮
+  - title：「删除该条消息？」
+  - okText：「删除」（danger 样式）
+  - cancelText：「取消」
+- **删除逻辑**：`deleteMessage(msgId)` → 过滤掉该消息 → `syncSessionMessages(nextMessages)` 立即持久化
+- **编辑态清理**：若删除的是 `editingMsgId`，同时清空编辑态
+
+**6. 节点·模型名显示**
+- **显示位置**：仅最后一条 assistant 气泡底部（编辑态、流式中不显示）
+- **计算逻辑**：`lastAssistantMeta` useMemo
+  - 倒序找首个 `role==='assistant'` 的 msg
+  - 取节点名/模型名：优先 `chatSessions[activeChatSessionId]` 的 `modelName` + 按 `nodeId` 查 `providers` 得 `node.name`
+  - 兜底 `selectedNode.name/model`
+  - 返回 `{ msgId, label: '节点名 · 模型名' }` 或 `'模型名'`（nodeName 空时）
+- **显示样式**：`type="secondary" fontSize:11 display:block marginTop:4`
+
+**7. 操作按钮统一**
+- **排序**：重试 → 复制 → 编辑 → 删除
+- **样式**：全部 `type="text" size="small" icon={<Icon />}`，无文字标签
+  - `style: { fontSize:12, height:20, padding:'0 4px' }`
+  - `Space size={4}` 间距
+- **Tooltip**：每个按钮加 Tooltip 标注功能
+- **禁用状态**：`busy` 时禁用重试/编辑/删除按钮（复制不禁用）
+
+**8. 持久化逻辑**
+- **新增函数**：`syncSessionMessages(nextMessages: ChatMessage[])`
+  - 接收新消息数组作为参数（避免闭包读到旧 state）
+  - 映射到 `ChatSessionMessage` 格式
+  - 调用 `updateChatSession(activeChatSessionId, { messages, updatedAt })`
+- **调用时机**：
+  - 编辑保存：`commitEdit()` → `syncSessionMessages(nextMessages)`
+  - 删除确认：`deleteMessage()` → `syncSessionMessages(nextMessages)`
+  - 重试完成：`retryMessage()` done 回调 → `syncSessionMessages(finalMessages)`
+  - 重试失败：`retryMessage()` error 回调 → `syncSessionMessages(finalMessages)`
+- **边界处理**：`activeChatSessionId` 为 null 时直接 return（首轮对话尚未创建 session）
+
+**9. 气泡渲染重构**
+- **结构**（单条 msg）：
+  ```
+  图片网格（msg.images）
+  时间戳（移到此处）
+  折叠/流式 reasoning（含复制按钮）
+  正文（编辑态 textarea vs 普通 Typography.Text）
+  底部操作行（流式中 spinner vs 操作按钮组）
+  节点·模型名（仅最后一条 assistant 且非编辑/流式态）
+  ```
+- **条件判断**：
+  - `isLastAssistant`：当前消息是否为最后一条 assistant
+  - `isEditing`：当前消息是否处于编辑态
+  - `isStreamingLast`：当前消息是否为流式中的最后一条 assistant
+- **显隐逻辑**：
+  - 流式中最后一条：显示 spinner + 「推理中...」，隐藏操作按钮和节点模型名
+  - 编辑态：隐藏操作按钮行（编辑界面自带保存/取消按钮）
+  - 其他状态：显示完整操作按钮组 + 节点模型名（若 isLastAssistant）
+
+**10. 边界与一致性保障**
+- **重试与流式互斥**：busy 为 true 时禁用所有操作按钮
+- **重试截断后无 user**：理论上 assistant 必由 user 触发；若 user 被删导致孤立 assistant，重试时提示找不到 user
+- **编辑空内容**：阻止保存，避免空气泡污染上下文
+- **删除最后一条 assistant**：useMemo 重算，新的最后一条自动显示节点模型名
+- **历史记录加载**：从 `HistoryList` 加载的 chatMessages 同样支持全部操作（重试/编辑/删除均基于本地 chatMessages，同步回该 session）
+- **图片模式不影响**：改动仅针对文本模式聊天气泡（`isImageMode` 走中央展示分支）
+- **多模态图片保留**：编辑时图片网格仍渲染，仅 textarea 替换正文
+- **chatSession 不存在**：首轮对话尚未 createChatSession 时，`syncSessionMessages` 直接 return（不持久化，仅本地）
+
+**11. 辅助修复**
+- **settings/index.tsx**：清理 3 个未使用导入（`CloudUploadOutlined` / `DEFAULT_SPLIT_PATTERNS` / `seedModuleMapping`）
+- **类型修复**：`actualBody: body as object`（2 处，修复 TS2345 错误）
+
+**12. 编译验证**
+- ✅ `npx tsc --noEmit`：零错误
+- ✅ `npm run build`：通过（663ms）
+- ✅ 主包：node-test 42.69 KB（gzip 11.12 KB）
+- ✅ 本轮引入新错误数：**0**
+
+**建议下次会话**：
+1. 启动应用（`npm run dev` 或关闭当前窗口后重启）
+2. 进入节点测试页，发送几轮对话
+3. 按验证清单逐项测试：基础样式 → 重试 → 编辑 → 删除 → 节点模型名 → 边界情况
+4. 特别关注：
+   - user 气泡重试功能（新增）
+   - 编辑 user 后重试使用编辑后内容（新场景）
+   - 重试中间消息截断后续（关键逻辑）
+   - 持久化验证（关闭应用重开）
 
 ---
 
