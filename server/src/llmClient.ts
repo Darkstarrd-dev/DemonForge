@@ -56,16 +56,24 @@ export interface ChatStreamOptions extends ProviderConfig {
   max_tokens?: number
 }
 
-/** POST /v1/chat/completions (stream:true) —— 逐增量回调，返回完整文本；失败抛错由调用方处理 */
-export async function chatStream(
-  opts: ChatStreamOptions,
-  onDelta: (delta: string) => void,
-): Promise<string> {
-  const url = `${normalizeBase(opts.baseURL)}/chat/completions`
-  const body: any = { model: opts.model, messages: opts.messages, stream: true }
+/** 构造发给上游 /v1/chat/completions 的请求 body（不含 baseURL/apiKey，用于 debug 回传） */
+export function buildRequestBody(opts: ChatStreamOptions): Record<string, unknown> {
+  const body: Record<string, unknown> = { model: opts.model, messages: opts.messages, stream: true }
   if (typeof opts.temperature === 'number') body.temperature = opts.temperature
   if (typeof opts.top_p === 'number') body.top_p = opts.top_p
   if (typeof opts.max_tokens === 'number') body.max_tokens = opts.max_tokens
+  return body
+}
+
+/** POST /v1/chat/completions (stream:true) —— 逐增量回调，返回完整文本；失败抛错由调用方处理。
+ * onRaw（可选）：透传每个上游 SSE chunk 的原始 payload，供节点测试 Debug Info 使用。 */
+export async function chatStream(
+  opts: ChatStreamOptions,
+  onDelta: (delta: string) => void,
+  onRaw?: (raw: { line: string; json: unknown | null }) => void,
+): Promise<string> {
+  const url = `${normalizeBase(opts.baseURL)}/chat/completions`
+  const body = buildRequestBody(opts)
 
   const res = await fetch(url, {
     method: 'POST',
@@ -91,9 +99,13 @@ export async function chatStream(
       const t = line.trim()
       if (!t || !t.startsWith('data:')) continue
       const payload = t.slice(5).trim()
-      if (payload === '[DONE]') continue
+      if (payload === '[DONE]') {
+        onRaw?.({ line: '[DONE]', json: null })
+        continue
+      }
       try {
         const json = JSON.parse(payload) as { choices?: Array<{ delta?: { content?: string } }> }
+        onRaw?.({ line: payload, json })
         const delta = json.choices?.[0]?.delta?.content ?? ''
         if (delta) {
           full += delta

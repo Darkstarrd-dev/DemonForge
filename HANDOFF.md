@@ -2,7 +2,7 @@
 
 **最后更新**：2026-06-23  
 **当前位置**：办公场所 A
-**本轮主题**：节点测试 · System Instructions 模块优化 ✅
+**本轮主题**：节点测试 · 对话记录 + Debug Info 模块优化 ✅
 
 ---
 
@@ -54,6 +54,37 @@
     - 输入区域无圆角、无空白
   - **状态**：架构 + UI 全部完成，编译通过，可投入使用
 - [x] **节点测试 · System Instructions 模块优化**（2026-06-23）✨
+  - 仿 Google AI Studio：右侧侧边栏顶部「System Instructions」按钮，点击切换为 System Prompt 编辑界面
+  - 编辑界面布局：标题+关闭按钮 / 已保存预设下拉 / Title 输入框+删除按钮 / 内容 textarea / 新建+保存按钮
+  - 预设管理：显式保存（title 非空才可保存）；新建按钮清空进入新建态；删除按钮删当前激活项并清空编辑区
+  - 生效逻辑：发送取当前激活预设（`systemPromptActiveId`）的已保存 content；草稿未保存不生效，dirty 提示「未保存」
+  - dirty 退出拦截：关闭/新建/切换下拉时有未保存修改弹确认
+  - 全局共享一份列表 + 当前激活项（不随节点切换）；图片模式也显示按钮但仅文本模式发送生效
+  - 持久化：`systemPromptPresets` + `systemPromptActiveId` 落 settings.json（三处同步 + `pushSettingsNow` 立即落盘）
+  - 文件变更：`appStore.ts`（类型+state+seed+actions+payload+subscribe+bootstrap）+ 新建 `SystemPromptEditor.tsx` + `node-test/index.tsx`（移除顶部输入框、侧边栏视图切换、发送逻辑）
+  - **状态**：编译通过，0 个新 lint/TS 错误，待浏览器功能测试
+- [x] **节点测试 · 对话记录 + Debug Info 模块优化**（2026-06-23）✨
+  - **对话记录**：AI Studio 样式，三种模式（text/multimodal/image）统一生成 ChatSession
+    - 数据模型：`ChatSession` / `ChatSessionMessage`（types.ts），SQLite 表 `chat_sessions`（db.ts）
+    - 持久化：`chatSessions` 进 businessPayload + subscribe + pushStoreNow/pushDeleteNow
+    - 入口：右侧边栏"对话记录"按钮 → 主区域切为 `<HistoryList>`（搜索/更名/删除/点击加载）
+    - 加载对话：点击记录 → 恢复 messages 到聊天气泡 → 继续对话（同一 session 追加，切节点/清空即新 session）
+    - 自动标题：首轮完成后后台静默调用同一节点生成标题（`generateTitle`），失败兜底首条 user 截断
+    - 旧 testHistory 数据保留表中无 UI 入口，不迁移
+  - **Debug Info 面板**：右侧边栏"Debug Info"按钮 → 三块折叠面板（preview/actual/response sse）
+    - 数据来源（内存态，不持久化）：每次发送重置，切换视图/历史记录保留
+    - preview：前端构造的请求体预览（脱敏，不含 baseURL/apiKey）
+    - actual：后端回传实际发给上游 API 的 body（新增 `buildRequestBody` 导出 + `request-body` SSE 事件）
+    - response sse(count)：后端透传每个上游原始 chunk（`includeRaw` + `onRaw` 回调 → `raw` SSE 事件）
+    - 每条 chunk 子折叠，顶部 copy all / expand all / collapse all
+    - 图片模式：debug 回调数据映射到三块
+  - **后端改造**：`llmClient.chatStream` +onRaw 参数 + `buildRequestBody` 导出；`/api/llm/chat` +includeRaw 参数
+  - **服务层**：`streamChat` +requestBody/rawChunk 回调，`generateTitle` 新增导出
+  - **文件变更**：
+    - 修改：`services/types.ts`、`store/appStore.ts`、`server/store/db.ts`、`server/llmClient.ts`、`server/routes/llm.ts`、`services/real/chat.ts`、`services/api.ts`、`utils/backup.ts`、`pages/settings/index.tsx`
+    - 新建：`pages/node-test/HistoryList.tsx`（148 行）、`pages/node-test/DebugInfoPanel.tsx`（162 行）
+    - 重写：`pages/node-test/index.tsx`（1284 行，-101 行净减少）
+  - **状态**：编译通过（前端 vite build + 后端 tsc 零错误），待浏览器功能测试（2026-06-23）✨
   - 仿 Google AI Studio：右侧侧边栏顶部「System Instructions」按钮，点击切换为 System Prompt 编辑界面
   - 编辑界面布局：标题+关闭按钮 / 已保存预设下拉 / Title 输入框+删除按钮 / 内容 textarea / 新建+保存按钮
   - 预设管理：显式保存（title 非空才可保存）；新建按钮清空进入新建态；删除按钮删当前激活项并清空编辑区
@@ -290,7 +321,27 @@
 
 ### 立即任务（本次会话后）
 
-1. **验证节点测试 · System Instructions 模块**
+1. **验证节点测试 · 对话记录**
+   - 文本模式：发送消息 → 确认第一轮完成后自动生成标题
+   - 多轮对话：继续发送 → 确认消息追加到同一 session
+   - 右侧边栏"对话记录"按钮 → 主区域切为历史列表
+   - 搜索标题、更名、删除功能
+   - 点击历史记录 → 退出列表 → 聊天气泡恢复对话
+   - 图片模式：生成图片 → 确认生成对话记录
+   - 切节点/清空对话 → 确认新 session 起效
+   - 关闭/重开应用 → 确认 chatSessions 持久化
+
+2. **验证节点测试 · Debug Info**
+   - 文本模式：发送消息 → 右侧边栏"Debug Info" → 三块折叠面板
+   - preview request body：确认显示 messages + 参数（不含 baseURL/apiKey）
+   - actual request body：确认显示后端回传的实际 body（含 model/stream 等）
+   - response sse(count)：确认 chunk 编号递增、字段名提取正确
+   - copy all / expand all / collapse all 功能
+   - 图片模式：生成图片 → 确认 debug 数据映射
+   - 每次发送内容更新、切换视图保留内存
+   - 切到历史记录 → debugInfo 保留；退出 app 清空
+
+3. **验证节点测试 · System Instructions 模块**
    - 进入节点测试页，确认右侧侧边栏顶部有「System Instructions」按钮
    - 点击按钮 → 确认侧边栏切换为编辑界面（标题+关闭/下拉/Title+删除/textarea/新建+保存）
    - 新建：输入 title + 内容 → 点保存 → 确认下拉出现该项

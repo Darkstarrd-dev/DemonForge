@@ -144,6 +144,45 @@ export type GeneratedImage = TestHistoryItem
 
 export type ImageInputMode = 'base64' | 'catbox' | 'litterbox' | '0x0' | 'telegraph'
 
+// ==================== 节点测试 · 对话记录 ====================
+
+/** 对话记录内单条消息（持久化到 chat_sessions 表） */
+export interface ChatSessionMessage {
+  id: string
+  role: 'user' | 'assistant'
+  /** 文本内容；image 模式 assistant 为图片 dataUrl */
+  content: string
+  timestamp: number
+  /** 多模态/图生图输入图片（dataUrl 或图床 URL） */
+  images?: string[]
+}
+
+/** 对话记录（一轮对话流 = 一个 session，多轮累积）。持久化到 chat_sessions 表 */
+export interface ChatSession {
+  id: string
+  /** 自动生成，可手动更名 */
+  title: string
+  testType: 'text' | 'multimodal' | 'image'
+  nodeId: string
+  modelName: string
+  messages: ChatSessionMessage[]
+  /** 使用时的 system prompt 快照 */
+  systemPromptContent?: string
+  // ===== 文本参数快照 =====
+  temperature?: number
+  topP?: number
+  maxTokens?: number
+  // ===== 图片参数快照 =====
+  size?: string
+  negativePrompt?: string
+  steps?: number
+  guidance?: number
+  seed?: number
+  imageInputMode?: ImageInputMode
+  createdAt: string
+  updatedAt: string
+}
+
 // ==================== 角色交流模块类型 ====================
 
 /** 角色交流模式：Opencode 服务器或本地节点池 */

@@ -1,13 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { App, Button, Popconfirm, Space, Typography, Upload, Select, Segmented, theme, Tooltip, Image } from 'antd'
-import { DownloadOutlined, DeleteOutlined, PictureOutlined, CloseOutlined, MessageOutlined, CopyOutlined, SendOutlined, FileImageOutlined } from '@ant-design/icons'
+import { App, Button, Space, Typography, Upload, Select, Segmented, theme, Tooltip, Image } from 'antd'
+import { PictureOutlined, CloseOutlined, MessageOutlined, CopyOutlined, SendOutlined, FileImageOutlined, HistoryOutlined } from '@ant-design/icons'
 import { useAppStore } from '../../store/appStore'
-import { generateImage, streamChat } from '../../services/api'
+import { generateImage, streamChat, generateTitle } from '../../services/api'
 import { genId, pushSettingsNow } from '../../store/appStore'
 import { imageHosts } from '../../services/imageHost'
-import type { ProviderNode, TestHistoryItem, ImageInputMode } from '../../services/types'
+import type { ProviderNode, ImageInputMode, ChatSession, ChatSessionMessage } from '../../services/types'
 import type { NodeTestForm } from '../../store/appStore'
 import SystemPromptEditor from './SystemPromptEditor'
+import HistoryList from './HistoryList'
+import DebugInfoPanel from './DebugInfoPanel'
+import type { DebugInfoData } from './DebugInfoPanel'
 
 const RESOLUTIONS = [
   { value: '1024x1024', label: '1024×1024（1:1）' },
@@ -33,13 +36,17 @@ export default function NodeTestPage() {
   const { message } = App.useApp()
   const { token } = theme.useToken()
   const providers = useAppStore((s) => s.providers)
-  const testHistory = useAppStore((s) => s.testHistory)
   const nodeTestFormPerNode = useAppStore((s) => s.nodeTestFormPerNode)
   const nodeTestGlobalForm = useAppStore((s) => s.nodeTestGlobalForm)
   const nodeGroupExpanded = useAppStore((s) => s.nodeGroupExpanded)
   const setState = useAppStore((s) => s.setState)
-  const addTestHistory = useAppStore((s) => s.addTestHistory)
-  const deleteTestHistory = useAppStore((s) => s.deleteTestHistory)
+  const chatSessions = useAppStore((s) => s.chatSessions)
+  const activeChatSessionId = useAppStore((s) => s.activeChatSessionId)
+  const createChatSession = useAppStore((s) => s.createChatSession)
+  const updateChatSession = useAppStore((s) => s.updateChatSession)
+  const renameChatSession = useAppStore((s) => s.renameChatSession)
+  const deleteChatSession = useAppStore((s) => s.deleteChatSession)
+  const setActiveChatSessionId = useAppStore((s) => s.setActiveChatSessionId)
   const systemPromptPresets = useAppStore((s) => s.systemPromptPresets)
   const systemPromptActiveId = useAppStore((s) => s.systemPromptActiveId)
   const saveSystemPromptPreset = useAppStore((s) => s.saveSystemPromptPreset)
@@ -49,12 +56,16 @@ export default function NodeTestPage() {
   // 测试模式：根据节点类型自动切换
   const [testMode, setTestMode] = useState<TestMode>('text')
 
-  // 聊天消息列表（仅文本模式）
+  // 聊天消息列表
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([])
-  // 右侧侧边栏视图：参数设置 / System Instructions 编辑
-  const [sidebarView, setSidebarView] = useState<'params' | 'sysPrompt'>('params')
+  // 主区域视图：对话 / 历史记录列表
+  const [mainView, setMainView] = useState<'chat' | 'history'>('chat')
+  // 右侧侧边栏视图：参数设置 / System Instructions / Debug Info
+  const [sidebarView, setSidebarView] = useState<'params' | 'sysPrompt' | 'debug'>('params')
   // 底部菜单展开状态
   const [bottomMenuOpen, setBottomMenuOpen] = useState(false)
+  // Debug Info（内存态，不持久化；每次发送重置）
+  const [debugInfo, setDebugInfo] = useState<DebugInfoData>({ previewBody: null, actualBody: null, sseChunks: [] })
 
   // 根据测试模式过滤可用节点
   const availableNodes = useMemo(() => {
@@ -73,8 +84,6 @@ export default function NodeTestPage() {
   const setCurrentTextResponse = (v: string) => { currentTextResponseRef.current = v } // 文本或图片 data URL
   const [error, setError] = useState<string | null>(null)
   const [selectedImages, setSelectedImages] = useState<File[]>([])
-  const [debugPayload, setDebugPayload] = useState<string>('')
-  const [debugResponses, setDebugResponses] = useState<string>('')
   const acRef = useRef<AbortController | null>(null)
   const promptRef = useRef<HTMLTextAreaElement>(null)
   const chatEndRef = useRef<HTMLDivElement>(null)
@@ -95,6 +104,9 @@ export default function NodeTestPage() {
   useEffect(() => {
     if (selectedNode) {
       setTestMode(selectedNode.nodeType === 'image' ? 'image' : 'text')
+      setChatMessages([])
+      setCurrentResult(null)
+      setActiveChatSessionId(null)
     }
   }, [selectedNode])
 
@@ -179,8 +191,7 @@ export default function NodeTestPage() {
     setCurrentResult(null)
     setCurrentTextResponse('')
     setError(null)
-    setDebugPayload('')
-    setDebugResponses('')
+    setDebugInfo({ previewBody: null, actualBody: null, sseChunks: [] })
 
     // 处理图片输入（图生图或多模态）
     const imageInputs: string[] = []
@@ -251,31 +262,70 @@ export default function NodeTestPage() {
               setCurrentResult(dataUrl)
               setPhase('done')
               setStatusText('')
-              addTestHistory({
-                id: genId('test'),
-                testType: 'image',
-                imageResponse: dataUrl,
-                prompt: nodeTestForm.prompt.trim(),
-                modelName: selectedNode.model,
-                nodeId: selectedNode.id,
-                nodeType: 'image',
-                ...(size ? { size } : {}),
-                ...(nodeTestForm.negativePrompt?.trim() ? { negativePrompt: nodeTestForm.negativePrompt.trim() } : {}),
-                ...(typeof nodeTestForm.steps === 'number' && nodeTestForm.steps > 0 ? { steps: nodeTestForm.steps } : {}),
-                ...(typeof nodeTestForm.guidance === 'number' ? { guidance: nodeTestForm.guidance } : {}),
-                ...(typeof nodeTestForm.seed === 'number' ? { seed: nodeTestForm.seed } : {}),
-                ...(imageInputs.length > 0 ? { imageInputs, imageInputMode: usedImageMode } : {}),
-                createdAt: new Date().toISOString(),
-              })
+              // 对话记录：追加一轮 user prompt + assistant image
+              const userMsg: ChatMessage = {
+                id: genId('msg'),
+                role: 'user',
+                content: nodeTestForm.prompt.trim(),
+                timestamp: Date.now(),
+                ...(imageInputs.length > 0 ? { images: imageInputs } : {}),
+              }
+              const assistantMsg: ChatMessage = {
+                id: genId('msg'),
+                role: 'assistant',
+                content: dataUrl,
+                timestamp: Date.now(),
+              }
+              const testType: ChatSession['testType'] = imageInputs.length > 0 ? 'multimodal' : 'image'
+              let sessionId = activeChatSessionId
+              const isFirst = !sessionId
+              if (!sessionId) {
+                sessionId = createChatSession({
+                  id: genId('cs'),
+                  title: nodeTestForm.prompt.trim().slice(0, 20),
+                  testType,
+                  nodeId: selectedNode!.id,
+                  modelName: selectedNode!.model,
+                  messages: [userMsg, assistantMsg],
+                  ...(size ? { size } : {}),
+                  ...(nodeTestForm.negativePrompt?.trim() ? { negativePrompt: nodeTestForm.negativePrompt.trim() } : {}),
+                  ...(typeof nodeTestForm.steps === 'number' && nodeTestForm.steps > 0 ? { steps: nodeTestForm.steps } : {}),
+                  ...(typeof nodeTestForm.guidance === 'number' ? { guidance: nodeTestForm.guidance } : {}),
+                  ...(typeof nodeTestForm.seed === 'number' ? { seed: nodeTestForm.seed } : {}),
+                  ...(imageInputs.length > 0 ? { imageInputMode: usedImageMode } : {}),
+                  createdAt: new Date().toISOString(),
+                  updatedAt: new Date().toISOString(),
+                })
+                setActiveChatSessionId(sessionId)
+              } else {
+                const cur = chatSessions.find((c: ChatSession) => c.id === sessionId)
+                updateChatSession(sessionId, {
+                  messages: [...(cur?.messages ?? []), userMsg, assistantMsg],
+                  updatedAt: new Date().toISOString(),
+                })
+              }
+              if (isFirst) {
+                const sid = sessionId
+                generateTitle(
+                  { baseURL: selectedNode!.baseURL, apiKey: selectedNode!.apiKey, model: selectedNode!.model },
+                  nodeTestForm.prompt.trim(),
+                  '',
+                ).then((title) => renameChatSession(sid, title)).catch(() => {})
+              }
             },
             debug: ({ stage, payload, response, error: dbgError }) => {
-              if (payload !== undefined) {
-                setDebugPayload(JSON.stringify(payload, null, 2))
-              }
-              const ts = new Date().toLocaleTimeString()
-              const respBlock = response !== undefined ? JSON.stringify(response, null, 2) : '(无响应体)'
-              const errLine = dbgError ? `\n  ⚠ ${dbgError}` : ''
-              setDebugResponses((prev) => `${prev}[${ts}] ${stage}${errLine}\n${respBlock}\n\n`)
+              setDebugInfo((prev) => {
+                const next = { ...prev }
+                if (stage === 'submit') {
+                  next.previewBody = { model: selectedNode!.model, size, prompt: nodeTestForm.prompt.trim() }
+                  if (payload !== undefined) next.actualBody = payload
+                }
+                const chunk: { line: string; json: unknown | null } = {
+                  line: `${stage}${dbgError ? ' \u26a0 ' + dbgError : ''}`,
+                  json: response ?? null,
+                }
+                return { ...next, sseChunks: [...prev.sseChunks, chunk] }
+              })
             },
           },
           ac.signal,
@@ -335,6 +385,19 @@ export default function NodeTestPage() {
           messages.push({ role: 'user', content: nodeTestForm.prompt.trim() })
         }
 
+        // Debug Info：预览请求体
+        setDebugInfo((prev) => ({
+          ...prev,
+          previewBody: {
+            model: selectedNode!.model,
+            messages,
+            stream: true,
+            ...(typeof nodeTestForm.temperature === 'number' ? { temperature: nodeTestForm.temperature } : {}),
+            ...(typeof nodeTestForm.topP === 'number' ? { top_p: nodeTestForm.topP } : {}),
+            ...(typeof nodeTestForm.maxTokens === 'number' ? { max_tokens: nodeTestForm.maxTokens } : {}),
+          },
+        }))
+
         let fullText = ''
         await streamChat(
           {
@@ -342,6 +405,7 @@ export default function NodeTestPage() {
             apiKey: selectedNode.apiKey,
             model: selectedNode.model,
             messages,
+            includeRaw: true,
             ...(typeof nodeTestForm.temperature === 'number' ? { temperature: nodeTestForm.temperature } : {}),
             ...(typeof nodeTestForm.topP === 'number' ? { topP: nodeTestForm.topP } : {}),
             ...(typeof nodeTestForm.maxTokens === 'number' ? { maxTokens: nodeTestForm.maxTokens } : {}),
@@ -357,6 +421,12 @@ export default function NodeTestPage() {
                 )
               )
             },
+            requestBody: (body) => {
+              setDebugInfo((prev) => ({ ...prev, actualBody: body }))
+            },
+            rawChunk: (raw) => {
+              setDebugInfo((prev) => ({ ...prev, sseChunks: [...prev.sseChunks, raw] }))
+            },
             done: (finalText) => {
               // 更新助手消息为最终内容
               setChatMessages((prev) =>
@@ -369,20 +439,55 @@ export default function NodeTestPage() {
               setPhase('done')
               setStatusText('')
               setForm({ prompt: '' })
-              addTestHistory({
-                id: genId('test'),
-                testType: isMultimodal && imageInputs.length > 0 ? 'multimodal' : 'text',
-                textResponse: finalText,
-                prompt: nodeTestForm.prompt.trim(),
-                modelName: selectedNode.model,
-                nodeId: selectedNode.id,
-                nodeType: 'text',
-                ...(typeof nodeTestForm.temperature === 'number' ? { temperature: nodeTestForm.temperature } : {}),
-                ...(typeof nodeTestForm.topP === 'number' ? { topP: nodeTestForm.topP } : {}),
-                ...(typeof nodeTestForm.maxTokens === 'number' ? { maxTokens: nodeTestForm.maxTokens } : {}),
-                ...(imageInputs.length > 0 ? { imageInputs, imageInputMode: usedImageMode } : {}),
-                createdAt: new Date().toISOString(),
-              })
+              // 对话记录
+              const finalUser: ChatSessionMessage = {
+                id: genId('msg'),
+                role: 'user',
+                content: nodeTestForm.prompt.trim(),
+                timestamp: Date.now(),
+                ...(imageInputs.length > 0 ? { images: imageInputs } : {}),
+              }
+              const finalAsst: ChatSessionMessage = {
+                id: genId('msg'),
+                role: 'assistant',
+                content: finalText,
+                timestamp: Date.now(),
+              }
+              const testType2: ChatSession['testType'] = isMultimodal && imageInputs.length > 0 ? 'multimodal' : 'text'
+              let sid = activeChatSessionId
+              const isFirstRound = !sid
+              if (!sid) {
+                sid = createChatSession({
+                  id: genId('cs'),
+                  title: nodeTestForm.prompt.trim().slice(0, 20),
+                  testType: testType2,
+                  nodeId: selectedNode!.id,
+                  modelName: selectedNode!.model,
+                  messages: [finalUser, finalAsst],
+                  systemPromptContent: activeSystemPrompt.trim() || undefined,
+                  ...(typeof nodeTestForm.temperature === 'number' ? { temperature: nodeTestForm.temperature } : {}),
+                  ...(typeof nodeTestForm.topP === 'number' ? { topP: nodeTestForm.topP } : {}),
+                  ...(typeof nodeTestForm.maxTokens === 'number' ? { maxTokens: nodeTestForm.maxTokens } : {}),
+                  ...(imageInputs.length > 0 ? { imageInputMode: usedImageMode } : {}),
+                  createdAt: new Date().toISOString(),
+                  updatedAt: new Date().toISOString(),
+                })
+                setActiveChatSessionId(sid)
+              } else {
+                const cur = chatSessions.find((c: ChatSession) => c.id === sid)
+                updateChatSession(sid, {
+                  messages: [...(cur?.messages ?? []), finalUser, finalAsst],
+                  updatedAt: new Date().toISOString(),
+                })
+              }
+              if (isFirstRound) {
+                const csid = sid
+                generateTitle(
+                  { baseURL: selectedNode!.baseURL, apiKey: selectedNode!.apiKey, model: selectedNode!.model },
+                  nodeTestForm.prompt.trim(),
+                  finalText,
+                ).then((title) => renameChatSession(csid, title)).catch(() => {})
+              }
             },
             error: (err) => {
               setError(err)
@@ -415,46 +520,6 @@ export default function NodeTestPage() {
     setStatusText('')
   }
 
-  const handleClickImage = (img: TestHistoryItem) => {
-    if (img.imageResponse) {
-      setCurrentResult(img.imageResponse)
-    } else if (img.textResponse) {
-      setCurrentResult(img.textResponse)
-      setCurrentTextResponse(img.textResponse)
-    }
-    setForm({
-      prompt: img.prompt,
-      resolution: img.size || nodeTestForm.resolution,
-      negativePrompt: img.negativePrompt || '',
-      steps: img.steps ?? nodeTestForm.steps,
-      guidance: img.guidance ?? nodeTestForm.guidance,
-      seed: img.seed ?? nodeTestForm.seed,
-      temperature: img.temperature ?? nodeTestForm.temperature,
-      topP: img.topP ?? nodeTestForm.topP,
-      maxTokens: img.maxTokens ?? nodeTestForm.maxTokens,
-      ...(img.imageInputMode ? { imageInputMode: img.imageInputMode } : {}),
-    })
-    if (img.imageInputs && img.imageInputs.length > 0) {
-      const modeName = img.imageInputMode
-        ? imageHosts[img.imageInputMode as ImageInputMode]?.name ?? img.imageInputMode
-        : 'Base64 直传'
-      const modeLabel = img.testType === 'multimodal' ? '多模态输入' : '图生图'
-      message.info(
-        `此为${modeLabel}生成，使用 ${modeName} 输入了 ${img.imageInputs.length} 张图片（输入图片已不可恢复）`,
-        3,
-      )
-    }
-  }
-
-  const downloadImage = (dataUrl: string, name: string) => {
-    const a = document.createElement('a')
-    a.href = dataUrl
-    a.download = `${name}.jpg`
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
-  }
-
   const handleFileSelect = (file: File) => {
     setSelectedImages((prev) => [...prev, file])
     return false // 阻止自动上传
@@ -482,7 +547,7 @@ export default function NodeTestPage() {
   }
 
   const busy = phase === 'submitted' || phase === 'polling' || phase === 'streaming'
-  const displayResult = currentResult || (testHistory.length > 0 ? (testHistory[0].imageResponse || testHistory[0].textResponse) : null)
+  const displayResult = currentResult
 
   // 节点池按 baseURL + 节点组名分组
   const groupedProviders = availableNodes.reduce((acc, node) => {
@@ -506,9 +571,35 @@ export default function NodeTestPage() {
     <div style={{ display: 'flex', height: '100%', overflow: 'hidden', background: token.colorBgContainer }}>
       {/* 主内容区（去除左侧栏） */}
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-        {/* 主展示区 */}
-        <div style={{ flex: 1, overflow: 'auto', display: 'flex', flexDirection: 'column' }}>
-          {!selectedNode ? (
+        {mainView === 'history' ? (
+          <HistoryList
+            sessions={chatSessions}
+            onSelect={(id) => {
+              const s = chatSessions.find((c: { id: string }) => c.id === id)
+              if (s) {
+                setActiveChatSessionId(id)
+                setChatMessages((s.messages ?? []).map((m) => ({
+                  id: m.id || genId('msg'),
+                  role: m.role,
+                  content: m.content,
+                  timestamp: m.timestamp || Date.now(),
+                  ...(m.images ? { images: m.images } : {}),
+                })))
+                setTestMode(s.testType === 'image' ? 'image' : 'text')
+                setMainView('chat')
+                setCurrentResult(null)
+                setCurrentTextResponse('')
+              }
+            }}
+            onRename={(id, title) => renameChatSession(id, title)}
+            onDelete={(id) => deleteChatSession(id)}
+            onExit={() => setMainView('chat')}
+          />
+        ) : (
+          <>
+            {/* 主展示区 */}
+            <div style={{ flex: 1, overflow: 'auto', display: 'flex', flexDirection: 'column' }}>
+              {!selectedNode ? (
             <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: 0.4, padding: 24 }}>
               {testMode === 'image' ? (
                 <>
@@ -712,6 +803,7 @@ export default function NodeTestPage() {
                     setState({ nodeTestGlobalForm: { ...nodeTestGlobalForm, nodeId: undefined } })
                     setChatMessages([])
                     setCurrentResult(null)
+                    setActiveChatSessionId(null)
                   }}
                   options={[
                     { label: '文本推理', value: 'text', icon: <MessageOutlined /> },
@@ -913,40 +1005,7 @@ export default function NodeTestPage() {
             </div>
           )}
         </div>
-
-        {/* 底部历史栏 */}
-        {isImageMode && (
-          <div style={{ padding: '12px 24px', borderTop: `1px solid ${token.colorBorder}`, background: token.colorBgElevated, overflowX: 'auto', overflowY: 'hidden', flexShrink: 0 }}>
-            <div style={{ marginBottom: 8, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <Typography.Text style={{ color: token.colorTextSecondary, fontSize: 12 }}>
-                最近测试 ({testHistory.filter(item => item.testType === 'image').length})
-              </Typography.Text>
-            </div>
-            <div style={{ display: 'flex', gap: 8 }}>
-              {testHistory
-                .filter(item => item.testType === 'image')
-                .slice(0, 20)
-                .map((item) => (
-                  <div
-                    key={item.id}
-                    style={{
-                      position: 'relative',
-                      width: 80,
-                      height: 80,
-                      flexShrink: 0,
-                      cursor: 'pointer',
-                      border: currentResult === item.imageResponse ? `2px solid ${token.colorPrimary}` : '2px solid transparent',
-                      borderRadius: 6,
-                      overflow: 'hidden',
-                      background: token.colorBgContainer,
-                    }}
-                    onClick={() => handleClickImage(item)}
-                  >
-                    <img src={item.imageResponse} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                  </div>
-                ))}
-            </div>
-          </div>
+          </>
         )}
       </div>
 
@@ -964,12 +1023,17 @@ export default function NodeTestPage() {
             onSelect={setSystemPromptActiveId}
             onClose={() => setSidebarView('params')}
           />
+        ) : sidebarView === 'debug' ? (
+          <DebugInfoPanel data={debugInfo} onClose={() => setSidebarView('params')} />
         ) : (
           <>
             {/* 顶部 header：参数设置标题 + System Instructions 入口 */}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', borderBottom: `1px solid ${token.colorBorder}`, flexShrink: 0 }}>
               <Typography.Title level={5} style={{ margin: 0, color: token.colorText }}>参数设置</Typography.Title>
-              <Button size="small" onClick={() => setSidebarView('sysPrompt')}>System Instructions</Button>
+              <Space size={8}>
+                <Button size="small" onClick={() => setSidebarView('sysPrompt')}>System Instructions</Button>
+                <Button size="small" onClick={() => setSidebarView('debug')}>Debug Info</Button>
+              </Space>
             </div>
             <div style={{ padding: 16, flex: 1, overflowY: 'auto' }}>
 
@@ -1192,6 +1256,7 @@ export default function NodeTestPage() {
                   setChatMessages([])
                   setCurrentResult(null)
                   setCurrentTextResponse('')
+                  setActiveChatSessionId(null)
                 }}
                 style={{ marginTop: 16 }}
               >
@@ -1199,182 +1264,13 @@ export default function NodeTestPage() {
               </Button>
             </>
           )}
-
-          {(debugPayload || debugResponses) && (
-            <>
-              <Typography.Title level={5} style={{ color: token.colorText, marginTop: 24, marginBottom: 12 }}>调试信息</Typography.Title>
-              <div style={{ marginBottom: 12 }}>
-                <Typography.Text style={{ color: token.colorTextSecondary, fontSize: 11 }}>Payload</Typography.Text>
-                <pre style={{
-                  background: token.colorBgContainer,
-                  border: `1px solid ${token.colorBorder}`,
-                  borderRadius: 6,
-                  padding: 8,
-                  fontSize: 11,
-                  color: token.colorText,
-                  maxHeight: 150,
-                  overflow: 'auto',
-                  fontFamily: 'monospace',
-                  whiteSpace: 'pre-wrap',
-                  wordBreak: 'break-all',
-                }}>
-                  {debugPayload || '—'}
-                </pre>
-              </div>
-              <div>
-                <Typography.Text style={{ color: token.colorTextSecondary, fontSize: 11 }}>Response</Typography.Text>
-                <pre style={{
-                  background: token.colorBgContainer,
-                  border: `1px solid ${token.colorBorder}`,
-                  borderRadius: 6,
-                  padding: 8,
-                  fontSize: 11,
-                  color: token.colorText,
-                  maxHeight: 200,
-                  overflow: 'auto',
-                  fontFamily: 'monospace',
-                  whiteSpace: 'pre-wrap',
-                  wordBreak: 'break-all',
-                }}>
-                  {debugResponses || '—'}
-                </pre>
-              </div>
-            </>
-          )}
         </div>
 
-        {/* 底部历史管理 */}
+        {/* 对话记录入口 */}
         <div style={{ padding: 16, borderTop: `1px solid ${token.colorBorder}`, flexShrink: 0 }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-            <Typography.Text style={{ color: token.colorText, fontSize: 14 }}>测试历史 ({testHistory.length})</Typography.Text>
-            {testHistory.length > 0 && (
-              <Popconfirm
-                title="清空全部历史？"
-                okText="清空"
-                okButtonProps={{ danger: true }}
-                cancelText="取消"
-                onConfirm={() => testHistory.forEach((i) => deleteTestHistory(i.id))}
-              >
-                <Button size="small" danger icon={<DeleteOutlined />} style={{ fontSize: 12 }}>
-                  清空
-                </Button>
-              </Popconfirm>
-            )}
-          </div>
-          {testHistory.length === 0 ? (
-            <Typography.Text style={{ color: token.colorTextSecondary, fontSize: 12 }}>尚未进行测试</Typography.Text>
-          ) : (
-              <div style={{ maxHeight: 200, overflowY: 'auto' }}>
-                <Space direction="vertical" size={8} style={{ width: '100%' }}>
-                  {testHistory.slice(0, 10).map((item) => (
-                    <div
-                      key={item.id}
-                      onClick={() => handleClickImage(item)}
-                      style={{
-                        display: 'flex',
-                        gap: 8,
-                        alignItems: 'center',
-                        padding: 8,
-                        background: token.colorBgContainer,
-                        borderRadius: 6,
-                        border: `1px solid ${token.colorBorder}`,
-                        cursor: 'pointer',
-                        transition: 'border-color 0.2s',
-                      }}
-                      onMouseEnter={(e) => { e.currentTarget.style.borderColor = token.colorPrimary }}
-                      onMouseLeave={(e) => { e.currentTarget.style.borderColor = token.colorBorder }}
-                    >
-                      {item.testType === 'image' && item.imageResponse ? (
-                        <img src={item.imageResponse} alt="" style={{ width: 40, height: 40, objectFit: 'cover', borderRadius: 4 }} />
-                      ) : (
-                        <div style={{
-                          width: 40,
-                          height: 40,
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          background: token.colorBgElevated,
-                          borderRadius: 4,
-                          fontSize: 18
-                        }}>
-                          {item.testType === 'multimodal' ? '👁️' : '💬'}
-                        </div>
-                      )}
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
-                          <Typography.Text ellipsis style={{ color: token.colorText, fontSize: 12, flex: 1 }}>
-                            {item.prompt.slice(0, 25)}
-                          </Typography.Text>
-                          {item.testType === 'image' && (
-                            <span style={{
-                              fontSize: 9,
-                              padding: '1px 4px',
-                              borderRadius: 3,
-                              background: '#6e40c9',
-                              color: '#fff',
-                              lineHeight: 1,
-                              flexShrink: 0
-                            }}>图片</span>
-                          )}
-                          {item.testType === 'multimodal' && (
-                            <span style={{
-                              fontSize: 9,
-                              padding: '1px 4px',
-                              borderRadius: 3,
-                              background: '#1f6feb',
-                              color: '#fff',
-                              lineHeight: 1,
-                              flexShrink: 0
-                            }}>多模态</span>
-                          )}
-                          {item.testType === 'text' && (
-                            <span style={{
-                              fontSize: 9,
-                              padding: '1px 4px',
-                              borderRadius: 3,
-                              background: '#238636',
-                              color: '#fff',
-                              lineHeight: 1,
-                              flexShrink: 0
-                            }}>文本</span>
-                          )}
-                        </div>
-                        <Typography.Text style={{ color: token.colorTextSecondary, fontSize: 10 }}>
-                          {item.modelName}
-                        </Typography.Text>
-                      </div>
-                      <Space size={4}>
-                        {item.testType === 'image' && item.imageResponse && (
-                          <Button
-                            size="small"
-                            type="text"
-                            icon={<DownloadOutlined />}
-                            onClick={(e) => { e.stopPropagation(); downloadImage(item.imageResponse!, `test-${item.id}`) }}
-                            style={{ color: token.colorTextSecondary }}
-                          />
-                        )}
-                        <Popconfirm
-                          title="删除？"
-                          okText="删除"
-                          okButtonProps={{ danger: true }}
-                          cancelText="取消"
-                          onConfirm={() => deleteTestHistory(item.id)}
-                        >
-                          <Button
-                            size="small"
-                            type="text"
-                            danger
-                            icon={<DeleteOutlined />}
-                            onClick={(e) => e.stopPropagation()}
-                            style={{ color: '#da3633' }}
-                          />
-                        </Popconfirm>
-                      </Space>
-                    </div>
-                  ))}
-              </Space>
-            </div>
-          )}
+          <Button block icon={<HistoryOutlined />} onClick={() => setMainView('history')}>
+            对话记录 ({chatSessions.length})
+          </Button>
         </div>
           </>
         )}

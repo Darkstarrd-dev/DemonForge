@@ -15,6 +15,7 @@ import type {
   ImportSession,
   NovelArchitecture,
   TestHistoryItem,
+  ChatSession,
   SplitPattern,
   ImageInputMode,
   RoleChatMode,
@@ -133,6 +134,10 @@ export interface AppState {
   importSession: ImportSession | null
   /** 节点测试生成历史（持久化到 test_history 表） */
   testHistory: TestHistoryItem[]
+  /** 节点测试对话记录（持久化到 chat_sessions 表，AI Studio 样式） */
+  chatSessions: ChatSession[]
+  /** 节点测试当前激活的对话记录 id（内存态，不持久化）；null=未选中/新建态 */
+  activeChatSessionId: string | null
   /** 节点测试全局参数（provider + nodeId，持久化到 settings.json） */
   nodeTestGlobalForm: { provider: string; nodeId?: string }
   /** 节点测试每节点独立参数（持久化到 settings.json） */
@@ -189,6 +194,16 @@ export interface AppState {
   addTestHistory: (item: TestHistoryItem) => void
   /** 节点测试：按 id 删除一条历史 */
   deleteTestHistory: (id: string) => void
+  /** 节点测试：新建对话记录，返回新 id（立即落库） */
+  createChatSession: (session: ChatSession) => string
+  /** 节点测试：合并更新对话记录（messages/title/updatedAt 等，立即落库） */
+  updateChatSession: (id: string, patch: Partial<ChatSession>) => void
+  /** 节点测试：重命名对话记录（立即落库） */
+  renameChatSession: (id: string, title: string) => void
+  /** 节点测试：按 id 删除对话记录（立即落库） */
+  deleteChatSession: (id: string) => void
+  /** 节点测试：设置当前激活的对话记录 id（内存态，不持久化） */
+  setActiveChatSessionId: (id: string | null) => void
   /** 向后兼容：旧的 addImage 方法别名 */
   addImage: (image: TestHistoryItem) => void
   /** 向后兼容：旧的 deleteImage 方法别名 */
@@ -245,6 +260,8 @@ const seedState = () => ({
   } as RoleChatAutoConfig,
   importSession: null,
   testHistory: [] as TestHistoryItem[],
+  chatSessions: [] as ChatSession[],
+  activeChatSessionId: null,
   nodeTestGlobalForm: { provider: 'modelscope', nodeId: undefined },
   nodeTestFormPerNode: {} as Record<string, Partial<NodeTestForm>>,
   // 向后兼容字段别名
@@ -381,7 +398,7 @@ export const useAppStore = create<AppState>()((set, get) => ({
     /** 重置前先把当前业务数据全部显式删除（syncAll 不再反推删除）。 */
     const cur = useAppStore.getState()
     const deletes: Record<string, string[]> = {}
-    for (const key of ['books', 'chapters', 'cards', 'outline', 'scenes', 'fragments', 'stateEvents', 'issues', 'architectures', 'mergeCandidates', 'imageGallery'] as const) {
+    for (const key of ['books', 'chapters', 'cards', 'outline', 'scenes', 'fragments', 'stateEvents', 'issues', 'architectures', 'mergeCandidates', 'imageGallery', 'chatSessions'] as const) {
       const arr = cur[key] as { id: string }[]
       const ids = arr.map((x) => x.id).filter(Boolean)
       if (ids.length) deletes[key] = ids
@@ -397,6 +414,7 @@ export const useAppStore = create<AppState>()((set, get) => ({
       issues: seedIssues,
       architectures: seedArchitectures,
       mergeCandidates: seedMergeCandidates,
+      chatSessions: [],
       currentBookId: '',
       importSession: null,
     })
@@ -414,6 +432,30 @@ export const useAppStore = create<AppState>()((set, get) => ({
   deleteTestHistory: (id: string) => {
     set((s) => ({ testHistory: s.testHistory.filter((i) => i.id !== id) }))
     pushDeleteNow({ testHistory: [id] })
+  },
+  // ===== 节点测试 · 对话记录（chat_sessions 表） =====
+  createChatSession: (session) => {
+    set((s) => ({ chatSessions: [session, ...s.chatSessions] }))
+    pushStoreNow()
+    return session.id
+  },
+  updateChatSession: (id, patch) => {
+    set((s) => ({ chatSessions: s.chatSessions.map((c) => (c.id === id ? { ...c, ...patch } : c)) }))
+    pushStoreNow()
+  },
+  renameChatSession: (id, title) => {
+    set((s) => ({ chatSessions: s.chatSessions.map((c) => (c.id === id ? { ...c, title } : c)) }))
+    pushStoreNow()
+  },
+  deleteChatSession: (id) => {
+    set((s) => ({
+      chatSessions: s.chatSessions.filter((c) => c.id !== id),
+      activeChatSessionId: s.activeChatSessionId === id ? null : s.activeChatSessionId,
+    }))
+    pushDeleteNow({ chatSessions: [id] })
+  },
+  setActiveChatSessionId: (id) => {
+    set({ activeChatSessionId: id })
   },
   // 向后兼容方法别名
   addImage: (image: TestHistoryItem) => {
@@ -497,6 +539,7 @@ export const businessPayload = (s: AppState) => ({
   architectures: s.architectures,
   mergeCandidates: s.mergeCandidates,
   testHistory: s.testHistory,
+  chatSessions: s.chatSessions,
 })
 
 const pushStore = (payload: Record<string, unknown>) => {
@@ -645,6 +688,7 @@ export async function bootstrapStore(): Promise<void> {
           architectures: (data.architectures ?? []) as NovelArchitecture[],
           mergeCandidates: (data.mergeCandidates ?? []) as MergeCandidate[],
           testHistory: (data.testHistory ?? data.imageGallery ?? []) as TestHistoryItem[],
+          chatSessions: (data.chatSessions ?? []) as ChatSession[],
         })
         // 旧 settings.json 没有该标记 → 趁这次有数据时补写，避免后续"删光"误触发回填
         if (!storeInitialized) {
@@ -685,6 +729,7 @@ export async function bootstrapStore(): Promise<void> {
           architectures: [],
           mergeCandidates: [],
           testHistory: [],
+          chatSessions: [],
         })
         storeReady = true
       }
@@ -714,6 +759,7 @@ export async function reloadStoreFromBackend(): Promise<void> {
       architectures: (data.architectures ?? []) as NovelArchitecture[],
       mergeCandidates: (data.mergeCandidates ?? []) as MergeCandidate[],
       testHistory: (data.testHistory ?? data.imageGallery ?? []) as TestHistoryItem[],
+      chatSessions: (data.chatSessions ?? []) as ChatSession[],
     })
   } else {
     // 目标目录无业务数据 → 视为空书库，保持空（不再自动播种 Mock 演示作品）。
@@ -731,6 +777,7 @@ export async function reloadStoreFromBackend(): Promise<void> {
       architectures: [],
       mergeCandidates: [],
       testHistory: [],
+      chatSessions: [],
     })
   }
 }
@@ -750,7 +797,8 @@ useAppStore.subscribe((s, prev) => {
     s.issues === prev.issues &&
     s.architectures === prev.architectures &&
     s.mergeCandidates === prev.mergeCandidates &&
-    s.testHistory === prev.testHistory
+    s.testHistory === prev.testHistory &&
+    s.chatSessions === prev.chatSessions
   ) {
     return
   }

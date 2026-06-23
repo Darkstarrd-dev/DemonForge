@@ -50,5 +50,5 @@ export { generateImage } from './real/image'
 export type { ImageGenParams, ImageGenEvents } from './real/image'
 
 // 通用对话（文本推理 + 多模态理解）已接真实后端。
-export { streamChat } from './real/chat'
+export { streamChat, generateTitle } from './real/chat'
 export type { ChatMessage, ChatParams, ChatEvents } from './real/chat'

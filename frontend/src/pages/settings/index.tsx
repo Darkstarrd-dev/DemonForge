@@ -1090,6 +1090,7 @@ export default function SettingsPage() {
           architectures: b.architectures ?? [],
           mergeCandidates: b.mergeCandidates ?? [],
           imageGallery: b.imageGallery ?? [],
+          chatSessions: b.chatSessions ?? [],
         })
         await pushStoreNowChecked()
       }

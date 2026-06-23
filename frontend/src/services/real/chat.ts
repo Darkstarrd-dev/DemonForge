@@ -13,12 +13,18 @@ export interface ChatParams {
   temperature?: number
   topP?: number
   maxTokens?: number
+  /** Debug Info：true 时后端回传 actual request body + 透传上游 raw chunks */
+  includeRaw?: boolean
 }
 
 export interface ChatEvents {
   delta: (delta: string) => void
   done: (fullText: string) => void
   error: (error: string) => void
+  /** Debug Info：后端实际发给上游的 request body */
+  requestBody?: (body: unknown) => void
+  /** Debug Info：上游原始 SSE chunk（json 为 null 表示 [DONE]） */
+  rawChunk?: (raw: { line: string; json: unknown | null }) => void
 }
 
 /**
@@ -39,6 +45,7 @@ export async function streamChat(
   if (typeof params.temperature === 'number') body.temperature = params.temperature
   if (typeof params.topP === 'number') body.top_p = params.topP
   if (typeof params.maxTokens === 'number') body.max_tokens = params.maxTokens
+  if (params.includeRaw) body.includeRaw = true
 
   const res = await fetch('/api/llm/chat', {
     method: 'POST',
@@ -86,7 +93,11 @@ export async function streamChat(
 
         try {
           const data = JSON.parse(dataJson)
-          if (eventType === 'delta' && typeof data.delta === 'string') {
+          if (eventType === 'request-body') {
+            events.requestBody?.(data)
+          } else if (eventType === 'raw') {
+            events.rawChunk?.(data as { line: string; json: unknown | null })
+          } else if (eventType === 'delta' && typeof data.delta === 'string') {
             fullText += data.delta
             events.delta(data.delta)
           } else if (eventType === 'done' && typeof data.text === 'string') {
@@ -110,4 +121,39 @@ export async function streamChat(
     if (signal?.aborted) return
     events.error(e instanceof Error ? e.message : String(e))
   }
+}
+
+/**
+ * 生成对话标题：用同一节点后台静默调用，取首条 user + assistant 摘要。
+ * 失败抛错由调用方兜底（如用首条 user 消息截断）。
+ */
+export async function generateTitle(
+  params: { baseURL: string; apiKey?: string; model: string },
+  firstUser: string,
+  firstAssistant: string,
+  signal?: AbortSignal,
+): Promise<string> {
+  const titlePrompt = `请用 10 字以内为以下对话生成简短标题，只输出标题文字，无引号无标点。
+
+用户：${firstUser.slice(0, 200)}
+助手：${firstAssistant.slice(0, 200)}`
+
+  let title = ''
+  await streamChat(
+    {
+      baseURL: params.baseURL,
+      apiKey: params.apiKey,
+      model: params.model,
+      messages: [{ role: 'user', content: titlePrompt }],
+      maxTokens: 30,
+    },
+    {
+      delta: (d) => { title += d },
+      done: (full) => { title = full },
+      error: (err) => { throw new Error(err) },
+    },
+    signal,
+  )
+  const cleaned = title.trim().replace(/^["'"，。.!！?？]+|["'"，。.!！?？]+$/g, '').slice(0, 20)
+  return cleaned || firstUser.slice(0, 15)
 }

@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify'
-import { listModels, chatStream, embed, type ProviderConfig } from '../llmClient'
+import { listModels, chatStream, embed, buildRequestBody, type ProviderConfig } from '../llmClient'
 import { M1_CLEAN_SYSTEM_PROMPT } from '../prompts'
 
 type TestBody = ProviderConfig
@@ -13,6 +13,8 @@ type ChatBody = ProviderConfig & {
   temperature?: number
   top_p?: number
   max_tokens?: number
+  /** 节点测试 Debug Info：true 时回传 actual request body + 透传上游 raw chunks */
+  includeRaw?: boolean
 }
 
 export async function llmRoutes(app: FastifyInstance) {
@@ -93,7 +95,7 @@ export async function llmRoutes(app: FastifyInstance) {
 
   // 通用对话：支持纯文本推理和多模态理解（OpenAI 兼容格式），SSE 流式返回
   app.post('/api/llm/chat', async (req, reply) => {
-    const { baseURL, apiKey, model, messages, temperature, top_p, max_tokens } = (req.body ?? {}) as ChatBody
+    const { baseURL, apiKey, model, messages, temperature, top_p, max_tokens, includeRaw } = (req.body ?? {}) as ChatBody
     if (!baseURL || !model || !Array.isArray(messages) || messages.length === 0) {
       reply.status(400).send({ error: '缺少 baseURL / model / messages' })
       return
@@ -125,7 +127,16 @@ export async function llmRoutes(app: FastifyInstance) {
     if (typeof top_p === 'number') options.top_p = top_p
     if (typeof max_tokens === 'number') options.max_tokens = max_tokens
 
-    chatStream(options, (delta) => send('delta', { delta }))
+    // includeRaw=true 时（节点测试 Debug Info）：回传实际发给上游的 request body + 透传每个 raw chunk
+    if (includeRaw) {
+      send('request-body', buildRequestBody(options))
+    }
+
+    chatStream(
+      options,
+      (delta) => send('delta', { delta }),
+      includeRaw ? (r) => send('raw', r) : undefined,
+    )
       .then((full) => send('done', { text: full }))
       .catch((e: unknown) => {
         if (ac.signal.aborted) return

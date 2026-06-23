@@ -25,6 +25,7 @@ import type {
   NovelArchitecture,
   MergeCandidate,
   GeneratedImage,
+  ChatSession,
   ProviderNode,
   ModuleKey,
   ModuleModelMapping,
@@ -81,6 +82,7 @@ export interface BusinessPayload {
   architectures?: NovelArchitecture[]
   mergeCandidates?: MergeCandidate[]
   imageGallery?: GeneratedImage[]
+  chatSessions?: ChatSession[]
 }
 
 export type BundleKind = 'settings' | 'full'
@@ -97,7 +99,7 @@ export interface BackupBundle {
 /** 业务实体的所有合法键（导入时按此白名单过滤，忽略未知键）。 */
 export const BUSINESS_KEYS = [
   'books', 'chapters', 'cards', 'outline', 'scenes', 'fragments',
-  'stateEvents', 'issues', 'architectures', 'mergeCandidates', 'imageGallery',
+  'stateEvents', 'issues', 'architectures', 'mergeCandidates', 'imageGallery', 'chatSessions',
 ] as const
 
 /** settings 的所有合法键（导入时按此白名单过滤）。 */

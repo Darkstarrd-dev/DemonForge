@@ -36,6 +36,8 @@ const ENTITIES = [
   { key: 'testHistory', table: 'test_history' },
   // 向后兼容：旧的 imageGallery 字段映射到同一张表
   { key: 'imageGallery', table: 'test_history' },
+  // 节点测试对话记录（多轮对话流，AI Studio 样式）
+  { key: 'chatSessions', table: 'chat_sessions' },
 ] as const
 
 /** 业务实体键集合（供前端 DELETE 端点做白名单校验）。 */
