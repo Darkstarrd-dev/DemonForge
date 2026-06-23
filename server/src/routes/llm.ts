@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify'
 import { listModels, chatStream, embed, buildRequestBody, type ProviderConfig } from '../llmClient'
 import { M1_CLEAN_SYSTEM_PROMPT } from '../prompts'
+import { hijackSSE } from '../utils/sseHelper'
 
 type TestBody = ProviderConfig
 type CleanBody = ProviderConfig & { content?: string; systemPrompt?: string }
@@ -41,19 +42,7 @@ export async function llmRoutes(app: FastifyInstance) {
     // 优先用前端传入的 systemPrompt（本次覆盖/设置页默认），为空则回退内置默认
     const systemContent = systemPrompt?.trim() || M1_CLEAN_SYSTEM_PROMPT
 
-    reply.hijack()
-    const raw = reply.raw
-    raw.writeHead(200, {
-      'Content-Type': 'text/event-stream; charset=utf-8',
-      'Cache-Control': 'no-cache',
-      Connection: 'keep-alive',
-    })
-    const send = (event: string, data: unknown) => {
-      raw.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
-    }
-
-    const ac = new AbortController()
-    raw.on('close', () => ac.abort())
+    const { raw, send, ac } = hijackSSE(reply)
 
     chatStream(
       {
@@ -101,19 +90,7 @@ export async function llmRoutes(app: FastifyInstance) {
       return
     }
 
-    reply.hijack()
-    const raw = reply.raw
-    raw.writeHead(200, {
-      'Content-Type': 'text/event-stream; charset=utf-8',
-      'Cache-Control': 'no-cache',
-      Connection: 'keep-alive',
-    })
-    const send = (event: string, data: unknown) => {
-      raw.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
-    }
-
-    const ac = new AbortController()
-    raw.on('close', () => ac.abort())
+    const { raw, send, ac } = hijackSSE(reply)
 
     // 构造传给 llmClient 的参数（支持额外参数）
     const options: any = {
@@ -136,6 +113,7 @@ export async function llmRoutes(app: FastifyInstance) {
       options,
       (delta) => send('delta', { delta }),
       includeRaw ? (r) => send('raw', r) : undefined,
+      (reasoningDelta) => send('reasoning-delta', { delta: reasoningDelta }),
     )
       .then((full) => send('done', { text: full }))
       .catch((e: unknown) => {

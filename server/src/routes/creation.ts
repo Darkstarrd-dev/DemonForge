@@ -11,6 +11,7 @@ import {
   SIMULATE_CHARACTER_SYSTEM_PROMPT,
 } from '../prompts'
 import { assembleContext, type AssembleInput } from '../contextAssembler'
+import { hijackSSE } from '../utils/sseHelper'
 
 type ArchBody = ProviderConfig & { topic?: string; genre?: string; chapters?: number; guidance?: string }
 type BlueprintBody = ProviderConfig & {
@@ -71,19 +72,7 @@ async function streamChat(
   provider: ProviderConfig,
   messages: { role: 'system' | 'user'; content: string }[],
 ): Promise<void> {
-  reply.hijack()
-  const raw = reply.raw
-  raw.writeHead(200, {
-    'Content-Type': 'text/event-stream; charset=utf-8',
-    'Cache-Control': 'no-cache',
-    Connection: 'keep-alive',
-  })
-  const send = (event: string, data: unknown) => {
-    raw.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
-  }
-
-  const ac = new AbortController()
-  raw.on('close', () => ac.abort())
+  const { raw, send, ac } = hijackSSE(reply)
 
   chatStream(
     { baseURL: provider.baseURL, apiKey: provider.apiKey, model: provider.model, messages, signal: ac.signal },
@@ -348,19 +337,7 @@ export async function creationRoutes(app: FastifyInstance) {
     const count = candidateCount && candidateCount > 0 ? candidateCount : 2
 
     // 手动实现多候选 SSE 流式（串行生成，每个候选一个 delta 流 + candidate-done 事件）
-    reply.hijack()
-    const raw = reply.raw
-    raw.writeHead(200, {
-      'Content-Type': 'text/event-stream; charset=utf-8',
-      'Cache-Control': 'no-cache',
-      Connection: 'keep-alive',
-    })
-    const send = (event: string, data: unknown) => {
-      raw.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
-    }
-
-    const ac = new AbortController()
-    raw.on('close', () => ac.abort())
+    const { raw, send, ac } = hijackSSE(reply)
 
     try {
       for (let i = 0; i < count; i++) {
@@ -408,19 +385,7 @@ export async function creationRoutes(app: FastifyInstance) {
       return
     }
 
-    reply.hijack()
-    const raw = reply.raw
-    raw.writeHead(200, {
-      'Content-Type': 'text/event-stream; charset=utf-8',
-      'Cache-Control': 'no-cache',
-      Connection: 'keep-alive',
-    })
-    const send = (event: string, data: unknown) => {
-      raw.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
-    }
-
-    const ac = new AbortController()
-    raw.on('close', () => ac.abort())
+    const { raw, send, ac } = hijackSSE(reply)
 
     try {
       // 1. 从 chapters 表读取章节内容

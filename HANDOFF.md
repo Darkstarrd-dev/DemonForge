@@ -2,7 +2,7 @@
 
 **最后更新**：2026-06-23  
 **当前位置**：办公场所 A
-**本轮主题**：节点测试 · 对话记录 + Debug Info 模块优化 ✅
+**本轮主题**：节点测试 · Reasoning 字段支持（思考过程流式显示） ✅
 
 ---
 
@@ -76,7 +76,7 @@
     - preview：前端构造的请求体预览（脱敏，不含 baseURL/apiKey）
     - actual：后端回传实际发给上游 API 的 body（新增 `buildRequestBody` 导出 + `request-body` SSE 事件）
     - response sse(count)：后端透传每个上游原始 chunk（`includeRaw` + `onRaw` 回调 → `raw` SSE 事件）
-    - 每条 chunk 子折叠，顶部 copy all / expand all / collapse all
+    - 每条 chunk 子折叠，顶部 copy all / expand all / collapse all 按钮移到标题行，仅图标显示，展开/折叠合并为一个状态切换按钮
     - 图片模式：debug 回调数据映射到三块
   - **后端改造**：`llmClient.chatStream` +onRaw 参数 + `buildRequestBody` 导出；`/api/llm/chat` +includeRaw 参数
   - **服务层**：`streamChat` +requestBody/rawChunk 回调，`generateTitle` 新增导出
@@ -84,16 +84,30 @@
     - 修改：`services/types.ts`、`store/appStore.ts`、`server/store/db.ts`、`server/llmClient.ts`、`server/routes/llm.ts`、`services/real/chat.ts`、`services/api.ts`、`utils/backup.ts`、`pages/settings/index.tsx`
     - 新建：`pages/node-test/HistoryList.tsx`（148 行）、`pages/node-test/DebugInfoPanel.tsx`（162 行）
     - 重写：`pages/node-test/index.tsx`（1284 行，-101 行净减少）
-  - **状态**：编译通过（前端 vite build + 后端 tsc 零错误），待浏览器功能测试（2026-06-23）✨
-  - 仿 Google AI Studio：右侧侧边栏顶部「System Instructions」按钮，点击切换为 System Prompt 编辑界面
-  - 编辑界面布局：标题+关闭按钮 / 已保存预设下拉 / Title 输入框+删除按钮 / 内容 textarea / 新建+保存按钮
-  - 预设管理：显式保存（title 非空才可保存）；新建按钮清空进入新建态；删除按钮删当前激活项并清空编辑区
-  - 生效逻辑：发送取当前激活预设（`systemPromptActiveId`）的已保存 content；草稿未保存不生效，dirty 提示「未保存」
-  - dirty 退出拦截：关闭/新建/切换下拉时有未保存修改弹确认
-  - 全局共享一份列表 + 当前激活项（不随节点切换）；图片模式也显示按钮但仅文本模式发送生效
-  - 持久化：`systemPromptPresets` + `systemPromptActiveId` 落 settings.json（三处同步 + `pushSettingsNow` 立即落盘）
-  - 文件变更：`appStore.ts`（类型+state+seed+actions+payload+subscribe+bootstrap）+ 新建 `SystemPromptEditor.tsx` + `node-test/index.tsx`（移除顶部输入框、侧边栏视图切换、发送逻辑）
-  - **状态**：编译通过，0 个新 lint/TS 错误，待浏览器功能测试
+  - **状态**：编译通过（前端 vite build + 后端 tsc 零错误），功能验证完成 ✅
+- [x] **节点测试 · Reasoning 字段支持**（2026-06-23）✨
+  - **功能目标**：支持带有思考过程（reasoning）的模型，推理阶段流式显示思考内容，回复完成后自动折叠
+  - **类型扩展**：
+    - `ChatSessionMessage` 和 `ChatMessage` 添加 `reasoning?: string` 字段
+    - SSE 事件添加 `reasoning-delta` 类型
+  - **后端实现**：
+    - `llmClient.ts`：`chatStream` 添加 `onReasoningDelta` 回调，解析 `delta.reasoning` 字段
+    - `llm.ts`：`/api/llm/chat` 端点转发 `reasoning-delta` SSE 事件
+  - **前端实现**：
+    - `chat.ts`：SSE 事件正则修复（`/[\w-]+/` 支持连字符），处理 `reasoning-delta` 事件
+    - `index.tsx`：
+      - `reasoningDelta` 回调实时更新消息的 `reasoning` 字段
+      - 推理阶段：流式显示在浅色背景框中，带"推理中..."标题和灯泡图标
+      - 回复阶段：自动折叠为 Collapse 组件，点击展开查看完整思考内容
+      - 持久化：`reasoning` 保存到 ChatSession，历史记录加载时恢复
+  - **关键修复**：SSE 事件名正则从 `/\w+/` 改为 `/[\w-]+/`，解决 `reasoning-delta` 被解析为 `reasoning` 导致不匹配的问题
+  - **UI 交互**：
+    - 推理中：展开显示，实时流式更新，蓝色图标
+    - 完成后：折叠气泡，灰色图标，点击展开
+  - **文件变更**：
+    - 后端：`server/src/llmClient.ts`、`server/src/routes/llm.ts`
+    - 前端：`frontend/src/services/types.ts`、`frontend/src/services/real/chat.ts`、`frontend/src/pages/node-test/index.tsx`
+  - **状态**：编译通过，功能验证完成，调试日志已清理 ✅
 - [x] **角色交流模块 - 阶段 A：基础架构**（2026-06-21）
   - 数据模型定义（types.ts）+ 持久化配置（settings.json）
   - 页面路由与布局（`/role-chat` + 左侧菜单栏）

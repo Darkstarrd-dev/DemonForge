@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 import { generateImageModelScope, type ImageGenConfig } from '../imageClient'
+import { hijackSSE } from '../utils/sseHelper'
 
 type GenerateBody = ImageGenConfig
 
@@ -14,19 +15,7 @@ export async function imageRoutes(app: FastifyInstance) {
       return
     }
 
-    reply.hijack()
-    const raw = reply.raw
-    raw.writeHead(200, {
-      'Content-Type': 'text/event-stream; charset=utf-8',
-      'Cache-Control': 'no-cache',
-      Connection: 'keep-alive',
-    })
-    const send = (event: string, data: unknown) => {
-      raw.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
-    }
-
-    const ac = new AbortController()
-    raw.on('close', () => ac.abort())
+    const { raw, send, ac } = hijackSSE(reply)
 
     generateImageModelScope(
       { baseURL, apiKey, model, prompt, size, steps, guidance, seed, negativePrompt, imageInputs },

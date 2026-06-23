@@ -25,6 +25,8 @@ export interface ChatEvents {
   requestBody?: (body: unknown) => void
   /** Debug Info：上游原始 SSE chunk（json 为 null 表示 [DONE]） */
   rawChunk?: (raw: { line: string; json: unknown | null }) => void
+  /** 思考过程增量（reasoning 字段流式返回） */
+  reasoningDelta?: (delta: string) => void
 }
 
 /**
@@ -79,15 +81,17 @@ export async function streamChat(
       const lines = buffer.split('\n')
       buffer = lines.pop() ?? ''
 
-      for (const line of lines) {
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i]
         const trimmed = line.trim()
         if (!trimmed || !trimmed.startsWith('event:')) continue
 
-        const eventMatch = trimmed.match(/^event:\s*(\w+)/)
+        const eventMatch = trimmed.match(/^event:\s*([\w-]+)/)
         if (!eventMatch) continue
         const eventType = eventMatch[1]
 
-        const dataLine = lines[lines.indexOf(line) + 1]
+        // 查找下一行的 data
+        const dataLine = lines[i + 1]
         if (!dataLine?.trim().startsWith('data:')) continue
         const dataJson = dataLine.trim().slice(5).trim()
 
@@ -97,6 +101,8 @@ export async function streamChat(
             events.requestBody?.(data)
           } else if (eventType === 'raw') {
             events.rawChunk?.(data as { line: string; json: unknown | null })
+          } else if (eventType === 'reasoning-delta' && typeof data.delta === 'string') {
+            events.reasoningDelta?.(data.delta)
           } else if (eventType === 'delta' && typeof data.delta === 'string') {
             fullText += data.delta
             events.delta(data.delta)

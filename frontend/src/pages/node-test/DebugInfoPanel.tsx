@@ -111,40 +111,51 @@ export default function DebugInfoPanel({ data, onClose }: Props) {
       extra: <Button size="small" type="text" icon={<CopyOutlined />} onClick={(e) => { e.stopPropagation(); copyText(JSON.stringify(data.actualBody, null, 2)) }} />,
     })
   }
+  const allChunksExpanded = chunkActiveKeys.length === data.sseChunks.length && data.sseChunks.length > 0
+
   outerItems.push({
     key: 'sse',
     label: `response sse (${data.sseChunks.length})`,
+    extra: data.sseChunks.length > 0 ? (
+      <Space size={4}>
+        <Button
+          size="small"
+          type="text"
+          icon={<CopyOutlined />}
+          onClick={(e) => { e.stopPropagation(); copyAll() }}
+        />
+        <Button
+          size="small"
+          type="text"
+          icon={allChunksExpanded ? <CompressOutlined /> : <ExpandAltOutlined />}
+          onClick={(e) => { e.stopPropagation(); allChunksExpanded ? collapseAllChunks() : expandAllChunks() }}
+        />
+      </Space>
+    ) : undefined,
     children: data.sseChunks.length === 0 ? (
       <Typography.Text type="secondary" style={{ fontSize: 12 }}>(无响应)</Typography.Text>
     ) : (
-      <div>
-        <Space size={8} style={{ marginBottom: 8 }}>
-          <Button size="small" icon={<CopyOutlined />} onClick={copyAll}>copy all</Button>
-          <Button size="small" icon={<ExpandAltOutlined />} onClick={expandAllChunks}>expand all</Button>
-          <Button size="small" icon={<CompressOutlined />} onClick={collapseAllChunks}>collapse all</Button>
-        </Space>
-        <Collapse
-          ghost
-          size="small"
-          activeKey={chunkActiveKeys}
-          onChange={(k) => setChunkActiveKeys(k as string[])}
-          items={data.sseChunks.map((c, i) => {
-            const field = extractField(c.json)
-            const id = extractId(c.json)
-            return {
-              key: `chunk-${i}`,
-              label: (
-                <span style={{ fontSize: 11 }}>
-                  <strong>#{i + 1}</strong>
-                  {id && <span style={{ color: token.colorTextSecondary, marginLeft: 8 }}>{id}</span>}
-                  <span style={{ color: token.colorPrimary, marginLeft: 8 }}>• {field}</span>
-                </span>
-              ),
-              children: <pre style={preStyle}>{c.json === null ? '[DONE]' : JSON.stringify(c.json, null, 2)}</pre>,
-            }
-          })}
-        />
-      </div>
+      <Collapse
+        ghost
+        size="small"
+        activeKey={chunkActiveKeys}
+        onChange={(k) => setChunkActiveKeys(k as string[])}
+        items={data.sseChunks.map((c, i) => {
+          const field = extractField(c.json)
+          const id = extractId(c.json)
+          return {
+            key: `chunk-${i}`,
+            label: (
+              <span style={{ fontSize: 11 }}>
+                <strong>#{i + 1}</strong>
+                {id && <span style={{ color: token.colorTextSecondary, marginLeft: 8 }}>{id}</span>}
+                <span style={{ color: token.colorPrimary, marginLeft: 8 }}>• {field}</span>
+              </span>
+            ),
+            children: <pre style={preStyle}>{c.json === null ? '[DONE]' : JSON.stringify(c.json, null, 2)}</pre>,
+          }
+        })}
+      />
     ),
   })
 

@@ -66,11 +66,13 @@ export function buildRequestBody(opts: ChatStreamOptions): Record<string, unknow
 }
 
 /** POST /v1/chat/completions (stream:true) —— 逐增量回调，返回完整文本；失败抛错由调用方处理。
- * onRaw（可选）：透传每个上游 SSE chunk 的原始 payload，供节点测试 Debug Info 使用。 */
+ * onRaw（可选）：透传每个上游 SSE chunk 的原始 payload，供节点测试 Debug Info 使用。
+ * onReasoningDelta（可选）：透传 reasoning 字段的增量（思考过程流式返回）。 */
 export async function chatStream(
   opts: ChatStreamOptions,
   onDelta: (delta: string) => void,
   onRaw?: (raw: { line: string; json: unknown | null }) => void,
+  onReasoningDelta?: (delta: string) => void,
 ): Promise<string> {
   const url = `${normalizeBase(opts.baseURL)}/chat/completions`
   const body = buildRequestBody(opts)
@@ -104,9 +106,13 @@ export async function chatStream(
         continue
       }
       try {
-        const json = JSON.parse(payload) as { choices?: Array<{ delta?: { content?: string } }> }
+        const json = JSON.parse(payload) as { choices?: Array<{ delta?: { content?: string; reasoning?: string } }> }
         onRaw?.({ line: payload, json })
         const delta = json.choices?.[0]?.delta?.content ?? ''
+        const reasoningDelta = json.choices?.[0]?.delta?.reasoning ?? ''
+        if (reasoningDelta && onReasoningDelta) {
+          onReasoningDelta(reasoningDelta)
+        }
         if (delta) {
           full += delta
           onDelta(delta)

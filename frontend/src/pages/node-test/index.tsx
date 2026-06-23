@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { App, Button, Space, Typography, Upload, Select, Segmented, theme, Tooltip, Image } from 'antd'
-import { PictureOutlined, CloseOutlined, MessageOutlined, CopyOutlined, SendOutlined, FileImageOutlined, HistoryOutlined } from '@ant-design/icons'
+import { App, Button, Space, Typography, Upload, Select, Segmented, theme, Tooltip, Image, Collapse } from 'antd'
+import { PictureOutlined, CloseOutlined, MessageOutlined, CopyOutlined, SendOutlined, FileImageOutlined, HistoryOutlined, BulbOutlined } from '@ant-design/icons'
 import { useAppStore } from '../../store/appStore'
 import { generateImage, streamChat, generateTitle } from '../../services/api'
 import { genId, pushSettingsNow } from '../../store/appStore'
@@ -30,6 +30,7 @@ interface ChatMessage {
   content: string
   timestamp: number
   images?: string[]
+  reasoning?: string
 }
 
 export default function NodeTestPage() {
@@ -82,7 +83,6 @@ export default function NodeTestPage() {
   const [currentResult, setCurrentResult] = useState<string | null>(null)
   const currentTextResponseRef = useRef('')
   const setCurrentTextResponse = (v: string) => { currentTextResponseRef.current = v } // 文本或图片 data URL
-  const [error, setError] = useState<string | null>(null)
   const [selectedImages, setSelectedImages] = useState<File[]>([])
   const acRef = useRef<AbortController | null>(null)
   const promptRef = useRef<HTMLTextAreaElement>(null)
@@ -190,7 +190,6 @@ export default function NodeTestPage() {
     setStatusText('')
     setCurrentResult(null)
     setCurrentTextResponse('')
-    setError(null)
     setDebugInfo({ previewBody: null, actualBody: null, sseChunks: [] })
 
     // 处理图片输入（图生图或多模态）
@@ -399,6 +398,7 @@ export default function NodeTestPage() {
         }))
 
         let fullText = ''
+        let fullReasoning = ''
         await streamChat(
           {
             baseURL: selectedNode.baseURL,
@@ -411,6 +411,15 @@ export default function NodeTestPage() {
             ...(typeof nodeTestForm.maxTokens === 'number' ? { maxTokens: nodeTestForm.maxTokens } : {}),
           },
           {
+            reasoningDelta: (delta) => {
+              fullReasoning += delta
+              // 实时更新助手消息的 reasoning
+              setChatMessages((prev) =>
+                prev.map((msg) =>
+                  msg.id === assistantMsgId ? { ...msg, reasoning: fullReasoning } : msg
+                )
+              )
+            },
             delta: (delta) => {
               fullText += delta
               setCurrentTextResponse(fullText)
@@ -431,7 +440,7 @@ export default function NodeTestPage() {
               // 更新助手消息为最终内容
               setChatMessages((prev) =>
                 prev.map((msg) =>
-                  msg.id === assistantMsgId ? { ...msg, content: finalText } : msg
+                  msg.id === assistantMsgId ? { ...msg, content: finalText, reasoning: fullReasoning || undefined } : msg
                 )
               )
               setCurrentResult(finalText)
@@ -452,6 +461,7 @@ export default function NodeTestPage() {
                 role: 'assistant',
                 content: finalText,
                 timestamp: Date.now(),
+                ...(fullReasoning ? { reasoning: fullReasoning } : {}),
               }
               const testType2: ChatSession['testType'] = isMultimodal && imageInputs.length > 0 ? 'multimodal' : 'text'
               let sid = activeChatSessionId
@@ -490,7 +500,14 @@ export default function NodeTestPage() {
               }
             },
             error: (err) => {
-              setError(err)
+              // 将错误显示在聊天气泡中
+              const errorMsg: ChatMessage = {
+                id: genId('msg'),
+                role: 'assistant',
+                content: `失败：${err}`,
+                timestamp: Date.now(),
+              }
+              setChatMessages((prev) => [...prev, errorMsg])
               setPhase('error')
               setStatusText('')
             },
@@ -505,7 +522,14 @@ export default function NodeTestPage() {
         return
       }
       const msg = e instanceof Error ? e.message : String(e)
-      setError(msg)
+      // 将错误显示在聊天气泡中
+      const errorMsg: ChatMessage = {
+        id: genId('msg'),
+        role: 'assistant',
+        content: `失败：${msg}`,
+        timestamp: Date.now(),
+      }
+      setChatMessages((prev) => [...prev, errorMsg])
       setPhase('error')
       setStatusText('')
     } finally {
@@ -584,6 +608,7 @@ export default function NodeTestPage() {
                   content: m.content,
                   timestamp: m.timestamp || Date.now(),
                   ...(m.images ? { images: m.images } : {}),
+                  ...(m.reasoning ? { reasoning: m.reasoning } : {}),
                 })))
                 setTestMode(s.testType === 'image' ? 'image' : 'text')
                 setMainView('chat')
@@ -693,6 +718,53 @@ export default function NodeTestPage() {
                               ))}
                             </div>
                           )}
+                          {/* Reasoning 显示：推理中流式显示，完成后折叠 */}
+                          {msg.role === 'assistant' && msg.reasoning && (
+                            <div style={{ marginBottom: 8 }}>
+                              {msg.content ? (
+                                // 完成后折叠显示
+                                <Collapse
+                                  ghost
+                                  size="small"
+                                  items={[{
+                                    key: 'reasoning',
+                                    label: (
+                                      <Space size={4}>
+                                        <BulbOutlined style={{ fontSize: 12, color: token.colorTextSecondary }} />
+                                        <Typography.Text type="secondary" style={{ fontSize: 12 }}>思考过程</Typography.Text>
+                                      </Space>
+                                    ),
+                                    children: (
+                                      <Typography.Text style={{ whiteSpace: 'pre-wrap', fontSize: 13, color: token.colorTextTertiary, display: 'block' }}>
+                                        {msg.reasoning}
+                                      </Typography.Text>
+                                    ),
+                                  }]}
+                                  style={{
+                                    background: token.colorFillQuaternary,
+                                    borderRadius: 8,
+                                    padding: '4px 8px',
+                                  }}
+                                />
+                              ) : (
+                                // 推理中流式显示
+                                <div style={{
+                                  background: token.colorFillQuaternary,
+                                  borderRadius: 8,
+                                  padding: '8px 12px',
+                                  marginBottom: 4,
+                                }}>
+                                  <Space size={4} style={{ marginBottom: 6 }}>
+                                    <BulbOutlined style={{ fontSize: 12, color: token.colorPrimary }} />
+                                    <Typography.Text type="secondary" style={{ fontSize: 12 }}>推理中...</Typography.Text>
+                                  </Space>
+                                  <Typography.Text style={{ whiteSpace: 'pre-wrap', fontSize: 13, color: token.colorTextTertiary, display: 'block' }}>
+                                    {msg.reasoning}
+                                  </Typography.Text>
+                                </div>
+                              )}
+                            </div>
+                          )}
                           <Typography.Text style={{ whiteSpace: 'pre-wrap', fontSize: 14, display: 'block' }}>
                             {msg.content}
                           </Typography.Text>
@@ -752,7 +824,7 @@ export default function NodeTestPage() {
                         height={80}
                         style={{ objectFit: 'cover', borderRadius: 6, cursor: 'pointer' }}
                         preview={{
-                          mask: <div style={{ fontSize: 12 }}>查看</div>
+                          cover: <div style={{ fontSize: 12 }}>查看</div>
                         }}
                       />
                       <Button
@@ -880,24 +952,22 @@ export default function NodeTestPage() {
             {/* 左侧按钮组 */}
             <div style={{ display: 'flex', flexDirection: 'column', borderRight: `1px solid ${token.colorBorder}` }}>
               {/* 模式/节点选择按钮 */}
-              <Tooltip title="选择测试模式和节点" placement="topLeft">
-                <Button
-                  icon={<MessageOutlined style={{ fontSize: 16 }} />}
-                  onClick={() => setBottomMenuOpen(!bottomMenuOpen)}
-                  style={{
-                    height: 48,
-                    width: 48,
-                    borderRadius: 0,
-                    border: 'none',
-                    borderBottom: `1px solid ${token.colorBorder}`,
-                    background: bottomMenuOpen ? token.colorPrimaryBg : 'transparent',
-                    color: bottomMenuOpen ? token.colorPrimary : token.colorText,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center'
-                  }}
-                />
-              </Tooltip>
+              <Button
+                icon={<MessageOutlined style={{ fontSize: 16 }} />}
+                onClick={() => setBottomMenuOpen(!bottomMenuOpen)}
+                style={{
+                  height: 48,
+                  width: 48,
+                  borderRadius: 0,
+                  border: 'none',
+                  borderBottom: `1px solid ${token.colorBorder}`,
+                  background: bottomMenuOpen ? token.colorPrimaryBg : 'transparent',
+                  color: bottomMenuOpen ? token.colorPrimary : token.colorText,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center'
+                }}
+              />
 
               {/* 图片上传按钮 */}
               {(supportsEdit || isMultimodal) && (
@@ -907,22 +977,20 @@ export default function NodeTestPage() {
                   beforeUpload={handleFileSelect}
                   showUploadList={false}
                 >
-                  <Tooltip title="添加图片" placement="bottomLeft">
-                    <Button
-                      icon={<FileImageOutlined style={{ fontSize: 16 }} />}
-                      style={{
-                        height: 48,
-                        width: 48,
-                        borderRadius: 0,
-                        border: 'none',
-                        background: 'transparent',
-                        color: token.colorText,
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center'
-                      }}
-                    />
-                  </Tooltip>
+                  <Button
+                    icon={<FileImageOutlined style={{ fontSize: 16 }} />}
+                    style={{
+                      height: 48,
+                      width: 48,
+                      borderRadius: 0,
+                      border: 'none',
+                      background: 'transparent',
+                      color: token.colorText,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center'
+                    }}
+                  />
                 </Upload>
               )}
             </div>
@@ -998,12 +1066,6 @@ export default function NodeTestPage() {
               </Button>
             )}
           </div>
-
-          {error && (
-            <div style={{ padding: 12, background: '#da3633', color: '#fff', fontSize: 13 }}>
-              失败：{error}
-            </div>
-          )}
         </div>
           </>
         )}

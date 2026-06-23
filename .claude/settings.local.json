@@ -37,7 +37,8 @@
       "Bash(where chrome *)",
       "Bash(where msedge *)",
       "Bash(git commit *)",
-      "WebFetch(domain:github.com)"
+      "WebFetch(domain:github.com)",
+      "Bash(npx vite *)"
     ]
   }
 }

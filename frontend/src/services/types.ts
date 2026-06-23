@@ -155,6 +155,8 @@ export interface ChatSessionMessage {
   timestamp: number
   /** 多模态/图生图输入图片（dataUrl 或图床 URL） */
   images?: string[]
+  /** 思考过程（reasoning 字段） */
+  reasoning?: string
 }
 
 /** 对话记录（一轮对话流 = 一个 session，多轮累积）。持久化到 chat_sessions 表 */
