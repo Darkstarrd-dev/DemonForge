@@ -43,6 +43,7 @@
 | M1 自动重试 | **已实现**（2026-06-20）：`autoRetry` 开关（默认开启），失败章放回任务池由其他节点接管（非同一节点反复重试），全节点熔断时终态失败；持久化到 `settings.json`（`m1AutoRetry`） |
 | 全屏阅读 · 查找替换 | **已实现**（2026-06-23）：全书章节遍历按段正则/字面量匹配；结果列表窗口分页 30 条/批；两种替换模式（预览 vs 实际修改）；正则捕获组引用支持；段落跳转+正文高亮 |
 | 全屏阅读 · 单章 AI 清理 | **已实现**（2026-06-23）：章节列表 hover 显清理按钮；单章单节点直连 `streamSingleChannel`（无需调度器/暂停停止）；流式右栏+左原文双栏对比；完成后自动切 DiffView 审阅；接受 → finalText 覆盖原文 |
+| 节点测试 · System Instructions | **已实现**（2026-06-23）：仿 Google AI Studio，右侧侧边栏顶部按钮触发编辑界面；全局共享预设列表（`systemPromptPresets`）+ 当前激活项（`systemPromptActiveId`），显式保存/新建/删除，dirty 退出拦截；发送取激活预设已保存 content（草稿未保存不生效）；持久化到 `settings.json`；组件 `SystemPromptEditor.tsx`（key 重挂载方案，无 useEffect） |
 
 ## 工作方式
 

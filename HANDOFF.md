@@ -2,7 +2,7 @@
 
 **最后更新**：2026-06-23  
 **当前位置**：办公场所 A
-**本轮主题**：全屏阅读模式 · 查找替换 + 单章 AI 清理 ✅
+**本轮主题**：节点测试 · System Instructions 模块优化 ✅
 
 ---
 
@@ -53,6 +53,16 @@
     - 深色模式对比度优化
     - 输入区域无圆角、无空白
   - **状态**：架构 + UI 全部完成，编译通过，可投入使用
+- [x] **节点测试 · System Instructions 模块优化**（2026-06-23）✨
+  - 仿 Google AI Studio：右侧侧边栏顶部「System Instructions」按钮，点击切换为 System Prompt 编辑界面
+  - 编辑界面布局：标题+关闭按钮 / 已保存预设下拉 / Title 输入框+删除按钮 / 内容 textarea / 新建+保存按钮
+  - 预设管理：显式保存（title 非空才可保存）；新建按钮清空进入新建态；删除按钮删当前激活项并清空编辑区
+  - 生效逻辑：发送取当前激活预设（`systemPromptActiveId`）的已保存 content；草稿未保存不生效，dirty 提示「未保存」
+  - dirty 退出拦截：关闭/新建/切换下拉时有未保存修改弹确认
+  - 全局共享一份列表 + 当前激活项（不随节点切换）；图片模式也显示按钮但仅文本模式发送生效
+  - 持久化：`systemPromptPresets` + `systemPromptActiveId` 落 settings.json（三处同步 + `pushSettingsNow` 立即落盘）
+  - 文件变更：`appStore.ts`（类型+state+seed+actions+payload+subscribe+bootstrap）+ 新建 `SystemPromptEditor.tsx` + `node-test/index.tsx`（移除顶部输入框、侧边栏视图切换、发送逻辑）
+  - **状态**：编译通过，0 个新 lint/TS 错误，待浏览器功能测试
 - [x] **角色交流模块 - 阶段 A：基础架构**（2026-06-21）
   - 数据模型定义（types.ts）+ 持久化配置（settings.json）
   - 页面路由与布局（`/role-chat` + 左侧菜单栏）
@@ -280,7 +290,18 @@
 
 ### 立即任务（本次会话后）
 
-1. **验证全屏阅读 · 查找替换**
+1. **验证节点测试 · System Instructions 模块**
+   - 进入节点测试页，确认右侧侧边栏顶部有「System Instructions」按钮
+   - 点击按钮 → 确认侧边栏切换为编辑界面（标题+关闭/下拉/Title+删除/textarea/新建+保存）
+   - 新建：输入 title + 内容 → 点保存 → 确认下拉出现该项
+   - 切换下拉 → 确认草稿加载对应内容
+   - 编辑未保存 → 确认「未保存」提示 + 关闭/新建/切换弹确认
+   - 删除当前项 → 确认编辑区清空、下拉移除
+   - 文本模式发送 → 确认 system prompt 生效（激活预设内容）
+   - 图片模式显示按钮但不发送 system
+   - 关闭/重开应用 → 确认列表 + 激活项持久化
+
+2. **验证全屏阅读 · 查找替换**
    - 从书库打开一本书进入全屏阅读模式
    - 底部工具栏点击「查找」按钮打开查找替换面板
    - 测试字面量查找 + 正则查找 + 区分大小写
@@ -1178,3 +1199,50 @@
 1. `npm run dev` 启动，打开一本书进入全屏阅读 → 测试查找替换（正则/预览/实际修改/段落跳转）
 2. 测试单章 AI 清理完整流程（节点选择 → 流式 → DiffView → 接受覆盖原文）
 3. 回归验证阅读模式原有功能不受影响
+
+---
+
+**本轮工作成果**（2026-06-23 — 节点测试 · System Instructions 模块优化）：
+
+**1. 需求与设计决策**
+- 顶部 System Prompt 输入框移到右侧侧边栏，仿 Google AI Studio 改为按钮触发的编辑界面
+- 4 项设计决策（用户拍板）：
+  - 作用域：全局共享一份列表 + 当前激活项（不随节点切换）
+  - 保存机制：显式「保存」按钮 + 「新建」按钮（非自动保存）
+  - 图片模式：按钮两种模式都显示，仅文本模式发送生效
+  - 删除后：清空编辑区回到空态
+- 生效逻辑（用户认可）：发送取当前激活预设（`systemPromptActiveId`）的已保存 content；草稿未保存不生效
+- dirty 退出拦截：关闭/新建/切换下拉时有未保存修改弹确认（默认）
+
+**2. 数据模型（appStore.ts）**
+- 新增类型 `SystemPromptPreset { id, title, content }`
+- AppState 新增 2 字段：`systemPromptPresets: SystemPromptPreset[]` + `systemPromptActiveId: string | null`
+- seedState 默认：`[]` + `null`
+- 持久化三处同步：`settingsPayload`（+2 键）+ `subscribe`（比较条件 +2）+ `bootstrapStore`（类型声明 +2 + 读取逻辑 +2）
+- 新增 3 个 store action（均调 `pushSettingsNow` 立即落盘）：
+  - `saveSystemPromptPreset(title, content)`：activeId 有值则更新，null 则新建（`genId('sp')`）并设为激活
+  - `deleteSystemPromptPreset(id)`：移除预设，删除当前激活项时 activeId 置 null
+  - `setSystemPromptActiveId(id)`：切换激活项
+
+**3. SystemPromptEditor.tsx（新建组件）**
+- Props：`presets / activeId / activeTitle / activeContent / onSave / onDelete / onSelect / onClose`
+- 草稿态：`draftTitle` / `draftContent`（useState，初始值取 `activeTitle/activeContent`）
+- key 重挂载方案：父组件传 `key={activeId ?? '__new__'}`，activeId 变化时组件重挂载重置草稿，**无 useEffect，避开 `react-hooks/set-state-in-effect` 规则**
+- dirty 判定：编辑现有项时与已保存值比较；新建态时只要有输入即脏
+- 布局：Header（标题+关闭）/ 下拉（选择预设，allowClear）/ Title+删除按钮 / textarea / 新建+保存按钮+「未保存」提示
+- 交互：保存需 title 非空；删除仅 activeId 非空可用；dirty 时关闭/新建/切换弹 `modal.confirm`
+
+**4. node-test/index.tsx 改造**
+- 移除：顶部 System Prompt `Card`（原 555-574 行）+ `systemPrompt` useState + `Card` 导入
+- 新增：store 读取（presets/activeId/3 个 action）+ `sidebarView` state + 派生 `activeSystemPromptPreset`/`activeSystemPrompt`
+- 发送逻辑：`systemPrompt` → `activeSystemPrompt`（取激活预设 content）
+- 侧边栏重构：容器去 `overflowY`；`sidebarView='sysPrompt'` 渲染 `<SystemPromptEditor key={...}/>`；`'params'` 渲染 header（参数设置标题 + System Instructions 按钮）+ 原参数内容（`overflowY:auto`）+ 底部历史（`flexShrink:0`）
+
+**5. 验证**
+- ✅ `tsc -b`：改动文件（appStore/node-test/SystemPromptEditor）零 TS 错误（settings/index.tsx 3 个预先存在错误非本轮引入）
+- ✅ `eslint`：SystemPromptEditor.tsx 零错误；node-test/index.tsx 剩 6 个错误全为预先存在（97/290/300/306/317/329 行，均不在本轮改动范围，经 git diff 确认）
+- ✅ 本轮引入新 lint/TS 错误数：**0**
+
+**建议下次会话**：
+1. `npm run dev` 启动，进入节点测试页验证 System Instructions 完整流程（新建/保存/切换/删除/dirty 拦截/持久化/发送生效）
+2. 顺手清理 `settings/index.tsx` 3 个未使用导入（恢复 `npm run dist` 打包）

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { App, Button, Card, Popconfirm, Space, Typography, Upload, Select, Segmented, theme, Tooltip, Image } from 'antd'
+import { App, Button, Popconfirm, Space, Typography, Upload, Select, Segmented, theme, Tooltip, Image } from 'antd'
 import { DownloadOutlined, DeleteOutlined, PictureOutlined, CloseOutlined, MessageOutlined, CopyOutlined, SendOutlined, FileImageOutlined } from '@ant-design/icons'
 import { useAppStore } from '../../store/appStore'
 import { generateImage, streamChat } from '../../services/api'
@@ -7,6 +7,7 @@ import { genId, pushSettingsNow } from '../../store/appStore'
 import { imageHosts } from '../../services/imageHost'
 import type { ProviderNode, TestHistoryItem, ImageInputMode } from '../../services/types'
 import type { NodeTestForm } from '../../store/appStore'
+import SystemPromptEditor from './SystemPromptEditor'
 
 const RESOLUTIONS = [
   { value: '1024x1024', label: '1024×1024（1:1）' },
@@ -39,14 +40,19 @@ export default function NodeTestPage() {
   const setState = useAppStore((s) => s.setState)
   const addTestHistory = useAppStore((s) => s.addTestHistory)
   const deleteTestHistory = useAppStore((s) => s.deleteTestHistory)
+  const systemPromptPresets = useAppStore((s) => s.systemPromptPresets)
+  const systemPromptActiveId = useAppStore((s) => s.systemPromptActiveId)
+  const saveSystemPromptPreset = useAppStore((s) => s.saveSystemPromptPreset)
+  const deleteSystemPromptPreset = useAppStore((s) => s.deleteSystemPromptPreset)
+  const setSystemPromptActiveId = useAppStore((s) => s.setSystemPromptActiveId)
 
   // 测试模式：根据节点类型自动切换
   const [testMode, setTestMode] = useState<TestMode>('text')
 
   // 聊天消息列表（仅文本模式）
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([])
-  // System Prompt（仅文本模式）
-  const [systemPrompt, setSystemPrompt] = useState('')
+  // 右侧侧边栏视图：参数设置 / System Instructions 编辑
+  const [sidebarView, setSidebarView] = useState<'params' | 'sysPrompt'>('params')
   // 底部菜单展开状态
   const [bottomMenuOpen, setBottomMenuOpen] = useState(false)
 
@@ -114,6 +120,13 @@ export default function NodeTestPage() {
   const isImageMode = testMode === 'image'
   const supportsEdit = selectedNode?.supportsImageEdit ?? false
   const isMultimodal = selectedNode?.isMultimodal ?? false
+
+  // 当前激活的 System Prompt 预设（全局共享，发送时取其 content）
+  const activeSystemPromptPreset = useMemo(
+    () => systemPromptPresets.find((p) => p.id === systemPromptActiveId) ?? null,
+    [systemPromptPresets, systemPromptActiveId],
+  )
+  const activeSystemPrompt = activeSystemPromptPreset?.content ?? ''
 
   const setForm = (patch: Partial<NodeTestForm>) => {
     const nid = nodeTestGlobalForm.nodeId
@@ -292,9 +305,9 @@ export default function NodeTestPage() {
         // 构造消息
         const messages: any[] = []
 
-        // 添加 system prompt（如果有）
-        if (systemPrompt.trim()) {
-          messages.push({ role: 'system', content: systemPrompt.trim() })
+        // 添加 system prompt（取当前激活预设的已保存内容）
+        if (activeSystemPrompt.trim()) {
+          messages.push({ role: 'system', content: activeSystemPrompt.trim() })
         }
 
         // 添加历史消息
@@ -552,27 +565,6 @@ export default function NodeTestPage() {
           ) : (
             /* 文本模式：聊天界面 */
             <div style={{ display: 'flex', flexDirection: 'column', maxWidth: 900, width: '100%', margin: '0 auto', height: '100%', padding: '24px 24px 0' }}>
-              {/* System Prompt 输入 */}
-              <Card size="small" style={{ marginBottom: 16, flexShrink: 0 }} title={<span style={{ fontSize: 13 }}>System Prompt</span>}>
-                <textarea
-                  value={systemPrompt}
-                  onChange={(e) => setSystemPrompt(e.target.value)}
-                  placeholder="输入 system prompt（可选）..."
-                  rows={2}
-                  style={{
-                    width: '100%',
-                    background: token.colorBgContainer,
-                    border: `1px solid ${token.colorBorder}`,
-                    borderRadius: 6,
-                    padding: 8,
-                    color: token.colorText,
-                    fontSize: 13,
-                    resize: 'none',
-                    fontFamily: 'inherit',
-                  }}
-                />
-              </Card>
-
               {/* 聊天消息 */}
               <div style={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
                 {chatMessages.length === 0 ? (
@@ -959,9 +951,27 @@ export default function NodeTestPage() {
       </div>
 
       {/* 右侧设置面板 */}
-      <div style={{ width: 320, background: token.colorBgElevated, borderLeft: `1px solid ${token.colorBorder}`, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
-        <div style={{ padding: 16, flex: 1 }}>
-          <Typography.Title level={5} style={{ color: token.colorText, marginBottom: 16 }}>参数设置</Typography.Title>
+      <div style={{ width: 320, background: token.colorBgElevated, borderLeft: `1px solid ${token.colorBorder}`, display: 'flex', flexDirection: 'column' }}>
+        {sidebarView === 'sysPrompt' ? (
+          <SystemPromptEditor
+            key={systemPromptActiveId ?? '__new__'}
+            presets={systemPromptPresets}
+            activeId={systemPromptActiveId}
+            activeTitle={activeSystemPromptPreset?.title ?? ''}
+            activeContent={activeSystemPromptPreset?.content ?? ''}
+            onSave={saveSystemPromptPreset}
+            onDelete={deleteSystemPromptPreset}
+            onSelect={setSystemPromptActiveId}
+            onClose={() => setSidebarView('params')}
+          />
+        ) : (
+          <>
+            {/* 顶部 header：参数设置标题 + System Instructions 入口 */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', borderBottom: `1px solid ${token.colorBorder}`, flexShrink: 0 }}>
+              <Typography.Title level={5} style={{ margin: 0, color: token.colorText }}>参数设置</Typography.Title>
+              <Button size="small" onClick={() => setSidebarView('sysPrompt')}>System Instructions</Button>
+            </div>
+            <div style={{ padding: 16, flex: 1, overflowY: 'auto' }}>
 
           {isImageMode ? (
             <>
@@ -1234,7 +1244,7 @@ export default function NodeTestPage() {
         </div>
 
         {/* 底部历史管理 */}
-        <div style={{ padding: 16, borderTop: `1px solid ${token.colorBorder}` }}>
+        <div style={{ padding: 16, borderTop: `1px solid ${token.colorBorder}`, flexShrink: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
             <Typography.Text style={{ color: token.colorText, fontSize: 14 }}>测试历史 ({testHistory.length})</Typography.Text>
             {testHistory.length > 0 && (
@@ -1366,6 +1376,8 @@ export default function NodeTestPage() {
             </div>
           )}
         </div>
+          </>
+        )}
       </div>
 
       <style>{`

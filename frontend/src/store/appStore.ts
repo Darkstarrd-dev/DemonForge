@@ -65,6 +65,16 @@ export interface NodeTestForm {
   maxTokens?: number
 }
 
+/** System Prompt 预设（节点测试，全局共享，持久化到 settings.json） */
+export interface SystemPromptPreset {
+  /** 唯一 id，下拉 value 与删除定位用 */
+  id: string
+  /** 用户命名 */
+  title: string
+  /** system prompt 正文 */
+  content: string
+}
+
 /** 向后兼容：旧的 ImageDemoForm 类型别名 */
 export type ImageDemoForm = NodeTestForm
 
@@ -162,6 +172,10 @@ export interface AppState {
   enable4KScale: boolean
   /** 节点池分组折叠状态（持久化到 settings.json）：key = groupKey (baseURL + groupName), value = 是否展开 */
   nodeGroupExpanded: Record<string, boolean>
+  /** 节点测试 System Prompt 预设列表（全局共享，持久化到 settings.json） */
+  systemPromptPresets: SystemPromptPreset[]
+  /** 节点测试当前激活的 System Prompt 预设 id；null=未选中/新建态（持久化到 settings.json） */
+  systemPromptActiveId: string | null
 
   setState: (patch: Partial<AppState>) => void
   /** M1 Step3 清洗运行状态合并写入（部分更新）。不持久化。 */
@@ -191,6 +205,12 @@ export interface AppState {
    * - 否则 usageLeft -= 1 并写回，返回 true。
    */
   consumeProviderUsage: (nodeId: string) => boolean
+  /** 节点测试：保存/更新 System Prompt 预设。activeId 有值则更新，null 则新建并设为当前激活（立即落 settings.json） */
+  saveSystemPromptPreset: (title: string, content: string) => void
+  /** 节点测试：按 id 删除 System Prompt 预设。删除当前激活项时 activeId 置 null（立即落 settings.json） */
+  deleteSystemPromptPreset: (id: string) => void
+  /** 节点测试：切换当前激活的 System Prompt 预设 id（立即落 settings.json） */
+  setSystemPromptActiveId: (id: string | null) => void
   resetDemo: () => void
 }
 
@@ -282,6 +302,8 @@ const seedState = () => ({
   theme: 'light' as const,
   enable4KScale: false,
   nodeGroupExpanded: {},
+  systemPromptPresets: [] as SystemPromptPreset[],
+  systemPromptActiveId: null as string | null,
 })
 
 export const useAppStore = create<AppState>()((set, get) => ({
@@ -409,6 +431,32 @@ export const useAppStore = create<AppState>()((set, get) => ({
     set({ splitPatterns: DEFAULT_SPLIT_PATTERNS.map((p) => ({ ...p })) })
     pushSettingsNow()
   },
+  // ===== 节点测试 System Prompt 预设（全局共享，落 settings.json） =====
+  saveSystemPromptPreset: (title, content) => {
+    const st = get()
+    const id = st.systemPromptActiveId
+    if (id) {
+      // 更新现有预设
+      set({ systemPromptPresets: st.systemPromptPresets.map((p) => (p.id === id ? { ...p, title, content } : p)) })
+    } else {
+      // 新建预设并设为当前激活
+      const newId = genId('sp')
+      set({ systemPromptPresets: [...st.systemPromptPresets, { id: newId, title, content }], systemPromptActiveId: newId })
+    }
+    pushSettingsNow()
+  },
+  deleteSystemPromptPreset: (id) => {
+    const st = get()
+    set({
+      systemPromptPresets: st.systemPromptPresets.filter((p) => p.id !== id),
+      systemPromptActiveId: st.systemPromptActiveId === id ? null : st.systemPromptActiveId,
+    })
+    pushSettingsNow()
+  },
+  setSystemPromptActiveId: (id) => {
+    set({ systemPromptActiveId: id })
+    pushSettingsNow()
+  },
   consumeProviderUsage: (nodeId) => {
     const node = useAppStore.getState().providers.find((p) => p.id === nodeId)
     if (!node) return false
@@ -517,6 +565,8 @@ export async function bootstrapStore(): Promise<void> {
         m1TestText?: string
         theme?: 'light' | 'dark'
         nodeGroupExpanded?: Record<string, boolean>
+        systemPromptPresets?: SystemPromptPreset[]
+        systemPromptActiveId?: string | null
       }
       storeInitialized = d.storeInitialized === true
       const patch: Partial<AppState> = {}
@@ -567,6 +617,11 @@ export async function bootstrapStore(): Promise<void> {
       if (d.theme === 'light' || d.theme === 'dark') patch.theme = d.theme
       // 节点池分组折叠状态（旧 settings.json 无此键则默认空对象）
       if (d.nodeGroupExpanded && typeof d.nodeGroupExpanded === 'object') patch.nodeGroupExpanded = d.nodeGroupExpanded
+      // 节点测试 System Prompt 预设列表与当前激活 id（旧 settings.json 无此键则沿用空数组+null）
+      if (Array.isArray(d.systemPromptPresets)) patch.systemPromptPresets = d.systemPromptPresets
+      if (d.systemPromptActiveId === null || typeof d.systemPromptActiveId === 'string') {
+        patch.systemPromptActiveId = d.systemPromptActiveId
+      }
       if (Object.keys(patch).length) useAppStore.setState(patch)
     }
   } catch {
@@ -790,6 +845,8 @@ export const settingsPayload = (s: AppState) => ({
   theme: s.theme,
   enable4KScale: s.enable4KScale,
   nodeGroupExpanded: s.nodeGroupExpanded,
+  systemPromptPresets: s.systemPromptPresets,
+  systemPromptActiveId: s.systemPromptActiveId,
 })
 
 let settingsTimer: ReturnType<typeof setTimeout> | null = null
@@ -811,7 +868,9 @@ useAppStore.subscribe((s, prev) => {
     s.m1TestText === prev.m1TestText &&
     s.theme === prev.theme &&
     s.enable4KScale === prev.enable4KScale &&
-    s.nodeGroupExpanded === prev.nodeGroupExpanded
+    s.nodeGroupExpanded === prev.nodeGroupExpanded &&
+    s.systemPromptPresets === prev.systemPromptPresets &&
+    s.systemPromptActiveId === prev.systemPromptActiveId
   ) {
     return
   }
