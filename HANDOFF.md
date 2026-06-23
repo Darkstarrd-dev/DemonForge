@@ -1,8 +1,8 @@
 # HANDOFF.md — novelhelper 交接备忘
 
-**最后更新**：2026-06-23  
+**最后更新**：2026-06-24  
 **当前位置**：办公场所 A
-**本轮主题**：节点测试 · 对比模式与模型切换标记（已完成） ✅ → 修正括号封闭 + 实施计划 + **Reasoning 字段鲁棒匹配**
+**本轮主题**：节点测试 · 对比模式增强（推理气泡/模型选取/Debug Info/复制全部对话）✅
 
 ---
 
@@ -399,17 +399,23 @@
 
 ### 本次已完成
 
-- [x] **修复括号/逗号封闭错误**（2026-06-23）
-  - 根因：`compareMode ? ( ... ) : ( ... )` 嵌套三元组缺少一个 `)` —— 第 1492 行 `)}` 改为 `))}`
-  - 验证：`tsc --noEmit` 零错误
-- [x] **撰写节点调试三项改进实施计划** → `docs/node_test_improvements_plan.md`
-  - 需求 1：移除右边栏"参数设置"标题（代码已无，仅注释残留）
-  - 需求 2：对比模式图标随状态切换（`ColumnWidthOutlined` ↔ `SwapOutlined`）
-  - 需求 3：模型切换标记扩充为 before/after 双向标签 + image 切换确认守卫
+- [x] **对比模式五大增强**（2026-06-24）
+  - 推理气泡：对比模式下支持 reasoning 显示 + 完整气泡样式 + 操作按钮
+  - 模型选取：两边都选好才关闭弹出菜单，自动切换 activeSide
+  - 取消 tooltip：移除对比模式切换按钮的 hover 提示
+  - Debug Info：对比模式下左右 debug 数据独立收集，Segmented 切换
+  - 复制全部：主页面右上角「复制全部对话」按钮（单栏/对比模式均支持）
 
 ### 立即任务（本次会话后）
 
-1. **验证节点测试 · 气泡功能扩展**
+1. **验证对比模式五大增强**
+   - **推理气泡**：对比模式发送消息 → 确认 reasoning 流式显示 + 完成后折叠 + 复制推理按钮
+   - **模型选取**：打开节点菜单 → 选左侧节点 → 自动切到右侧 → 选右侧节点 → 菜单关闭
+   - **Debug Info**：对比模式发消息 → 右侧 Debug Info → Segmented 切换左右 → 确认数据独立
+   - **复制全部**：主页面右上角复制按钮 → 对比模式合并左右 + 单栏模式全部消息
+   - **编辑/重试/删除**：对比模式下气泡按钮正常运作
+
+2. **验证节点测试 · 气泡功能扩展**
    - 基础样式：时间戳在文字顶部、复制按钮无文字、折叠思考过程有复制按钮
    - 重试功能：
      - 点击 user 气泡重试 → 该 user 及其后消息消失 → 重新生成
@@ -1551,3 +1557,54 @@
 **建议下次会话**：
 1. `npm run dev` 启动，进入节点测试页验证 System Instructions 完整流程（新建/保存/切换/删除/dirty 拦截/持久化/发送生效）
 2. 顺手清理 `settings/index.tsx` 3 个未使用导入（恢复 `npm run dist` 打包）
+
+---
+
+**本轮工作成果**（2026-06-24 — 节点测试 · 对比模式增强）✨
+
+**1. 对比模式推理气泡（Issue 1）**
+- **需求**：对比模式下不显示推理气泡，需与单独模式一致的样式和按钮
+- **实现**：
+  - `handleGenerateSide` 增加 `reasoningDelta` 回调，实时更新 `msg.reasoning` 字段
+  - 初始化 `assistantMsg.reasoning = ''`，done 时 `fullReasoning || undefined` 写入最终消息
+  - 双栏消息渲染改为完整气泡样式（图片网格 → 时间戳 → 推理折叠面板/流式推理块 → 正文 → 操作按钮行）
+  - 每侧独立计算 `isStreamingLast`（基于 `phaseLeft/phaseRight`）和 `isEditing`（基于 `editingCompareSide`）
+
+**2. 对比模式模型选取不提前关闭（Issue 2）**
+- **需求**：左右两边都选好才自动关闭弹出菜单
+- **实现**：
+  - 新增 `selectedNodeIdLeftRef`/`selectedNodeIdRightRef` 同步 ref，解决闭包中 state 过期问题
+  - 点击节点后：设置对应侧 → 若另一侧已有值则关闭菜单 → 否则自动切换 `activeSide` 并保持菜单打开
+
+**3. 取消对比模式切换按钮 tooltip（Issue 3）**
+- **需求**：移除 hover 提示
+- **实现**：删除 `<Tooltip>` 包裹，保留 `<Button>` 原始逻辑
+
+**4. 对比模式 Debug Information（Issue 4）**
+- **需求**：对比模式下更新 Debug Info，支持左右切换
+- **实现**：
+  - `handleGenerateSide` 传入 `includeRaw: true` + `requestBody`/`rawChunk` 回调
+  - 新增 `debugInfoLeft`/`debugInfoRight`/`debugSide` 状态
+  - 对比模式下 debug 面板顶部增加 `<Segmented>` 切换左侧/右侧
+  - 单栏模式保持原 `debugInfo` 单一状态不变
+
+**5. 复制全部对话按钮（Issue 5）**
+- **需求**：主页面右上角复制按钮，复制所有对话内容
+- **实现**：新增 `copyAllMessages` 函数
+  - 对比模式：合并左右两侧，`=== 左侧对话 ===` / `=== 右侧对话 ===` 分隔，含 reasoning
+  - 单栏模式：全部消息按角色+时间戳格式输出
+  - UI：`Button icon={<CopyOutlined />}` + `Tooltip title="复制全部对话"`，有消息时显示
+
+**6. 辅助修复**
+- `cancelEdit` 新增 `setEditingCompareSide(null)` 清理对比模式编辑态
+- 嵌套三元运算括号分组修复（`(compareMode ? ... : ...)` 包裹外层，解决 `vite:oxc` 解析错误）
+- `tsc --noEmit` 编译通过，零错误
+
+**文件变更**：
+- 修改：`frontend/src/pages/node-test/index.tsx`（~450 行新增，核心逻辑改造）
+
+**建议下次会话**：
+1. `npm run dev` 启动，进入节点测试页测试对比模式完整流程
+2. 验证 5 项需求全部正常工作
+3. 验证复制全部对话功能在两种模式下均生效
+4. 验证调试信息左右切换正常

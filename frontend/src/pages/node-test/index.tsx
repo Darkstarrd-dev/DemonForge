@@ -80,10 +80,18 @@ export default function NodeTestPage() {
   const [chatMessagesRight, setChatMessagesRight] = useState<ChatMessage[]>([])
   const [selectedNodeIdLeft, setSelectedNodeIdLeft] = useState<string | undefined>(undefined)
   const [selectedNodeIdRight, setSelectedNodeIdRight] = useState<string | undefined>(undefined)
+  const selectedNodeIdLeftRef = useRef<string | undefined>(undefined)
+  const selectedNodeIdRightRef = useRef<string | undefined>(undefined)
+  const setSelectedNodeIdLeftWrapped = (v: string | undefined) => { selectedNodeIdLeftRef.current = v; setSelectedNodeIdLeft(v) }
+  const setSelectedNodeIdRightWrapped = (v: string | undefined) => { selectedNodeIdRightRef.current = v; setSelectedNodeIdRight(v) }
   const [phaseLeft, setPhaseLeft] = useState<Phase>('idle')
   const [phaseRight, setPhaseRight] = useState<Phase>('idle')
   const acRefLeft = useRef<AbortController | null>(null)
   const acRefRight = useRef<AbortController | null>(null)
+  const [debugInfoLeft, setDebugInfoLeft] = useState<DebugInfoData>({ previewBody: null, actualBody: null, sseChunks: [] })
+  const [debugInfoRight, setDebugInfoRight] = useState<DebugInfoData>({ previewBody: null, actualBody: null, sseChunks: [] })
+  const [debugSide, setDebugSide] = useState<'left' | 'right'>('left')
+  const [editingCompareSide, setEditingCompareSide] = useState<'left' | 'right' | null>(null)
 
   // 根据测试模式过滤可用节点
   const availableNodes = useMemo(() => {
@@ -298,6 +306,7 @@ export default function NodeTestPage() {
   const cancelEdit = () => {
     setEditingMsgId(null)
     setEditingText('')
+    setEditingCompareSide(null)
   }
 
   // 删除消息
@@ -308,6 +317,131 @@ export default function NodeTestPage() {
     if (editingMsgId === msgId) {
       setEditingMsgId(null)
       setEditingText('')
+    }
+  }
+
+  // ===== 对比模式消息操作 =====
+
+  const deleteCompareMessage = (side: 'left' | 'right', msgId: string) => {
+    const setter = side === 'left' ? setChatMessagesLeft : setChatMessagesRight
+    setter((prev) => prev.filter((m) => m.id !== msgId))
+    if (editingMsgId === msgId) {
+      setEditingMsgId(null)
+      setEditingText('')
+      setEditingCompareSide(null)
+    }
+  }
+
+  const editCompareMessage = (side: 'left' | 'right', msgId: string) => {
+    const messages = side === 'left' ? chatMessagesLeft : chatMessagesRight
+    const msg = messages.find((m) => m.id === msgId)
+    if (!msg) return
+    setEditingMsgId(msgId)
+    setEditingCompareSide(side)
+    setEditingText(msg.content)
+  }
+
+  const commitCompareEdit = () => {
+    if (!editingMsgId || !editingCompareSide) return
+    if (!editingText.trim()) {
+      message.warning('内容不能为空')
+      return
+    }
+    const setter = editingCompareSide === 'left' ? setChatMessagesLeft : setChatMessagesRight
+    setter((prev) => prev.map((m) => m.id === editingMsgId ? { ...m, content: editingText } : m))
+    setEditingMsgId(null)
+    setEditingText('')
+    setEditingCompareSide(null)
+  }
+
+  const cancelCompareEdit = () => {
+    setEditingMsgId(null)
+    setEditingText('')
+    setEditingCompareSide(null)
+  }
+
+  const retryCompareMessage = async (side: 'left' | 'right', msgId: string) => {
+    const messages = side === 'left' ? chatMessagesLeft : chatMessagesRight
+    const index = messages.findIndex((m) => m.id === msgId)
+    if (index === -1) return
+    const msg = messages[index]
+    const nodeId = side === 'left' ? selectedNodeIdLeft : selectedNodeIdRight
+    if (!nodeId) return
+    const node = availableNodes.find((n) => n.id === nodeId)
+    if (!node) return
+
+    let newMessages: ChatMessage[]
+    let triggerUser: ChatMessage
+    if (msg.role === 'user') {
+      newMessages = messages.slice(0, index)
+      triggerUser = msg
+    } else {
+      newMessages = messages.slice(0, index)
+      const lastUser = [...newMessages].reverse().find((m) => m.role === 'user')
+      if (!lastUser) { message.warning('无法找到触发该回复的用户消息'); return }
+      triggerUser = lastUser
+    }
+
+    const setter = side === 'left' ? setChatMessagesLeft : setChatMessagesRight
+    setter(newMessages)
+
+    const ac = new AbortController()
+    if (side === 'left') { acRefLeft.current = ac; setPhaseLeft('streaming') }
+    else { acRefRight.current = ac; setPhaseRight('streaming') }
+    if (side === 'left') setDebugInfoLeft({ previewBody: null, actualBody: null, sseChunks: [] })
+    else setDebugInfoRight({ previewBody: null, actualBody: null, sseChunks: [] })
+
+    const assistantMsgId = genId('msg')
+    const assistantMsg: ChatMessage = { id: assistantMsgId, role: 'assistant', content: '', reasoning: '', timestamp: Date.now(), nodeId: node.id, modelName: node.model }
+    const allMessages = [...newMessages, triggerUser, assistantMsg]
+    setter(allMessages)
+
+    const apiMessages: any[] = []
+    if (activeSystemPrompt.trim()) apiMessages.push({ role: 'system', content: activeSystemPrompt.trim() })
+    newMessages.forEach((m) => { apiMessages.push({ role: m.role, content: m.content }) })
+    apiMessages.push({ role: 'user', content: triggerUser.content })
+
+    setter((prev) => {
+      const setDebugInfo = side === 'left' ? setDebugInfoLeft : setDebugInfoRight
+      setDebugInfo({ previewBody: { model: node.model, messages: apiMessages, stream: true, ...(typeof nodeTestForm.temperature === 'number' ? { temperature: nodeTestForm.temperature } : {}), ...(typeof nodeTestForm.topP === 'number' ? { top_p: nodeTestForm.topP } : {}), ...(typeof nodeTestForm.maxTokens === 'number' ? { max_tokens: nodeTestForm.maxTokens } : {}) }, actualBody: null, sseChunks: [] })
+      return prev
+    })
+
+    let fullText = ''
+    let fullReasoning = ''
+    try {
+      await streamChat(
+        { baseURL: node.baseURL, apiKey: node.apiKey, model: node.model, messages: apiMessages, includeRaw: true, ...(typeof nodeTestForm.temperature === 'number' ? { temperature: nodeTestForm.temperature } : {}), ...(typeof nodeTestForm.topP === 'number' ? { topP: nodeTestForm.topP } : {}), ...(typeof nodeTestForm.maxTokens === 'number' ? { maxTokens: nodeTestForm.maxTokens } : {}) },
+        {
+          reasoningDelta: (delta) => {
+            fullReasoning += delta
+            setter((prev) => prev.map((m) => m.id === assistantMsgId ? { ...m, reasoning: fullReasoning } : m))
+          },
+          delta: (delta) => {
+            fullText += delta
+            setter((prev) => prev.map((m) => m.id === assistantMsgId ? { ...m, content: fullText } : m))
+          },
+          requestBody: (body) => { if (side === 'left') setDebugInfoLeft((prev) => ({ ...prev, actualBody: body as object })); else setDebugInfoRight((prev) => ({ ...prev, actualBody: body as object })) },
+          rawChunk: (raw) => { if (side === 'left') setDebugInfoLeft((prev) => ({ ...prev, sseChunks: [...prev.sseChunks, raw] })); else setDebugInfoRight((prev) => ({ ...prev, sseChunks: [...prev.sseChunks, raw] })) },
+          done: (finalText) => {
+            setter((prev) => prev.map((m) => m.id === assistantMsgId ? { ...m, content: finalText, reasoning: fullReasoning || undefined } : m))
+            if (side === 'left') setPhaseLeft('done'); else setPhaseRight('done')
+          },
+          error: (err) => {
+            const errorMsg: ChatMessage = { id: genId('msg'), role: 'assistant', content: `失败：${err}`, timestamp: Date.now() }
+            setter((prev) => [...prev.filter((m) => m.id !== assistantMsgId), errorMsg])
+            if (side === 'left') setPhaseLeft('error'); else setPhaseRight('error')
+          },
+        },
+        ac.signal,
+      )
+    } catch (e) {
+      if (!ac.signal.aborted) {
+        const errMsg = e instanceof Error ? e.message : String(e)
+        const errorMsg: ChatMessage = { id: genId('msg'), role: 'assistant', content: `失败：${errMsg}`, timestamp: Date.now() }
+        setter((prev) => [...prev.filter((m) => m.id !== assistantMsgId), errorMsg])
+        if (side === 'left') setPhaseLeft('error'); else setPhaseRight('error')
+      }
     }
   }
 
@@ -520,7 +654,7 @@ export default function NodeTestPage() {
     return () => document.removeEventListener('paste', handlePaste)
   }, [supportsEdit, isMultimodal, message])
 
-  // 对比模式：单侧生成（简化版，仅文本推理）
+  // 对比模式：单侧生成（支持 reasoning + debug info）
   const handleGenerateSide = async (side: 'left' | 'right') => {
     const nodeId = side === 'left' ? selectedNodeIdLeft : selectedNodeIdRight
     if (!nodeId) return
@@ -528,13 +662,17 @@ export default function NodeTestPage() {
     const node = availableNodes.find(n => n.id === nodeId)
     if (!node) return
 
-    const ac = side === 'left' ? new AbortController() : new AbortController()
+    const ac = new AbortController()
     if (side === 'left') {
+      acRefLeft.current?.abort()
       acRefLeft.current = ac
       setPhaseLeft('streaming')
+      setDebugInfoLeft({ previewBody: null, actualBody: null, sseChunks: [] })
     } else {
+      acRefRight.current?.abort()
       acRefRight.current = ac
       setPhaseRight('streaming')
+      setDebugInfoRight({ previewBody: null, actualBody: null, sseChunks: [] })
     }
 
     const userMsg: ChatMessage = {
@@ -551,6 +689,7 @@ export default function NodeTestPage() {
       id: assistantMsgId,
       role: 'assistant',
       content: '',
+      reasoning: '',
       timestamp: Date.now(),
       nodeId: node.id,
       modelName: node.model,
@@ -573,7 +712,23 @@ export default function NodeTestPage() {
     })
     messages.push({ role: 'user', content: nodeTestForm.prompt.trim() })
 
+    // preview body
+    const previewBody = {
+      model: node.model,
+      messages,
+      stream: true,
+      ...(typeof nodeTestForm.temperature === 'number' ? { temperature: nodeTestForm.temperature } : {}),
+      ...(typeof nodeTestForm.topP === 'number' ? { top_p: nodeTestForm.topP } : {}),
+      ...(typeof nodeTestForm.maxTokens === 'number' ? { max_tokens: nodeTestForm.maxTokens } : {}),
+    }
+    if (side === 'left') {
+      setDebugInfoLeft((prev) => ({ ...prev, previewBody }))
+    } else {
+      setDebugInfoRight((prev) => ({ ...prev, previewBody }))
+    }
+
     let fullText = ''
+    let fullReasoning = ''
 
     try {
       await streamChat(
@@ -582,11 +737,20 @@ export default function NodeTestPage() {
           apiKey: node.apiKey,
           model: node.model,
           messages,
+          includeRaw: true,
           ...(typeof nodeTestForm.temperature === 'number' ? { temperature: nodeTestForm.temperature } : {}),
           ...(typeof nodeTestForm.topP === 'number' ? { topP: nodeTestForm.topP } : {}),
           ...(typeof nodeTestForm.maxTokens === 'number' ? { maxTokens: nodeTestForm.maxTokens } : {}),
         },
         {
+          reasoningDelta: (delta) => {
+            fullReasoning += delta
+            if (side === 'left') {
+              setChatMessagesLeft(prev => prev.map(m => m.id === assistantMsgId ? { ...m, reasoning: fullReasoning } : m))
+            } else {
+              setChatMessagesRight(prev => prev.map(m => m.id === assistantMsgId ? { ...m, reasoning: fullReasoning } : m))
+            }
+          },
           delta: (delta) => {
             fullText += delta
             if (side === 'left') {
@@ -595,10 +759,26 @@ export default function NodeTestPage() {
               setChatMessagesRight(prev => prev.map(m => m.id === assistantMsgId ? { ...m, content: fullText } : m))
             }
           },
-          done: () => {
+          requestBody: (body) => {
             if (side === 'left') {
+              setDebugInfoLeft((prev) => ({ ...prev, actualBody: body as object }))
+            } else {
+              setDebugInfoRight((prev) => ({ ...prev, actualBody: body as object }))
+            }
+          },
+          rawChunk: (raw) => {
+            if (side === 'left') {
+              setDebugInfoLeft((prev) => ({ ...prev, sseChunks: [...prev.sseChunks, raw] }))
+            } else {
+              setDebugInfoRight((prev) => ({ ...prev, sseChunks: [...prev.sseChunks, raw] }))
+            }
+          },
+          done: (finalText) => {
+            if (side === 'left') {
+              setChatMessagesLeft(prev => prev.map(m => m.id === assistantMsgId ? { ...m, content: finalText, reasoning: fullReasoning || undefined } : m))
               setPhaseLeft('done')
             } else {
+              setChatMessagesRight(prev => prev.map(m => m.id === assistantMsgId ? { ...m, content: finalText, reasoning: fullReasoning || undefined } : m))
               setPhaseRight('done')
             }
           },
@@ -1057,6 +1237,45 @@ export default function NodeTestPage() {
     setSelectedImages((prev) => prev.filter((_, i) => i !== index))
   }
 
+  // 复制全部对话内容
+  const copyAllMessages = () => {
+    if (compareMode) {
+      const parts: string[] = []
+      if (chatMessagesLeft.length > 0) {
+        parts.push('=== 左侧对话 ===')
+        chatMessagesLeft.forEach((m) => {
+          const role = m.role === 'user' ? '用户' : '助手'
+          parts.push(`[${role}] ${new Date(m.timestamp).toLocaleTimeString()}`)
+          if (m.reasoning) parts.push(`[思考过程]\n${m.reasoning}`)
+          parts.push(m.content)
+          parts.push('')
+        })
+      }
+      if (chatMessagesRight.length > 0) {
+        parts.push('=== 右侧对话 ===')
+        chatMessagesRight.forEach((m) => {
+          const role = m.role === 'user' ? '用户' : '助手'
+          parts.push(`[${role}] ${new Date(m.timestamp).toLocaleTimeString()}`)
+          if (m.reasoning) parts.push(`[思考过程]\n${m.reasoning}`)
+          parts.push(m.content)
+          parts.push('')
+        })
+      }
+      const text = parts.join('\n')
+      navigator.clipboard.writeText(text).then(() => message.success('已复制全部对话')).catch(() => message.error('复制失败'))
+    } else {
+      const parts = chatMessages.map((m) => {
+        const role = m.role === 'user' ? '用户' : '助手'
+        let block = `[${role}] ${new Date(m.timestamp).toLocaleTimeString()}`
+        if (m.reasoning) block += `\n[思考过程]\n${m.reasoning}`
+        block += `\n${m.content}`
+        return block
+      })
+      const text = parts.join('\n\n')
+      navigator.clipboard.writeText(text).then(() => message.success('已复制全部对话')).catch(() => message.error('复制失败'))
+    }
+  }
+
   // 复制文本到剪贴板
   const copyText = (text: string) => {
     navigator.clipboard.writeText(text).then(() => {
@@ -1126,6 +1345,11 @@ export default function NodeTestPage() {
           />
         ) : (
           <>
+            {((compareMode && (chatMessagesLeft.length > 0 || chatMessagesRight.length > 0)) || (!compareMode && chatMessages.length > 0)) && (
+              <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '4px 16px', flexShrink: 0 }}>
+                <Button size="small" icon={<CopyOutlined />} onClick={copyAllMessages} />
+              </div>
+            )}
             {/* 主展示区 */}
             <div style={{ flex: 1, overflow: 'auto', display: 'flex', flexDirection: 'column' }}>
               {!selectedNode ? (
@@ -1185,7 +1409,7 @@ export default function NodeTestPage() {
           ) : (
             /* 文本模式：聊天界面 */
             compareMode ? (
-              /* 对比模式：双栏布局 */
+              /* 对比模式：双栏布局，每条消息使用完整气泡样式 */
               <div style={{ display: 'flex', height: '100%', padding: '24px 0 0' }}>
                 {/* 左侧聊天 */}
                 <div style={{ flex: 1, display: 'flex', flexDirection: 'column', borderRight: `1px solid ${token.colorBorder}`, padding: '0 24px' }}>
@@ -1202,22 +1426,118 @@ export default function NodeTestPage() {
                       </div>
                     ) : (
                       <>
-                        {chatMessagesLeft.map((msg) => (
-                          <div key={msg.id} style={{ display: 'flex', justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start', marginBottom: 16 }}>
-                            <div style={{
-                              maxWidth: '75%', padding: 12, borderRadius: 12,
-                              background: msg.role === 'user' ? (token.colorBgBase === '#ffffff' ? token.colorPrimaryBg : 'rgba(22, 119, 255, 0.15)') : (token.colorBgBase === '#ffffff' ? token.colorBgElevated : 'rgba(255, 255, 255, 0.08)'),
-                              border: `1px solid ${msg.role === 'user' ? token.colorPrimaryBorder : token.colorBorder}`,
-                            }}>
-                              <Typography.Text style={{ fontSize: 11, display: 'block', marginBottom: 4, color: token.colorTextSecondary }}>
-                                {new Date(msg.timestamp).toLocaleTimeString()}
-                              </Typography.Text>
-                              <Typography.Text style={{ whiteSpace: 'pre-wrap', fontSize: 14, display: 'block' }}>
-                                {msg.content}
-                              </Typography.Text>
+                        {chatMessagesLeft.map((msg) => {
+                          const isStreamingLast = msg.role === 'assistant' && phaseLeft === 'streaming' && msg.id === chatMessagesLeft[chatMessagesLeft.length - 1]?.id
+                          const isEditing = editingMsgId === msg.id && editingCompareSide === 'left'
+                          const busyLeft = phaseLeft === 'streaming'
+                          return (
+                            <div key={msg.id} style={{ display: 'flex', justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start', marginBottom: 16 }}>
+                              <div style={{
+                                maxWidth: '75%', padding: 12, borderRadius: 12,
+                                background: msg.role === 'user' ? (token.colorBgBase === '#ffffff' ? token.colorPrimaryBg : 'rgba(22, 119, 255, 0.15)') : (token.colorBgBase === '#ffffff' ? token.colorBgElevated : 'rgba(255, 255, 255, 0.08)'),
+                                border: `1px solid ${msg.role === 'user' ? token.colorPrimaryBorder : token.colorBorder}`,
+                                position: 'relative',
+                              }}>
+                                {msg.images && msg.images.length > 0 && (
+                                  <div style={{ marginBottom: 8, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                                    {msg.images.map((img, idx) => (
+                                      <img key={idx} src={img} alt="" style={{ width: 80, height: 80, objectFit: 'cover', borderRadius: 6 }} />
+                                    ))}
+                                  </div>
+                                )}
+                                <Typography.Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 4 }}>
+                                  {new Date(msg.timestamp).toLocaleTimeString()}
+                                </Typography.Text>
+                                {msg.role === 'assistant' && msg.reasoning && (
+                                  <div style={{ marginBottom: 8 }}>
+                                    {msg.content ? (
+                                      <Collapse ghost size="small" items={[{
+                                        key: 'reasoning',
+                                        label: (
+                                          <Space size={4}>
+                                            <BulbOutlined style={{ fontSize: 12, color: token.colorTextSecondary }} />
+                                            <Typography.Text type="secondary" style={{ fontSize: 12 }}>思考过程</Typography.Text>
+                                            <Button type="text" size="small" icon={<CopyOutlined />} title="复制思考过程"
+                                              onClick={(e) => { e.stopPropagation(); copyText(msg.reasoning!) }}
+                                              style={{ fontSize: 12, height: 20, padding: '0 4px', marginLeft: 4 }}
+                                            />
+                                          </Space>
+                                        ),
+                                        children: <Typography.Text style={{ whiteSpace: 'pre-wrap', fontSize: 13, color: token.colorTextTertiary, display: 'block' }}>{msg.reasoning}</Typography.Text>,
+                                      }]}
+                                      style={{ background: token.colorFillQuaternary, borderRadius: 8, padding: '4px 8px' }}
+                                      />
+                                    ) : (
+                                      <div style={{ background: token.colorFillQuaternary, borderRadius: 8, padding: '8px 12px', marginBottom: 4 }}>
+                                        <Space size={4} style={{ marginBottom: 6 }}>
+                                          <BulbOutlined style={{ fontSize: 12, color: token.colorPrimary }} />
+                                          <Typography.Text type="secondary" style={{ fontSize: 12 }}>推理中...</Typography.Text>
+                                        </Space>
+                                        <Typography.Text style={{ whiteSpace: 'pre-wrap', fontSize: 13, color: token.colorTextTertiary, display: 'block' }}>{msg.reasoning}</Typography.Text>
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+                                {isEditing ? (
+                                  <div>
+                                    <textarea value={editingText} onChange={(e) => setEditingText(e.target.value)} rows={6}
+                                      style={{ width: '100%', background: token.colorBgContainer, border: `1px solid ${token.colorBorder}`, borderRadius: 6, padding: 8, color: token.colorText, fontSize: 14, resize: 'vertical', fontFamily: 'inherit', marginBottom: 8 }}
+                                    />
+                                    <div style={{ textAlign: 'right' }}>
+                                      <Space size={8}>
+                                        <Button size="small" onClick={cancelCompareEdit}>取消</Button>
+                                        <Button size="small" type="primary" onClick={commitCompareEdit}>保存</Button>
+                                      </Space>
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <Typography.Text style={{ whiteSpace: 'pre-wrap', fontSize: 14, display: 'block' }}>{msg.content}</Typography.Text>
+                                )}
+                                {!isEditing && (
+                                  <div style={{ marginTop: 8 }}>
+                                    {isStreamingLast ? (
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                                        <div style={{ width: 12, height: 12, border: `2px solid ${token.colorPrimary}33`, borderTop: `2px solid ${token.colorPrimary}`, borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
+                                        <Typography.Text type="secondary" style={{ fontSize: 11 }}>推理中...</Typography.Text>
+                                      </div>
+                                    ) : (
+                                      <Space size={4}>
+                                        <Tooltip title="重试">
+                                          <Button type="text" size="small" icon={<RedoOutlined />}
+                                            onClick={() => retryCompareMessage('left', msg.id)}
+                                            disabled={busyLeft}
+                                            style={{ fontSize: 12, height: 20, padding: '0 4px' }}
+                                          />
+                                        </Tooltip>
+                                        <Tooltip title="复制">
+                                          <Button type="text" size="small" icon={<CopyOutlined />}
+                                            onClick={() => copyText(msg.content)}
+                                            style={{ fontSize: 12, height: 20, padding: '0 4px' }}
+                                          />
+                                        </Tooltip>
+                                        <Tooltip title="编辑">
+                                          <Button type="text" size="small" icon={<EditOutlined />}
+                                            onClick={() => editCompareMessage('left', msg.id)}
+                                            disabled={busyLeft}
+                                            style={{ fontSize: 12, height: 20, padding: '0 4px' }}
+                                          />
+                                        </Tooltip>
+                                        <Popconfirm title="删除该条消息？" onConfirm={() => deleteCompareMessage('left', msg.id)} okText="删除" cancelText="取消" okButtonProps={{ danger: true }}>
+                                          <Tooltip title="删除">
+                                            <Button type="text" size="small" icon={<DeleteOutlined />}
+                                              disabled={busyLeft}
+                                              style={{ fontSize: 12, height: 20, padding: '0 4px' }}
+                                            />
+                                          </Tooltip>
+                                        </Popconfirm>
+                                      </Space>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
                             </div>
-                          </div>
-                        ))}
+                          )
+                        })}
                       </>
                     )}
                   </div>
@@ -1237,22 +1557,118 @@ export default function NodeTestPage() {
                       </div>
                     ) : (
                       <>
-                        {chatMessagesRight.map((msg) => (
-                          <div key={msg.id} style={{ display: 'flex', justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start', marginBottom: 16 }}>
-                            <div style={{
-                              maxWidth: '75%', padding: 12, borderRadius: 12,
-                              background: msg.role === 'user' ? (token.colorBgBase === '#ffffff' ? token.colorPrimaryBg : 'rgba(22, 119, 255, 0.15)') : (token.colorBgBase === '#ffffff' ? token.colorBgElevated : 'rgba(255, 255, 255, 0.08)'),
-                              border: `1px solid ${msg.role === 'user' ? token.colorPrimaryBorder : token.colorBorder}`,
-                            }}>
-                              <Typography.Text style={{ fontSize: 11, display: 'block', marginBottom: 4, color: token.colorTextSecondary }}>
-                                {new Date(msg.timestamp).toLocaleTimeString()}
-                              </Typography.Text>
-                              <Typography.Text style={{ whiteSpace: 'pre-wrap', fontSize: 14, display: 'block' }}>
-                                {msg.content}
-                              </Typography.Text>
+                        {chatMessagesRight.map((msg) => {
+                          const isStreamingLast = msg.role === 'assistant' && phaseRight === 'streaming' && msg.id === chatMessagesRight[chatMessagesRight.length - 1]?.id
+                          const isEditing = editingMsgId === msg.id && editingCompareSide === 'right'
+                          const busyRight = phaseRight === 'streaming'
+                          return (
+                            <div key={msg.id} style={{ display: 'flex', justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start', marginBottom: 16 }}>
+                              <div style={{
+                                maxWidth: '75%', padding: 12, borderRadius: 12,
+                                background: msg.role === 'user' ? (token.colorBgBase === '#ffffff' ? token.colorPrimaryBg : 'rgba(22, 119, 255, 0.15)') : (token.colorBgBase === '#ffffff' ? token.colorBgElevated : 'rgba(255, 255, 255, 0.08)'),
+                                border: `1px solid ${msg.role === 'user' ? token.colorPrimaryBorder : token.colorBorder}`,
+                                position: 'relative',
+                              }}>
+                                {msg.images && msg.images.length > 0 && (
+                                  <div style={{ marginBottom: 8, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                                    {msg.images.map((img, idx) => (
+                                      <img key={idx} src={img} alt="" style={{ width: 80, height: 80, objectFit: 'cover', borderRadius: 6 }} />
+                                    ))}
+                                  </div>
+                                )}
+                                <Typography.Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 4 }}>
+                                  {new Date(msg.timestamp).toLocaleTimeString()}
+                                </Typography.Text>
+                                {msg.role === 'assistant' && msg.reasoning && (
+                                  <div style={{ marginBottom: 8 }}>
+                                    {msg.content ? (
+                                      <Collapse ghost size="small" items={[{
+                                        key: 'reasoning',
+                                        label: (
+                                          <Space size={4}>
+                                            <BulbOutlined style={{ fontSize: 12, color: token.colorTextSecondary }} />
+                                            <Typography.Text type="secondary" style={{ fontSize: 12 }}>思考过程</Typography.Text>
+                                            <Button type="text" size="small" icon={<CopyOutlined />} title="复制思考过程"
+                                              onClick={(e) => { e.stopPropagation(); copyText(msg.reasoning!) }}
+                                              style={{ fontSize: 12, height: 20, padding: '0 4px', marginLeft: 4 }}
+                                            />
+                                          </Space>
+                                        ),
+                                        children: <Typography.Text style={{ whiteSpace: 'pre-wrap', fontSize: 13, color: token.colorTextTertiary, display: 'block' }}>{msg.reasoning}</Typography.Text>,
+                                      }]}
+                                      style={{ background: token.colorFillQuaternary, borderRadius: 8, padding: '4px 8px' }}
+                                      />
+                                    ) : (
+                                      <div style={{ background: token.colorFillQuaternary, borderRadius: 8, padding: '8px 12px', marginBottom: 4 }}>
+                                        <Space size={4} style={{ marginBottom: 6 }}>
+                                          <BulbOutlined style={{ fontSize: 12, color: token.colorPrimary }} />
+                                          <Typography.Text type="secondary" style={{ fontSize: 12 }}>推理中...</Typography.Text>
+                                        </Space>
+                                        <Typography.Text style={{ whiteSpace: 'pre-wrap', fontSize: 13, color: token.colorTextTertiary, display: 'block' }}>{msg.reasoning}</Typography.Text>
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+                                {isEditing ? (
+                                  <div>
+                                    <textarea value={editingText} onChange={(e) => setEditingText(e.target.value)} rows={6}
+                                      style={{ width: '100%', background: token.colorBgContainer, border: `1px solid ${token.colorBorder}`, borderRadius: 6, padding: 8, color: token.colorText, fontSize: 14, resize: 'vertical', fontFamily: 'inherit', marginBottom: 8 }}
+                                    />
+                                    <div style={{ textAlign: 'right' }}>
+                                      <Space size={8}>
+                                        <Button size="small" onClick={cancelCompareEdit}>取消</Button>
+                                        <Button size="small" type="primary" onClick={commitCompareEdit}>保存</Button>
+                                      </Space>
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <Typography.Text style={{ whiteSpace: 'pre-wrap', fontSize: 14, display: 'block' }}>{msg.content}</Typography.Text>
+                                )}
+                                {!isEditing && (
+                                  <div style={{ marginTop: 8 }}>
+                                    {isStreamingLast ? (
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                                        <div style={{ width: 12, height: 12, border: `2px solid ${token.colorPrimary}33`, borderTop: `2px solid ${token.colorPrimary}`, borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
+                                        <Typography.Text type="secondary" style={{ fontSize: 11 }}>推理中...</Typography.Text>
+                                      </div>
+                                    ) : (
+                                      <Space size={4}>
+                                        <Tooltip title="重试">
+                                          <Button type="text" size="small" icon={<RedoOutlined />}
+                                            onClick={() => retryCompareMessage('right', msg.id)}
+                                            disabled={busyRight}
+                                            style={{ fontSize: 12, height: 20, padding: '0 4px' }}
+                                          />
+                                        </Tooltip>
+                                        <Tooltip title="复制">
+                                          <Button type="text" size="small" icon={<CopyOutlined />}
+                                            onClick={() => copyText(msg.content)}
+                                            style={{ fontSize: 12, height: 20, padding: '0 4px' }}
+                                          />
+                                        </Tooltip>
+                                        <Tooltip title="编辑">
+                                          <Button type="text" size="small" icon={<EditOutlined />}
+                                            onClick={() => editCompareMessage('right', msg.id)}
+                                            disabled={busyRight}
+                                            style={{ fontSize: 12, height: 20, padding: '0 4px' }}
+                                          />
+                                        </Tooltip>
+                                        <Popconfirm title="删除该条消息？" onConfirm={() => deleteCompareMessage('right', msg.id)} okText="删除" cancelText="取消" okButtonProps={{ danger: true }}>
+                                          <Tooltip title="删除">
+                                            <Button type="text" size="small" icon={<DeleteOutlined />}
+                                              disabled={busyRight}
+                                              style={{ fontSize: 12, height: 20, padding: '0 4px' }}
+                                            />
+                                          </Tooltip>
+                                        </Popconfirm>
+                                      </Space>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
                             </div>
-                          </div>
-                        ))}
+                          )
+                        })}
                       </>
                     )}
                   </div>
@@ -1631,17 +2047,27 @@ export default function NodeTestPage() {
                             }}
                             onClick={() => {
                               if (compareMode) {
-                                // 对比模式：根据 activeSide 设置左右节点
+                                // 对比模式：根据 activeSide 设置左右节点，等两边都选好才关闭菜单
                                 if (activeSide === 'left') {
-                                  setSelectedNodeIdLeft(node.id)
+                                  setSelectedNodeIdLeftWrapped(node.id)
+                                  if (selectedNodeIdRightRef.current) {
+                                    setBottomMenuOpen(false)
+                                  } else {
+                                    setActiveSide('right')
+                                  }
                                 } else {
-                                  setSelectedNodeIdRight(node.id)
+                                  setSelectedNodeIdRightWrapped(node.id)
+                                  if (selectedNodeIdLeftRef.current) {
+                                    setBottomMenuOpen(false)
+                                  } else {
+                                    setActiveSide('left')
+                                  }
                                 }
                               } else {
                                 // 单栏模式：保持原逻辑
                                 setState({ nodeTestGlobalForm: { ...nodeTestGlobalForm, nodeId: node.id } })
+                                setBottomMenuOpen(false)
                               }
-                              setBottomMenuOpen(false)
                             }}
                           >
                             <Typography.Text style={{ fontSize: 13, display: 'block', fontWeight: isSelected ? 500 : 400, color: isSelected ? token.colorPrimary : token.colorText }}>
@@ -1803,13 +2229,31 @@ export default function NodeTestPage() {
             onClose={() => setSidebarView('params')}
           />
         ) : sidebarView === 'debug' ? (
-          <DebugInfoPanel data={debugInfo} onClose={() => setSidebarView('params')} />
+          (compareMode ? (
+            <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+              <div style={{ display: 'flex', alignItems: 'center', padding: '12px 16px', borderBottom: `1px solid ${token.colorBorder}`, flexShrink: 0 }}>
+                <Segmented
+                  size="small"
+                  value={debugSide}
+                  onChange={(v) => setDebugSide(v as 'left' | 'right')}
+                  options={[
+                    { label: '左侧', value: 'left' },
+                    { label: '右侧', value: 'right' },
+                  ]}
+                />
+              </div>
+              <div style={{ flex: 1, overflow: 'hidden' }}>
+                <DebugInfoPanel data={debugSide === 'left' ? debugInfoLeft : debugInfoRight} onClose={() => setSidebarView('params')} />
+              </div>
+            </div>
+          ) : (
+            <DebugInfoPanel data={debugInfo} onClose={() => setSidebarView('params')} />
+          ))
         ) : (
           <>
             {/* 顶部 header：对比模式切换 + System Instructions + Debug Info 按钮 */}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', borderBottom: `1px solid ${token.colorBorder}`, flexShrink: 0 }}>
-              <Tooltip title={compareMode ? '关闭对比模式' : '对比模式'}>
-                <Button
+              <Button
                   size="small"
                   icon={<ColumnWidthOutlined />}
                   type={compareMode ? 'primary' : 'default'}
@@ -1831,7 +2275,6 @@ export default function NodeTestPage() {
                     }
                   }}
                 />
-              </Tooltip>
               <Space size={8}>
                 <Button size="small" onClick={() => setSidebarView('sysPrompt')}>System Instructions</Button>
                 <Button size="small" onClick={() => setSidebarView('debug')}>Debug Info</Button>
