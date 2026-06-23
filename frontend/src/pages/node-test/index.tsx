@@ -520,7 +520,152 @@ export default function NodeTestPage() {
     return () => document.removeEventListener('paste', handlePaste)
   }, [supportsEdit, isMultimodal, message])
 
+  // 对比模式：单侧生成（简化版，仅文本推理）
+  const handleGenerateSide = async (side: 'left' | 'right') => {
+    const nodeId = side === 'left' ? selectedNodeIdLeft : selectedNodeIdRight
+    if (!nodeId) return
+
+    const node = availableNodes.find(n => n.id === nodeId)
+    if (!node) return
+
+    const ac = side === 'left' ? new AbortController() : new AbortController()
+    if (side === 'left') {
+      acRefLeft.current = ac
+      setPhaseLeft('streaming')
+    } else {
+      acRefRight.current = ac
+      setPhaseRight('streaming')
+    }
+
+    const userMsg: ChatMessage = {
+      id: genId('msg'),
+      role: 'user',
+      content: nodeTestForm.prompt.trim(),
+      timestamp: Date.now(),
+      nodeId: node.id,
+      modelName: node.model,
+    }
+
+    const assistantMsgId = genId('msg')
+    const assistantMsg: ChatMessage = {
+      id: assistantMsgId,
+      role: 'assistant',
+      content: '',
+      timestamp: Date.now(),
+      nodeId: node.id,
+      modelName: node.model,
+    }
+
+    if (side === 'left') {
+      setChatMessagesLeft(prev => [...prev, userMsg, assistantMsg])
+    } else {
+      setChatMessagesRight(prev => [...prev, userMsg, assistantMsg])
+    }
+
+    const messages: any[] = []
+    if (activeSystemPrompt.trim()) {
+      messages.push({ role: 'system', content: activeSystemPrompt.trim() })
+    }
+
+    const currentMessages = side === 'left' ? chatMessagesLeft : chatMessagesRight
+    currentMessages.forEach(m => {
+      messages.push({ role: m.role, content: m.content })
+    })
+    messages.push({ role: 'user', content: nodeTestForm.prompt.trim() })
+
+    let fullText = ''
+
+    try {
+      await streamChat(
+        {
+          baseURL: node.baseURL,
+          apiKey: node.apiKey,
+          model: node.model,
+          messages,
+          ...(typeof nodeTestForm.temperature === 'number' ? { temperature: nodeTestForm.temperature } : {}),
+          ...(typeof nodeTestForm.topP === 'number' ? { topP: nodeTestForm.topP } : {}),
+          ...(typeof nodeTestForm.maxTokens === 'number' ? { maxTokens: nodeTestForm.maxTokens } : {}),
+        },
+        {
+          delta: (delta) => {
+            fullText += delta
+            if (side === 'left') {
+              setChatMessagesLeft(prev => prev.map(m => m.id === assistantMsgId ? { ...m, content: fullText } : m))
+            } else {
+              setChatMessagesRight(prev => prev.map(m => m.id === assistantMsgId ? { ...m, content: fullText } : m))
+            }
+          },
+          done: () => {
+            if (side === 'left') {
+              setPhaseLeft('done')
+            } else {
+              setPhaseRight('done')
+            }
+          },
+          error: (err) => {
+            const errorMsg: ChatMessage = {
+              id: genId('msg'),
+              role: 'assistant',
+              content: `失败：${err}`,
+              timestamp: Date.now(),
+            }
+            if (side === 'left') {
+              setChatMessagesLeft(prev => [...prev.filter(m => m.id !== assistantMsgId), errorMsg])
+              setPhaseLeft('error')
+            } else {
+              setChatMessagesRight(prev => [...prev.filter(m => m.id !== assistantMsgId), errorMsg])
+              setPhaseRight('error')
+            }
+          },
+        },
+        ac.signal
+      )
+    } catch (e) {
+      if (!ac.signal.aborted) {
+        const errMsg = e instanceof Error ? e.message : String(e)
+        const errorMsg: ChatMessage = {
+          id: genId('msg'),
+          role: 'assistant',
+          content: `失败：${errMsg}`,
+          timestamp: Date.now(),
+        }
+        if (side === 'left') {
+          setChatMessagesLeft(prev => [...prev.filter(m => m.id !== assistantMsgId), errorMsg])
+          setPhaseLeft('error')
+        } else {
+          setChatMessagesRight(prev => [...prev.filter(m => m.id !== assistantMsgId), errorMsg])
+          setPhaseRight('error')
+        }
+      }
+    }
+  }
+
   const handleGenerate = async () => {
+    // 对比模式：并行调用左右生成（仅支持文本推理）
+    if (compareMode) {
+      if (isImageMode) {
+        message.warning('对比模式下不支持图片生成，请切换到文本推理模式')
+        return
+      }
+      if (!selectedNodeIdLeft && !selectedNodeIdRight) {
+        message.warning('请先选择左右两侧的节点')
+        return
+      }
+      if (!nodeTestForm.prompt.trim()) {
+        message.warning('请输入提示词')
+        return
+      }
+
+      // 并行调用左右生成
+      const promises: Promise<void>[] = []
+      if (selectedNodeIdLeft) promises.push(handleGenerateSide('left'))
+      if (selectedNodeIdRight) promises.push(handleGenerateSide('right'))
+
+      await Promise.all(promises)
+      return
+    }
+
+    // 单栏模式：原有逻辑
     if (!selectedNode) {
       message.warning(`请先选择一个${isImageMode ? '图片生成' : '文本推理'}节点`)
       return
@@ -1039,14 +1184,90 @@ export default function NodeTestPage() {
             </div>
           ) : (
             /* 文本模式：聊天界面 */
-            <div style={{ display: 'flex', flexDirection: 'column', maxWidth: 900, width: '100%', margin: '0 auto', height: '100%', padding: '24px 24px 0' }}>
-              {/* 聊天消息 */}
-              <div style={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
-                {chatMessages.length === 0 ? (
-                  <div style={{ textAlign: 'center', padding: 48, opacity: 0.5 }}>
-                    <MessageOutlined style={{ fontSize: 48, color: token.colorTextSecondary, marginBottom: 16 }} />
-                    <Typography.Text style={{ color: token.colorTextSecondary, display: 'block' }}>
-                      输入消息开始对话
+            compareMode ? (
+              /* 对比模式：双栏布局 */
+              <div style={{ display: 'flex', height: '100%', padding: '24px 0 0' }}>
+                {/* 左侧聊天 */}
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', borderRight: `1px solid ${token.colorBorder}`, padding: '0 24px' }}>
+                  <Typography.Text type="secondary" style={{ fontSize: 12, marginBottom: 8, textAlign: 'center' }}>
+                    左侧 {selectedNodeIdLeft ? `· ${availableNodes.find(n => n.id === selectedNodeIdLeft)?.model || ''}` : '（未选择节点）'}
+                  </Typography.Text>
+                  <div style={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
+                    {chatMessagesLeft.length === 0 ? (
+                      <div style={{ textAlign: 'center', padding: 48, opacity: 0.5 }}>
+                        <MessageOutlined style={{ fontSize: 48, color: token.colorTextSecondary, marginBottom: 16 }} />
+                        <Typography.Text style={{ color: token.colorTextSecondary, display: 'block' }}>
+                          输入消息开始对话
+                        </Typography.Text>
+                      </div>
+                    ) : (
+                      <>
+                        {chatMessagesLeft.map((msg) => (
+                          <div key={msg.id} style={{ display: 'flex', justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start', marginBottom: 16 }}>
+                            <div style={{
+                              maxWidth: '75%', padding: 12, borderRadius: 12,
+                              background: msg.role === 'user' ? (token.colorBgBase === '#ffffff' ? token.colorPrimaryBg : 'rgba(22, 119, 255, 0.15)') : (token.colorBgBase === '#ffffff' ? token.colorBgElevated : 'rgba(255, 255, 255, 0.08)'),
+                              border: `1px solid ${msg.role === 'user' ? token.colorPrimaryBorder : token.colorBorder}`,
+                            }}>
+                              <Typography.Text style={{ fontSize: 11, display: 'block', marginBottom: 4, color: token.colorTextSecondary }}>
+                                {new Date(msg.timestamp).toLocaleTimeString()}
+                              </Typography.Text>
+                              <Typography.Text style={{ whiteSpace: 'pre-wrap', fontSize: 14, display: 'block' }}>
+                                {msg.content}
+                              </Typography.Text>
+                            </div>
+                          </div>
+                        ))}
+                      </>
+                    )}
+                  </div>
+                </div>
+                {/* 右侧聊天 */}
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: '0 24px' }}>
+                  <Typography.Text type="secondary" style={{ fontSize: 12, marginBottom: 8, textAlign: 'center' }}>
+                    右侧 {selectedNodeIdRight ? `· ${availableNodes.find(n => n.id === selectedNodeIdRight)?.model || ''}` : '（未选择节点）'}
+                  </Typography.Text>
+                  <div style={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
+                    {chatMessagesRight.length === 0 ? (
+                      <div style={{ textAlign: 'center', padding: 48, opacity: 0.5 }}>
+                        <MessageOutlined style={{ fontSize: 48, color: token.colorTextSecondary, marginBottom: 16 }} />
+                        <Typography.Text style={{ color: token.colorTextSecondary, display: 'block' }}>
+                          输入消息开始对话
+                        </Typography.Text>
+                      </div>
+                    ) : (
+                      <>
+                        {chatMessagesRight.map((msg) => (
+                          <div key={msg.id} style={{ display: 'flex', justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start', marginBottom: 16 }}>
+                            <div style={{
+                              maxWidth: '75%', padding: 12, borderRadius: 12,
+                              background: msg.role === 'user' ? (token.colorBgBase === '#ffffff' ? token.colorPrimaryBg : 'rgba(22, 119, 255, 0.15)') : (token.colorBgBase === '#ffffff' ? token.colorBgElevated : 'rgba(255, 255, 255, 0.08)'),
+                              border: `1px solid ${msg.role === 'user' ? token.colorPrimaryBorder : token.colorBorder}`,
+                            }}>
+                              <Typography.Text style={{ fontSize: 11, display: 'block', marginBottom: 4, color: token.colorTextSecondary }}>
+                                {new Date(msg.timestamp).toLocaleTimeString()}
+                              </Typography.Text>
+                              <Typography.Text style={{ whiteSpace: 'pre-wrap', fontSize: 14, display: 'block' }}>
+                                {msg.content}
+                              </Typography.Text>
+                            </div>
+                          </div>
+                        ))}
+                      </>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ) : (
+              /* 单栏模式：原有布局 */
+              <div style={{ display: 'flex', flexDirection: 'column', maxWidth: 900, width: '100%', margin: '0 auto', height: '100%', padding: '24px 24px 0' }}>
+                {/* 聊天消息 */}
+                <div style={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
+                  {chatMessages.length === 0 ? (
+                    <div style={{ textAlign: 'center', padding: 48, opacity: 0.5 }}>
+                      <MessageOutlined style={{ fontSize: 48, color: token.colorTextSecondary, marginBottom: 16 }} />
+                      <Typography.Text style={{ color: token.colorTextSecondary, display: 'block' }}>
+                        输入消息开始对话
                     </Typography.Text>
                   </div>
                 ) : (
@@ -1268,6 +1489,9 @@ export default function NodeTestPage() {
                 )}
               </div>
             </div>
+            )
+          )}
+            </div>
           )}
         </div>
 
@@ -1328,6 +1552,22 @@ export default function NodeTestPage() {
               maxHeight: 400,
               overflowY: 'auto'
             }}>
+              {/* 对比模式：操作侧选择器 */}
+              {compareMode && (
+                <div style={{ padding: '12px 16px', borderBottom: `1px solid ${token.colorBorder}` }}>
+                  <Typography.Text style={{ color: token.colorTextSecondary, fontSize: 12, display: 'block', marginBottom: 8 }}>操作侧</Typography.Text>
+                  <Segmented
+                    block
+                    value={activeSide}
+                    onChange={(v) => setActiveSide(v as 'left' | 'right')}
+                    options={[
+                      { label: '左侧', value: 'left' },
+                      { label: '右侧', value: 'right' },
+                    ]}
+                  />
+                </div>
+              )}
+
               {/* 测试模式选择 */}
               <div style={{ padding: '12px 16px', borderBottom: `1px solid ${token.colorBorder}` }}>
                 <Typography.Text style={{ color: token.colorTextSecondary, fontSize: 12, display: 'block', marginBottom: 8 }}>测试模式</Typography.Text>
@@ -1377,28 +1617,44 @@ export default function NodeTestPage() {
                       </div>
 
                       {/* 节点列表 */}
-                      {isExpanded && nodes.map((node) => (
-                        <div
-                          key={node.id}
-                          style={{
-                            padding: '8px 16px 8px 28px',
-                            cursor: 'pointer',
-                            background: effectiveNodeId === node.id ? token.colorPrimaryBg : 'transparent',
-                            borderLeft: effectiveNodeId === node.id ? `3px solid ${token.colorPrimary}` : '3px solid transparent',
-                            transition: 'all 0.2s',
-                          }}
-                          onClick={() => {
-                            setState({ nodeTestGlobalForm: { ...nodeTestGlobalForm, nodeId: node.id } })
-                            setBottomMenuOpen(false)
-                          }}
-                        >
-                          <Typography.Text style={{ fontSize: 13, display: 'block', fontWeight: effectiveNodeId === node.id ? 500 : 400, color: effectiveNodeId === node.id ? token.colorPrimary : token.colorText }}>
-                            {groupName} · {node.model}
-                          </Typography.Text>
-                          {node.supportsImageEdit && <Typography.Text type="secondary" style={{ fontSize: 11, marginRight: 4 }}>🖼️ 图生图</Typography.Text>}
-                          {node.isMultimodal && <Typography.Text type="secondary" style={{ fontSize: 11 }}>👁️ 多模态</Typography.Text>}
-                        </div>
-                      ))}
+                      {isExpanded && nodes.map((node) => {
+                        // 对比模式下根据 activeSide 判断高亮
+                        const isSelected = compareMode
+                          ? (activeSide === 'left' ? selectedNodeIdLeft === node.id : selectedNodeIdRight === node.id)
+                          : effectiveNodeId === node.id
+                        return (
+                          <div
+                            key={node.id}
+                            style={{
+                              padding: '8px 16px 8px 28px',
+                              cursor: 'pointer',
+                              background: isSelected ? token.colorPrimaryBg : 'transparent',
+                              borderLeft: isSelected ? `3px solid ${token.colorPrimary}` : '3px solid transparent',
+                              transition: 'all 0.2s',
+                            }}
+                            onClick={() => {
+                              if (compareMode) {
+                                // 对比模式：根据 activeSide 设置左右节点
+                                if (activeSide === 'left') {
+                                  setSelectedNodeIdLeft(node.id)
+                                } else {
+                                  setSelectedNodeIdRight(node.id)
+                                }
+                              } else {
+                                // 单栏模式：保持原逻辑
+                                setState({ nodeTestGlobalForm: { ...nodeTestGlobalForm, nodeId: node.id } })
+                              }
+                              setBottomMenuOpen(false)
+                            }}
+                          >
+                            <Typography.Text style={{ fontSize: 13, display: 'block', fontWeight: isSelected ? 500 : 400, color: isSelected ? token.colorPrimary : token.colorText }}>
+                              {groupName} · {node.model}
+                            </Typography.Text>
+                            {node.supportsImageEdit && <Typography.Text type="secondary" style={{ fontSize: 11, marginRight: 4 }}>🖼️ 图生图</Typography.Text>}
+                            {node.isMultimodal && <Typography.Text type="secondary" style={{ fontSize: 11 }}>👁️ 多模态</Typography.Text>}
+                          </div>
+                        )
+                      })}
                     </div>
                   )
                 })}
