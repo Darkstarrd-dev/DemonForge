@@ -1408,11 +1408,18 @@ export default function SettingsPage() {
                       options={[
                         { value: 'modelscope', label: 'ModelScope（异步）' },
                         { value: 'gpt', label: 'GPT Image（同步）' },
+                        { value: 'xai', label: 'xAI Imagine（同步）' },
                       ]}
                     />
                   </Form.Item>
-                  <Form.Item name="supportsImageEdit" label="图片编辑" valuePropName="checked" extra="开启后该节点可进行图片编辑（Image2Image）">
-                    <Switch />
+                  <Form.Item shouldUpdate={(prev, cur) => prev.protocol !== cur.protocol} noStyle>
+                    {({ getFieldValue }) =>
+                      getFieldValue('protocol') === 'modelscope' ? (
+                        <Form.Item name="supportsImageEdit" label="图片编辑" valuePropName="checked" extra="开启后该节点可进行图片编辑（Image2Image）">
+                          <Switch />
+                        </Form.Item>
+                      ) : null
+                    }
                   </Form.Item>
                 </>
               ) : getFieldValue('nodeType') === 'text' ? (

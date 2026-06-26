@@ -66,6 +66,13 @@ export interface NodeTestForm {
   gptBackground?: string
   /** 审核：'low' 表示宽松，留空为自动（auto） */
   gptModeration?: string
+  // ===== xAI Imagine 专属参数 =====
+  /** 宽高比，如 '1:1' / '16:9' / '21:9' 等 */
+  xaiAspectRatio?: string
+  /** 分辨率，如 '1k' / '2k' / '4k' / '8k' */
+  xaiResolution?: string
+  /** 单次生成数量，1-10 */
+  xaiN?: number
   // ===== 文本推理参数 =====
   temperature?: number
   topP?: number

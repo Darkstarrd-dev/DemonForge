@@ -53,6 +53,10 @@ export type { ImageGenParams, ImageGenEvents } from './real/image'
 export { generateImageGpt } from './real/gptImage'
 export type { GptImageParams, GptImageDone, GptImageEvents as GptImageGptEvents, GptImageDebug } from './real/gptImage'
 
+// xAI Imagine 生图（xAI Images API 同步协议）。
+export { generateImageXai } from './real/xaiImage'
+export type { XaiImageParams, XaiImageDone, XaiImageEvents, XaiImageDebug } from './real/xaiImage'
+
 // 通用对话（文本推理 + 多模态理解）已接真实后端。
 export { streamChat, generateTitle } from './real/chat'
 export type { ChatMessage, ChatParams, ChatEvents } from './real/chat'

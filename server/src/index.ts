@@ -11,6 +11,7 @@ import { settingsRoutes, wasLastReadRecovered } from './routes/settings'
 import { storeRoutes } from './routes/store'
 import { imageRoutes } from './routes/image'
 import { gptImageRoutes } from './routes/gptImage'
+import { xaiImageRoutes } from './routes/xaiImage'
 import { importSessionRoutes } from './routes/importSession'
 import { chatRoutes } from './routes/chat'
 import { getAppDataDir } from './utils/paths'
@@ -37,6 +38,7 @@ await app.register(settingsRoutes)
 await app.register(storeRoutes)
 await app.register(imageRoutes)
 await app.register(gptImageRoutes)
+await app.register(xaiImageRoutes)
 await app.register(importSessionRoutes)
 await app.register(chatRoutes)
 app.get('/api/health', async () => ({ ok: true }))

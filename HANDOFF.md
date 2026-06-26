@@ -1,8 +1,8 @@
 # HANDOFF.md — novelhelper 交接备忘
 
-**最后更新**：2026-06-26  
+**最后更新**：2026-06-27  
 **当前位置**：办公场所 A
-**本轮主题**：GPT Image 生图集成 ✅ + GPT 前端边栏/生图接线 ✅ + GPT 生成体验增强(气泡/按钮/debug修复) ✅ + GPT 多图输入推理(/images/edits) ✅ + **节点测试·GPT 图片生成 10 项修正/增强** ✅
+**本轮主题**：xAI Imagine 协议整合 ✅ + 文生图三协议统一（ModelScope / GPT Image / xAI Imagine）
 
 ---
 
@@ -219,6 +219,26 @@
   - **文件变更**：
     - 修改：`server/src/gptImageClient.ts`（加 imageInputs + edits 分支 + dataUrlToBlob + stripImagePayload）；`server/src/routes/gptImage.ts`（解构 imageInputs）；`frontend/src/services/real/gptImage.ts`（GptImageParams 加 imageInputs）；`pages/node-test/index.tsx`（生成气泡 + 计时器 + 三按钮 + GPT imageInputs 透传 + gate 加 isGpt + 图标导入）
   - **状态**：✅ 前端 tsc + vite build + 后端 tsc 零错误，待浏览器功能测试
+- [x] **xAI Imagine 协议整合**（2026-06-27）✨ 🎨
+  - **动机**：接入 xAI Grok Imagine 图像生成 API，与现有 ModelScope / GPT Image 三协议并存
+  - **API 测试**（console 端，maoyulin.xyz 代理端点）：
+    - 端点：`POST https://maoyulin.xyz/v1/images/generations`，模型 `grok-imagine-image-lite`
+    - 比例：10 种全部可用（1:1/3:2/4:3/16:9/21:9/9:16/2:3/3:4/2:1/1:2）
+    - 分辨率：1k/2k/4k/8k/hd/fhd/full_hd/4k_ultra_hd 全部可用
+    - 图生图：`image_url` 参数必须用 `data:image/png;base64,...` 前缀（JPEG 前缀偶发 500）
+    - 响应：仅含 `b64_json`（无 url/revised_prompt），代理偶发 500 → 内置 3 次重试
+  - **方案**：完全解耦，复用 GPT Image 同步协议模式
+    - 后端：`server/src/xaiImageClient.ts`（同步 POST + 3 次重试 + PNG 前缀强制）+ `server/src/routes/xaiImage.ts`（SSE 端点 `/api/image/xai-generate`）
+    - 前端：`frontend/src/services/real/xaiImage.ts`（SSE 消费端）+ `api.ts` 导出
+  - **协议选择器**：设置页新增 xAI Imagine（同步）选项，三协议（ModelScope/GPT/xAI）并存
+  - **图片编辑开关**：xAI 和 GPT Image 协议硬编码 `supportsImageEdit: true`（无需手动开启），仅 ModelScope 需手动切换
+  - **节点测试右侧面板**：xAI 专属设置——比例选择器（10 种）/ 分辨率选择器（1k/2k/4k/8k）/ 生成数量输入框（1-10）
+  - **类型扩展**：`ImageProtocol` 加 `'xai'`；`NodeTestForm` 加 `xaiAspectRatio`/`xaiResolution`/`xaiN`；`ChatSession` 加 xAI 参数快照
+  - **文件变更**：
+    - 新建：`server/src/xaiImageClient.ts`（130 行）、`server/src/routes/xaiImage.ts`（51 行）、`frontend/src/services/real/xaiImage.ts`（83 行）
+    - 修改：`services/types.ts`（ImageProtocol + ChatSession）、`utils/provider.ts`（xAI/GPT 硬编码 supportsImageEdit + 协议默认值）、`store/appStore.ts`（NodeTestForm）、`server/src/index.ts`（注册 xaiImageRoutes）、`services/api.ts`（导出）、`pages/settings/index.tsx`（协议选择器 + 图片编辑开关条件）、`pages/node-test/index.tsx`（xAI 面板 + 生成分支 + 图片输入条件 + 参数初始化）
+  - **状态**：✅ 前端 tsc + vite build + 后端 tsc 零错误，浏览器验证待做
+
 - [x] **节点测试 · GPT 图片生成 10 项修正/增强**（2026-06-26）🔧 🎨
   - **背景**：节点测试 GPT 图片生成 10 项实际使用缺陷修复与体验增强
   - **已定位根因**：
@@ -495,6 +515,12 @@
 
 ### 本次已完成
 
+- [x] **xAI Imagine 协议整合**（2026-06-27）
+  - 后端：xaiImageClient.ts（同步协议 + 3 次重试 + PNG 前缀强制）+ xaiImage 路由
+  - 前端：xaiImage 服务层 + 设置页协议选择器 + 节点测试面板（比例/分辨率/数量）
+  - 图片编辑开关：xAI/GPT 硬编码 true，仅 ModelScope 需手动开启
+  - 验证：前端 tsc + vite build + 后端 tsc 零错误
+
 - [x] **对比模式五大增强**（2026-06-24）
   - 推理气泡：对比模式下支持 reasoning 显示 + 完整气泡样式 + 操作按钮 ✅ 已测试通过
   - 模型选取：两边都选好才关闭弹出菜单，自动切换 activeSide ✅ 已测试通过
@@ -525,7 +551,23 @@
 
 ### 立即任务（本次会话后）
 
-1. **验证 GPT Image 生图功能**
+1. **验证 xAI Imagine 生图功能**（2026-06-27 新增）
+   - 进入设置 → 新增图片节点 → 确认「生图协议」下拉框显示三个选项（ModelScope/GPT Image/xAI Imagine）
+   - 选择 xAI Imagine 协议 → 填写 endpoint `https://maoyulin.xyz/` + API Key `sk-tLbTaCXmZA8FRe8CWNC4bsizoeFPs3u4nZsLksmxuzjGMepi` + 模型 `grok-imagine-image-lite` → 保存
+   - 确认「图片编辑」开关不显示（xAI 默认启用图片编辑）
+   - 进入节点测试页 → 切换到图片模式 → 选择 xAI 节点
+   - **验证右侧面板**：应显示「比例/分辨率/生成数量」三项（xAI 专属），而非 ModelScope 的分辨率/反向提示词/步数/引导/种子，也非 GPT 的尺寸/画质/背景/审核
+   - **验证比例选择器**：下拉 10 种比例，默认 1:1
+   - **验证分辨率选择器**：下拉 1k/2k/4k/8k，默认 2k
+   - **验证生成数量**：输入框 1-10，默认 1
+   - **验证文生图**：填写 prompt → 生成 → 确认 SSE 流式响应正常
+   - **验证图生图（图片编辑）**：上传参考图 → 填写编辑 prompt → 生成 → 确认图生图正常（debug 可见 image_url 参数）
+   - **验证 Debug Info**：previewBody / actualBody 有内容；response sse 中 b64_json 应显示 `[omitted: N chars]`
+   - **验证重试**：若偶发 500，确认后端自动重试（debug 可见 retry 事件）
+   - 切换回 ModelScope 节点 → 确认右侧面板切换为 ModelScope 字段（分辨率/反向提示词/步数/引导/种子）
+   - 切换回 GPT 节点 → 确认右侧面板切换为 GPT 字段（尺寸/画质/背景/审核）
+
+2. **验证 GPT Image 生图功能**
    - 进入设置 → 新增图片节点 → 确认「生图协议」下拉框显示 ModelScope/GPT Image 两个选项
    - 选择 GPT Image 协议 → 填写 endpoint `https://jiuuij.de5.net/` + API Key + 模型 `gpt-image-2` → 保存
    - 进入节点测试页 → 切换到图片模式 → 选择 GPT Image 节点
@@ -568,7 +610,7 @@
      - 流式中显示 spinner + 「推理中...」，无操作按钮和节点模型名
    - 边界情况：busy 时操作按钮禁用、历史记录加载后功能正常
 
-1b. **验证 GPT 图片生成 10 项修正/增强**（2026-06-26 新增）
+2b. **验证 GPT 图片生成 10 项修正/增强**（2026-06-26 新增）
   - **req1 无 tooltip**：生成图下方三按钮 hover 无 tooltip 文字
   - **req2 复制修复**：点复制 → 到画图/聊天框 Ctrl+V 粘贴出图（非静默失败）
   - **req3 元信息**：图下显示 `PNG · 宽×高 · 含/无透明通道`（透明背景参数生成应显「含透明通道」）

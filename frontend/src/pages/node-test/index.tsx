@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { App, Button, Space, Typography, Upload, Select, Segmented, theme, Tooltip, Collapse, Popconfirm, Modal } from 'antd'
 import { PictureOutlined, CloseOutlined, MessageOutlined, CopyOutlined, SendOutlined, FileImageOutlined, HistoryOutlined, BulbOutlined, RedoOutlined, EditOutlined, DeleteOutlined, ColumnWidthOutlined, PlusOutlined } from '@ant-design/icons'
 import { useAppStore } from '../../store/appStore'
-import { generateImage, generateImageGpt, streamChat, generateTitle } from '../../services/api'
+import { generateImage, generateImageGpt, generateImageXai, streamChat, generateTitle } from '../../services/api'
 import { genId, pushSettingsNow } from '../../store/appStore'
 import { imageHosts } from '../../services/imageHost'
 import type { ProviderNode, ProviderNodeType, ImageInputMode, ChatSession, ChatSessionMessage } from '../../services/types'
@@ -203,6 +203,9 @@ export default function NodeTestPage() {
     gptQuality: nodeParams?.gptQuality ?? '',
     gptBackground: nodeParams?.gptBackground ?? '',
     gptModeration: nodeParams?.gptModeration ?? '',
+    xaiAspectRatio: nodeParams?.xaiAspectRatio ?? '1:1',
+    xaiResolution: nodeParams?.xaiResolution ?? '2k',
+    xaiN: nodeParams?.xaiN ?? 1,
     temperature: nodeParams?.temperature ?? 0.7,
     topP: nodeParams?.topP ?? 0.9,
     topK: nodeParams?.topK,
@@ -213,6 +216,7 @@ export default function NodeTestPage() {
   const nodeProtocol = selectedNode?.protocol ?? 'modelscope'
   const isModelScope = isImageMode && nodeProtocol === 'modelscope'
   const isGpt = isImageMode && nodeProtocol === 'gpt'
+  const isXai = isImageMode && nodeProtocol === 'xai'
   const gptSizeIsCustom = isGpt && nodeTestForm.resolution !== '' && !GPT_SIZES.some((s) => s.value === nodeTestForm.resolution)
   const supportsEdit = selectedNode?.supportsImageEdit ?? false
   const isMultimodal = selectedNode?.isMultimodal ?? false
@@ -884,7 +888,7 @@ export default function NodeTestPage() {
     // 处理图片输入（图生图或多模态）
     const imageInputs: string[] = []
     const usedImageMode: ImageInputMode = nodeTestForm.imageInputMode || 'base64'
-    if ((supportsEdit || isMultimodal || isGpt) && selectedImages.length > 0) {
+    if ((supportsEdit || isMultimodal || isGpt || isXai) && selectedImages.length > 0) {
       if (usedImageMode === 'base64') {
         for (const file of selectedImages) {
           try {
@@ -1008,6 +1012,94 @@ export default function NodeTestPage() {
                   const next = { ...prev }
                   if (stage === 'submit') {
                     next.previewBody = { model: selectedNode!.model, size: gptSize, prompt: nodeTestForm.prompt.trim() }
+                    if (payload !== undefined) next.actualBody = payload
+                  }
+                  const chunk: { line: string; json: unknown | null } = {
+                    line: `${stage}${dbgError ? ' \u26a0 ' + dbgError : ''}`,
+                    json: response ?? null,
+                  }
+                  return { ...next, sseChunks: [...prev.sseChunks, chunk] }
+                })
+              },
+            },
+            ac.signal,
+          )
+        } else if (isXai) {
+          await generateImageXai(
+            {
+              baseURL: selectedNode.baseURL,
+              apiKey: selectedNode.apiKey,
+              model: selectedNode.model,
+              prompt: nodeTestForm.prompt.trim(),
+              ...(nodeTestForm.xaiAspectRatio ? { aspectRatio: nodeTestForm.xaiAspectRatio } : {}),
+              ...(nodeTestForm.xaiResolution ? { resolution: nodeTestForm.xaiResolution } : {}),
+              ...(nodeTestForm.xaiN && nodeTestForm.xaiN > 1 ? { n: nodeTestForm.xaiN } : {}),
+              ...(imageInputs.length > 0 ? { imageInputs } : {}),
+            },
+            {
+              start: () => {
+                setPhase('submitted')
+                setStatusText('xAI Imagine 生成中…')
+              },
+              done: ({ image: dataUrl }) => {
+                setPhase('done')
+                setStatusText('')
+                const userMsg: ChatMessage = {
+                  id: genId('msg'),
+                  role: 'user',
+                  content: nodeTestForm.prompt.trim(),
+                  timestamp: Date.now(),
+                  ...(imageInputs.length > 0 ? { images: imageInputs } : {}),
+                  nodeId: selectedNode!.id,
+                  modelName: selectedNode!.model,
+                }
+                const assistantMsg: ChatMessage = {
+                  id: genId('msg'),
+                  role: 'assistant',
+                  content: dataUrl,
+                  timestamp: Date.now(),
+                  nodeId: selectedNode!.id,
+                  modelName: selectedNode!.model,
+                }
+                const testType: ChatSession['testType'] = imageInputs.length > 0 ? 'multimodal' : 'image'
+                let sessionId = activeChatSessionId
+                const isFirst = !sessionId
+                if (!sessionId) {
+                  sessionId = createChatSession({
+                    id: genId('cs'),
+                    title: nodeTestForm.prompt.trim().slice(0, 20),
+                    testType,
+                    nodeId: selectedNode!.id,
+                    modelName: selectedNode!.model,
+                    messages: [userMsg, assistantMsg],
+                    ...(nodeTestForm.xaiAspectRatio ? { xaiAspectRatio: nodeTestForm.xaiAspectRatio } : {}),
+                    ...(nodeTestForm.xaiResolution ? { xaiResolution: nodeTestForm.xaiResolution } : {}),
+                    createdAt: new Date().toISOString(),
+                    updatedAt: new Date().toISOString(),
+                  })
+                  setActiveChatSessionId(sessionId)
+                } else {
+                  const cur = chatSessions.find((c: ChatSession) => c.id === sessionId)
+                  updateChatSession(sessionId, {
+                    messages: [...(cur?.messages ?? []), userMsg, assistantMsg],
+                    updatedAt: new Date().toISOString(),
+                  })
+                }
+                setChatMessages((prev) => [...prev, userMsg, assistantMsg])
+                if (isFirst) {
+                  const sid = sessionId
+                  generateTitle(
+                    { baseURL: selectedNode!.baseURL, apiKey: selectedNode!.apiKey, model: selectedNode!.model },
+                    nodeTestForm.prompt.trim(),
+                    '',
+                  ).then((title) => renameChatSession(sid, title)).catch(() => {})
+                }
+              },
+              debug: ({ stage, payload, response, error: dbgError }) => {
+                setDebugInfo((prev) => {
+                  const next = { ...prev }
+                  if (stage === 'submit') {
+                    next.previewBody = { model: selectedNode!.model, prompt: nodeTestForm.prompt.trim() }
                     if (payload !== undefined) next.actualBody = payload
                   }
                   const chunk: { line: string; json: unknown | null } = {
@@ -1486,8 +1578,8 @@ export default function NodeTestPage() {
             {((compareMode && (chatMessagesLeft.length > 0 || chatMessagesRight.length > 0)) || (!compareMode && chatMessages.length > 0)) && (
               <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '4px 16px', flexShrink: 0 }}>
                 <Button size="small" icon={<CopyOutlined />} onClick={copyAllMessages} />
-              </div>
-            )}
+</div>
+              )}
             {/* 主展示区 */}
             <div style={{ flex: 1, overflow: 'auto', display: 'flex', flexDirection: 'column' }}>
               {!selectedNode ? (
@@ -2115,7 +2207,7 @@ export default function NodeTestPage() {
         {/* 输入区 */}
         <div style={{ borderTop: `1px solid ${token.colorBorder}`, flexShrink: 0 }}>
           {/* 图片预览区（展示在文本框上方） */}
-          {(supportsEdit || isMultimodal || isGpt) && selectedImages.length > 0 && (
+          {(supportsEdit || isMultimodal || isGpt || isXai) && selectedImages.length > 0 && (
             <div style={{ padding: '12px 16px', background: token.colorBgElevated, borderBottom: `1px solid ${token.colorBorder}` }}>
               <Space wrap size={8}>
                 {selectedImages.map((file, idx) => {
@@ -2311,7 +2403,7 @@ setChatMessages([])
               />
 
               {/* 图片上传按钮 */}
-              {(supportsEdit || isMultimodal || isGpt) && (
+              {(supportsEdit || isMultimodal || isGpt || isXai) && (
                 <Upload
                   accept="image/*"
                   multiple
@@ -2555,6 +2647,70 @@ setChatMessages([])
                 </>
               )}
 
+              {isXai && (
+                <>
+                  <div style={{ marginBottom: 16 }}>
+                    <Typography.Text style={{ color: token.colorTextSecondary, fontSize: 12, display: 'block', marginBottom: 4 }}>比例</Typography.Text>
+                    <Select
+                      style={{ width: '100%' }}
+                      value={nodeTestForm.xaiAspectRatio ?? '1:1'}
+                      onChange={(v) => setForm({ xaiAspectRatio: v })}
+                      disabled={busy}
+                      options={[
+                        { value: '1:1', label: '1:1（方形）' },
+                        { value: '3:2', label: '3:2（横图）' },
+                        { value: '4:3', label: '4:3（横图）' },
+                        { value: '16:9', label: '16:9（横图）' },
+                        { value: '21:9', label: '21:9（超宽）' },
+                        { value: '9:16', label: '9:16（竖图）' },
+                        { value: '2:3', label: '2:3（竖图）' },
+                        { value: '3:4', label: '3:4（竖图）' },
+                        { value: '2:1', label: '2:1（宽图）' },
+                        { value: '1:2', label: '1:2（竖图）' },
+                      ]}
+                    />
+                  </div>
+
+                  <div style={{ marginBottom: 16 }}>
+                    <Typography.Text style={{ color: token.colorTextSecondary, fontSize: 12, display: 'block', marginBottom: 4 }}>分辨率</Typography.Text>
+                    <Select
+                      style={{ width: '100%' }}
+                      value={nodeTestForm.xaiResolution ?? '2k'}
+                      onChange={(v) => setForm({ xaiResolution: v })}
+                      disabled={busy}
+                      options={[
+                        { value: '1k', label: '1K（快速预览）' },
+                        { value: '2k', label: '2K（标准）' },
+                        { value: '4k', label: '4K（高精）' },
+                        { value: '8k', label: '8K（超精）' },
+                      ]}
+                    />
+                  </div>
+
+                  <div style={{ marginBottom: 16 }}>
+                    <Typography.Text style={{ color: token.colorTextSecondary, fontSize: 12, display: 'block', marginBottom: 4 }}>生成数量</Typography.Text>
+                    <input
+                      type="number"
+                      value={nodeTestForm.xaiN ?? 1}
+                      onChange={(e) => {
+                        const v = parseInt(e.target.value)
+                        if (!isNaN(v) && v >= 1 && v <= 10) setForm({ xaiN: v })
+                      }}
+                      disabled={busy}
+                      min={1}
+                      max={10}
+                      style={{
+                        width: '100%',
+                        background: token.colorBgContainer,
+                        border: `1px solid ${token.colorBorder}`,
+                        borderRadius: 6, padding: 8,
+                        color: token.colorText, fontSize: 13,
+                      }}
+                    />
+                  </div>
+                </>
+              )}
+
               {isModelScope && (
                 <div style={{ marginBottom: 16 }}>
                   <Typography.Text style={{ color: token.colorTextSecondary, fontSize: 12, display: 'block', marginBottom: 4 }}>反向提示词</Typography.Text>
@@ -2579,7 +2735,7 @@ setChatMessages([])
                 </div>
               )}
 
-              {isModelScope && (supportsEdit || isMultimodal) && (
+              {(isModelScope && (supportsEdit || isMultimodal)) || isGpt || isXai ? (
                 <div style={{ marginBottom: 16 }}>
                   <Typography.Text style={{ color: token.colorTextSecondary, fontSize: 12, display: 'block', marginBottom: 4 }}>图片输入方式</Typography.Text>
                   <Select
@@ -2596,7 +2752,7 @@ setChatMessages([])
                     </Select.OptGroup>
                   </Select>
                 </div>
-              )}
+              ) : null}
 
               {isModelScope && (
                 <>

@@ -23,7 +23,7 @@ export const normalizeProvider = (
   usageLimit: typeof p.usageLimit === 'number' && p.usageLimit >= 0 ? p.usageLimit : 0,
   usageLeft: typeof p.usageLeft === 'number' && p.usageLeft >= 0 ? p.usageLeft : 0,
   usageResetDate: p.usageResetDate ?? '',
-  supportsImageEdit: p.supportsImageEdit === true,
+  supportsImageEdit: p.nodeType === 'image' && (p.protocol === 'xai' || p.protocol === 'gpt') ? true : p.supportsImageEdit === true,
   isMultimodal: p.isMultimodal === true,
-  protocol: p.nodeType === 'image' ? (p.protocol === 'gpt' ? 'gpt' : 'modelscope') : undefined,
+  protocol: p.nodeType === 'image' ? (p.protocol === 'gpt' ? 'gpt' : p.protocol === 'xai' ? 'xai' : 'modelscope') : undefined,
 })

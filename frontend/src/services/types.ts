@@ -191,6 +191,9 @@ export interface ChatSession {
   gptQuality?: string
   gptBackground?: string
   gptModeration?: string
+  // ===== xAI Imagine 参数快照 =====
+  xaiAspectRatio?: string
+  xaiResolution?: string
   createdAt: string
   updatedAt: string
 }
@@ -322,8 +325,8 @@ export interface ConsistencyIssue {
 
 export type ProviderNodeType = 'text' | 'image'
 
-/** 图片生图协议：ModelScope 异步任务 / GPT Image 同步 API，将来可扩展更多 */
-export type ImageProtocol = 'modelscope' | 'gpt'
+/** 图片生图协议：ModelScope 异步任务 / GPT Image 同步 API / xAI Imagine 同步 API */
+export type ImageProtocol = 'modelscope' | 'gpt' | 'xai'
 
 export interface ProviderNode {
   id: string
