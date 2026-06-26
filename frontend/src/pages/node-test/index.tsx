@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { App, Button, Space, Typography, Upload, Select, Segmented, theme, Tooltip, Image, Collapse, Popconfirm, Modal } from 'antd'
-import { PictureOutlined, CloseOutlined, MessageOutlined, CopyOutlined, SendOutlined, FileImageOutlined, HistoryOutlined, BulbOutlined, RedoOutlined, EditOutlined, DeleteOutlined, ColumnWidthOutlined, DownloadOutlined, SnippetsOutlined } from '@ant-design/icons'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { App, Button, Space, Typography, Upload, Select, Segmented, theme, Tooltip, Collapse, Popconfirm, Modal } from 'antd'
+import { PictureOutlined, CloseOutlined, MessageOutlined, CopyOutlined, SendOutlined, FileImageOutlined, HistoryOutlined, BulbOutlined, RedoOutlined, EditOutlined, DeleteOutlined, ColumnWidthOutlined, PlusOutlined } from '@ant-design/icons'
 import { useAppStore } from '../../store/appStore'
 import { generateImage, generateImageGpt, streamChat, generateTitle } from '../../services/api'
 import { genId, pushSettingsNow } from '../../store/appStore'
@@ -11,6 +11,7 @@ import SystemPromptEditor from './SystemPromptEditor'
 import HistoryList from './HistoryList'
 import DebugInfoPanel from './DebugInfoPanel'
 import type { DebugInfoData } from './DebugInfoPanel'
+import ResultImage from './ResultImage'
 
 const RESOLUTIONS = [
   { value: '1024x1024', label: '1024×1024（1:1）' },
@@ -21,9 +22,15 @@ const RESOLUTIONS = [
 ]
 
 const GPT_SIZES = [
-  { value: '1024x1024', label: '1024×1024（1:1）' },
-  { value: '1024x1536', label: '1024×1536（2:3 竖图）' },
-  { value: '1536x1024', label: '1536×1024（3:2 横图）' },
+  { value: '3840x3840', label: '3840×3840（1:1）' },
+  { value: '2560x3840', label: '2560×3840（2:3 竖图）' },
+  { value: '3840x2560', label: '3840×2560（3:2 横图）' },
+  { value: '3840x2880', label: '3840×2880（4:3）' },
+  { value: '2880x3840', label: '2880×3840（3:4）' },
+  { value: '3840x2160', label: '3840×2160（16:9）' },
+  { value: '2160x3840', label: '2160×3840（9:16）' },
+  { value: '3840x1646', label: '3840×1646（21:9）' },
+  { value: '1646x3840', label: '1646×3840（9:21）' },
 ]
 
 type Phase = 'idle' | 'submitted' | 'polling' | 'done' | 'error' | 'streaming'
@@ -112,8 +119,6 @@ export default function NodeTestPage() {
   const [phase, setPhase] = useState<Phase>('idle')
   const statusTextRef = useRef('')
   const setStatusText = (v: string) => { statusTextRef.current = v }
-  const [currentResult, setCurrentResult] = useState<string | null>(null)
-  const [currentRevisedPrompt, setCurrentRevisedPrompt] = useState<string | null>(null)
   const [elapsed, setElapsed] = useState(0)
   const currentTextResponseRef = useRef('')
   const setCurrentTextResponse = (v: string) => { currentTextResponseRef.current = v } // 文本或图片 data URL
@@ -164,7 +169,6 @@ export default function NodeTestPage() {
           prevNodeTypeRef.current = currentNodeType
           setTestMode(currentNodeType === 'image' ? 'image' : 'text')
           setChatMessages([])
-          setCurrentResult(null)
           setActiveChatSessionId(null)
         },
         onCancel: () => {
@@ -180,7 +184,6 @@ export default function NodeTestPage() {
       prevNodeTypeRef.current = currentNodeType
       setTestMode(currentNodeType === 'image' ? 'image' : 'text')
       setChatMessages([])
-      setCurrentResult(null)
       setActiveChatSessionId(null)
     }
   }, [selectedNode, chatMessages.length, availableNodes, nodeTestGlobalForm, setState])
@@ -875,8 +878,6 @@ export default function NodeTestPage() {
 
     setPhase('idle')
     setStatusText('')
-    setCurrentResult(null)
-    setCurrentRevisedPrompt(null)
     setCurrentTextResponse('')
     setDebugInfo({ previewBody: null, actualBody: null, sseChunks: [] })
 
@@ -946,8 +947,6 @@ export default function NodeTestPage() {
                 setStatusText('下载图片中…')
               },
               done: ({ image: dataUrl, revisedPrompt }) => {
-                setCurrentResult(dataUrl)
-                setCurrentRevisedPrompt(revisedPrompt ?? null)
                 setPhase('done')
                 setStatusText('')
                 const userMsg: ChatMessage = {
@@ -994,6 +993,7 @@ export default function NodeTestPage() {
                     updatedAt: new Date().toISOString(),
                   })
                 }
+                setChatMessages((prev) => [...prev, userMsg, assistantMsg])
                 if (isFirst) {
                   const sid = sessionId
                   generateTitle(
@@ -1045,7 +1045,6 @@ export default function NodeTestPage() {
               setStatusText(`${status}（第 ${attempt} 次轮询）`)
             },
             done: ({ image: dataUrl }) => {
-              setCurrentResult(dataUrl)
               setPhase('done')
               setStatusText('')
               // 对话记录：追加一轮 user prompt + assistant image
@@ -1082,21 +1081,22 @@ export default function NodeTestPage() {
                   ...(typeof nodeTestForm.steps === 'number' && nodeTestForm.steps > 0 ? { steps: nodeTestForm.steps } : {}),
                   ...(typeof nodeTestForm.guidance === 'number' ? { guidance: nodeTestForm.guidance } : {}),
                   ...(typeof nodeTestForm.seed === 'number' ? { seed: nodeTestForm.seed } : {}),
-                  ...(imageInputs.length > 0 ? { imageInputMode: usedImageMode } : {}),
-                  createdAt: new Date().toISOString(),
-                  updatedAt: new Date().toISOString(),
-                })
-                setActiveChatSessionId(sessionId)
-              } else {
-                const cur = chatSessions.find((c: ChatSession) => c.id === sessionId)
-                updateChatSession(sessionId, {
-                  messages: [...(cur?.messages ?? []), userMsg, assistantMsg],
-                  updatedAt: new Date().toISOString(),
-                })
-              }
-              if (isFirst) {
-                const sid = sessionId
-                generateTitle(
+...(imageInputs.length > 0 ? { imageInputMode: usedImageMode } : {}),
+                    createdAt: new Date().toISOString(),
+                    updatedAt: new Date().toISOString(),
+                  })
+                  setActiveChatSessionId(sessionId)
+                } else {
+                  const cur = chatSessions.find((c: ChatSession) => c.id === sessionId)
+                  updateChatSession(sessionId, {
+                    messages: [...(cur?.messages ?? []), userMsg, assistantMsg],
+                    updatedAt: new Date().toISOString(),
+                  })
+                }
+                setChatMessages((prev) => [...prev, userMsg, assistantMsg])
+                if (isFirst) {
+                  const sid = sessionId
+                  generateTitle(
                   { baseURL: selectedNode!.baseURL, apiKey: selectedNode!.apiKey, model: selectedNode!.model },
                   nodeTestForm.prompt.trim(),
                   '',
@@ -1239,7 +1239,6 @@ export default function NodeTestPage() {
                   msg.id === assistantMsgId ? { ...msg, content: finalText, reasoning: fullReasoning || undefined } : msg
                 )
               )
-              setCurrentResult(finalText)
               setCurrentTextResponse(finalText)
               setPhase('done')
               setStatusText('')
@@ -1300,6 +1299,7 @@ export default function NodeTestPage() {
               }
             },
             error: (err) => {
+              message.error('生成失败，请重试：' + err)
               // 将错误显示在聊天气泡中
               const errorMsg: ChatMessage = {
                 id: genId('msg'),
@@ -1322,6 +1322,7 @@ export default function NodeTestPage() {
         return
       }
       const msg = e instanceof Error ? e.message : String(e)
+      message.error('生成失败，请重试：' + msg)
       // 将错误显示在聊天气泡中
       const errorMsg: ChatMessage = {
         id: genId('msg'),
@@ -1334,6 +1335,16 @@ export default function NodeTestPage() {
       setStatusText('')
     } finally {
       if (acRef.current === ac) acRef.current = null
+    }
+  }
+
+  const clearConversation = () => {
+    setChatMessages([])
+    setCurrentTextResponse('')
+    setActiveChatSessionId(null)
+    if (compareMode) {
+      setChatMessagesLeft([])
+      setChatMessagesRight([])
     }
   }
 
@@ -1410,7 +1421,6 @@ export default function NodeTestPage() {
   }
 
   const busy = phase === 'submitted' || phase === 'polling' || phase === 'streaming'
-  const displayResult = currentResult
 
   // 生成计时器：image 模式 busy 时每秒递增
   useEffect(() => {
@@ -1464,7 +1474,6 @@ export default function NodeTestPage() {
                 })))
                 setTestMode(s.testType === 'image' ? 'image' : 'text')
                 setMainView('chat')
-                setCurrentResult(null)
                 setCurrentTextResponse('')
               }
             }}
@@ -1496,131 +1505,109 @@ export default function NodeTestPage() {
               )}
             </div>
           ) : isImageMode ? (
-            /* 图片模式：中央展示 */
-            <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24, flexDirection: 'column' }}>
-              {displayResult ? (
-                <div style={{ position: 'relative', maxWidth: '100%', maxHeight: '100%' }}>
-                  <img
-                    src={displayResult}
-                    alt="生成结果"
-                    style={{ maxWidth: '100%', maxHeight: '70vh', borderRadius: 12, display: 'block', boxShadow: '0 10px 40px rgba(0,0,0,0.5)' }}
-                  />
-                  {busy && (
-                    <div style={{
-                      position: 'absolute',
-                      top: 0,
-                      left: 0,
-                      right: 0,
-                      bottom: 0,
-                      background: 'rgba(0,0,0,0.7)',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      borderRadius: 12,
-                    }}>
-                      <div style={{ width: 40, height: 40, border: '3px solid rgba(88,166,255,0.3)', borderTop: '3px solid #58a6ff', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
-                      <Typography.Text style={{ color: token.colorText, marginTop: 12 }}>生成中...</Typography.Text>
-                    </div>
-                  )}
-                  {currentRevisedPrompt && (
-                    <Typography.Text type="secondary" style={{ display: 'block', fontSize: 12, marginTop: 8, lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>
-                      模型改写：{currentRevisedPrompt}
-                    </Typography.Text>
-                  )}
-                  {!busy && displayResult && (
-                    <Space style={{ marginTop: 12 }} size={8}>
-                      <Tooltip title="复制图片到剪贴板">
-                        <Button size="small" icon={<CopyOutlined />} onClick={() => {
-                          const img = new Image()
-                          img.crossOrigin = 'anonymous'
-                          img.onload = () => {
-                            const c = document.createElement('canvas')
-                            c.width = img.naturalWidth
-                            c.height = img.naturalHeight
-                            c.getContext('2d')!.drawImage(img, 0, 0)
-                            c.toBlob(async (blob) => {
-                              if (!blob) { message.error('复制失败'); return }
-                              try {
-                                await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })])
-                                message.success('已复制到剪贴板')
-                              } catch { message.error('复制失败') }
-                            }, 'image/png')
-                          }
-                          img.onerror = () => message.error('复制失败')
-                          img.src = displayResult
-                        }}>复制</Button>
-                      </Tooltip>
-                      <Tooltip title="作为下一轮图片输入">
-                        <Button size="small" icon={<SnippetsOutlined />} onClick={() => {
-                          const res = fetch(displayResult)
-                          res.then(r => r.blob()).then(blob => {
-                            const file = new File([blob], `generated-${Date.now()}.png`, { type: 'image/png' })
-                            setSelectedImages(prev => [...prev, file])
-                            message.success('已加入输入区')
-                          }).catch(() => message.error('操作失败'))
-                        }}>作为输入</Button>
-                      </Tooltip>
-                      <Tooltip title="保存到本地">
-                        <Button size="small" icon={<DownloadOutlined />} onClick={() => {
-                          const a = document.createElement('a')
-                          fetch(displayResult).then(r => r.blob()).then(blob => {
-                            a.href = URL.createObjectURL(blob)
-                            a.download = `gpt-image-${Date.now()}.png`
-                            a.click()
-                            URL.revokeObjectURL(a.href)
-                          }).catch(() => message.error('保存失败'))
-                        }}>保存</Button>
-                      </Tooltip>
-                    </Space>
-                  )}
-                </div>
-              ) : busy ? (
-                /* 生成中气泡：SVG 动画 + 计时器 */
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16 }}>
-                  <style>{`
-                    @keyframes gptImagePulse {
-                      0%, 100% { opacity: 0.4; transform: scale(1); }
-                      50% { opacity: 1; transform: scale(1.08); }
-                    }
-                    @keyframes gptImageShimmer {
-                      0% { stop-color: ${token.colorPrimary}; stop-opacity: 0.8; }
-                      50% { stop-color: ${token.colorPrimary}; stop-opacity: 0.3; }
-                      100% { stop-color: ${token.colorPrimary}; stop-opacity: 0.8; }
-                    }
-                    @keyframes gptRingRotate {
-                      from { transform: rotate(0deg); }
-                      to { transform: rotate(360deg); }
-                    }
-                  `}</style>
-                  <svg width="120" height="120" viewBox="0 0 120 120" style={{ overflow: 'visible' }}>
-                    <defs>
-                      <linearGradient id="gptRingGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-                        <stop offset="0%" stopColor={token.colorPrimary} stopOpacity="0.9" />
-                        <stop offset="50%" stopColor={token.colorPrimary} stopOpacity="0.2" />
-                        <stop offset="100%" stopColor={token.colorPrimary} stopOpacity="0.9" />
-                      </linearGradient>
-                    </defs>
-                    <g style={{ transformOrigin: '60px 60px', animation: 'gptRingRotate 2s linear infinite' }}>
-                      <circle cx="60" cy="60" r="52" fill="none" stroke="url(#gptRingGrad)" strokeWidth="3" strokeDasharray="80 240" strokeLinecap="round" />
-                    </g>
-                    <g style={{ transformOrigin: '60px 60px', animation: 'gptImagePulse 2s ease-in-out infinite' }}>
-                      <rect x="38" y="38" width="44" height="44" rx="6" fill={token.colorPrimary} opacity="0.15" />
-                      <path d="M44 68 L52 56 L58 62 L68 50 L76 62 L76 68 Z" fill={token.colorPrimary} opacity="0.5" />
-                      <circle cx="52" cy="50" r="3" fill={token.colorPrimary} opacity="0.5" />
-                    </g>
-                  </svg>
-                  <Typography.Text style={{ fontSize: 14, color: token.colorText }}>
-                    {phase === 'polling' ? '下载中…' : '生成中…'}
-                  </Typography.Text>
-                  {elapsed > 0 && (
-                    <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                      已用时 {elapsed}s
-                    </Typography.Text>
-                  )}
+            /* 图片模式：画廊展示 */
+            <div style={{ flex: 1, overflow: 'auto', padding: 24 }}>
+              {chatMessages.length === 0 && !busy ? (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', opacity: 0.4 }}>
+                  <Typography.Text style={{ color: token.colorTextSecondary }}>输入提示词生成图片</Typography.Text>
                 </div>
               ) : (
-                <Typography.Text style={{ color: token.colorTextSecondary }}>输入提示词生成图片</Typography.Text>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 24, maxWidth: 800, margin: '0 auto', paddingBottom: 24 }}>
+                  {chatMessages.map((msg) => {
+                    if (msg.role === 'user') {
+                      return (
+                        <div key={msg.id} style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
+                          <div style={{ maxWidth: '70%', background: token.colorPrimaryBg, borderRadius: 12, padding: '8px 14px' }}>
+                            <Typography.Text>{msg.content}</Typography.Text>
+                          </div>
+                          {msg.images && msg.images.length > 0 && (
+                            <div style={{ display: 'flex', gap: 8, marginTop: 8, justifyContent: 'flex-end' }}>
+                              {msg.images.map((img, i) => (
+                                <img
+                                  key={i}
+                                  src={img}
+                                  alt=""
+                                  style={{ height: 80, maxWidth: 200, objectFit: 'contain', borderRadius: 6, background: token.colorBgElevated }}
+                                />
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )
+                    } else {
+                      if (msg.content.startsWith('data:image')) {
+                        return (
+                          <ResultImage
+                            key={msg.id}
+                            dataUrl={msg.content}
+                            revisedPrompt={msg.revisedPrompt}
+                            onAsInput={(dataUrl) => {
+                              fetch(dataUrl).then(r => r.blob()).then(blob => {
+                                const file = new File([blob], `generated-${Date.now()}.png`, { type: 'image/png' })
+                                setSelectedImages(prev => [...prev, file])
+                                message.success('已加入输入区')
+                              }).catch(() => message.error('操作失败'))
+                            }}
+                          />
+                        )
+                      } else {
+                        return (
+                          <div key={msg.id} style={{ background: token.colorErrorBg, border: `1px solid ${token.colorErrorBorder}`, borderRadius: 8, padding: 12 }}>
+                            <Typography.Text type="danger">{msg.content.replace(/^失败：/, '')}</Typography.Text>
+                            <div style={{ marginTop: 8 }}>
+                              <Button size="small" danger icon={<RedoOutlined />} onClick={() => handleGenerate()} disabled={busy}>重试</Button>
+                            </div>
+                          </div>
+                        )
+                      }
+                    }
+                  })}
+                  {busy && (
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16, padding: 24 }}>
+                      <style>{`
+                        @keyframes gptImagePulse {
+                          0%, 100% { opacity: 0.4; transform: scale(1); }
+                          50% { opacity: 1; transform: scale(1.08); }
+                        }
+                        @keyframes gptImageShimmer {
+                          0% { stop-color: ${token.colorPrimary}; stop-opacity: 0.8; }
+                          50% { stop-color: ${token.colorPrimary}; stop-opacity: 0.3; }
+                          100% { stop-color: ${token.colorPrimary}; stop-opacity: 0.8; }
+                        }
+                        @keyframes gptRingRotate {
+                          from { transform: rotate(0deg); }
+                          to { transform: rotate(360deg); }
+                        }
+                      `}</style>
+                      <svg width="120" height="120" viewBox="0 0 120 120" style={{ overflow: 'visible' }}>
+                        <defs>
+                          <linearGradient id="gptRingGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                            <stop offset="0%" stopColor={token.colorPrimary} stopOpacity="0.9" />
+                            <stop offset="50%" stopColor={token.colorPrimary} stopOpacity="0.2" />
+                            <stop offset="100%" stopColor={token.colorPrimary} stopOpacity="0.9" />
+                          </linearGradient>
+                        </defs>
+                        <g style={{ transformOrigin: '60px 60px', animation: 'gptRingRotate 2s linear infinite' }}>
+                          <circle cx="60" cy="60" r="52" fill="none" stroke="url(#gptRingGrad)" strokeWidth="3" strokeDasharray="80 240" strokeLinecap="round" />
+                        </g>
+                        <g style={{ transformOrigin: '60px 60px', animation: 'gptImagePulse 2s ease-in-out infinite' }}>
+                          <rect x="38" y="38" width="44" height="44" rx="6" fill={token.colorPrimary} opacity="0.15" />
+                          <path d="M44 68 L52 56 L58 62 L68 50 L76 62 L76 68 Z" fill={token.colorPrimary} opacity="0.5" />
+                          <circle cx="52" cy="50" r="3" fill={token.colorPrimary} opacity="0.5" />
+                        </g>
+                      </svg>
+                      <Typography.Text style={{ fontSize: 14, color: token.colorText }}>
+                        {phase === 'polling' ? '下载中…' : '生成中…'}
+                      </Typography.Text>
+                      {elapsed > 0 && (
+                        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                          已用时 {elapsed}s
+                        </Typography.Text>
+                      )}
+                    </div>
+                  )}
+                  <div ref={chatEndRef} />
+                </div>
               )}
             </div>
           ) : (
@@ -2135,15 +2122,10 @@ export default function NodeTestPage() {
                   const previewUrl = URL.createObjectURL(file)
                   return (
                     <div key={idx} style={{ position: 'relative' }}>
-                      <Image
+                      <img
                         src={previewUrl}
                         alt=""
-                        width={80}
-                        height={80}
-                        style={{ objectFit: 'cover', borderRadius: 6, cursor: 'pointer' }}
-                        preview={{
-                          cover: <div style={{ fontSize: 12 }}>查看</div>
-                        }}
+                        style={{ height: 80, maxWidth: 200, objectFit: 'contain', borderRadius: 6, background: token.colorBgElevated }}
                       />
                       <Button
                         size="small"
@@ -2207,9 +2189,8 @@ export default function NodeTestPage() {
                   onChange={(v) => {
                     setTestMode(v as TestMode)
                     setState({ nodeTestGlobalForm: { ...nodeTestGlobalForm, nodeId: undefined } })
-                    setChatMessages([])
-                    setCurrentResult(null)
-                    setActiveChatSessionId(null)
+setChatMessages([])
+            setActiveChatSessionId(null)
                   }}
                   options={[
                     { label: '文本推理', value: 'text', icon: <MessageOutlined /> },
@@ -2468,30 +2449,33 @@ export default function NodeTestPage() {
           ))
         ) : (
           <>
-            {/* 顶部 header：对比模式切换 + System Instructions + Debug Info 按钮 */}
+            {/* 顶部 header：对比模式切换 + 新对话 + System Instructions + Debug Info 按钮 */}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', borderBottom: `1px solid ${token.colorBorder}`, flexShrink: 0 }}>
-              <Button
-                  size="small"
-                  icon={<ColumnWidthOutlined />}
-                  type={compareMode ? 'primary' : 'default'}
-                  onClick={() => {
-                    if (!compareMode && (chatMessages.length > 0 || activeChatSessionId)) {
-                      Modal.confirm({
-                        title: '切换到对比模式',
-                        content: '对比模式下将清空当前对话并禁用历史记录。是否继续？',
-                        okText: '继续',
-                        cancelText: '取消',
-                        onOk: () => {
-                          setCompareMode(true)
-                          setChatMessages([])
-                          setActiveChatSessionId(null)
-                        },
-                      })
-                    } else {
-                      setCompareMode(!compareMode)
-                    }
-                  }}
-                />
+              <Space size={8}>
+                <Button
+                    size="small"
+                    icon={<ColumnWidthOutlined />}
+                    type={compareMode ? 'primary' : 'default'}
+                    onClick={() => {
+                      if (!compareMode && (chatMessages.length > 0 || activeChatSessionId)) {
+                        Modal.confirm({
+                          title: '切换到对比模式',
+                          content: '对比模式下将清空当前对话并禁用历史记录。是否继续？',
+                          okText: '继续',
+                          cancelText: '取消',
+                          onOk: () => {
+                            setCompareMode(true)
+                            setChatMessages([])
+                            setActiveChatSessionId(null)
+                          },
+                        })
+                      } else {
+                        setCompareMode(!compareMode)
+                      }
+                    }}
+                  />
+                <Button size="small" icon={<PlusOutlined />} onClick={clearConversation}>新对话</Button>
+              </Space>
               <Space size={8}>
                 <Button size="small" onClick={() => setSidebarView('sysPrompt')}>System Instructions</Button>
                 <Button size="small" onClick={() => setSidebarView('debug')}>Debug Info</Button>
@@ -2774,12 +2758,7 @@ export default function NodeTestPage() {
               <Button
                 block
                 danger
-                onClick={() => {
-                  setChatMessages([])
-                  setCurrentResult(null)
-                  setCurrentTextResponse('')
-                  setActiveChatSessionId(null)
-                }}
+                onClick={clearConversation}
                 style={{ marginTop: 16 }}
               >
                 清空对话历史

@@ -2,7 +2,7 @@
 
 **最后更新**：2026-06-26  
 **当前位置**：办公场所 A
-**本轮主题**：GPT Image 生图集成 ✅ + GPT 前端边栏/生图接线 ✅ + GPT 生成体验增强(气泡/按钮/debug修复) ✅ + GPT 多图输入推理(/images/edits) ✅
+**本轮主题**：GPT Image 生图集成 ✅ + GPT 前端边栏/生图接线 ✅ + GPT 生成体验增强(气泡/按钮/debug修复) ✅ + GPT 多图输入推理(/images/edits) ✅ + **节点测试·GPT 图片生成 10 项修正/增强** ✅
 
 ---
 
@@ -219,6 +219,30 @@
   - **文件变更**：
     - 修改：`server/src/gptImageClient.ts`（加 imageInputs + edits 分支 + dataUrlToBlob + stripImagePayload）；`server/src/routes/gptImage.ts`（解构 imageInputs）；`frontend/src/services/real/gptImage.ts`（GptImageParams 加 imageInputs）；`pages/node-test/index.tsx`（生成气泡 + 计时器 + 三按钮 + GPT imageInputs 透传 + gate 加 isGpt + 图标导入）
   - **状态**：✅ 前端 tsc + vite build + 后端 tsc 零错误，待浏览器功能测试
+- [x] **节点测试 · GPT 图片生成 10 项修正/增强**（2026-06-26）🔧 🎨
+  - **背景**：节点测试 GPT 图片生成 10 项实际使用缺陷修复与体验增强
+  - **已定位根因**：
+    - **复制失效**：`new Image()` 因 `import { Image } from 'antd'` 命名冲突，new 的是 antd 组件非 `HTMLImageElement` → `onload`/`src` 永不触发
+    - **图片历史不显示**：图片模式中央区只渲染 `currentResult`，历史加载 `setChatMessages` 后空白；且 `done` 回调未追加 `chatMessages`
+    - **失败静默**：图片模式不渲染 `chatMessages`，错误塞进 `chatMessages` 但无 toast 提示
+    - **文本历史重启丢失**：`appStore.ts` 中 `testHistory`/`chatSessions` 回载依赖 `data.books.length > 0`
+  - **改动清单**：
+    - **req1 无 tooltip**：`ResultImage.tsx`（新建）三按钮无 `<Tooltip>` 包裹
+    - **req2 复制修复**：`utils/imageResult.ts`（新建）`copyImageToClipboard` 用 `fetch→blob→ClipboardItem`，绕开 `new Image()` bug
+    - **req3 元信息**：`ResultImage.tsx` 下方显示 `PNG · 宽×高 · 含/无透明通道`（`parseImageMeta` 解析 IHDR colorType）
+    - **req4 保存多格式**：`ResultImage.tsx` `Dropdown` 菜单 PNG/JPEG/WEBP → `saveImageAs`（jpeg 先填白底）
+    - **req5 4K 分辨率**：`GPT_SIZES` 常量 9 种 4K 比例（1:1/2:3/3:2/4:3/3:4/16:9/9:16/21:9/9:21），ModelScope `RESOLUTIONS` 不动
+    - **req6 画廊 + 历史**：图片模式从单图居中改为按 `chatMessages` 垂直画廊（user 气泡+输入图缩略 / `ResultImage` 生成图 / 错误卡）；GPT/MS `done` 回调追加 `setChatMessages((prev) => [...prev, userMsg, assistantMsg])`；历史加载后全部图回显
+    - **req6 重启不丢**：`appStore.ts` 中 `bootstrapStore`/`reloadStoreFromBackend` 将 `testHistory`/`chatSessions` 移出 `data.books.length > 0` 分支，始终从后端回载；清空分支不再清除这两项
+    - **req7 新对话**：`clearConversation()` helper（清 chatMessages/currentResult/currentTextResponse/activeChatSessionId，compare 模式额外清左右）；header 加 `PlusOutlined`「新对话」按钮 + 底部「清空对话历史」调用
+    - **req8 输入预览不裁**：`objectFit:'cover'`→`'contain'` + 宽自适应 + `maxWidth:200`；会话气泡内输入图缩略同步改 `contain`
+    - **req9 全屏查看**：`ResultImage.tsx` 用 antd `Image` 原生 preview（滚轮缩放+拖拽平移）
+    - **req10 失败提示**：文本 `error` 回调 + 外层 `catch` 补 `message.error('生成失败，请重试：' + msg)`；画廊中错误消息渲染红色错误卡 + 「重试」按钮（调 `handleGenerate()`）
+  - **文件变更**：
+    - 新建：`frontend/src/utils/imageResult.ts`（90 行）、`frontend/src/pages/node-test/ResultImage.tsx`（72 行）
+    - 修改：`frontend/src/pages/node-test/index.tsx`（GPT_SIZES 4K + 画廊渲染 + chatMessages 追加 + 错误 toast + clearConversation + header 按钮 + 预览修复 + 移除 currentResult/Image/DownloadOutlined/SnippetsOutlined；净减少约 30 行）
+    - 修改：`frontend/src/store/appStore.ts`（testHistory/chatSessions 回载解耦）
+  - **状态**：✅ 前端 tsc + vite build 零新增错误（仅 m2-cards/index.tsx 3 个预存 TS2367），待浏览器功能测试
 - [x] **节点测试 · 对比模式与模型切换标记**（2026-06-23）✨ ✅
   - **需求 1：清理参数面板标题** ✅
     - 移除右侧边栏"参数设置"标题文字
@@ -486,11 +510,18 @@
   - 前端：新增 `generateArchInput()` 服务函数 + `runArch()` 空输入链式调用逻辑
   - 流程：topic 为空 → 生成创作方向 → 填入输入框 → 自动链式生成架构
   - 验证：`tsc --noEmit` 前后端零错误
-- [x] **M2 提取 400 修复 + SSE stage 对齐 + 串行防 RPM 限流**（2026-06-24）
-  - 修复 `extract.ts` 请求体字段对齐后端 `ExtractEntitiesBody`（provider 扁平化 + chapters→chapterIds + existingNames→existingCardNames）
-  - 对齐 `ExtractProgress.stage` 类型（`chunk|merge|embed` → `extracting|embedding|merging`）
-  - 修复 `creation.ts` 全并发→串行逐章提取（`Promise.all` → `for` 循环），防上游 RPM 限流 429
-  - 验证：`tsc --noEmit` 前后端零错误
+- [x] **GPT 图片生成 10 项修正/增强**（2026-06-26）
+  - 复制修复（fetch→blob→ClipboardItem，根治 `new Image()` 命名冲突）
+  - 图片画廊（chatMessages 渲染，历史完整回放）
+  - 4K 分辨率（9 比例，仅 GPT 节点）
+  - 失败 toast + 红色错误卡 + 重试按钮
+  - 新对话按钮（header PlusOutlined）
+  - 输入预览不裁剪（contain + 自适应宽）
+  - 全屏查看（antd Image preview，滚轮缩放+拖拽）
+  - 重启历史不丢（appStore 解耦 books 分支）
+  - 元信息（格式·宽×高·透明通道）
+  - 保存多格式（Dropdown PNG/JPEG/WEBP）
+  - 验证：tsc + vite build 零新增错误 ✅
 
 ### 立即任务（本次会话后）
 
@@ -536,6 +567,18 @@
      - 最后一条为 user 时不显示
      - 流式中显示 spinner + 「推理中...」，无操作按钮和节点模型名
    - 边界情况：busy 时操作按钮禁用、历史记录加载后功能正常
+
+1b. **验证 GPT 图片生成 10 项修正/增强**（2026-06-26 新增）
+  - **req1 无 tooltip**：生成图下方三按钮 hover 无 tooltip 文字
+  - **req2 复制修复**：点复制 → 到画图/聊天框 Ctrl+V 粘贴出图（非静默失败）
+  - **req3 元信息**：图下显示 `PNG · 宽×高 · 含/无透明通道`（透明背景参数生成应显「含透明通道」）
+  - **req4 保存多格式**：保存菜单选 JPEG/WEBP 能下载对应格式且可打开
+  - **req5 4K 分辨率**：GPT 节点尺寸下拉 9 个 4K 比例；选 16:9 生成成功（输出被钳制但保持 16:9）
+  - **req6 画廊 + 历史**：同一会话连续生成多张 → 画廊全部可见；开「对话记录」选该会话 → 全部图回显；**重启 app** 后历史仍在（文本会话同样）
+  - **req7 新对话**：点 header「新对话」→ 清空当前对话进入新建态
+  - **req8 预览不裁**：选非正方形输入图 → prompt 上方预览完整不裁剪（contain）
+  - **req9 全屏查看**：点生成图 → 全屏；滚轮缩放、拖拽平移可用
+  - **req10 失败提示**：用错误 API key 生成 → toast + 画廊红色错误卡 + 重试按钮（非静默）
 
 2. **验证节点测试 · 对话记录**
    - 文本模式：发送消息 → 确认第一轮完成后自动生成标题

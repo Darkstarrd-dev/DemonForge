@@ -682,6 +682,11 @@ export async function bootstrapStore(): Promise<void> {
     const res = await fetch('/api/store')
     if (res.ok) {
       const data = (await res.json()) as Record<string, unknown[]>
+      // 节点测试对话记录与历史：与书库无关，始终从后端回载
+      useAppStore.setState({
+        testHistory: (data.testHistory ?? data.imageGallery ?? []) as TestHistoryItem[],
+        chatSessions: (data.chatSessions ?? []) as ChatSession[],
+      })
       if (Array.isArray(data.books) && data.books.length > 0) {
         useAppStore.setState({
           books: data.books as Book[],
@@ -694,8 +699,6 @@ export async function bootstrapStore(): Promise<void> {
           issues: (data.issues ?? []) as ConsistencyIssue[],
           architectures: (data.architectures ?? []) as NovelArchitecture[],
           mergeCandidates: (data.mergeCandidates ?? []) as MergeCandidate[],
-          testHistory: (data.testHistory ?? data.imageGallery ?? []) as TestHistoryItem[],
-          chatSessions: (data.chatSessions ?? []) as ChatSession[],
         })
         // 旧 settings.json 没有该标记 → 趁这次有数据时补写，避免后续"删光"误触发回填
         if (!storeInitialized) {
@@ -735,8 +738,6 @@ export async function bootstrapStore(): Promise<void> {
           issues: [],
           architectures: [],
           mergeCandidates: [],
-          testHistory: [],
-          chatSessions: [],
         })
         storeReady = true
       }
@@ -753,6 +754,11 @@ export async function reloadStoreFromBackend(): Promise<void> {
   const res = await fetch('/api/store')
   if (!res.ok) return
   const data = (await res.json()) as Record<string, unknown[]>
+  // 节点测试对话记录与历史：与书库无关，始终从后端回载
+  useAppStore.setState({
+    testHistory: (data.testHistory ?? data.imageGallery ?? []) as TestHistoryItem[],
+    chatSessions: (data.chatSessions ?? []) as ChatSession[],
+  })
   if (Array.isArray(data.books) && data.books.length > 0) {
     useAppStore.setState({
       books: data.books as Book[],
@@ -765,13 +771,8 @@ export async function reloadStoreFromBackend(): Promise<void> {
       issues: (data.issues ?? []) as ConsistencyIssue[],
       architectures: (data.architectures ?? []) as NovelArchitecture[],
       mergeCandidates: (data.mergeCandidates ?? []) as MergeCandidate[],
-      testHistory: (data.testHistory ?? data.imageGallery ?? []) as TestHistoryItem[],
-      chatSessions: (data.chatSessions ?? []) as ChatSession[],
     })
   } else {
-    // 目标目录无业务数据 → 视为空书库，保持空（不再自动播种 Mock 演示作品）。
-    // 用户可经 M0 立项 / M1 导入自行创建作品。同样须显式清空内存，避免回切旧
-    // 目录后残留的内存种子被 storeReady 订阅写回后端。
     useAppStore.setState({
       books: [],
       chapters: [],
@@ -783,8 +784,6 @@ export async function reloadStoreFromBackend(): Promise<void> {
       issues: [],
       architectures: [],
       mergeCandidates: [],
-      testHistory: [],
-      chatSessions: [],
     })
   }
 }
