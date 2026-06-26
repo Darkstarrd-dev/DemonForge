@@ -1,6 +1,8 @@
 // GPT Image 文生图客户端 — OpenAI Images API 同步协议。
 // 与 imageClient.ts（ModelScope 异步任务协议）完全独立。
 // 后端无状态：每次调用由前端传入 {baseURL, apiKey, model, prompt}。
+// 无输入图 → POST /v1/images/generations（JSON，文生图）
+// 1+ 输入图 → POST /v1/images/edits（multipart，多图推理/图生图，gpt-image 支持 ≤16 张）
 
 export interface GptImageConfig {
   baseURL: string
@@ -11,6 +13,8 @@ export interface GptImageConfig {
   quality?: string
   background?: string
   moderation?: string
+  /** 输入图片（data URL），1+ 张时走 /images/edits 多图推理 */
+  imageInputs?: string[]
 }
 
 export interface GptImageResult {
@@ -29,30 +33,91 @@ function authHeaders(apiKey?: string): Record<string, string> {
   return apiKey ? { Authorization: `Bearer ${apiKey}` } : {}
 }
 
-/** GPT Image 同步生成：POST /v1/images/generations → 取 b64_json → 封装 data URL。
- * 通过 onEvent 回调上报各阶段；任意阶段失败抛错由调用方处理。 */
+/** data URL → Blob（用于 multipart 编辑请求） */
+function dataUrlToBlob(dataUrl: string): Blob {
+  const commaIdx = dataUrl.indexOf(',')
+  const meta = commaIdx >= 0 ? dataUrl.slice(0, commaIdx) : ''
+  const b64 = commaIdx >= 0 ? dataUrl.slice(commaIdx + 1) : ''
+  const mime = /data:(.*?);/.exec(meta)?.[1] ?? 'image/png'
+  const bin = atob(b64)
+  const arr = new Uint8Array(bin.length)
+  for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i)
+  return new Blob([arr], { type: mime })
+}
+
+/** 剥离 b64_json/url 等大体量字段，供 debug 事件回传（避免 MB 级载荷阻塞前端） */
+function stripImagePayload(data: unknown): unknown {
+  try {
+    const d = data as { data?: Array<Record<string, unknown>> }
+    if (Array.isArray(d.data)) {
+      return {
+        ...d,
+        data: d.data.map((item) => ({
+          ...item,
+          ...(item.b64_json ? { b64_json: `[omitted: ${(item.b64_json as string).length} chars]` } : {}),
+          ...(item.url ? { url: '[omitted]' } : {}),
+        })),
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+  return data
+}
+
+/** GPT Image 同步生成/编辑：
+ * - 无 imageInputs → POST /v1/images/generations（JSON，文生图）
+ * - 1+ imageInputs → POST /v1/images/edits（multipart，多图推理/图生图）
+ * 取 b64_json → 封装 data URL；通过 onEvent 回调上报各阶段；任意阶段失败抛错由调用方处理。 */
 export async function generateImageGpt(
   cfg: GptImageConfig,
   onEvent: (type: string, data: unknown) => void,
   signal?: AbortSignal,
 ): Promise<GptImageResult> {
   const base = normalizeBase(cfg.baseURL)
+  const hasImages = Array.isArray(cfg.imageInputs) && cfg.imageInputs.length > 0
 
-  const body: Record<string, unknown> = { model: cfg.model, prompt: cfg.prompt }
-  if (cfg.size) body.size = cfg.size
-  if (cfg.quality) body.quality = cfg.quality
-  if (cfg.background) body.background = cfg.background
-  if (cfg.moderation) body.moderation = cfg.moderation
+  onEvent('start', { message: hasImages ? 'GPT Image 编辑中...' : 'GPT Image 生成中...' })
 
-  onEvent('start', { message: 'GPT Image 生成中...' })
-  onEvent('debug', { stage: 'submit', payload: body })
-
-  const res = await fetch(`${base}/images/generations`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...authHeaders(cfg.apiKey) },
-    body: JSON.stringify(body),
-    signal,
-  })
+  let res: Response
+  if (hasImages) {
+    // /images/edits 多图推理（multipart/form-data）
+    const fd = new FormData()
+    cfg.imageInputs!.forEach((du, i) => {
+      fd.append('image', dataUrlToBlob(du), `input-${i}.png`)
+    })
+    fd.append('model', cfg.model)
+    fd.append('prompt', cfg.prompt)
+    if (cfg.size) fd.append('size', cfg.size)
+    if (cfg.quality) fd.append('quality', cfg.quality)
+    if (cfg.background) fd.append('background', cfg.background)
+    if (cfg.moderation) fd.append('moderation', cfg.moderation)
+    // FormData 无法序列化，debug 用摘要对象
+    onEvent('debug', {
+      stage: 'submit',
+      payload: { endpoint: '/images/edits', model: cfg.model, prompt: cfg.prompt, size: cfg.size, imageCount: cfg.imageInputs!.length },
+    })
+    res = await fetch(`${base}/images/edits`, {
+      method: 'POST',
+      headers: authHeaders(cfg.apiKey),
+      body: fd,
+      signal,
+    })
+  } else {
+    // /images/generations 文生图（JSON）
+    const body: Record<string, unknown> = { model: cfg.model, prompt: cfg.prompt }
+    if (cfg.size) body.size = cfg.size
+    if (cfg.quality) body.quality = cfg.quality
+    if (cfg.background) body.background = cfg.background
+    if (cfg.moderation) body.moderation = cfg.moderation
+    onEvent('debug', { stage: 'submit', payload: body })
+    res = await fetch(`${base}/images/generations`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders(cfg.apiKey) },
+      body: JSON.stringify(body),
+      signal,
+    })
+  }
 
   if (!res.ok) {
     const text = await res.text().catch(() => '')
@@ -65,7 +130,7 @@ export async function generateImageGpt(
     usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number }
   }
 
-  onEvent('debug', { stage: 'response', response: data })
+  onEvent('debug', { stage: 'response', response: stripImagePayload(data) })
 
   const imageData = data.data?.[0]
   if (!imageData) throw new Error('响应中无 image data')

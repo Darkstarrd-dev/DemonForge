@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { App, Button, Space, Typography, Upload, Select, Segmented, theme, Tooltip, Image, Collapse, Popconfirm, Modal } from 'antd'
-import { PictureOutlined, CloseOutlined, MessageOutlined, CopyOutlined, SendOutlined, FileImageOutlined, HistoryOutlined, BulbOutlined, RedoOutlined, EditOutlined, DeleteOutlined, ColumnWidthOutlined } from '@ant-design/icons'
+import { PictureOutlined, CloseOutlined, MessageOutlined, CopyOutlined, SendOutlined, FileImageOutlined, HistoryOutlined, BulbOutlined, RedoOutlined, EditOutlined, DeleteOutlined, ColumnWidthOutlined, DownloadOutlined, SnippetsOutlined } from '@ant-design/icons'
 import { useAppStore } from '../../store/appStore'
 import { generateImage, generateImageGpt, streamChat, generateTitle } from '../../services/api'
 import { genId, pushSettingsNow } from '../../store/appStore'
@@ -114,6 +114,7 @@ export default function NodeTestPage() {
   const setStatusText = (v: string) => { statusTextRef.current = v }
   const [currentResult, setCurrentResult] = useState<string | null>(null)
   const [currentRevisedPrompt, setCurrentRevisedPrompt] = useState<string | null>(null)
+  const [elapsed, setElapsed] = useState(0)
   const currentTextResponseRef = useRef('')
   const setCurrentTextResponse = (v: string) => { currentTextResponseRef.current = v } // 文本或图片 data URL
   const [selectedImages, setSelectedImages] = useState<File[]>([])
@@ -882,7 +883,7 @@ export default function NodeTestPage() {
     // 处理图片输入（图生图或多模态）
     const imageInputs: string[] = []
     const usedImageMode: ImageInputMode = nodeTestForm.imageInputMode || 'base64'
-    if ((supportsEdit || isMultimodal) && selectedImages.length > 0) {
+    if ((supportsEdit || isMultimodal || isGpt) && selectedImages.length > 0) {
       if (usedImageMode === 'base64') {
         for (const file of selectedImages) {
           try {
@@ -933,6 +934,7 @@ export default function NodeTestPage() {
               ...(nodeTestForm.gptQuality ? { quality: nodeTestForm.gptQuality } : {}),
               ...(nodeTestForm.gptBackground ? { background: nodeTestForm.gptBackground } : {}),
               ...(nodeTestForm.gptModeration ? { moderation: nodeTestForm.gptModeration } : {}),
+              ...(imageInputs.length > 0 ? { imageInputs } : {}),
             },
             {
               start: () => {
@@ -1410,6 +1412,16 @@ export default function NodeTestPage() {
   const busy = phase === 'submitted' || phase === 'polling' || phase === 'streaming'
   const displayResult = currentResult
 
+  // 生成计时器：image 模式 busy 时每秒递增
+  useEffect(() => {
+    if (!busy || !isImageMode) {
+      setElapsed(0)
+      return
+    }
+    const id = setInterval(() => setElapsed((e) => e + 1), 1000)
+    return () => clearInterval(id)
+  }, [busy, isImageMode])
+
   // 节点池按 baseURL + 节点组名分组
   const groupedProviders = availableNodes.reduce((acc, node) => {
     const groupName = node.name.replace(/\s*\([^)]*\)\s*$/, '').trim() || node.baseURL
@@ -1485,7 +1497,7 @@ export default function NodeTestPage() {
             </div>
           ) : isImageMode ? (
             /* 图片模式：中央展示 */
-            <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+            <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24, flexDirection: 'column' }}>
               {displayResult ? (
                 <div style={{ position: 'relative', maxWidth: '100%', maxHeight: '100%' }}>
                   <img
@@ -1507,20 +1519,103 @@ export default function NodeTestPage() {
                       justifyContent: 'center',
                       borderRadius: 12,
                     }}>
-                      <div style={{
-                        width: 40,
-                        height: 40,
-                        border: '3px solid rgba(88,166,255,0.3)',
-                        borderTop: '3px solid #58a6ff',
-                        borderRadius: '50%',
-                        animation: 'spin 1s linear infinite',
-                      }} />
+                      <div style={{ width: 40, height: 40, border: '3px solid rgba(88,166,255,0.3)', borderTop: '3px solid #58a6ff', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
                       <Typography.Text style={{ color: token.colorText, marginTop: 12 }}>生成中...</Typography.Text>
                     </div>
                   )}
                   {currentRevisedPrompt && (
                     <Typography.Text type="secondary" style={{ display: 'block', fontSize: 12, marginTop: 8, lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>
                       模型改写：{currentRevisedPrompt}
+                    </Typography.Text>
+                  )}
+                  {!busy && displayResult && (
+                    <Space style={{ marginTop: 12 }} size={8}>
+                      <Tooltip title="复制图片到剪贴板">
+                        <Button size="small" icon={<CopyOutlined />} onClick={() => {
+                          const img = new Image()
+                          img.crossOrigin = 'anonymous'
+                          img.onload = () => {
+                            const c = document.createElement('canvas')
+                            c.width = img.naturalWidth
+                            c.height = img.naturalHeight
+                            c.getContext('2d')!.drawImage(img, 0, 0)
+                            c.toBlob(async (blob) => {
+                              if (!blob) { message.error('复制失败'); return }
+                              try {
+                                await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })])
+                                message.success('已复制到剪贴板')
+                              } catch { message.error('复制失败') }
+                            }, 'image/png')
+                          }
+                          img.onerror = () => message.error('复制失败')
+                          img.src = displayResult
+                        }}>复制</Button>
+                      </Tooltip>
+                      <Tooltip title="作为下一轮图片输入">
+                        <Button size="small" icon={<SnippetsOutlined />} onClick={() => {
+                          const res = fetch(displayResult)
+                          res.then(r => r.blob()).then(blob => {
+                            const file = new File([blob], `generated-${Date.now()}.png`, { type: 'image/png' })
+                            setSelectedImages(prev => [...prev, file])
+                            message.success('已加入输入区')
+                          }).catch(() => message.error('操作失败'))
+                        }}>作为输入</Button>
+                      </Tooltip>
+                      <Tooltip title="保存到本地">
+                        <Button size="small" icon={<DownloadOutlined />} onClick={() => {
+                          const a = document.createElement('a')
+                          fetch(displayResult).then(r => r.blob()).then(blob => {
+                            a.href = URL.createObjectURL(blob)
+                            a.download = `gpt-image-${Date.now()}.png`
+                            a.click()
+                            URL.revokeObjectURL(a.href)
+                          }).catch(() => message.error('保存失败'))
+                        }}>保存</Button>
+                      </Tooltip>
+                    </Space>
+                  )}
+                </div>
+              ) : busy ? (
+                /* 生成中气泡：SVG 动画 + 计时器 */
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16 }}>
+                  <style>{`
+                    @keyframes gptImagePulse {
+                      0%, 100% { opacity: 0.4; transform: scale(1); }
+                      50% { opacity: 1; transform: scale(1.08); }
+                    }
+                    @keyframes gptImageShimmer {
+                      0% { stop-color: ${token.colorPrimary}; stop-opacity: 0.8; }
+                      50% { stop-color: ${token.colorPrimary}; stop-opacity: 0.3; }
+                      100% { stop-color: ${token.colorPrimary}; stop-opacity: 0.8; }
+                    }
+                    @keyframes gptRingRotate {
+                      from { transform: rotate(0deg); }
+                      to { transform: rotate(360deg); }
+                    }
+                  `}</style>
+                  <svg width="120" height="120" viewBox="0 0 120 120" style={{ overflow: 'visible' }}>
+                    <defs>
+                      <linearGradient id="gptRingGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                        <stop offset="0%" stopColor={token.colorPrimary} stopOpacity="0.9" />
+                        <stop offset="50%" stopColor={token.colorPrimary} stopOpacity="0.2" />
+                        <stop offset="100%" stopColor={token.colorPrimary} stopOpacity="0.9" />
+                      </linearGradient>
+                    </defs>
+                    <g style={{ transformOrigin: '60px 60px', animation: 'gptRingRotate 2s linear infinite' }}>
+                      <circle cx="60" cy="60" r="52" fill="none" stroke="url(#gptRingGrad)" strokeWidth="3" strokeDasharray="80 240" strokeLinecap="round" />
+                    </g>
+                    <g style={{ transformOrigin: '60px 60px', animation: 'gptImagePulse 2s ease-in-out infinite' }}>
+                      <rect x="38" y="38" width="44" height="44" rx="6" fill={token.colorPrimary} opacity="0.15" />
+                      <path d="M44 68 L52 56 L58 62 L68 50 L76 62 L76 68 Z" fill={token.colorPrimary} opacity="0.5" />
+                      <circle cx="52" cy="50" r="3" fill={token.colorPrimary} opacity="0.5" />
+                    </g>
+                  </svg>
+                  <Typography.Text style={{ fontSize: 14, color: token.colorText }}>
+                    {phase === 'polling' ? '下载中…' : '生成中…'}
+                  </Typography.Text>
+                  {elapsed > 0 && (
+                    <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                      已用时 {elapsed}s
                     </Typography.Text>
                   )}
                 </div>
@@ -2033,7 +2128,7 @@ export default function NodeTestPage() {
         {/* 输入区 */}
         <div style={{ borderTop: `1px solid ${token.colorBorder}`, flexShrink: 0 }}>
           {/* 图片预览区（展示在文本框上方） */}
-          {(supportsEdit || isMultimodal) && selectedImages.length > 0 && (
+          {(supportsEdit || isMultimodal || isGpt) && selectedImages.length > 0 && (
             <div style={{ padding: '12px 16px', background: token.colorBgElevated, borderBottom: `1px solid ${token.colorBorder}` }}>
               <Space wrap size={8}>
                 {selectedImages.map((file, idx) => {
@@ -2235,7 +2330,7 @@ export default function NodeTestPage() {
               />
 
               {/* 图片上传按钮 */}
-              {(supportsEdit || isMultimodal) && (
+              {(supportsEdit || isMultimodal || isGpt) && (
                 <Upload
                   accept="image/*"
                   multiple

@@ -2,7 +2,7 @@
 
 **最后更新**：2026-06-26  
 **当前位置**：办公场所 A
-**本轮主题**：GPT Image 生图集成（API 探明 + 完全独立模块）✅ + M0 架构空输入自动生成 ✅ + M2 提取 400 修复 ✅ + GPT 模式前端边栏/生图接线 ✅
+**本轮主题**：GPT Image 生图集成 ✅ + GPT 前端边栏/生图接线 ✅ + GPT 生成体验增强(气泡/按钮/debug修复) ✅ + GPT 多图输入推理(/images/edits) ✅
 
 ---
 
@@ -194,6 +194,30 @@
   - **类型扩展**（JSON 文档存储，免迁移）：`NodeTestForm` + `ChatSession` 加 `gptQuality`/`gptBackground`/`gptModeration`；`ChatSessionMessage` + 本地 `ChatMessage` 加 `revisedPrompt`
   - **文件变更**：
     - 修改：`server/src/gptImageClient.ts`（emit debug）、`frontend/src/services/real/gptImage.ts`（debug 回调 + 类型）、`services/api.ts`（导出 GptImageDebug）、`services/types.ts`（ChatSession/ChatSessionMessage 字段）、`store/appStore.ts`（NodeTestForm 字段）、`pages/node-test/index.tsx`（协议派生 + GPT 边栏 + 生成分支 + debug + revisedPrompt 展示 + 历史加载映射）
+  - **状态**：✅ 前端 tsc + vite build + 后端 tsc 零错误，待浏览器功能测试
+- [x] **GPT 生成体验增强 + 多图输入推理**（2026-06-26）✨ 🎨
+  - **需求 1：生成中气泡** — 首次生成时无视觉反馈（busy overlay 仅在已有图时显示）
+    - 新增 `elapsed` 计时器 state + useEffect（1s 递增，busy 结束清零）
+    - 当 `busy && isImageMode && !displayResult` 时渲染「生成中气泡」：旋转渐变环 SVG + 脉冲图片图标 + 阶段文案（生成中…/下载中…）+ 已用时 Ns
+    - 文件：`node-test/index.tsx`（新增 state/effect/JSX + CSS keyframes）
+  - **需求 2：debug 载荷修复** — debug `response` 事件把原生 b64_json（2-3MB）塞进 SSE → 前端渲染巨量文本阻塞主线程（"前端显示时间远长于 120s"根因）
+    - 后端 `gptImageClient.ts` 新增 `stripImagePayload()`：debug response 事件剥离 data[].b64_json/url，替换为 `[omitted: N chars]` 占位
+    - 现已确认：取图方式为 **b64_json 解码**（`gptImageClient.ts:140` 优先取 b64_json），高效无需改 url
+    - `downloading` 事件对 b64 响应为死代码（仅 url 分支触发），属正常行为
+  - **需求 3：图片下方三按钮** — `displayResult && !busy` 时显示
+    - **复制**：dataUrl → canvas → blob → `navigator.clipboard.write([ClipboardItem])`
+    - **作为输入**：dataUrl → fetch blob → File → `setSelectedImages`，提示「已加入输入区」
+    - **保存**：dataUrl → blob → `<a download>` 触发下载
+    - 新增图标导入：`DownloadOutlined`/`SnippetsOutlined`
+  - **GPT 多图输入推理（/images/edits）** — 支持单图/多图输入走 edits 端点
+    - 后端 `gptImageClient.ts`：`GptImageConfig` 加 `imageInputs?: string[]`；`generateImageGpt` 内部分支：1+ imageInputs → FormData 多 `image` 字段 + POST `/images/edits`（multipart）；否则 → JSON POST `/images/generations`；新增 `dataUrlToBlob()` 转换器；edits submit debug 用摘要对象
+    - 后端路由 `gptImage.ts`：解构 `imageInputs` 透传
+    - 前端服务 `gptImage.ts`：`GptImageParams` 加 `imageInputs`
+    - 前端 `node-test/index.tsx`：GPT 分支传 `imageInputs`；上传托盘/图片输入处理/上传按钮 gate 加 `|| isGpt`（GPT 节点始终允许图片输入）
+    - 前置条件：GPT 节点需在设置页开启「图片编辑」(supportsImageEdit=true)；GPT edits 固定走 base64 直传
+    - 代理 `/images/edits` 未经测试，需实测验证
+  - **文件变更**：
+    - 修改：`server/src/gptImageClient.ts`（加 imageInputs + edits 分支 + dataUrlToBlob + stripImagePayload）；`server/src/routes/gptImage.ts`（解构 imageInputs）；`frontend/src/services/real/gptImage.ts`（GptImageParams 加 imageInputs）；`pages/node-test/index.tsx`（生成气泡 + 计时器 + 三按钮 + GPT imageInputs 透传 + gate 加 isGpt + 图标导入）
   - **状态**：✅ 前端 tsc + vite build + 后端 tsc 零错误，待浏览器功能测试
 - [x] **节点测试 · 对比模式与模型切换标记**（2026-06-23）✨ ✅
   - **需求 1：清理参数面板标题** ✅
@@ -476,12 +500,20 @@
    - 进入节点测试页 → 切换到图片模式 → 选择 GPT Image 节点
    - **验证边栏切换**：右侧边栏应显示「尺寸/画质/背景/审核」四项（而非 ModelScope 的分辨率/反向提示词/步数/引导/种子）；尺寸默认 1024×1024，其余默认标准/不透明/自动
    - **验证尺寸自定义**：尺寸下拉选「自定义...」→ 出现文本输入框 → 输入如 `1024x1792` → 生成
-   - 填写 prompt → 生成 → 确认 SSE 事件流（start → downloading → done）正常
-   - 确认生成的图片可正常显示
+   - **验证生成中气泡**：首次生成（无旧图时）中央应显示 SVG 动画气泡（旋转环+脉冲图标）+ 阶段文案 + 已用时计时器，而非仅发送键变取消
+   - 填写 prompt → 生成 → 确认 SSE 事件流（start → done）正常；**验证图片显示后不再有 120s+ 延迟**（debug 载荷剥离应已解决）
    - **验证 revisedPrompt**：若模型返回改写提示词，图片下方应显示「模型改写：…」小字
-   - **验证 Debug Info**：右侧 Debug Info 面板 → previewBody（前端构造）/ actualBody（后端实际请求体）/ sseChunks（原始响应）三块均有内容
+   - **验证三按钮**：图片下方应显示「复制」「作为输入」「保存」按钮
+     - 复制 → 剪贴板含图片
+     - 保存 → 下载 PNG
+     - 作为输入 → 图片加入输入托盘（需 GPT 节点开启「图片编辑」后可见）
+   - **验证 Debug Info**：previewBody / actualBody 有内容；response sse 中 b64_json 应显示 `[omitted: N chars]`（非原始 MB 级字符串）
    - **验证对话记录**：生成后在对话记录中可回看，切换回 ModelScope 节点后边栏应切回 ModelScope 字段
    - 确认错误处理：空 prompt、错误 key 等场景的提示
+   - **验证 GPT 多图输入**（需节点开启「图片编辑」）：
+     - 上传 1 张参考图 → 填写描述 prompt → 生成 → 确认走 /images/edits（debug 显示 endpoint: '/images/edits'）
+     - 上传 2+ 张参考图 → 填写多图推理 prompt → 生成 → 确认 imageCount > 1
+     - 若代理不支持 /images/edits → 确认报错信息清晰
 
 2. **验证节点测试 · 气泡功能扩展**
    - 基础样式：时间戳在文字顶部、复制按钮无文字、折叠思考过程有复制按钮

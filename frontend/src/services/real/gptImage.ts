@@ -10,6 +10,8 @@ export interface GptImageParams {
   quality?: string
   background?: string
   moderation?: string
+  /** 输入图片（data URL），1+ 张时走 /images/edits 多图推理 */
+  imageInputs?: string[]
 }
 
 export interface GptImageDone {
