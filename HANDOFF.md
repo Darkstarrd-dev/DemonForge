@@ -515,6 +515,20 @@
 
 ### 本次已完成
 
+- [x] **节点测试 · 对话记录删除"重启复活"根因修复**（2026-06-27）🔧 ✅ 已实证
+  - **现象**：对话记录单删/批删后 UI 显示已删，但 force reload electron 或退出重启后记录原样复活（已有记录稳定复现）
+  - **真根因（CORS 方法白名单）**：`@fastify/cors@11.2.0` 默认 `methods` 仅 `GET,HEAD,POST`，**不含 DELETE**。Electron 下 `main.tsx` 把 `/api/*` 改写为直连 `127.0.0.1:8787`（跨域）→ DELETE 触发预检 → 默认白名单无 DELETE → 浏览器拦截真正的 DELETE（`fetch` reject）→ `pushDeleteNow` 的 `.catch(()=>{})` 静默吞掉 → 删除永不落库 → 重启从 DB 复活。POST(upsert) 是允许方法故照常工作。
+    - **诊断弯路**：早期用 curl 测 DELETE 成功（curl 不执行 CORS）误导向"竞态"；串行化修复实际无效（DELETE 根本没离开渲染进程）
+    - **潜伏面**：Electron 下所有 DELETE（删书/删图/resetDemo）均受影响；纯浏览器 :5173 同源走 vite proxy 无 CORS 故一直没暴露
+  - **决定性证据**：预检 `OPTIONS /api/store` 返回 `access-control-allow-methods: GET,HEAD,POST`（无 DELETE）；源码 `@fastify/cors/index.js:11` 默认 `methods:'GET,HEAD,POST'`
+  - **修复（主 + 加固 + 打包版 origin，4 处）**：
+    - 主：`server/src/index.ts` CORS 显式 `methods: ['GET','HEAD','POST','PUT','PATCH','DELETE']`
+    - 加固 1：`appStore.ts` `deleteStore` 加 `keepalive:true`（删除后立即 reload 时在途 DELETE 不被取消）
+    - 加固 2：`appStore.ts` `pushDeleteNow` 改 `console.warn` 不再静默吞错（此前正是它把 bug 藏了很久）
+    - 打包版 origin：`server/src/index.ts` CORS `origin` 改函数式白名单——放行 ①开发服务器 ②打包版 `file://`（`Origin: 'null'`）③无 Origin 请求；拒绝任意外部网站（防本机后端被浏览器恶意页访问）。打包版 Electron `loadFile`（`file://`）跨域 fetch 的 `Origin` 为 `'null'`，原数组白名单不含故生产环境会拦截全部请求
+    - 保留：`enqueueWrite` 串行队列（防同源模式 upsert 复活竞态，无害有益）
+  - **验证**：预检现返回 `GET,HEAD,POST,PUT,PATCH,DELETE`；前后端 `tsc --noEmit` 零错误；端到端跨域 DELETE 探针 DB 残留归零（dev `localhost:5173` 与打包版 `Origin:null` 均验证通过；`evil.com` 被正确拒绝）
+
 - [x] **书库概览 · 导入文件模式竞态修复**（2026-06-27）🔧 ✅ 已测试通过
   - **现象**：「书库概览 → 导入文件」短暂显示 4 步正常模式后跳转到 2 步「已入库素材清理」模式
   - **根因（双重）**：

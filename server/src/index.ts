@@ -26,9 +26,20 @@ const ROOT = dirname(dirname(fileURLToPath(import.meta.url)))
 // 50MB 足够任何规模小说（百万字 UTF-8 ≈ 3MB），同时不至于被滥用。
 const app = Fastify({ logger: true, bodyLimit: 50 * 1024 * 1024 })
 
-// CORS 支持：允许前端开发服务器（localhost:5173）跨域访问
+// CORS：本机单用户应用，后端仅绑定 127.0.0.1（外网不可达）。
+// ⚠️ 必须显式列出 methods：@fastify/cors 默认仅 'GET,HEAD,POST'，不含 DELETE。
+//   Electron 下 main.tsx 把 /api/* 改写为直连 127.0.0.1:8787（跨域）→ DELETE 走预检，
+//   默认白名单无 DELETE → 浏览器拦截真正的 DELETE（fetch 静默 reject）→ 删除永不落库、重启复活。
+// origin 放行三类：① 开发服务器（loadURL http://localhost:5173）；② 打包版 file://（跨域 fetch
+//   的 Origin 为字符串 'null'）；③ 无 Origin 的请求（同源/非浏览器）。其余（任意网站）一律拒绝，
+//   避免本机后端被用户浏览器里的恶意页面访问。
+const ALLOWED_ORIGINS = new Set(['http://localhost:5173', 'http://127.0.0.1:5173'])
 await app.register(cors, {
-  origin: ['http://localhost:5173', 'http://127.0.0.1:5173'],
+  origin: (origin, cb) => {
+    if (!origin || origin === 'null' || ALLOWED_ORIGINS.has(origin)) cb(null, true)
+    else cb(null, false)
+  },
+  methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE'],
   credentials: true,
 })
 

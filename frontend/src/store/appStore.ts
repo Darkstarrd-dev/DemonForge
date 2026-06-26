@@ -604,13 +604,15 @@ const pushStore = (payload: Record<string, unknown>) => {
   )
 }
 
-/** 显式删除请求（DELETE /api/store）。syncAll 已改为纯 upsert，删除走此端点。 */
+/** 显式删除请求（DELETE /api/store）。syncAll 已改为纯 upsert，删除走此端点。
+ * keepalive:true：删除后立即 reload/关窗时，在途 DELETE 不被浏览器取消（body 仅 id，远小于 64KB 上限）。 */
 const deleteStore = (deletes: Record<string, string[]>) =>
   enqueueWrite(() =>
     fetch('/api/store', {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(deletes),
+      keepalive: true,
     })
   )
 
@@ -868,7 +870,10 @@ export function pushStoreNow(): Promise<void> {
 export function pushDeleteNow(deletes: Record<string, string[]>): void {
   if (!storeReady) return
   if (Object.keys(deletes).length === 0) return
-  deleteStore(deletes).catch(() => {})
+  // 不再静默吞错：CORS 拦截 / 网络失败等会让删除永不落库（曾因此"删除后重启复活"）。
+  deleteStore(deletes).catch((err) => {
+    console.warn('[pushDeleteNow] 删除请求失败，记录可能未从后端删除：', deletes, err)
+  })
 }
 
 // 关键写入专用：与 pushStoreNow 同样绕防抖立即落库，但**失败抛错**（不吞），供 await + try/catch。
