@@ -195,7 +195,7 @@ export default function HomePage() {
           icon={<ImportOutlined />}
           onClick={() => {
             setState({ importSession: null })
-            navigate('/m1')
+            navigate('/m1', { state: { fresh: true } })
           }}
         >
           导入文件

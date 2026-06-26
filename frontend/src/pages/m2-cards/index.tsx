@@ -481,9 +481,9 @@ export default function M2CardsPage() {
                 status="active"
               />
               <Typography.Text type="secondary">
-                {extractProgress.stage === 'chunk' && `正在分块提取：${extractProgress.current}/${extractProgress.total}`}
-                {extractProgress.stage === 'merge' && `正在合并去重：${extractProgress.current}/${extractProgress.total}`}
-                {extractProgress.stage === 'embed' && `正在生成向量：${extractProgress.current}/${extractProgress.total}`}
+                {extractProgress.stage === 'extracting' && `正在分块提取：${extractProgress.current}/${extractProgress.total}`}
+                {extractProgress.stage === 'merging' && `正在合并去重：${extractProgress.current}/${extractProgress.total}`}
+                {extractProgress.stage === 'embedding' && `正在生成向量：${extractProgress.current}/${extractProgress.total}`}
                 {extractProgress.message && ` - ${extractProgress.message}`}
               </Typography.Text>
             </Space>

@@ -571,7 +571,7 @@ export const businessPayload = (s: AppState) => ({
 let storeWriteChain: Promise<void> = Promise.resolve()
 const enqueueWrite = <T>(fn: () => Promise<T>): Promise<T> => {
   const p = storeWriteChain.then(fn, fn)
-  storeWriteChain = p.catch(() => {})
+  storeWriteChain = p.then(() => {}, () => {})
   return p
 }
 

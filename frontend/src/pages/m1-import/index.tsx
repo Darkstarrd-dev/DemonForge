@@ -1,5 +1,6 @@
 import { App, Card, Steps } from 'antd'
 import { useEffect, useRef } from 'react'
+import { useLocation } from 'react-router-dom'
 import { useAppStore } from '../../store/appStore'
 import type { ImportSession } from '../../services/types'
 import Step1Import from './Step1Import'
@@ -15,15 +16,26 @@ export default function M1ImportPage() {
   const step = session?.step ?? 0
   const recovered = useRef(false)
   const isCleanMode = !!session?.targetBookId
+  const location = useLocation()
 
   // 恢复持久化的导入会话（退出/刷新后不丢进度）：将中途中断的 processing 章回退为 pending
   useEffect(() => {
-    if (recovered.current || session) return
+    if (recovered.current) return
     recovered.current = true
+
+    // 「导入文件」主动新建：丢弃后端残留，绝不恢复（避免迟到的 GET 把清理 session 覆盖回来）
+    if ((location.state as { fresh?: boolean } | null)?.fresh) {
+      fetch('/api/import-session', { method: 'DELETE' }).catch(() => {})
+      return
+    }
+
+    if (session) return
     fetch('/api/import-session')
-      .then((r) => r.ok ? r.json() : null)
+      .then((r) => (r.ok ? r.json() : null))
       .then((d: { session: ImportSession | null } | null) => {
         if (!d?.session) return
+        // fetch 期间用户可能已主动建立新会话 → 不覆盖（纵深防御）
+        if (useAppStore.getState().importSession) return
         const saved = d.session
         // 正在清理的章节 → 回退为 pending 重跑（LLM 断点无法恢复中间态）
         const fixedChapters = saved.chapters.map((c) =>

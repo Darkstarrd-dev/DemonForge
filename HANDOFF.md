@@ -2,7 +2,7 @@
 
 **最后更新**：2026-06-27  
 **当前位置**：办公场所 A
-**本轮主题**：节点测试 · 删除竞态修复 + toggle + 复选批量删除
+**本轮主题**：书库概览导入文件模式竞态修复 + 既存 TS 错误清零
 
 ---
 
@@ -514,6 +514,23 @@
 ## 下一步任务
 
 ### 本次已完成
+
+- [x] **书库概览 · 导入文件模式竞态修复**（2026-06-27）🔧 ✅ 已测试通过
+  - **现象**：「书库概览 → 导入文件」短暂显示 4 步正常模式后跳转到 2 步「已入库素材清理」模式
+  - **根因（双重）**：
+    - 「导入文件」按钮 `setState({importSession:null})`（触发后端 DELETE）+ `navigate('/m1')`（mount 触发恢复 GET）→ DELETE/GET 两请求并发无序，GET 可能读到磁盘上尚未删除的旧清理 session（带 `targetBookId`）
+    - `m1-import/index.tsx` 恢复 `useEffect` 的 GET `.then` **无条件** `setState` 覆盖，把本应被删的清理 session 写回 store → `isCleanMode=true` → 2 步模式（初始渲染 4 步 = "短暂显示"）
+  - **修复（方案 A）**：
+    - `home/index.tsx`：导入按钮改 `navigate('/m1', { state: { fresh: true } })` 表达"主动新建"意图
+    - `m1-import/index.tsx`：恢复 `useEffect` 用 `useLocation().state.fresh` 区分——fresh 则删后端残留且不恢复；非 fresh 才恢复断点；`.then` 内 setState 前加 `useAppStore.getState().importSession` 纵深 guard 防迟到回调覆盖已建会话
+  - **三路径覆盖**：导入文件（fresh→不恢复+删残留）/ 刷新重开（无 fresh→恢复断点）/ 某书清理（session 非 null→`if (session) return` 跳过恢复）
+  - **文件变更**：`frontend/src/pages/home/index.tsx`（导入按钮 +state）、`frontend/src/pages/m1-import/index.tsx`（+useLocation + 恢复逻辑重写 + guard）
+  - 验证：`tsc -p tsconfig.app.json --noEmit` 零错误 + vite build 通过；**已实测：制造后端残留清理 session 后点导入文件，稳定停在 4 步，不再闪跳** ✅
+
+- [x] **既存 TS 错误清零**（2026-06-27）🔧
+  - `m2-cards/index.tsx:484-486`：`extractProgress.stage` 比较值用旧枚举 `chunk/merge/embed`，而类型实为 `extracting/merging/embedding`（TS2367 无重叠，进度文案永不显示）→ 改为新枚举值，分块/合并/向量三阶段文案恢复正常
+  - `appStore.ts:574`：`enqueueWrite` 中 `storeWriteChain = p.catch(()=>{})` 返回 `Promise<T|void>` 赋给 `Promise<void>`（TS2322）→ 改 `p.then(()=>{}, ()=>{})` 归一化为 void（语义等价：chain 屏障只关心完成不传递值）
+  - 验证：`tsc -p tsconfig.app.json --noEmit` EXIT 0（此前唯二报错全消）+ vite build 通过
 
 - [x] **xAI Imagine 协议整合**（2026-06-27）
   - 后端：xaiImageClient.ts（同步协议 + 3 次重试 + PNG 前缀强制）+ xaiImage 路由
