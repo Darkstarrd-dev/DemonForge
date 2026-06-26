@@ -570,6 +570,7 @@ export default function SettingsPage() {
       id: genId('prov'),
       name: '',
       nodeType: nodeTypeFilter,
+      protocol: 'modelscope',
       baseURL: '',
       apiKey: '',
       model: '',
@@ -1401,9 +1402,19 @@ export default function SettingsPage() {
           <Form.Item shouldUpdate={(prev, cur) => prev.nodeType !== cur.nodeType} noStyle>
             {({ getFieldValue }) =>
               getFieldValue('nodeType') === 'image' ? (
-                <Form.Item name="supportsImageEdit" label="图片编辑" valuePropName="checked" extra="开启后该节点可进行图片编辑（Image2Image）">
-                  <Switch />
-                </Form.Item>
+                <>
+                  <Form.Item name="protocol" label="生图协议" rules={[{ required: true }]}>
+                    <Select
+                      options={[
+                        { value: 'modelscope', label: 'ModelScope（异步）' },
+                        { value: 'gpt', label: 'GPT Image（同步）' },
+                      ]}
+                    />
+                  </Form.Item>
+                  <Form.Item name="supportsImageEdit" label="图片编辑" valuePropName="checked" extra="开启后该节点可进行图片编辑（Image2Image）">
+                    <Switch />
+                  </Form.Item>
+                </>
               ) : getFieldValue('nodeType') === 'text' ? (
                 <Form.Item name="isMultimodal" label="多模态" valuePropName="checked" extra="开启后该节点支持视觉多模态理解（图片+文本输入）">
                   <Switch />

@@ -25,4 +25,5 @@ export const normalizeProvider = (
   usageResetDate: p.usageResetDate ?? '',
   supportsImageEdit: p.supportsImageEdit === true,
   isMultimodal: p.isMultimodal === true,
+  protocol: p.nodeType === 'image' ? (p.protocol === 'gpt' ? 'gpt' : 'modelscope') : undefined,
 })

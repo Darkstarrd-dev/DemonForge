@@ -49,6 +49,10 @@ export type { BatchGenTask, BatchGenNode, BatchGenCallbacks, BatchGenHandle } fr
 export { generateImage } from './real/image'
 export type { ImageGenParams, ImageGenEvents } from './real/image'
 
+// GPT Image 生图（OpenAI Images API 同步协议）。
+export { generateImageGpt } from './real/gptImage'
+export type { GptImageParams, GptImageDone, GptImageEvents as GptImageGptEvents } from './real/gptImage'
+
 // 通用对话（文本推理 + 多模态理解）已接真实后端。
 export { streamChat, generateTitle } from './real/chat'
 export type { ChatMessage, ChatParams, ChatEvents } from './real/chat'

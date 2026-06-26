@@ -1,8 +1,8 @@
 # HANDOFF.md — novelhelper 交接备忘
 
-**最后更新**：2026-06-24  
+**最后更新**：2026-06-26  
 **当前位置**：办公场所 A
-**本轮主题**：M0 架构空输入自动生成 ✅ + M2 提取 400 修复 ✅ + M2 并行→串行防 RPM 限流 ✅ + SSE stage 类型对齐 ✅
+**本轮主题**：GPT Image 生图集成（API 探明 + 完全独立模块）✅ + M0 架构空输入自动生成 ✅ + M2 提取 400 修复 ✅
 
 ---
 
@@ -159,6 +159,26 @@
     - 修改：`frontend/src/pages/node-test/index.tsx`（气泡渲染重构 + 4 个操作函数 + 重试流程 + 编辑态 + 节点模型名）
     - 修复：`frontend/src/pages/settings/index.tsx`（清理 3 个未使用导入，修复构建错误）
   - **状态**：编译通过（tsc + vite build），功能完整实现，待浏览器验证 ✅
+- [x] **GPT Image 生图集成**（2026-06-26）✨ 🎨
+  - **动机**：支持 GPT Image 协议（OpenAI Images API），与现有 ModelScope 异步协议并存，在设置中按节点选择协议
+  - **API 探明（阶段 1-5）**：15 次调用验证端点 `jiuuij.de5.net` + 模型 `gpt-image-2`
+    - 支持参数：`model`/`prompt`/`size`（显式尺寸，不支持 auto）/`quality`（仅 high + 默认 standard）/`background`（transparent 实测生效，RGBA 输出）/`moderation`（low/auto）
+    - 不支持：`n`（多图）/`output_format`（始终 PNG）/`output_compression`/`quality=low`
+    - 响应：同时返回 `b64_json` + `url`；耗时 29-44 秒；费用 $0.03/张（standard）
+    - 错误：空 prompt → 422，错误 key → 401，不支持的参数 → EOF/null 异常
+  - **方案 C 完全解耦**：新增独立模块，与 ModelScope 路径完全并行
+    - 后端：`server/src/gptImageClient.ts`（同步 POST /v1/images/generations → data URL）
+    - 路由：`server/src/routes/gptImage.ts`（`POST /api/image/gpt-generate` SSE 端点）
+    - 前端：`frontend/src/services/real/gptImage.ts`（SSE 消费者）
+    - 类型：`types.ts` 新增 `ImageProtocol = 'modelscope' | 'gpt'`，`ProviderNode` 新增 `protocol?: ImageProtocol`
+    - 归一化：`utils/provider.ts` 补 `protocol` 默认值（image 节点不显式指定则默认 modelscope）
+    - 设置页：图片节点表单新增「生图协议」下拉框（ModelScope 异步 / GPT Image 同步）
+    - 导出：`api.ts` 新增 `generateImageGpt` + `GptImageParams` + `GptImageDone` 导出
+  - **编译**：前端 tsc 零错误 + vite build 成功；后端 tsx 可加载所有新模块
+  - **文件变更**：
+    - 新建：`server/src/gptImageClient.ts`（95 行）、`server/src/routes/gptImage.ts`（35 行）、`frontend/src/services/real/gptImage.ts`（76 行）
+    - 修改：`server/src/index.ts`（注册 gptImageRoutes）、`services/types.ts`（ImageProtocol + ProviderNode.protocol）、`services/api.ts`（导出）、`utils/provider.ts`（protocol 默认值）、`pages/settings/index.tsx`（协议选择框 + 新建节点默认 protocol）
+  - **状态**：✅ 编译通过，待浏览器功能测试
 - [x] **节点测试 · 对比模式与模型切换标记**（2026-06-23）✨ ✅
   - **需求 1：清理参数面板标题** ✅
     - 移除右侧边栏"参数设置"标题文字
@@ -434,7 +454,15 @@
 
 ### 立即任务（本次会话后）
 
-1. **验证节点测试 · 气泡功能扩展**
+1. **验证 GPT Image 生图功能**
+   - 进入设置 → 新增图片节点 → 确认「生图协议」下拉框显示 ModelScope/GPT Image 两个选项
+   - 选择 GPT Image 协议 → 填写 endpoint `https://jiuuij.de5.net/` + API Key + 模型 `gpt-image-2` → 保存
+   - 进入节点测试页 → 切换到图片模式 → 选择 GPT Image 节点 → 填写 prompt → 生成
+   - 确认 SSE 事件流（start → downloading → done）正常
+   - 确认生成的图片可正常显示
+   - 确认错误处理：空 prompt、错误 key 等场景的提示
+
+2. **验证节点测试 · 气泡功能扩展**
    - 基础样式：时间戳在文字顶部、复制按钮无文字、折叠思考过程有复制按钮
    - 重试功能：
      - 点击 user 气泡重试 → 该 user 及其后消息消失 → 重新生成
@@ -583,6 +611,29 @@
 ---
 
 ## 技术决策记录
+
+### GPT Image 生图集成（2026-06-26 完成）
+- **动机**：支持 GPT Image 协议（OpenAI Images API），与现有 ModelScope 异步协议并存
+- **方案**：**方案 C 完全解耦**
+  - 新增独立模块：`server/src/gptImageClient.ts` + `server/src/routes/gptImage.ts` + `frontend/src/services/real/gptImage.ts`
+  - 与 ModelScope 路径完全并行，不共享代码
+  - 设置页图片节点新增「生图协议」下拉框（ModelScope 异步 / GPT Image 同步）
+  - 类型层：`ImageProtocol = 'modelscope' | 'gpt'`，`ProviderNode` 新增 `protocol?: ImageProtocol`
+  - 归一化：`provider.ts` 补默认值（image 节点不指定 protocol 则默认 modelscope，向后兼容）
+- **API 探明**（15 次调用，jiuuij.de5.net + gpt-image-2）：
+  - 支持：`model`/`prompt`/`size`（显式，不支持 auto）/`quality`（仅 high + 默认 standard）/`background`（transparent 实测生效）/`moderation`（low/auto）
+  - 不支持：`n`（多图）/`output_format`（始终 PNG）/`output_compression`/`quality=low`
+  - 响应：同时返回 `b64_json` + `url`（优先用 b64_json 避免二次下载）；耗时 29-44 秒
+  - 错误：空 prompt → 422，错误 key → 401，不支持的参数 → EOF/null 异常
+- **关键决策**：
+  - 选择方案 C 而非方案 A/B：用户明确要求完全独立模块，在设置中增加协议选择
+  - 跳过流式测试：用户确认当前不需要，降低实现复杂度
+  - 失败兜底：若阶段 1 失败立即停止；实际阶段 1 顺利通过
+- **实施成果**：
+  - ✅ 3 个新建文件 + 5 个修改文件
+  - ✅ 前端 tsc 零错误 + vite build 成功
+  - ✅ 后端 tsx 可加载所有新模块
+  - ✅ 向后兼容：旧数据无 protocol 字段自动默认 modelscope
 
 ### 代码维护拆分（2026-06-22 完成）
 - **动机**：优化编译产物体积（主包 1.8 MB 超警告阈值），提升代码可维护性

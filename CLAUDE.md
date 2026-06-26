@@ -2,11 +2,11 @@
 
 ## 项目状态
 
-- **当前阶段**：novel-generator 集成全部完成（2026-06-16）——阶段 A 地基 + 阶段 B 起源 + 阶段 C 生成/管理 + 阶段 D 批量生产；**Electron 框架迁移完成（2026-06-18）**——支持打包为可执行文件
+- **当前阶段**：novel-generator 集成全部完成（2026-06-16）——阶段 A 地基 + 阶段 B 起源 + 阶段 C 生成/管理 + 阶段 D 批量生产；**Electron 框架迁移完成（2026-06-18）**——支持打包为可执行文件；**GPT Image 生图集成完成（2026-06-26）**——支持 GPT Image 与 ModelScope 双协议
 - **本阶段约束**：
   - 设计文档（DESIGN.md 等）与配置（CLAUDE.md）照常读写
   - **已进入实现阶段**：按 DESIGN.md 正式架构（Node.js + Fastify 后端、React/Vite 前端）落地
-  - 本轮完成：M0 立项·架构（arch/blueprint）+ M4/M5 真实化（draft/finalize/consistency）+ 批量生产（startBatchGenerate + UI 面板）+ Context Assembler（6 个组件）+ sqlite-vec RAG + **Electron 迁移**（主进程、进程管理、打包配置）
+  - 本轮完成：M0 立项·架构（arch/blueprint）+ M4/M5 真实化（draft/finalize/consistency）+ 批量生产（startBatchGenerate + UI 面板）+ Context Assembler（6 个组件）+ sqlite-vec RAG + **Electron 迁移**（主进程、进程管理、打包配置）+ **GPT Image 生图**（API 探明 15 次调用 + 完全独立模块 gptImageClient/routes/service）
   - 接真实 LLM：M0/M1/M4/M5 已接真实后端；M2 提取、M3 推演仍为 mock
   - 需求决策仍以与用户沟通为主，多解时列选项由用户拍板
 
@@ -44,6 +44,7 @@
 | 全屏阅读 · 查找替换 | **已实现**（2026-06-23）：全书章节遍历按段正则/字面量匹配；结果列表窗口分页 30 条/批；两种替换模式（预览 vs 实际修改）；正则捕获组引用支持；段落跳转+正文高亮 |
 | 全屏阅读 · 单章 AI 清理 | **已实现**（2026-06-23）：章节列表 hover 显清理按钮；单章单节点直连 `streamSingleChannel`（无需调度器/暂停停止）；流式右栏+左原文双栏对比；完成后自动切 DiffView 审阅；接受 → finalText 覆盖原文 |
 | 节点测试 · System Instructions | **已实现**（2026-06-23）：仿 Google AI Studio，右侧侧边栏顶部按钮触发编辑界面；全局共享预设列表（`systemPromptPresets`）+ 当前激活项（`systemPromptActiveId`），显式保存/新建/删除，dirty 退出拦截；发送取激活预设已保存 content（草稿未保存不生效）；持久化到 `settings.json`；组件 `SystemPromptEditor.tsx`（key 重挂载方案，无 useEffect） |
+| 文生图双协议 | **已实现**（2026-06-26）：图片节点新增 `protocol` 字段（`modelscope`/`gpt`），设置页表单协议选择框；GPT Image 完全独立模块（`gptImageClient.ts` + `routes/gptImage.ts` + `services/real/gptImage.ts`），与 ModelScope 异步任务流完全解耦；API 探明 15 次调用，确认支持参数：model/prompt/size/quality(high)/background(transparent)/moderation(low)；不支持：n/output_format/output_compression/quality(low)；响应含 b64_json+url，默认用 b64_json 封 data URL 通过 SSE 回传 |
 
 ## 工作方式
 
@@ -69,4 +70,4 @@
 | `docs/phase_B_origin_plan.md` | **【已完成】** 阶段 B 起源流程详细实施计划（arch/blueprint 端点 + M0 立项页），代码已落地并验证全过 |
 | `ref/` | 只读外部参考资料备份（不参与构建）：novel-generator skill 说明/脚本/示例数据 + 8 个创作 agent 提示词（见 `ref/README.md`）；M1 原型 `10_novel_cleaner.html` |
 | `frontend/` | 前端工程（Vite + React + TS + antd）；服务层 `services/api.ts` → mock(`services/mock/`) / real(`services/real/`) |
-| `server/` | 后端工程（Fastify）：`/api/llm/{test,clean,embed,arch,blueprint}`、Provider 抽象层 `src/llmClient.ts`（含 `embed()`）、prompt 资产 `src/prompts.ts`；路由 `src/routes/creation.ts`（arch/blueprint SSE）；数据层 `src/store/db.ts`（SQLite 资产库 + sqlite-vec）+ RAG 检索层 `src/store/vector.ts` + 上下文组装器 `src/contextAssembler.ts`；路由 `/api/store`（含 `/vector/{add,query}`）、`/api/settings`、`/api/shutdown` |
+| `server/` | 后端工程（Fastify）：`/api/llm/{test,clean,embed,arch,blueprint}`、Provider 抽象层 `src/llmClient.ts`（含 `embed()`）、文生图客户端 `src/imageClient.ts`（ModelScope 异步）+ `src/gptImageClient.ts`（GPT Image 同步）、prompt 资产 `src/prompts.ts`；路由 `src/routes/creation.ts`（arch/blueprint SSE）+ `src/routes/image.ts`（ModelScope）+ `src/routes/gptImage.ts`（GPT Image）；数据层 `src/store/db.ts`（SQLite 资产库 + sqlite-vec）+ RAG 检索层 `src/store/vector.ts` + 上下文组装器 `src/contextAssembler.ts`；路由 `/api/store`（含 `/vector/{add,query}`）、`/api/settings`、`/api/shutdown` |

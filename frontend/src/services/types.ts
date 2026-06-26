@@ -316,11 +316,16 @@ export interface ConsistencyIssue {
 
 export type ProviderNodeType = 'text' | 'image'
 
+/** 图片生图协议：ModelScope 异步任务 / GPT Image 同步 API，将来可扩展更多 */
+export type ImageProtocol = 'modelscope' | 'gpt'
+
 export interface ProviderNode {
   id: string
   name: string
   /** 节点用途：文本生成(默认) / 文生图 */
   nodeType: ProviderNodeType
+  /** 文生图节点的协议（仅 nodeType=image 时生效），默认 modelscope */
+  protocol?: ImageProtocol
   baseURL: string
   apiKey: string
   model: string
