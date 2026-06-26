@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { App, Button, Space, Typography, Upload, Select, Segmented, theme, Tooltip, Image, Collapse, Popconfirm, Modal } from 'antd'
 import { PictureOutlined, CloseOutlined, MessageOutlined, CopyOutlined, SendOutlined, FileImageOutlined, HistoryOutlined, BulbOutlined, RedoOutlined, EditOutlined, DeleteOutlined, ColumnWidthOutlined } from '@ant-design/icons'
 import { useAppStore } from '../../store/appStore'
-import { generateImage, streamChat, generateTitle } from '../../services/api'
+import { generateImage, generateImageGpt, streamChat, generateTitle } from '../../services/api'
 import { genId, pushSettingsNow } from '../../store/appStore'
 import { imageHosts } from '../../services/imageHost'
 import type { ProviderNode, ProviderNodeType, ImageInputMode, ChatSession, ChatSessionMessage } from '../../services/types'
@@ -20,6 +20,12 @@ const RESOLUTIONS = [
   { value: '768x1024', label: '768×1024（3:4）' },
 ]
 
+const GPT_SIZES = [
+  { value: '1024x1024', label: '1024×1024（1:1）' },
+  { value: '1024x1536', label: '1024×1536（2:3 竖图）' },
+  { value: '1536x1024', label: '1536×1024（3:2 横图）' },
+]
+
 type Phase = 'idle' | 'submitted' | 'polling' | 'done' | 'error' | 'streaming'
 
 type TestMode = 'text' | 'image'
@@ -33,6 +39,7 @@ interface ChatMessage {
   reasoning?: string
   nodeId?: string
   modelName?: string
+  revisedPrompt?: string
 }
 
 export default function NodeTestPage() {
@@ -106,6 +113,7 @@ export default function NodeTestPage() {
   const statusTextRef = useRef('')
   const setStatusText = (v: string) => { statusTextRef.current = v }
   const [currentResult, setCurrentResult] = useState<string | null>(null)
+  const [currentRevisedPrompt, setCurrentRevisedPrompt] = useState<string | null>(null)
   const currentTextResponseRef = useRef('')
   const setCurrentTextResponse = (v: string) => { currentTextResponseRef.current = v } // 文本或图片 data URL
   const [selectedImages, setSelectedImages] = useState<File[]>([])
@@ -188,14 +196,20 @@ export default function NodeTestPage() {
     guidance: nodeParams?.guidance,
     seed: nodeParams?.seed,
     imageInputMode: nodeParams?.imageInputMode,
+    gptQuality: nodeParams?.gptQuality ?? '',
+    gptBackground: nodeParams?.gptBackground ?? '',
+    gptModeration: nodeParams?.gptModeration ?? '',
     temperature: nodeParams?.temperature ?? 0.7,
     topP: nodeParams?.topP ?? 0.9,
     topK: nodeParams?.topK,
     maxTokens: nodeParams?.maxTokens ?? 2000,
   }
 
-  const isModelScope = nodeTestForm.provider === 'modelscope'
   const isImageMode = testMode === 'image'
+  const nodeProtocol = selectedNode?.protocol ?? 'modelscope'
+  const isModelScope = isImageMode && nodeProtocol === 'modelscope'
+  const isGpt = isImageMode && nodeProtocol === 'gpt'
+  const gptSizeIsCustom = isGpt && nodeTestForm.resolution !== '' && !GPT_SIZES.some((s) => s.value === nodeTestForm.resolution)
   const supportsEdit = selectedNode?.supportsImageEdit ?? false
   const isMultimodal = selectedNode?.isMultimodal ?? false
 
@@ -861,6 +875,7 @@ export default function NodeTestPage() {
     setPhase('idle')
     setStatusText('')
     setCurrentResult(null)
+    setCurrentRevisedPrompt(null)
     setCurrentTextResponse('')
     setDebugInfo({ previewBody: null, actualBody: null, sseChunks: [] })
 
@@ -906,6 +921,104 @@ export default function NodeTestPage() {
     try {
       if (isImageMode) {
         // 图片生成模式
+        if (isGpt) {
+          const gptSize = nodeTestForm.resolution
+          await generateImageGpt(
+            {
+              baseURL: selectedNode.baseURL,
+              apiKey: selectedNode.apiKey,
+              model: selectedNode.model,
+              prompt: nodeTestForm.prompt.trim(),
+              ...(gptSize ? { size: gptSize } : {}),
+              ...(nodeTestForm.gptQuality ? { quality: nodeTestForm.gptQuality } : {}),
+              ...(nodeTestForm.gptBackground ? { background: nodeTestForm.gptBackground } : {}),
+              ...(nodeTestForm.gptModeration ? { moderation: nodeTestForm.gptModeration } : {}),
+            },
+            {
+              start: () => {
+                setPhase('submitted')
+                setStatusText('GPT Image 生成中…')
+              },
+              downloading: () => {
+                setPhase('polling')
+                setStatusText('下载图片中…')
+              },
+              done: ({ image: dataUrl, revisedPrompt }) => {
+                setCurrentResult(dataUrl)
+                setCurrentRevisedPrompt(revisedPrompt ?? null)
+                setPhase('done')
+                setStatusText('')
+                const userMsg: ChatMessage = {
+                  id: genId('msg'),
+                  role: 'user',
+                  content: nodeTestForm.prompt.trim(),
+                  timestamp: Date.now(),
+                  ...(imageInputs.length > 0 ? { images: imageInputs } : {}),
+                  nodeId: selectedNode!.id,
+                  modelName: selectedNode!.model,
+                }
+                const assistantMsg: ChatMessage = {
+                  id: genId('msg'),
+                  role: 'assistant',
+                  content: dataUrl,
+                  timestamp: Date.now(),
+                  nodeId: selectedNode!.id,
+                  modelName: selectedNode!.model,
+                  ...(revisedPrompt ? { revisedPrompt } : {}),
+                }
+                const testType: ChatSession['testType'] = imageInputs.length > 0 ? 'multimodal' : 'image'
+                let sessionId = activeChatSessionId
+                const isFirst = !sessionId
+                if (!sessionId) {
+                  sessionId = createChatSession({
+                    id: genId('cs'),
+                    title: nodeTestForm.prompt.trim().slice(0, 20),
+                    testType,
+                    nodeId: selectedNode!.id,
+                    modelName: selectedNode!.model,
+                    messages: [userMsg, assistantMsg],
+                    ...(gptSize ? { size: gptSize } : {}),
+                    ...(nodeTestForm.gptQuality ? { gptQuality: nodeTestForm.gptQuality } : {}),
+                    ...(nodeTestForm.gptBackground ? { gptBackground: nodeTestForm.gptBackground } : {}),
+                    ...(nodeTestForm.gptModeration ? { gptModeration: nodeTestForm.gptModeration } : {}),
+                    createdAt: new Date().toISOString(),
+                    updatedAt: new Date().toISOString(),
+                  })
+                  setActiveChatSessionId(sessionId)
+                } else {
+                  const cur = chatSessions.find((c: ChatSession) => c.id === sessionId)
+                  updateChatSession(sessionId, {
+                    messages: [...(cur?.messages ?? []), userMsg, assistantMsg],
+                    updatedAt: new Date().toISOString(),
+                  })
+                }
+                if (isFirst) {
+                  const sid = sessionId
+                  generateTitle(
+                    { baseURL: selectedNode!.baseURL, apiKey: selectedNode!.apiKey, model: selectedNode!.model },
+                    nodeTestForm.prompt.trim(),
+                    '',
+                  ).then((title) => renameChatSession(sid, title)).catch(() => {})
+                }
+              },
+              debug: ({ stage, payload, response, error: dbgError }) => {
+                setDebugInfo((prev) => {
+                  const next = { ...prev }
+                  if (stage === 'submit') {
+                    next.previewBody = { model: selectedNode!.model, size: gptSize, prompt: nodeTestForm.prompt.trim() }
+                    if (payload !== undefined) next.actualBody = payload
+                  }
+                  const chunk: { line: string; json: unknown | null } = {
+                    line: `${stage}${dbgError ? ' \u26a0 ' + dbgError : ''}`,
+                    json: response ?? null,
+                  }
+                  return { ...next, sseChunks: [...prev.sseChunks, chunk] }
+                })
+              },
+            },
+            ac.signal,
+          )
+        } else {
         const size = isModelScope ? nodeTestForm.resolution : undefined
         await generateImage(
           {
@@ -1005,6 +1118,7 @@ export default function NodeTestPage() {
           },
           ac.signal,
         )
+        }
       } else {
         // 文本推理模式（聊天形式）
         setPhase('streaming')
@@ -1332,6 +1446,9 @@ export default function NodeTestPage() {
                   timestamp: m.timestamp || Date.now(),
                   ...(m.images ? { images: m.images } : {}),
                   ...(m.reasoning ? { reasoning: m.reasoning } : {}),
+                  ...(m.nodeId ? { nodeId: m.nodeId } : {}),
+                  ...(m.modelName ? { modelName: m.modelName } : {}),
+                  ...(m.revisedPrompt ? { revisedPrompt: m.revisedPrompt } : {}),
                 })))
                 setTestMode(s.testType === 'image' ? 'image' : 'text')
                 setMainView('chat')
@@ -1400,6 +1517,11 @@ export default function NodeTestPage() {
                       }} />
                       <Typography.Text style={{ color: token.colorText, marginTop: 12 }}>生成中...</Typography.Text>
                     </div>
+                  )}
+                  {currentRevisedPrompt && (
+                    <Typography.Text type="secondary" style={{ display: 'block', fontSize: 12, marginTop: 8, lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>
+                      模型改写：{currentRevisedPrompt}
+                    </Typography.Text>
                   )}
                 </div>
               ) : (
@@ -2296,29 +2418,89 @@ export default function NodeTestPage() {
                 </div>
               )}
 
-              <div style={{ marginBottom: 16 }}>
-                <Typography.Text style={{ color: token.colorTextSecondary, fontSize: 12, display: 'block', marginBottom: 4 }}>反向提示词</Typography.Text>
-                <textarea
-                  value={nodeTestForm.negativePrompt ?? ''}
-                  onChange={(e) => setForm({ negativePrompt: e.target.value })}
-                  placeholder="描述要避免的内容"
-                  disabled={busy}
-                  rows={3}
-                  style={{
-                    width: '100%',
-                    background: token.colorBgContainer,
-                    border: `1px solid ${token.colorBorder}`,
-                    borderRadius: 6,
-                    padding: 8,
-                    color: token.colorText,
-                    fontSize: 13,
-                    resize: 'none',
-                    fontFamily: 'inherit',
-                  }}
-                />
-              </div>
+              {isGpt && (
+                <>
+                  <div style={{ marginBottom: 16 }}>
+                    <Typography.Text style={{ color: token.colorTextSecondary, fontSize: 12, display: 'block', marginBottom: 4 }}>尺寸</Typography.Text>
+                    <Select
+                      style={{ width: '100%' }}
+                      value={gptSizeIsCustom ? '__custom__' : nodeTestForm.resolution}
+                      onChange={(v) => setForm({ resolution: v === '__custom__' ? '' : v })}
+                      disabled={busy}
+                      options={[...GPT_SIZES, { value: '__custom__', label: '自定义...' }]}
+                    />
+                    {(gptSizeIsCustom || nodeTestForm.resolution === '') && (
+                      <input
+                        type="text"
+                        value={nodeTestForm.resolution}
+                        onChange={(e) => setForm({ resolution: e.target.value })}
+                        placeholder="如 1024x1792"
+                        disabled={busy}
+                        style={{ width: '100%', marginTop: 8, background: token.colorBgContainer, border: `1px solid ${token.colorBorder}`, borderRadius: 6, padding: 8, color: token.colorText, fontSize: 13 }}
+                      />
+                    )}
+                  </div>
 
-              {(supportsEdit || isMultimodal) && (
+                  <div style={{ marginBottom: 16 }}>
+                    <Typography.Text style={{ color: token.colorTextSecondary, fontSize: 12, display: 'block', marginBottom: 4 }}>画质</Typography.Text>
+                    <Select
+                      style={{ width: '100%' }}
+                      value={nodeTestForm.gptQuality ?? ''}
+                      onChange={(v) => setForm({ gptQuality: v })}
+                      disabled={busy}
+                      options={[{ value: '', label: '标准' }, { value: 'high', label: '高清' }]}
+                    />
+                  </div>
+
+                  <div style={{ marginBottom: 16 }}>
+                    <Typography.Text style={{ color: token.colorTextSecondary, fontSize: 12, display: 'block', marginBottom: 4 }}>背景</Typography.Text>
+                    <Select
+                      style={{ width: '100%' }}
+                      value={nodeTestForm.gptBackground ?? ''}
+                      onChange={(v) => setForm({ gptBackground: v })}
+                      disabled={busy}
+                      options={[{ value: '', label: '不透明' }, { value: 'transparent', label: '透明' }]}
+                    />
+                  </div>
+
+                  <div style={{ marginBottom: 16 }}>
+                    <Typography.Text style={{ color: token.colorTextSecondary, fontSize: 12, display: 'block', marginBottom: 4 }}>审核</Typography.Text>
+                    <Select
+                      style={{ width: '100%' }}
+                      value={nodeTestForm.gptModeration ?? ''}
+                      onChange={(v) => setForm({ gptModeration: v })}
+                      disabled={busy}
+                      options={[{ value: '', label: '自动' }, { value: 'low', label: '宽松' }]}
+                    />
+                  </div>
+                </>
+              )}
+
+              {isModelScope && (
+                <div style={{ marginBottom: 16 }}>
+                  <Typography.Text style={{ color: token.colorTextSecondary, fontSize: 12, display: 'block', marginBottom: 4 }}>反向提示词</Typography.Text>
+                  <textarea
+                    value={nodeTestForm.negativePrompt ?? ''}
+                    onChange={(e) => setForm({ negativePrompt: e.target.value })}
+                    placeholder="描述要避免的内容"
+                    disabled={busy}
+                    rows={3}
+                    style={{
+                      width: '100%',
+                      background: token.colorBgContainer,
+                      border: `1px solid ${token.colorBorder}`,
+                      borderRadius: 6,
+                      padding: 8,
+                      color: token.colorText,
+                      fontSize: 13,
+                      resize: 'none',
+                      fontFamily: 'inherit',
+                    }}
+                  />
+                </div>
+              )}
+
+              {isModelScope && (supportsEdit || isMultimodal) && (
                 <div style={{ marginBottom: 16 }}>
                   <Typography.Text style={{ color: token.colorTextSecondary, fontSize: 12, display: 'block', marginBottom: 4 }}>图片输入方式</Typography.Text>
                   <Select

@@ -45,6 +45,7 @@ export async function generateImageGpt(
   if (cfg.moderation) body.moderation = cfg.moderation
 
   onEvent('start', { message: 'GPT Image 生成中...' })
+  onEvent('debug', { stage: 'submit', payload: body })
 
   const res = await fetch(`${base}/images/generations`, {
     method: 'POST',
@@ -55,6 +56,7 @@ export async function generateImageGpt(
 
   if (!res.ok) {
     const text = await res.text().catch(() => '')
+    onEvent('debug', { stage: 'submit', error: `HTTP ${res.status}: ${text.slice(0, 300)}` })
     throw new Error(`GPT Image 失败 HTTP ${res.status}: ${text.slice(0, 300)}`)
   }
 
@@ -62,6 +64,8 @@ export async function generateImageGpt(
     data?: Array<{ b64_json?: string; url?: string; revised_prompt?: string }>
     usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number }
   }
+
+  onEvent('debug', { stage: 'response', response: data })
 
   const imageData = data.data?.[0]
   if (!imageData) throw new Error('响应中无 image data')
@@ -71,6 +75,7 @@ export async function generateImageGpt(
     dataUrl = `data:image/png;base64,${imageData.b64_json}`
   } else if (imageData.url) {
     onEvent('downloading', { message: '下载图片中...' })
+    onEvent('debug', { stage: 'fetchImage', response: { url: imageData.url } })
     const imgRes = await fetch(imageData.url, { signal })
     if (!imgRes.ok) throw new Error(`下载图片失败 HTTP ${imgRes.status}`)
     const buf = new Uint8Array(await imgRes.arrayBuffer())

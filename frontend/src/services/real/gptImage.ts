@@ -19,10 +19,20 @@ export interface GptImageDone {
   usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number }
 }
 
+/** 调试事件载荷：展示后端发给 GPT Image 的 payload 与各阶段返回的原始响应 */
+export interface GptImageDebug {
+  stage: 'submit' | 'response' | 'fetchImage'
+  payload?: unknown
+  response?: unknown
+  error?: string
+}
+
 export interface GptImageEvents {
   start: (data: { message: string }) => void
   downloading: (data: { message: string }) => void
   done: (data: GptImageDone) => void
+  /** 调试事件：提交/响应/取图时触发，携带 payload 与 GPT 返回的响应体 */
+  debug: (data: GptImageDebug) => void
 }
 
 /** GPT Image 流式请求：转发 POST 到后端，逐 SSE 事件回调；失败（error 事件或网络）抛错。 */
@@ -65,6 +75,7 @@ export async function generateImageGpt(
       if (event === 'start') events.start?.(parsed as unknown as { message: string })
       else if (event === 'downloading') events.downloading?.(parsed as unknown as { message: string })
       else if (event === 'done') events.done?.(parsed as unknown as GptImageDone)
+      else if (event === 'debug') events.debug?.(parsed as unknown as GptImageDebug)
       else if (event === 'error') throw new Error((parsed.message as string) ?? 'GPT 生图失败')
     }
     if (done) break

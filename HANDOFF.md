@@ -2,7 +2,7 @@
 
 **最后更新**：2026-06-26  
 **当前位置**：办公场所 A
-**本轮主题**：GPT Image 生图集成（API 探明 + 完全独立模块）✅ + M0 架构空输入自动生成 ✅ + M2 提取 400 修复 ✅
+**本轮主题**：GPT Image 生图集成（API 探明 + 完全独立模块）✅ + M0 架构空输入自动生成 ✅ + M2 提取 400 修复 ✅ + GPT 模式前端边栏/生图接线 ✅
 
 ---
 
@@ -179,6 +179,22 @@
     - 新建：`server/src/gptImageClient.ts`（95 行）、`server/src/routes/gptImage.ts`（35 行）、`frontend/src/services/real/gptImage.ts`（76 行）
     - 修改：`server/src/index.ts`（注册 gptImageRoutes）、`services/types.ts`（ImageProtocol + ProviderNode.protocol）、`services/api.ts`（导出）、`utils/provider.ts`（protocol 默认值）、`pages/settings/index.tsx`（协议选择框 + 新建节点默认 protocol）
   - **状态**：✅ 编译通过，待浏览器功能测试
+- [x] **GPT 模式前端边栏 + 生图接线**（2026-06-26）✨ 🎨
+  - **动机**：上轮 GPT 后端/服务层/设置选择器已搭好，但节点测试页未读取节点 `protocol`，边栏无 GPT 选项且 `handleGenerate` 永远调 ModelScope。本轮补全前端
+  - **核心修正**：`isModelScope`/`isGpt` 改为从 `selectedNode.protocol` 派生（原先用全局 `nodeTestGlobalForm.provider`），选中 GPT 节点时边栏自动切换
+  - **GPT 边栏字段 + 默认值**：
+    - 尺寸：Select（1024×1024 / 1024×1536 / 1536×1024 + 自定义输入），默认 1024×1024，复用 `resolution` 字段
+    - 画质：标准(不发送) / 高清(high)，默认标准
+    - 背景：不透明(不发送) / 透明(transparent)，默认不透明
+    - 审核：自动(不发送) / 宽松(low)，默认自动
+  - **边栏归属调整**：「反向提示词」「图片输入方式」改为 ModelScope 专属（GPT 后端无 negativePrompt/imageInputs）
+  - **生成分支**：`handleGenerate` 图片模式按 `isGpt` 分支 → 调 `generateImageGpt`；事件映射 `start→submitted`/`downloading→polling`/`done→done`；done 持久化 GPT 参数快照到 ChatSession
+  - **revisedPrompt**：GPT 返回的模型改写提示词展示在中央图片下方（小字），持久化到 `ChatSessionMessage.revisedPrompt`
+  - **Debug Info 扩展**：后端 `gptImageClient.ts` emit `debug` 事件（stage: submit/response/fetchImage，payload/response/error），路由已全量转发；前端服务加 `debug` 回调；DebugInfoPanel 映射 previewBody/actualBody/sseChunks，与 ModelScope 对齐
+  - **类型扩展**（JSON 文档存储，免迁移）：`NodeTestForm` + `ChatSession` 加 `gptQuality`/`gptBackground`/`gptModeration`；`ChatSessionMessage` + 本地 `ChatMessage` 加 `revisedPrompt`
+  - **文件变更**：
+    - 修改：`server/src/gptImageClient.ts`（emit debug）、`frontend/src/services/real/gptImage.ts`（debug 回调 + 类型）、`services/api.ts`（导出 GptImageDebug）、`services/types.ts`（ChatSession/ChatSessionMessage 字段）、`store/appStore.ts`（NodeTestForm 字段）、`pages/node-test/index.tsx`（协议派生 + GPT 边栏 + 生成分支 + debug + revisedPrompt 展示 + 历史加载映射）
+  - **状态**：✅ 前端 tsc + vite build + 后端 tsc 零错误，待浏览器功能测试
 - [x] **节点测试 · 对比模式与模型切换标记**（2026-06-23）✨ ✅
   - **需求 1：清理参数面板标题** ✅
     - 移除右侧边栏"参数设置"标题文字
@@ -457,9 +473,14 @@
 1. **验证 GPT Image 生图功能**
    - 进入设置 → 新增图片节点 → 确认「生图协议」下拉框显示 ModelScope/GPT Image 两个选项
    - 选择 GPT Image 协议 → 填写 endpoint `https://jiuuij.de5.net/` + API Key + 模型 `gpt-image-2` → 保存
-   - 进入节点测试页 → 切换到图片模式 → 选择 GPT Image 节点 → 填写 prompt → 生成
-   - 确认 SSE 事件流（start → downloading → done）正常
+   - 进入节点测试页 → 切换到图片模式 → 选择 GPT Image 节点
+   - **验证边栏切换**：右侧边栏应显示「尺寸/画质/背景/审核」四项（而非 ModelScope 的分辨率/反向提示词/步数/引导/种子）；尺寸默认 1024×1024，其余默认标准/不透明/自动
+   - **验证尺寸自定义**：尺寸下拉选「自定义...」→ 出现文本输入框 → 输入如 `1024x1792` → 生成
+   - 填写 prompt → 生成 → 确认 SSE 事件流（start → downloading → done）正常
    - 确认生成的图片可正常显示
+   - **验证 revisedPrompt**：若模型返回改写提示词，图片下方应显示「模型改写：…」小字
+   - **验证 Debug Info**：右侧 Debug Info 面板 → previewBody（前端构造）/ actualBody（后端实际请求体）/ sseChunks（原始响应）三块均有内容
+   - **验证对话记录**：生成后在对话记录中可回看，切换回 ModelScope 节点后边栏应切回 ModelScope 字段
    - 确认错误处理：空 prompt、错误 key 等场景的提示
 
 2. **验证节点测试 · 气泡功能扩展**

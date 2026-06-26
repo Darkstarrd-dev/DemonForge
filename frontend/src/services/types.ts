@@ -161,6 +161,8 @@ export interface ChatSessionMessage {
   nodeId?: string
   /** 模型名称（用于模型切换标记） */
   modelName?: string
+  /** GPT Image 模型改写后的提示词（仅 GPT 图片模式 assistant 消息） */
+  revisedPrompt?: string
 }
 
 /** 对话记录（一轮对话流 = 一个 session，多轮累积）。持久化到 chat_sessions 表 */
@@ -185,6 +187,10 @@ export interface ChatSession {
   guidance?: number
   seed?: number
   imageInputMode?: ImageInputMode
+  // ===== GPT Image 参数快照 =====
+  gptQuality?: string
+  gptBackground?: string
+  gptModeration?: string
   createdAt: string
   updatedAt: string
 }

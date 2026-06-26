@@ -59,6 +59,13 @@ export interface NodeTestForm {
   seed?: number
   /** 图片输入方式（base64 / catbox / litterbox / 0x0 / telegraph） */
   imageInputMode?: ImageInputMode
+  // ===== GPT Image 专属参数 =====
+  /** 画质：'high' 表示高清，留空为标准（standard） */
+  gptQuality?: string
+  /** 背景：'transparent' 表示透明，留空为不透明 */
+  gptBackground?: string
+  /** 审核：'low' 表示宽松，留空为自动（auto） */
+  gptModeration?: string
   // ===== 文本推理参数 =====
   temperature?: number
   topP?: number
