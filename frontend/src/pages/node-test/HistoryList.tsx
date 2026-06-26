@@ -1,6 +1,6 @@
 import { useState } from 'react'
-import { App, Button, Input, Popconfirm, Space, Typography, Empty, theme } from 'antd'
-import { CloseOutlined, EditOutlined, DeleteOutlined, SearchOutlined } from '@ant-design/icons'
+import { App, Button, Checkbox, Input, Popconfirm, Space, Typography, Empty, theme } from 'antd'
+import { CloseOutlined, EditOutlined, DeleteOutlined, SearchOutlined, CheckSquareOutlined } from '@ant-design/icons'
 import type { ChatSession } from '../../services/types'
 
 interface Props {
@@ -8,20 +8,61 @@ interface Props {
   onSelect: (id: string) => void
   onRename: (id: string, title: string) => void
   onDelete: (id: string) => void
+  onDeleteMany: (ids: string[]) => void
   onExit: () => void
 }
 
-export default function HistoryList({ sessions, onSelect, onRename, onDelete, onExit }: Props) {
+export default function HistoryList({ sessions, onSelect, onRename, onDelete, onDeleteMany, onExit }: Props) {
   const { token } = theme.useToken()
   const { message } = App.useApp()
   const [keyword, setKeyword] = useState('')
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editingTitle, setEditingTitle] = useState('')
+  const [selectMode, setSelectMode] = useState(false)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
 
   const filtered = sessions
     .filter((s) => s.title.toLowerCase().includes(keyword.toLowerCase()))
     .slice()
     .sort((a, b) => (a.updatedAt > b.updatedAt ? -1 : 1))
+
+  const filteredIds = new Set(filtered.map((s) => s.id))
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const selectAll = () => {
+    setSelectedIds(new Set(filtered.map((s) => s.id)))
+  }
+
+  const invertSelect = () => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      for (const id of filteredIds) {
+        if (next.has(id)) next.delete(id)
+        else next.add(id)
+      }
+      return next
+    })
+  }
+
+  const exitSelectMode = () => {
+    setSelectMode(false)
+    setSelectedIds(new Set())
+  }
+
+  const deleteSelected = () => {
+    if (selectedIds.size === 0) return
+    onDeleteMany([...selectedIds])
+    message.success(`已删除 ${selectedIds.size} 条记录`)
+    exitSelectMode()
+  }
 
   const startEdit = (s: ChatSession) => {
     setEditingId(s.id)
@@ -61,9 +102,28 @@ export default function HistoryList({ sessions, onSelect, onRename, onDelete, on
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: token.colorBgContainer }}>
-      {/* Header：标题 + 搜索 + 退出 */}
+      {/* Header：标题 + 搜索 + 操作 */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '16px 24px', borderBottom: `1px solid ${token.colorBorder}`, flexShrink: 0 }}>
         <Typography.Title level={5} style={{ margin: 0, color: token.colorText, flexShrink: 0 }}>历史记录</Typography.Title>
+        {selectMode ? (
+          <>
+            <Button size="small" onClick={selectAll}>全选</Button>
+            <Button size="small" onClick={invertSelect}>反选</Button>
+            <Popconfirm
+              title={`删除选中的 ${selectedIds.size} 条记录？`}
+              okText="删除"
+              okButtonProps={{ danger: true }}
+              cancelText="取消"
+              onConfirm={deleteSelected}
+              disabled={selectedIds.size === 0}
+            >
+              <Button size="small" danger disabled={selectedIds.size === 0}>删除选中 ({selectedIds.size})</Button>
+            </Popconfirm>
+            <Button size="small" onClick={exitSelectMode}>退出复选</Button>
+          </>
+        ) : (
+          <Button size="small" icon={<CheckSquareOutlined />} onClick={() => setSelectMode(true)}>批量管理</Button>
+        )}
         <Input
           allowClear
           prefix={<SearchOutlined style={{ color: token.colorTextQuaternary }} />}
@@ -84,7 +144,13 @@ export default function HistoryList({ sessions, onSelect, onRename, onDelete, on
             {filtered.map((s) => (
               <div
                 key={s.id}
-                onClick={() => editingId !== s.id && onSelect(s.id)}
+                onClick={() => {
+                  if (selectMode) {
+                    toggleSelect(s.id)
+                  } else if (editingId !== s.id) {
+                    onSelect(s.id)
+                  }
+                }}
                 style={{
                   display: 'flex',
                   alignItems: 'center',
@@ -92,13 +158,16 @@ export default function HistoryList({ sessions, onSelect, onRename, onDelete, on
                   padding: '12px 16px',
                   background: token.colorBgElevated,
                   borderRadius: 8,
-                  border: `1px solid ${token.colorBorder}`,
+                  border: `1px solid ${selectedIds.has(s.id) ? token.colorPrimary : token.colorBorder}`,
                   cursor: editingId === s.id ? 'default' : 'pointer',
                   transition: 'border-color 0.2s',
                 }}
-                onMouseEnter={(e) => { if (editingId !== s.id) e.currentTarget.style.borderColor = token.colorPrimary }}
-                onMouseLeave={(e) => { e.currentTarget.style.borderColor = token.colorBorder }}
+                onMouseEnter={(e) => { if (editingId !== s.id && !selectMode) e.currentTarget.style.borderColor = token.colorPrimary }}
+                onMouseLeave={(e) => { e.currentTarget.style.borderColor = selectedIds.has(s.id) ? token.colorPrimary : token.colorBorder }}
               >
+                {selectMode && (
+                  <Checkbox checked={selectedIds.has(s.id)} onClick={(e) => e.stopPropagation()} onChange={() => toggleSelect(s.id)} />
+                )}
                 <div style={{ flex: 1, minWidth: 0 }}>
                   {editingId === s.id ? (
                     <Input
@@ -131,7 +200,7 @@ export default function HistoryList({ sessions, onSelect, onRename, onDelete, on
                       <Button size="small" type="primary" onClick={commitEdit}>保存</Button>
                       <Button size="small" onClick={cancelEdit}>取消</Button>
                     </>
-                  ) : (
+                  ) : selectMode ? null : (
                     <>
                       <Button size="small" type="text" icon={<EditOutlined />} onClick={() => startEdit(s)} title="更名" />
                       <Popconfirm

@@ -2,7 +2,7 @@
 
 **最后更新**：2026-06-27  
 **当前位置**：办公场所 A
-**本轮主题**：xAI Imagine 协议整合 ✅ + 文生图三协议统一（ModelScope / GPT Image / xAI Imagine）
+**本轮主题**：节点测试 · 删除竞态修复 + toggle + 复选批量删除
 
 ---
 
@@ -548,6 +548,26 @@
   - 元信息（格式·宽×高·透明通道）
   - 保存多格式（Dropdown PNG/JPEG/WEBP）
   - 验证：tsc + vite build 零新增错误 ✅
+
+- [x] **节点测试 · 删除竞态修复**（2026-06-27）🔧
+  - **根因**：大 POST（含 base64）与 DELETE 独立 fetch 并发 → 滞后 POST upsert 复活已删记录
+  - **修复**：appStore.ts 新增 `storeWriteChain` 全局串行 promise 队列 + `enqueueWrite<T>()` 辅助
+  - `pushStore`(POST) 与 `deleteStore`(DELETE) 的 fetch 均经 enqueueWrite 串行化
+  - 效果：删除前 in-flight POST 先完成，DELETE 排后执行；后续 POST 不含已删 id → 永不复活
+  - 验证：tsc --noEmit + vite build 通过 ✅
+
+- [x] **节点测试 · 对话记录 toggle 开关**（2026-06-27）
+  - index.tsx:2929 按钮改为 `onClick={() => setMainView(mainView === 'history' ? 'chat' : 'history')}`
+  - 开启态高亮 `type={mainView === 'history' ? 'primary' : 'default'}`
+  - 再点即 = 关闭（与 HistoryList header X 按钮效果一致）
+
+- [x] **节点测试 · header 复选批量删除**（2026-06-27）✨
+  - **HistoryList.tsx**：新增 selectMode/selectedIds 状态；header 加「批量管理」切换按钮
+  - 复选模式：全选 / 反选 / 删除选中(N)（Popconfirm 二次确认）/ 退出复选
+  - 列表项左侧 Checkbox；点击整行 toggle 勾选（不再触发 onSelect）
+  - **appStore.ts**：新增 `deleteChatSessions(ids: string[])` 单次过滤 + 单次 DELETE
+  - **index.tsx**：接线 `onDeleteMany={(ids) => deleteChatSessions(ids)}`
+  - 验证：tsc --noEmit + vite build 通过 ✅
 
 ### 立即任务（本次会话后）
 

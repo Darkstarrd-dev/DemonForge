@@ -63,6 +63,7 @@ export default function NodeTestPage() {
   const updateChatSession = useAppStore((s) => s.updateChatSession)
   const renameChatSession = useAppStore((s) => s.renameChatSession)
   const deleteChatSession = useAppStore((s) => s.deleteChatSession)
+  const deleteChatSessions = useAppStore((s) => s.deleteChatSessions)
   const setActiveChatSessionId = useAppStore((s) => s.setActiveChatSessionId)
   const systemPromptPresets = useAppStore((s) => s.systemPromptPresets)
   const systemPromptActiveId = useAppStore((s) => s.systemPromptActiveId)
@@ -1571,6 +1572,7 @@ export default function NodeTestPage() {
             }}
             onRename={(id, title) => renameChatSession(id, title)}
             onDelete={(id) => deleteChatSession(id)}
+            onDeleteMany={(ids) => deleteChatSessions(ids)}
             onExit={() => setMainView('chat')}
           />
         ) : (
@@ -2926,7 +2928,10 @@ setChatMessages([])
         {/* 对话记录入口 */}
         <div style={{ padding: 16, borderTop: `1px solid ${token.colorBorder}`, flexShrink: 0 }}>
           <Tooltip title={compareMode ? '对比模式下不可用' : ''}>
-            <Button block icon={<HistoryOutlined />} onClick={() => setMainView('history')} disabled={compareMode}>
+            <Button block icon={<HistoryOutlined />}
+              type={mainView === 'history' ? 'primary' : 'default'}
+              onClick={() => setMainView(mainView === 'history' ? 'chat' : 'history')}
+              disabled={compareMode}>
               对话记录 ({chatSessions.length})
             </Button>
           </Tooltip>

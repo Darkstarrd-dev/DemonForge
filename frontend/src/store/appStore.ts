@@ -216,6 +216,8 @@ export interface AppState {
   renameChatSession: (id: string, title: string) => void
   /** 节点测试：按 id 删除对话记录（立即落库） */
   deleteChatSession: (id: string) => void
+  /** 节点测试：批量删除多条对话记录（立即落库，单次 DELETE） */
+  deleteChatSessions: (ids: string[]) => void
   /** 节点测试：设置当前激活的对话记录 id（内存态，不持久化） */
   setActiveChatSessionId: (id: string | null) => void
   /** 向后兼容：旧的 addImage 方法别名 */
@@ -468,6 +470,14 @@ export const useAppStore = create<AppState>()((set, get) => ({
     }))
     pushDeleteNow({ chatSessions: [id] })
   },
+  deleteChatSessions: (ids) => {
+    const idSet = new Set(ids)
+    set((s) => ({
+      chatSessions: s.chatSessions.filter((c) => !idSet.has(c.id)),
+      activeChatSessionId: s.activeChatSessionId && idSet.has(s.activeChatSessionId) ? null : s.activeChatSessionId,
+    }))
+    pushDeleteNow({ chatSessions: ids })
+  },
   setActiveChatSessionId: (id) => {
     set({ activeChatSessionId: id })
   },
@@ -556,6 +566,15 @@ export const businessPayload = (s: AppState) => ({
   chatSessions: s.chatSessions,
 })
 
+/** 全局串行写入队列：确保 POST(upsert) 与 DELETE 按调用顺序执行，防止竞态复活。
+ * 例如：大体积 POST（含 base64）in-flight 时用户点删除 → DELETE 先到 → 滞后 POST 后到 upsert 复活。 */
+let storeWriteChain: Promise<void> = Promise.resolve()
+const enqueueWrite = <T>(fn: () => Promise<T>): Promise<T> => {
+  const p = storeWriteChain.then(fn, fn)
+  storeWriteChain = p.catch(() => {})
+  return p
+}
+
 const pushStore = (payload: Record<string, unknown>) => {
   const controller = new AbortController()
   const timeoutId = setTimeout(() => controller.abort(), 60000) // 60秒超时（增加到60秒）
@@ -575,21 +594,25 @@ const pushStore = (payload: Record<string, unknown>) => {
     throw new Error(`序列化数据失败：${err instanceof Error ? err.message : String(err)}`)
   }
 
-  return fetch('/api/store', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: jsonString,
-    signal: controller.signal,
-  }).finally(() => clearTimeout(timeoutId))
+  return enqueueWrite(() =>
+    fetch('/api/store', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: jsonString,
+      signal: controller.signal,
+    }).finally(() => clearTimeout(timeoutId))
+  )
 }
 
 /** 显式删除请求（DELETE /api/store）。syncAll 已改为纯 upsert，删除走此端点。 */
 const deleteStore = (deletes: Record<string, string[]>) =>
-  fetch('/api/store', {
-    method: 'DELETE',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(deletes),
-  })
+  enqueueWrite(() =>
+    fetch('/api/store', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(deletes),
+    })
+  )
 
 /** 启动引导：先拉设置，再拉业务数据；后端为空且从未初始化过才用种子播种。 */
 export async function bootstrapStore(): Promise<void> {
