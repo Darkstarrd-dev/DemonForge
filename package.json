@@ -1,5 +1,5 @@
 {
-  "name": "novelhelper",
+  "name": "demonforge",
   "version": "0.1.0",
   "description": "综合小说创作辅助工具",
   "main": "dist-electron/main.js",
@@ -28,8 +28,8 @@
     "ws": "^8.21.0"
   },
   "build": {
-    "appId": "com.novelhelper.app",
-    "productName": "NovelHelper",
+    "appId": "com.demonforge.app",
+    "productName": "DemonForge",
     "directories": {
       "output": "release",
       "buildResources": "build"

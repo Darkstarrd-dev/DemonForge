@@ -115,7 +115,7 @@ export default function AppLayout() {
               }}
               onClick={() => setSidebarCollapsed(false)}
             >
-              NovelHelper
+              DemonForge
             </div>
           )}
         </div>
@@ -149,7 +149,7 @@ export default function AppLayout() {
               style={{ flex: 1, cursor: 'pointer' }}
               onClick={onLogoClick}
             >
-              NovelHelper
+              DemonForge
             </span>
             <Segmented
               value={theme}

@@ -360,9 +360,12 @@ function startFrontend(): Promise<void> {
  * 创建主窗口
  */
 function createWindow(showMenuBar = true) {
+  // 窗口/任务栏图标：开发模式用 build/icon.ico（生产环境 exe 图标由 electron-builder 内嵌）
+  const iconPath = join(ROOT, 'build', 'icon.ico')
   mainWindow = new BrowserWindow({
     width: 1400,
     height: 900,
+    ...(existsSync(iconPath) ? { icon: iconPath } : {}),
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
