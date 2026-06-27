@@ -24,7 +24,7 @@
 
 **验证**：`npx vitest run` → **14 passed**（3 文件，538ms）；`tsc -b` → **0 错误**。
 
-**下一步（第二梯队，见 log A-5/A-6）**：① 抽 `services/sse.ts::parseSSE` async generator 消除前端 9 处 SSE 解析重复（P0-2）；② `startCleanQueue` 350 行闭包 → `CleanScheduler` 类 + 熔断/重试单测（3.3）。两者均需先出小设计稿再动手。
+**下一步**：第二、三梯队（A-5~A-9）**设计稿已就绪** → `docs/quality/design-tier2-3-refactor.md`。建议顺序 A-5（SSE 统一，收益最大且独立）→ A-6 / A-9 并行 → A-7（store 切片，分两阶段）→ A-8（组件拆分）；每项 characterization test 先行、对外契约不变。
 
 ---
 
