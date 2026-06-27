@@ -1,9 +1,28 @@
-import { useEffect, useRef } from 'react'
-import { Button } from 'antd'
+import { useEffect, useRef, useState } from 'react'
+import { Button, Select, Slider, Space } from 'antd'
 import { ReloadOutlined } from '@ant-design/icons'
 import Phaser from 'phaser'
+import CharacterDemo from './CharacterDemo'
+
+type DemoType = 'rigid' | 'character'
+
+// 右键蓄力斥力参数（经验默认，可按手感微调）
+const REPEL_MAX_HOLD = 1500 // 蓄力封顶 (ms)
+const REPEL_MIN_R = 60 // 斥力最小半径 (px)
+const REPEL_MAX_R = 360 // 斥力最大半径 (px)
+const REPEL_BONUS_MAX = 3.0 // 蓄力满时在基础斥力之上叠加的额外强度
+const REPEL_FORCE_SCALE = 0.01 // 力缩放（Matter 力单位，约重力 gravityScale 的 10 倍量级）
 
 class PhysicsScene extends Phaser.Scene {
+  // 原生 Matter 库（Phaser 类型定义未声明 Query/Constraint/Body 等，运行时存在，故 any）
+  private M: any = (Phaser.Physics.Matter as any).Matter
+  private dragConstraint: MatterJS.ConstraintType | null = null
+  private charging = false
+  private chargeStart = 0
+  private chargeX = 0
+  private chargeY = 0
+  private chargeGfx!: Phaser.GameObjects.Graphics
+
   constructor() {
     super({ key: 'PhysicsScene' })
   }
@@ -51,9 +70,103 @@ class PhysicsScene extends Phaser.Scene {
       callback: spawnBlock,
       loop: true,
     })
+
+    // 蓄力可视化层 + 禁用浏览器右键菜单
+    this.chargeGfx = this.add.graphics()
+    this.input.mouse?.disableContextMenu()
+    this.setupInteractions()
+  }
+
+  // 左键拖拽（手动约束，与右键斥力严格分离）+ 右键蓄力斥力
+  private setupInteractions() {
+    this.input.on('pointerdown', (p: Phaser.Input.Pointer) => {
+      if (p.leftButtonDown()) {
+        // 抓取命中的动态方块，用约束把它拉向指针；被拖块仍参与物理 → 自动与其他方块碰撞推挤
+        const dynamicBodies = this.matter.world.getAllBodies().filter((b) => !b.isStatic)
+        const hit = this.M.Query.point(dynamicBodies, { x: p.worldX, y: p.worldY })[0]
+        if (hit) {
+          const constraint = this.M.Constraint.create({
+            pointA: { x: p.worldX, y: p.worldY },
+            bodyB: hit,
+            stiffness: 0.1,
+            damping: 0.1,
+            length: 0,
+          })
+          this.dragConstraint = constraint
+          this.matter.world.add(constraint)
+        }
+      } else if (p.rightButtonDown()) {
+        // 右键开始蓄力（时间一律用 Phaser 场景时钟）
+        this.charging = true
+        this.chargeStart = this.time.now
+        this.chargeX = p.worldX
+        this.chargeY = p.worldY
+      }
+    })
+
+    this.input.on('pointermove', (p: Phaser.Input.Pointer) => {
+      if (this.dragConstraint) {
+        this.dragConstraint.pointA = { x: p.worldX, y: p.worldY }
+      }
+    })
+
+    this.input.on('pointerup', () => {
+      if (this.dragConstraint) {
+        this.matter.world.remove(this.dragConstraint)
+        this.dragConstraint = null
+      }
+      if (this.charging) {
+        this.releaseRepulsion()
+        this.charging = false
+        this.chargeGfx.clear()
+      }
+    })
+  }
+
+  // 松开右键：按蓄力时长映射半径与强度，对范围内动态方块施加远离中心的斥力
+  private releaseRepulsion() {
+    const holdMs = Math.min(this.time.now - this.chargeStart, REPEL_MAX_HOLD)
+    const t = holdMs / REPEL_MAX_HOLD
+    const radius = REPEL_MIN_R + t * (REPEL_MAX_R - REPEL_MIN_R)
+    const base = (this.registry.get('baseStrength') as number) ?? 1.5
+    const strength = base + t * REPEL_BONUS_MAX // 基础斥力(底力) + 蓄力增量
+
+    for (const body of this.matter.world.getAllBodies()) {
+      if (body.isStatic) continue
+      const dx = body.position.x - this.chargeX
+      const dy = body.position.y - this.chargeY
+      const d = Math.hypot(dx, dy)
+      if (d >= radius || d < 0.01) continue
+      const falloff = 1 - d / radius // 越近越强
+      const mag = strength * falloff * body.mass * REPEL_FORCE_SCALE // ∝质量 → 各方块加速度一致
+      this.M.Body.applyForce(body, body.position, { x: (dx / d) * mag, y: (dy / d) * mag })
+    }
+
+    // 冲击波视觉反馈：以点击点为中心快速放大并淡出的圆圈
+    const shock = this.add.graphics({ x: this.chargeX, y: this.chargeY })
+    shock.lineStyle(3, 0xff6b81, 1)
+    shock.strokeCircle(0, 0, radius)
+    this.tweens.add({
+      targets: shock,
+      alpha: 0,
+      scale: 1.4,
+      duration: 300,
+      onComplete: () => shock.destroy(),
+    })
   }
 
   update() {
+    // 蓄力中：实时重绘随时长增长的范围圈
+    if (this.charging) {
+      const t = Math.min((this.time.now - this.chargeStart) / REPEL_MAX_HOLD, 1)
+      const radius = REPEL_MIN_R + t * (REPEL_MAX_R - REPEL_MIN_R)
+      this.chargeGfx.clear()
+      this.chargeGfx.fillStyle(0xff6b81, 0.15)
+      this.chargeGfx.fillCircle(this.chargeX, this.chargeY, radius)
+      this.chargeGfx.lineStyle(2, 0xff6b81, 0.9)
+      this.chargeGfx.strokeCircle(this.chargeX, this.chargeY, radius)
+    }
+
     const bodies = this.matter.world.getAllBodies()
     const h = this.scale.height
     for (const body of bodies) {
@@ -68,6 +181,9 @@ export default function Demo2DPage() {
   const gameRef = useRef<Phaser.Game | null>(null)
   const wrapperRef = useRef<HTMLDivElement>(null)
   const phaserDivRef = useRef<HTMLDivElement | null>(null)
+  const [demoType, setDemoType] = useState<DemoType>('rigid')
+  const [baseStrength, setBaseStrength] = useState(1.5)
+  const baseStrengthRef = useRef(1.5)
 
   const createGame = (parent: HTMLElement) => {
     const width = parent.clientWidth
@@ -104,6 +220,7 @@ export default function Demo2DPage() {
         touch: true,
       },
     })
+    game.registry.set('baseStrength', baseStrengthRef.current)
     return game
   }
 
@@ -119,10 +236,12 @@ export default function Demo2DPage() {
   }
 
   useEffect(() => {
-    const wrapper = wrapperRef.current
-    if (!wrapper) return
-
+    if (demoType !== 'rigid') {
+      destroyGame()
+      return
+    }
     const timer = requestAnimationFrame(() => {
+      const wrapper = wrapperRef.current
       if (!wrapper) return
       const game = createGame(wrapper)
       if (game) gameRef.current = game
@@ -132,7 +251,14 @@ export default function Demo2DPage() {
       cancelAnimationFrame(timer)
       destroyGame()
     }
-  }, [])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [demoType])
+
+  const onStrengthChange = (v: number) => {
+    setBaseStrength(v)
+    baseStrengthRef.current = v
+    gameRef.current?.registry.set('baseStrength', v)
+  }
 
   const handleReset = () => {
     const wrapper = wrapperRef.current
@@ -148,6 +274,7 @@ export default function Demo2DPage() {
         ref={wrapperRef}
         style={{ width: '100%', height: '100%', background: '#1a1a2e', position: 'relative' }}
       />
+      {demoType === 'character' && <CharacterDemo />}
       <div
         style={{
           position: 'absolute',
@@ -160,7 +287,31 @@ export default function Demo2DPage() {
           boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
         }}
       >
-        <Button icon={<ReloadOutlined />} onClick={handleReset}>复位</Button>
+        <Space direction="vertical" size={8}>
+          <Button
+            icon={<ReloadOutlined />}
+            onClick={handleReset}
+            disabled={demoType !== 'rigid'}
+            style={{ width: 140 }}
+          >
+            复位
+          </Button>
+          <Select
+            value={demoType}
+            onChange={(v) => setDemoType(v as DemoType)}
+            style={{ width: 140 }}
+            options={[
+              { value: 'rigid', label: '刚体碰撞演示' },
+              { value: 'character', label: '人物状态演示' },
+            ]}
+          />
+          {demoType === 'rigid' && (
+            <div style={{ width: 140 }}>
+              <div style={{ fontSize: 12, color: '#333' }}>基础斥力 {baseStrength.toFixed(1)}</div>
+              <Slider min={0} max={4} step={0.1} value={baseStrength} onChange={onStrengthChange} />
+            </div>
+          )}
+        </Space>
       </div>
     </div>
   )

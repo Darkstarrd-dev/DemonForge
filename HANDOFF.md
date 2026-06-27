@@ -2,11 +2,31 @@
 
 **最后更新**：2026-06-27  
 **当前位置**：办公场所 A
-**本轮主题**：节点测试 多 Session 并行推理 + 图片落盘归档 + 左侧栏切换
+**本轮主题**：2D 环境 Demo 交互增强（刚体碰撞拖拽/蓄力斥力/基础斥力滑块 + 人物状态演示占位 UI）
 
 ---
 
-## 🆕 本轮完成：节点测试 多 Session 并行（2026-06-27）
+## 🆕 本轮完成：2D 环境 Demo 交互增强（2026-06-27）
+
+**目标**：2D 环境 Demo（`frontend/src/pages/demo-2d/index.tsx`，Phaser 4.1.0 + Matter.js）从单一静态演示
+升级为可切换、可交互的物理沙盒；新增「人物状态演示」占位 UI 预留入口。分两轮迭代。
+
+**第一轮 · 下拉切换 + 刚体碰撞交互**
+- **Demo 下拉**：复位按钮下方加 antd `Select`（刚体碰撞演示 / 人物状态演示）；`demoType` state 驱动 Phaser game 创建/销毁，character 模式禁用复位。
+- **左键拖拽**：手动 Matter 约束（`Query.point` 命中动态方块 → `Constraint` 拉向指针 → `pointerup` 释放），被拖块仍参与物理碰撞推挤；严格只响应左键，与右键斥力分离。
+- **右键蓄力斥力**：`disableContextMenu` + `charging` 标志（`this.time.now` 计时）+ `Graphics` 圆圈实时可视化蓄力范围；松开按时长映射半径，对范围内动态 body `Body.applyForce`（力 ∝ 质量、随距离衰减）+ 冲击波淡出反馈。
+
+**第二轮 · 斥力滑块 + 人物状态占位 UI**
+- **基础斥力滑块**：斥力公式改为 `strength = base + t × REPEL_BONUS_MAX`（保底+蓄力叠加）；控制面板加 antd `Slider`（0~4，仅 rigid）；React↔Phaser 经 `game.registry`（`baseStrength`）通信，`baseStrengthRef` 保证复位重建取最新值。
+- **人物状态占位 UI**：新建 `frontend/src/pages/demo-2d/CharacterDemo.tsx`，居中对称——全屏背景线框 + 左列(1:1 头像 + 人物设定文本框) + 右侧全身图；头像/全身图左右半区点击切换（`SwitchBox`），占位色数组 + `x/N` 编号体现切换；图片/文字全 placeholder，接真实数据时替换常量即可。
+
+- **验证**：`tsc -b --force` 全量 0 错误（增量 `.tsbuildinfo` 曾对 node-test 误报，全量后消失）。
+- **文件**：`frontend/src/pages/demo-2d/index.tsx`（改）+ `frontend/src/pages/demo-2d/CharacterDemo.tsx`（新建）。
+- **可调**：`index.tsx` 顶部 `REPEL_*`/滑块 0~4；`CharacterDemo.tsx` 顶部占位色/文本/尺寸常量。
+
+---
+
+## 上一轮完成：节点测试 多 Session 并行（2026-06-27）
 
 **目标**：节点测试支持多个独立会话并行推理，可随时切换到任意 session，切走后其推理在后台继续，
 动态图标提示「推理中/已完成/失败」。叠加：图片结果落盘归档（不再存 DB b64）、保存目录可设置、
@@ -32,7 +52,7 @@
 
 ---
 
-## 上一轮主题
+## 更早主题
 书库概览导入文件模式竞态修复 + 既存 TS 错误清零
 
 ---
