@@ -5,6 +5,9 @@ function decisionText(d: DecisionRequest): string {
   if (d.kind === 'buyProperty') {
     return `「${d.context.tileName as string}」目前无人持有，是否买下？`
   }
+  if (d.kind === 'upgradeProperty') {
+    return `是否将「${d.context.tileName as string}」升级到 ${d.context.nextLevel as number} 级？`
+  }
   return '请做出选择'
 }
 
@@ -34,7 +37,7 @@ export default function DecisionModal({ state, onDecide }: Props) {
             {d.options.map((o) => (
               <Button
                 key={o.id}
-                type={o.id === 'buy' ? 'primary' : 'default'}
+                type={o.id === 'buy' || o.id === 'upgrade' ? 'primary' : 'default'}
                 onClick={() => onDecide(o.id)}
               >
                 {o.label}

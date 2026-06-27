@@ -13,6 +13,9 @@ import type {
 
 const GO_SALARY = 2000 // 经过起点发薪
 const HOSPITAL_TURNS = 2 // 住院休养回合数
+const MAX_LEVEL = 4 // 地标
+const MORTGAGE_RATE = 0.5 // 抵押得款 = 地价 × 0.5
+const REDEEM_INTEREST = 1.1 // 赎回 = 抵押款 × 1.1
 
 export function createInitialState(config: NewGameConfig): GameState {
   const players: Player[] = config.players.map((spec, i) => ({
@@ -60,6 +63,10 @@ export function reducer(state: GameState, action: Action): GameState {
       return handleRoll(state, action.dice)
     case 'RESOLVE_DECISION':
       return handleResolveDecision(state, action.optionId)
+    case 'MORTGAGE_PROPERTY':
+      return handleMortgage(state, action.tileId)
+    case 'REDEEM_PROPERTY':
+      return handleRedeem(state, action.tileId)
     case 'END_TURN':
       return handleEndTurn(state)
     default:
@@ -74,13 +81,13 @@ function currentIndex(state: GameState): number {
 // 破产清算：释放名下地产（归还银行），标记破产。
 function liquidate(player: Player, properties: Record<number, PropertyState>) {
   for (const tid of player.ownedTileIds) {
-    properties[tid] = { ...properties[tid], ownerId: undefined, level: 0 }
+    properties[tid] = { ...properties[tid], ownerId: undefined, level: 0, mortgaged: false }
   }
   player.ownedTileIds = []
   player.bankrupt = true
 }
 
-// 掷骰 → 移动 → 结算落点。停无主地产挂决策点；停他人地产收租（付不起则破产）。
+// 掷骰 → 移动 → 结算落点：无主地产可买、自己地产可升级、他人地产收租（付不起则破产）。
 function handleRoll(state: GameState, dice: [number, number]): GameState {
   const players = state.players.map((p) => ({ ...p })) // 收租可能改两名玩家，整体浅拷贝
   const properties = { ...state.properties }
@@ -118,8 +125,9 @@ function handleRoll(state: GameState, dice: [number, number]): GameState {
     pushLog('tax', `${player.name} 缴纳税款 ¥${tax}`)
   } else if (tile.type === 'property') {
     const prop = properties[tile.index]
-    const price = tile.price ?? 0
     if (!prop.ownerId) {
+      // 无主：可买
+      const price = tile.price ?? 0
       if (player.cash >= price) {
         decision = {
           playerId: player.id,
@@ -134,7 +142,25 @@ function handleRoll(state: GameState, dice: [number, number]): GameState {
       } else {
         pushLog('land', `${player.name} 停在「${tile.name}」，资金不足无法购买`)
       }
-    } else if (prop.ownerId !== player.id && !prop.mortgaged) {
+    } else if (prop.ownerId === player.id) {
+      // 自己的地产：可升级（未到地标且买得起）
+      if (prop.level < MAX_LEVEL) {
+        const cost = tile.upgradeCost ?? 0
+        if (player.cash >= cost) {
+          decision = {
+            playerId: player.id,
+            kind: 'upgradeProperty',
+            options: [
+              { id: 'upgrade', label: `升级（¥${cost}）` },
+              { id: 'skip', label: '暂不升级' },
+            ],
+            context: { tileId: tile.index, tileName: tile.name, cost, nextLevel: prop.level + 1 },
+          }
+          pushLog('land', `${player.name} 回到自己的「${tile.name}」（${prop.level} 级）`)
+        }
+      }
+    } else if (!prop.mortgaged) {
+      // 他人未抵押地产：按等级收租
       const rent = (tile.rentByLevel ?? [0])[prop.level] ?? 0
       const owner = players.find((p) => p.id === prop.ownerId)
       if (owner) {
@@ -178,20 +204,21 @@ function handleRoll(state: GameState, dice: [number, number]): GameState {
   }
 }
 
-// 消解决策点（P2：buyProperty 的 买 / 放弃）。
+// 消解决策点：buyProperty（买 / 放弃）、upgradeProperty（升级 / 暂不）。
 function handleResolveDecision(state: GameState, optionId: string): GameState {
   const d = state.awaitingDecision
   if (!d) return state
 
+  const players = state.players.map((p) => ({ ...p }))
+  const properties = { ...state.properties }
+  const log = [...state.log]
+  const player = players.find((p) => p.id === d.playerId)
+  const endTurn = { ...state.turn, phase: 'END_TURN' as const }
+
   if (d.kind === 'buyProperty') {
-    const players = state.players.map((p) => ({ ...p }))
-    const properties = { ...state.properties }
-    const log = [...state.log]
-    const player = players.find((p) => p.id === d.playerId)
     const tileId = d.context.tileId as number
     const tileName = d.context.tileName as string
     const price = d.context.price as number
-
     if (player && optionId === 'buy') {
       player.cash -= price
       player.ownedTileIds = [...player.ownedTileIds, tileId]
@@ -200,18 +227,61 @@ function handleResolveDecision(state: GameState, optionId: string): GameState {
     } else if (player) {
       log.push({ seq: log.length, kind: 'skip', text: `${player.name} 放弃购买「${tileName}」` })
     }
+    return { ...state, players, properties, log, awaitingDecision: undefined, turn: endTurn }
+  }
 
-    return {
-      ...state,
-      players,
-      properties,
-      log,
-      awaitingDecision: undefined,
-      turn: { ...state.turn, phase: 'END_TURN' },
+  if (d.kind === 'upgradeProperty') {
+    const tileId = d.context.tileId as number
+    const tileName = d.context.tileName as string
+    const cost = d.context.cost as number
+    const nextLevel = d.context.nextLevel as number
+    if (player && optionId === 'upgrade') {
+      player.cash -= cost
+      properties[tileId] = { ...properties[tileId], level: nextLevel }
+      const label = nextLevel >= MAX_LEVEL ? '地标' : `${nextLevel} 级`
+      log.push({ seq: log.length, kind: 'upgrade', text: `${player.name} 将「${tileName}」升级为 ${label}` })
+    } else if (player) {
+      log.push({ seq: log.length, kind: 'skip', text: `${player.name} 暂不升级「${tileName}」` })
     }
+    return { ...state, players, properties, log, awaitingDecision: undefined, turn: endTurn }
   }
 
   return state
+}
+
+// 抵押地产换现金（抵押期间不收租）。
+function handleMortgage(state: GameState, tileId: number): GameState {
+  const prop = state.properties[tileId]
+  if (!prop || !prop.ownerId || prop.mortgaged) return state
+  const tile = state.board.tiles[tileId]
+  const players = state.players.map((p) => ({ ...p }))
+  const properties = { ...state.properties }
+  const log = [...state.log]
+  const owner = players.find((p) => p.id === prop.ownerId)
+  if (!owner) return state
+  const value = Math.round(((tile.price ?? 0) * MORTGAGE_RATE) / 10) * 10
+  owner.cash += value
+  properties[tileId] = { ...prop, mortgaged: true }
+  log.push({ seq: log.length, kind: 'mortgage', text: `${owner.name} 抵押「${tile.name}」，获得 ¥${value}` })
+  return { ...state, players, properties, log }
+}
+
+// 赎回抵押地产（含利息），恢复收租。
+function handleRedeem(state: GameState, tileId: number): GameState {
+  const prop = state.properties[tileId]
+  if (!prop || !prop.ownerId || !prop.mortgaged) return state
+  const tile = state.board.tiles[tileId]
+  const players = state.players.map((p) => ({ ...p }))
+  const properties = { ...state.properties }
+  const log = [...state.log]
+  const owner = players.find((p) => p.id === prop.ownerId)
+  if (!owner) return state
+  const cost = Math.round(((tile.price ?? 0) * MORTGAGE_RATE * REDEEM_INTEREST) / 10) * 10
+  if (owner.cash < cost) return state // 资金不足无法赎回
+  owner.cash -= cost
+  properties[tileId] = { ...prop, mortgaged: false }
+  log.push({ seq: log.length, kind: 'redeem', text: `${owner.name} 赎回「${tile.name}」，花费 ¥${cost}` })
+  return { ...state, players, properties, log }
 }
 
 // 切换到下一个未破产玩家，回合阶段回到 ROLL。

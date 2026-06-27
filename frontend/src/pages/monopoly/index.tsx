@@ -30,6 +30,8 @@ export default function MonopolyPage() {
   const onRoll = () => dispatch({ type: 'ROLL_DICE', dice: rollDice() })
   const onEndTurn = () => dispatch({ type: 'END_TURN' })
   const onDecide = (optionId: string) => dispatch({ type: 'RESOLVE_DECISION', optionId })
+  const onMortgage = (tileId: number) => dispatch({ type: 'MORTGAGE_PROPERTY', tileId })
+  const onRedeem = (tileId: number) => dispatch({ type: 'REDEEM_PROPERTY', tileId })
 
   return (
     <div
@@ -55,7 +57,14 @@ export default function MonopolyPage() {
         >
           <Board state={state} />
         </div>
-        <GamePanel state={state} current={current} onRoll={onRoll} onEndTurn={onEndTurn} />
+        <GamePanel
+          state={state}
+          current={current}
+          onRoll={onRoll}
+          onEndTurn={onEndTurn}
+          onMortgage={onMortgage}
+          onRedeem={onRedeem}
+        />
       </div>
       <DecisionModal state={state} onDecide={onDecide} />
     </div>

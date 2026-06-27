@@ -124,13 +124,14 @@ export interface GameState {
 }
 
 // —— Action（reducer 输入） ——
-// P2 已加 RESOLVE_DECISION（消解决策点）；地产升级 / 抵押见后续阶段
-// （见 docs/monopoly_plan.md §8）。
+// P3 已加 MORTGAGE_PROPERTY / REDEEM_PROPERTY（地产抵押 / 赎回）；升级走 RESOLVE_DECISION。
 export type Action =
   | { type: 'NEW_GAME'; config: NewGameConfig }
   | { type: 'ROLL_DICE'; dice: [number, number] }
   | { type: 'END_TURN' }
   | { type: 'RESOLVE_DECISION'; optionId: string }
+  | { type: 'MORTGAGE_PROPERTY'; tileId: number }
+  | { type: 'REDEEM_PROPERTY'; tileId: number }
 
 export interface NewGamePlayerSpec {
   name: string
