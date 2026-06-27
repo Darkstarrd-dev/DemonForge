@@ -2,7 +2,7 @@
 
 **最后更新**：2026-06-27  
 **当前位置**：办公场所 A
-**本轮主题**：第二、三梯队重构（A-5/A-6/A-9 已毕；本轮 **A-7 全完成** + **A-8 settings 完成 + node-test 部分**）
+**本轮主题**：第二、三梯队重构（A-5/A-6/A-7/A-9 已毕；本轮 **A-8 全完成**——node-test 深度拆分 + jsdom/RTL 测试护网）
 
 ---
 
@@ -10,7 +10,7 @@
 
 > 目标（用户 /goal）：A-7 + A-8 全部完成并测试通过、提交推送。
 > 设计稿：`docs/quality/design-tier2-3-refactor.md`；追踪表：`docs/quality/logs/2026-06-27-audit-01.md` 第 5 节。
-> 进度：A-5 ✅（`e8c0557`）、A-9 ✅（`8bb288c`/`66487c0`）、A-6 ✅（`5b41f8c`→`82e1728`）、**A-7 ✅**（`0222a0d`/`3256bea`）、**A-8 ◐**（settings ✅ `a918edc`；node-test 部分 ✅ `d764b55`，深度拆分待续）。
+> 进度：A-5 ✅（`e8c0557`）、A-9 ✅（`8bb288c`/`66487c0`）、A-6 ✅（`5b41f8c`→`82e1728`）、A-7 ✅（`0222a0d`/`3256bea`）、**A-8 ✅**（settings `a918edc`；node-test 浅拆 `d764b55`；**本轮深度拆分待提交**）。
 
 ### ✅ A-5 统一 SSE 解析（已完成并推送：commit `e8c0557`）
 - 新增 `frontend/src/services/sse.ts`（`parseSSE` async generator）+ `sse.test.ts`（7 测试）。
@@ -48,18 +48,38 @@
 - **关键经验**：① getter 别名（imageGallery 等）必须放最外层 create（slice spread 会求值 getter 使其固化为快照——zustand setState 内部 Object.assign 亦然，此为 pre-existing 行为，经 grep 确认无组件读取该别名，无害）。② 测试网证明持久化/播种/订阅行为前后一致。
 - **最终**：tsc -b 0 / vitest 49 绿（40 旧 + persistence 7 + appStore 2）/ vite build 成功 / eslint 净 0 新增（29 个为 m1TestText 全角空格 + 搬迁 throw 的 pre-existing）。
 
-### ◐ A-8 组件拆分（settings 完成；node-test 部分；深度拆分待续）
+### ✅ A-8 组件拆分（settings 完成；node-test 深度拆分本轮完成，待提交）
 - **settings ✅**（`a918edc`）：4 个 Tab 内联组件（已 props 化）抽到 `pages/settings/panels/`（NodesTabContent/AdvancedTabContent/GeneralTabContent/BackupTabContent），index −455 行（1868→~1413），清理 6 个随之未用 import。no-explicit-any 21 个守恒（逐字搬迁）。
-- **node-test 部分 ✅**（`d764b55`）：抽 `constants.ts`（RESOLUTIONS/GPT_SIZES）+ `panels/ParamsPanel.tsx`（右侧栏参数面板，三协议图片参数 + 文本参数，render-only ~345 行，token 内部 useToken 自取），index −350 行（2355→~2005）。ParamsPanel/constants 0 lint 错误。
-- **🔜 node-test 剩余（下次续做）**：①`hooks/useInferenceSession.ts`（handleGenerate 739/handleGenerateSide 574/retryMessage 508/retryCompareMessage 422 + phase/ac/elapsed state + sessionEngine 桥接，**含 effect/ref 时序，最高风险**）②`hooks/useNodeTestForm.ts`（setForm + per-node 读写 + activeForm 派生）③`ChatTranscript.tsx`（消息气泡流 ~600 行，编辑/重试/删除/reasoning，~15 props，render-only 中风险）④顶部 header 按钮组。index 目标 <300 行。
-  - **为何停在此**：node-test 主逻辑高耦合（~19 store 字段 + ~30 本地 state + effect/ref），本轮选「tsc+build+手测」无组件测试网，激进抽 hooks 的副作用时序回归 tsc 抓不到、又无法手测验证 → 仅做 tsc 可强保护的 render-only 抽取（ParamsPanel）。续做前建议：要么先加 jsdom+RTL 冒烟测试护网，要么逐块抽 + 每块人工跑节点测试页回归（多 session/对比/Debug/SysPrompt/三协议生图/气泡编辑重试删除）。
+- **node-test 浅拆 ✅**（`d764b55`）：抽 `constants.ts`（RESOLUTIONS/GPT_SIZES）+ `panels/ParamsPanel.tsx`（render-only ~345 行），index −350 行（2355→~2005）。
+
+#### 🆕 本轮：node-test 深度拆分（待提交）
+用户 /goal 选「一气做完 + 测试护网」——引入 jsdom+RTL 冒烟护网，抽全部组件含最高风险的 useInferenceSession。
+
+- **测试地基（A-8 前置）**：装 `jsdom@29` + `@testing-library/{react,jest-dom,user-event,dom}`；新增 `src/test/setup.ts`（jest-dom 匹配器 + `afterEach(cleanup)`，`typeof document!=='undefined'` 守卫保 node 环境测试不破）；`vite.config.ts` 注册 `setupFiles`，环境仍全局 node，**组件测试单文件顶部 `// @vitest-environment jsdom` opt-in**（vitest 4 移除 environmentMatchGlobs，docblock 是稳定方案）。
+- **护网测试（抽取前先绿）**：`pages/node-test/index.test.tsx`（3 用例）——mock `services/api` 仅替换 index 直接 import 的 `streamChat/sendInSession/cancelSession`；用真实 appStore（`storeReady=false` → 持久化 fetch 全 early-return，注入零副作用）；锁三契约：①无节点空态 ②**单栏发送经引擎 sendInSession 透传 userText/node**（最高风险主路径）③对比模式双栏渲染。
+- **抽出产物（10 文件，逐字搬迁，行为不变）**：
+  - `types.ts`（ChatMessage/Phase/TestMode 共享类型，原 index 内联）
+  - `ChatBubble.tsx`（153 行，**消除单栏/对比左/对比右三处约 450 行重复气泡**，差异点参数化：isEditing/isStreamingLast/4 回调/footer 可选）
+  - `ChatTranscript.tsx`（84 行，单栏列表，footer=节点·模型名/模型切换标记）
+  - `CompareColumn.tsx`（68 行，对比单侧，左右复用）
+  - `ImageGallery.tsx`（122 行，图片画廊 + busy SVG loading）
+  - `ChatComposer.tsx`（332 行，输入区：图片预览/底部节点菜单/输入框/发送，节点挑选逻辑作 onPickNode 回调留父级）
+  - `NodeTestSidebar.tsx`（162 行，右侧栏三视图分支：sysPrompt/debug/params；SystemPromptEditor 的 key 重挂载 + 对比 toggle Modal 留父级）
+  - `hooks/useNodeTestForm.ts`（55 行，表单派生 + setForm，纯派生无 effect）
+  - `hooks/useInferenceSession.ts`（777 行，**最高风险**：单栏引擎 sendInSession + 对比本地态 streamChat + 编辑态 + elapsed/自动滚动两 effect，全部逐字搬入，return 完整契约；UI 视图态留 index）
+- **index 收口**：2006 → **444 行**（−78%），仅留 UI 视图态（testMode/mainView/sidebarView/bottomMenu/compareMode/selectedImages）+ 节点类型切换拦截 + 粘贴监听 + 节点分组/挑选 + 组件接线。
+- **验收**：`tsc -b` 0 错误 + `vite build` 成功 + `vitest run` **52 绿**（49 既有 + 3 护网，10 文件）。
+- **未达标说明（已与用户确认接受）**：设计稿验收写 index <300，实际 444。差距是 JSX 接线密度（ChatComposer 30 props + NodeTestSidebar 30 props + 两次 CompareColumn 的 props drilling 约 190 行）。核心目标全达成（推理下沉 hook / 渲染全拆 / 消重 / 建 hooks 层 / 最高风险块有测试护网），<300 需再抽中间层，用户拍板「接受 444 收尾」。
+- **lint 定性**：本轮 7 个 render-only 组件 + useNodeTestForm **0 lint 错误**；useInferenceSession/index 的报错点（`Date.now()` in render × 8、`setElapsed(0)` in effect、`any` × 2）**全部从原 index 逐字搬迁**，HEAD 版本同样报错（git show 已核），属基线既有（react-hooks v7 新规则 purity/set-state-in-effect 全项目命中几十文件）；不在 A-8 纯拆分范围，强修会破坏「逐字搬迁、行为不变」承诺。
+- **改动文件**：新增 `src/test/setup.ts`、`pages/node-test/{types.ts,ChatBubble,ChatTranscript,CompareColumn,ImageGallery,ChatComposer,NodeTestSidebar}.tsx`、`pages/node-test/hooks/{useNodeTestForm,useInferenceSession}.ts`、`pages/node-test/index.test.tsx`；改 `pages/node-test/index.tsx`（重写）、`vite.config.ts`（setupFiles）、`package.json`+`package-lock.json`（jsdom+RTL devDeps）；本 HANDOFF + `audit-01.md`（A-8 标完成）。
+- ⚠️ **git 提交推送按 CLAUDE.md「Claude 不执行 git」规则留待用户手动**。建议 commit：`refactor(node-test): 深度拆分 index 为 7 组件 + 2 hooks + jsdom 测试护网（A-8）`。提交后回填本轮 commit SHA 到 audit-01.md A-8 行。
 
 ### 下次对话起步建议
-1. A-7 已全完成。A-8 续做 node-test 深度拆分（见上「node-test 剩余」四块，按 ② useNodeTestForm（最独立）→ ③ ChatTranscript（render-only）→ ① useInferenceSession（最难，建议有测试网）顺序）。
-2. **续做纪律**：逐字翻译保持行为；render-only 抽取靠 tsc 强保护（缺 prop 即报错）；hooks 抽取改 effect/ref 前先补冒烟测试或每步人工回归。
-3. 每块完成：`cd frontend && npx tsc -b` + `npx vitest run` 全绿 + `npx vite build` → 更新 `audit-01.md` A-8 行 → 提交推送。
-4. **提交规范**：`type(scope): 描述（A-N）`，中文，参考 `d764b55`。
-5. **环境注意**：Windows bash，工作目录已在 `frontend/`（首个 `cd frontend` 会失败，用绝对路径或不 cd）；git 操作用 `git -C ..`（repo root）；提交只 `git add` 本次改动文件，勿带 `.claude/settings.local.json` 与 `ref/asset/`。
+1. **A-7 + A-8 已全完成**，第二、三梯队（A-5~A-9）全部收口。剩 A-10（主题色收敛 token）、A-11（后端三套生图 client 抽 ImageProvider），均低优先级。
+2. **可选收尾**：若仍想达成 index <300，再抽一层——把对比双栏 + 主展示区分支封为 `MainArea` 组件、ChatComposer/Sidebar 的 props 用 context 或聚合对象减少 drilling。非必须。
+3. **测试护网已就位**：`index.test.tsx` 3 用例锁住核心契约，后续改 node-test 可先跑 `npm --prefix frontend test` 回归（jsdom 冷启动 ~150s 属正常）。
+4. **提交规范**：`type(scope): 描述（A-N）`，中文。
+5. **环境注意**：Windows bash，工作目录漂移频繁——**跑测试/构建用 `npm --prefix <绝对路径>/frontend test`（走本地 vitest，含 jsdom）；切勿用 `npx vitest`（会取 npx 缓存版找不到本地 jsdom）**；git 操作用 `git -C <repo root>`；提交只 `git add` 本次改动，勿带 `.claude/settings.local.json` 与 `ref/asset/`。
 
 ---
 

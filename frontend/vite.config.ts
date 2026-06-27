@@ -7,9 +7,12 @@ export default defineConfig({
   base: './',
   plugins: [react()],
   test: {
-    // 当前仅覆盖纯函数工具（无 DOM 依赖），用 node 环境最轻量。
+    // 默认 node 环境（纯函数工具，最轻量）。组件测试在文件顶部用
+    // `// @vitest-environment jsdom` docblock 单文件切 jsdom（vitest 4 移除了 environmentMatchGlobs）。
     environment: 'node',
     include: ['src/**/*.{test,spec}.{ts,tsx}'],
+    // 全局 setup：注册 jest-dom 匹配器 + RTL afterEach 自动 cleanup（node 测试加载安全）。
+    setupFiles: ['src/test/setup.ts'],
   },
   server: {
     // 开发期把 /api 转发到本地 LLM 网关（server/，监听 8787）；SSE 流式透传
