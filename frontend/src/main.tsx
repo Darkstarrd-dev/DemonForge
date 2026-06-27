@@ -18,7 +18,6 @@ import zhCN from 'antd/locale/zh_CN'
 import AppLayout from './layouts/AppLayout'
 import HomePage from './pages/home'
 import M0ArchitecturePage from './pages/m0-architecture'
-import M1ImportPage from './pages/m1-import'
 import M2CardsPage from './pages/m2-cards'
 import M3SimulatePage from './pages/m3-simulate'
 import M4GeneratePage from './pages/m4-generate'
@@ -32,6 +31,8 @@ import { lightTheme, darkTheme } from './styles/theme'
 import './index.css'
 
 // 懒加载大型模块（减少主包体积）
+// eslint-disable-next-line react-refresh/only-export-components
+const M1ImportPage = lazy(() => import('./pages/m1-import'))
 // eslint-disable-next-line react-refresh/only-export-components
 const Demo3DPage = lazy(() => import('./pages/demo-3d'))
 // eslint-disable-next-line react-refresh/only-export-components
@@ -65,7 +66,7 @@ function AppWithTheme() {
                 <Route element={<AppLayout />}>
                   <Route path="/" element={<HomePage />} />
                   <Route path="/m0" element={<M0ArchitecturePage />} />
-                  <Route path="/m1" element={<M1ImportPage />} />
+                  <Route path="/m1" element={<Suspense fallback={<Spin size="large" />}><M1ImportPage /></Suspense>} />
                   <Route path="/m2" element={<M2CardsPage />} />
                   <Route path="/m3" element={<M3SimulatePage />} />
                   <Route path="/m4" element={<M4GeneratePage />} />
