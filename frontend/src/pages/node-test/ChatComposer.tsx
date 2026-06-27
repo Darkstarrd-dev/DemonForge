@@ -257,36 +257,58 @@ export default function ChatComposer(props: {
         </div>
 
         {/* 文本输入框 */}
-        <textarea
-          ref={promptRef}
-          value={nodeTestForm.prompt}
-          onChange={(e) => setForm({ prompt: e.target.value })}
-          onKeyDown={handleKeyDown}
-          placeholder={
-            isImageMode
-              ? (supportsEdit && selectedImages.length > 0
-                  ? "描述你想对图片做的修改..."
-                  : "输入提示词，描述你想要的画面...")
-              : (isMultimodal && selectedImages.length > 0
-                  ? "描述你的问题（已添加 " + selectedImages.length + " 张图片）..."
-                  : isMultimodal
-                    ? "输入问题开始对话（支持 Ctrl+V 粘贴图片）..."
-                    : "输入问题开始对话（Shift+Enter 发送）...")
-          }
-          disabled={busy}
-          rows={3}
-          style={{
-            flex: 1,
-            background: token.colorBgContainer,
-            border: 'none',
-            padding: '12px 16px',
-            color: token.colorText,
-            fontSize: 14,
-            resize: 'none',
-            fontFamily: 'inherit',
-            outline: 'none'
-          }}
-        />
+        <div style={{ position: 'relative', flex: 1, display: 'flex' }}>
+          <textarea
+            ref={promptRef}
+            value={nodeTestForm.prompt}
+            onChange={(e) => setForm({ prompt: e.target.value })}
+            onKeyDown={handleKeyDown}
+            placeholder={
+              isImageMode
+                ? (supportsEdit && selectedImages.length > 0
+                    ? "描述你想对图片做的修改..."
+                    : "输入提示词，描述你想要的画面...")
+                : (isMultimodal && selectedImages.length > 0
+                    ? "描述你的问题（已添加 " + selectedImages.length + " 张图片）..."
+                    : isMultimodal
+                      ? "输入问题开始对话（支持 Ctrl+V 粘贴图片）..."
+                      : "输入问题开始对话（Shift+Enter 发送）...")
+            }
+            disabled={busy}
+            rows={3}
+            style={{
+              flex: 1,
+              background: token.colorBgContainer,
+              border: 'none',
+              padding: '12px 16px 22px',
+              color: token.colorText,
+              fontSize: 14,
+              resize: 'none',
+              fontFamily: 'inherit',
+              outline: 'none'
+            }}
+          />
+          {/* 当前选择的节点名（左下角，不拦截输入） */}
+          {selectedNode?.name && (
+            <Typography.Text
+              type="secondary"
+              style={{
+                position: 'absolute',
+                left: 16,
+                bottom: 4,
+                fontSize: 11,
+                opacity: 0.6,
+                pointerEvents: 'none',
+                maxWidth: 'calc(100% - 32px)',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {selectedNode.name}
+            </Typography.Text>
+          )}
+        </div>
 
         {/* 发送/取消按钮 */}
         {busy ? (

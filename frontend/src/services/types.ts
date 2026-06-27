@@ -51,6 +51,7 @@ export interface CardImage {
 
 export interface EntityCard {
   id: string
+  /** 归属书 id；空串 '' 表示「素材库」——不归属任何一本书的自有素材 */
   bookId: string
   type: EntityType
   name: string
@@ -65,6 +66,8 @@ export interface EntityCard {
   refs: EntityRef[]
   /** 图片素材（表情差分/全身形象/场景背景等，按 group 分组） */
   images?: CardImage[]
+  /** 主图引用（指向 images[].id）；未设回退 images[0]，用于卡片简介旁 1:1 封面 */
+  coverImageId?: string
   updatedAt: string
 }
 
@@ -177,6 +180,8 @@ export interface ChatSessionMessage {
   modelName?: string
   /** GPT Image 模型改写后的提示词（仅 GPT 图片模式 assistant 消息） */
   revisedPrompt?: string
+  /** 图片生成耗时（毫秒，仅图片模式 assistant 消息） */
+  genMs?: number
 }
 
 /** 对话记录（一轮对话流 = 一个 session，多轮累积）。持久化到 chat_sessions 表 */

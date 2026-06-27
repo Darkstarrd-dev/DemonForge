@@ -184,6 +184,8 @@ export function useInferenceSession(args: InferenceSessionArgs) {
         ...(m.reasoning ? { reasoning: m.reasoning } : {}),
         ...(m.nodeId ? { nodeId: m.nodeId } : {}),
         ...(m.modelName ? { modelName: m.modelName } : {}),
+        ...(m.revisedPrompt ? { revisedPrompt: m.revisedPrompt } : {}),
+        ...(typeof m.genMs === 'number' ? { genMs: m.genMs } : {}),
       })),
       updatedAt: new Date().toISOString(),
     })

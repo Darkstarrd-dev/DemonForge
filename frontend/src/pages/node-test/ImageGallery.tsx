@@ -51,12 +51,14 @@ export default function ImageGallery(props: {
             </div>
           )
         } else {
-          if (msg.content.startsWith('data:image')) {
+          // 图片内容两种形态：data URL（旧）或归档文件 URL /api/image/file/<name>（现行）。
+          if (msg.content.startsWith('data:image') || msg.content.startsWith('/api/image/file/')) {
             return (
               <ResultImage
                 key={msg.id}
                 dataUrl={msg.content}
                 revisedPrompt={msg.revisedPrompt}
+                genMs={msg.genMs}
                 onAsInput={onAsInput}
               />
             )

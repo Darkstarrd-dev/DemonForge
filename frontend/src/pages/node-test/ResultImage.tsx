@@ -7,10 +7,11 @@ import { parseImageMeta, copyImageToClipboard, saveImageAs } from '../../utils/i
 interface Props {
   dataUrl: string
   revisedPrompt?: string
+  genMs?: number
   onAsInput: (dataUrl: string) => void
 }
 
-export default function ResultImage({ dataUrl, revisedPrompt, onAsInput }: Props) {
+export default function ResultImage({ dataUrl, revisedPrompt, genMs, onAsInput }: Props) {
   const { message } = App.useApp()
   const [meta, setMeta] = useState<{ format: string; width: number; height: number; hasAlpha?: boolean } | null>(null)
 
@@ -41,6 +42,7 @@ export default function ResultImage({ dataUrl, revisedPrompt, onAsInput }: Props
         <Typography.Text type="secondary" style={{ display: 'block', fontSize: 12, marginTop: 8 }}>
           {meta.format} · {meta.width}×{meta.height}
           {meta.hasAlpha !== undefined && (meta.hasAlpha ? ' · 含透明通道' : ' · 无透明通道')}
+          {typeof genMs === 'number' && ` · 生成耗时 ${(genMs / 1000).toFixed(1)}s`}
         </Typography.Text>
       )}
       {revisedPrompt && (

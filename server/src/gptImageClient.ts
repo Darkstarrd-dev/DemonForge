@@ -136,18 +136,18 @@ export async function generateImageGpt(
   const imageData = data.data?.[0]
   if (!imageData) throw new Error('响应中无 image data')
 
-  // 取图字节：优先 b64_json，否则下载远程 url
+  // 取图字节：优先远程 url（下载二进制，省去 MB 级 b64_json 的 JSON 传输/解析），b64_json 兜底
   let imgBuf: Buffer
-  if (imageData.b64_json) {
-    imgBuf = Buffer.from(imageData.b64_json, 'base64')
-  } else if (imageData.url) {
+  if (imageData.url) {
     onEvent('downloading', { message: '下载图片中...' })
     onEvent('debug', { stage: 'fetchImage', response: { url: imageData.url } })
     const imgRes = await fetch(imageData.url, { signal })
     if (!imgRes.ok) throw new Error(`下载图片失败 HTTP ${imgRes.status}`)
     imgBuf = Buffer.from(await imgRes.arrayBuffer())
+  } else if (imageData.b64_json) {
+    imgBuf = Buffer.from(imageData.b64_json, 'base64')
   } else {
-    throw new Error('响应中既无 b64_json 也无 url')
+    throw new Error('响应中既无 url 也无 b64_json')
   }
 
   // 落盘归档（带 alpha→png，否则→webp），回传文件 URL 而非 b64 dataUrl

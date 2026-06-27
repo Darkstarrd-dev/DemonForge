@@ -8,7 +8,10 @@ export async function parseImageMeta(dataUrl: string): Promise<{
   hasAlpha?: boolean
 }> {
   const match = dataUrl.match(/^data:image\/(\w+);base64,(.+)$/)
-  const format = match ? match[1].toUpperCase() : 'UNKNOWN'
+  // data URL → 从 MIME 取 format；文件 URL（/api/image/file/xxx.webp）→ 从扩展名取 format
+  const format = match
+    ? match[1].toUpperCase()
+    : (dataUrl.match(/\.(\w+)(?:\?|$)/)?.[1]?.toUpperCase() ?? 'UNKNOWN')
 
   return new Promise((resolve, reject) => {
     const img = new window.Image()

@@ -15,4 +15,6 @@ export interface ChatMessage {
   nodeId?: string
   modelName?: string
   revisedPrompt?: string
+  /** 图片生成耗时（毫秒，仅图片模式 assistant 消息） */
+  genMs?: number
 }

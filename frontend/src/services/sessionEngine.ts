@@ -217,9 +217,13 @@ export function sendInSession(args: SendArgs): void {
 
   // ===== 图片生成（三协议）=====
   const onDoneImage = (url: string, revisedPrompt?: string) => {
+    const startedAt = store().sessionRuntimes[sessionId]?.startedAt
+    const genMs = typeof startedAt === 'number' ? Date.now() - startedAt : undefined
     appendMessages(sessionId, [{
       id: assistantMsgId, role: 'assistant', content: url, timestamp: Date.now(),
-      nodeId: node.id, modelName: node.model, ...(revisedPrompt ? { revisedPrompt } : {}),
+      nodeId: node.id, modelName: node.model,
+      ...(revisedPrompt ? { revisedPrompt } : {}),
+      ...(typeof genMs === 'number' ? { genMs } : {}),
     }])
     rt(sessionId, { status: 'done', statusText: '' })
     inflight.delete(sessionId)
