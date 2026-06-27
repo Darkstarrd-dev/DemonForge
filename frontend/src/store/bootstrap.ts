@@ -19,7 +19,6 @@ import type {
   TestHistoryItem,
   ChatSession,
   SplitPattern,
-  RoleChatMode,
   RoleChatAutoConfig,
 } from '../services/types'
 import {
@@ -58,8 +57,6 @@ export async function bootstrapStore(): Promise<void> {
         storeInitialized?: boolean
         imageDemoForm?: ImageDemoForm
         imageDemoGlobalForm?: { provider: string; nodeId?: string }
-        roleChatMode?: RoleChatMode
-        roleChatOpencodeURL?: string
         roleChatAutoConfig?: RoleChatAutoConfig
         imageDemoFormPerNode?: Record<string, Partial<ImageDemoForm>>
         nodeTestGlobalForm?: { provider: string; nodeId?: string }
@@ -117,9 +114,7 @@ export async function bootstrapStore(): Promise<void> {
       if (typeof d.m1TitleTemplate === 'string') patch.m1TitleTemplate = d.m1TitleTemplate
       // M1 测试文本（旧 settings.json 无此键则沿用 seed 默认样本）
       if (typeof d.m1TestText === 'string') patch.m1TestText = d.m1TestText
-      // 角色交流配置（旧 settings.json 无此键则沿用 seed 默认）
-      if (typeof d.roleChatMode === 'string') patch.roleChatMode = d.roleChatMode as RoleChatMode
-      if (typeof d.roleChatOpencodeURL === 'string') patch.roleChatOpencodeURL = d.roleChatOpencodeURL
+      // 角色交流自动循环配置（旧 settings.json 无此键则沿用 seed 默认）
       if (d.roleChatAutoConfig && typeof d.roleChatAutoConfig === 'object') {
         patch.roleChatAutoConfig = { ...defaultRoleChatAutoConfig, ...d.roleChatAutoConfig }
       }

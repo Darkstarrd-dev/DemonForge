@@ -20,6 +20,7 @@ import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useState, useEffect } from 'react'
 import { useAppStore, flushStoreWrites, pushSettingsNow } from '../store/appStore'
 import SessionSidebar from '../pages/node-test/SessionSidebar'
+import RoleChatSessionSidebar from '../pages/role-chat/RoleChatSessionSidebar'
 
 const MENU_ITEMS = [
   { key: '/', icon: <HomeOutlined />, label: '书库概览' },
@@ -46,17 +47,22 @@ export default function AppLayout() {
   const showMenuBar = useAppStore((s) => s.showMenuBar)
   const theme = useAppStore((s) => s.theme)
   const nodeTestSidebarMode = useAppStore((s) => s.nodeTestSidebarMode)
+  const roleChatSidebarMode = useAppStore((s) => s.roleChatSidebarMode)
   const setState = useAppStore((s) => s.setState)
   const projects = books.filter((b) => b.type === 'project')
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [floatingButtonHovered, setFloatingButtonHovered] = useState(false)
 
-  // 节点测试模式下：左上角 logo 点击切换左侧栏内容（app 导航 / session 列表）；其它路由维持折叠行为
+  // 节点测试 / 角色交流模式下：左上角 logo 点击切换左侧栏内容（app 导航 / session 列表）；其它路由维持折叠行为
   const isNodeTest = location.pathname === '/node-test'
+  const isRoleChat = location.pathname === '/role-chat'
   const showSessions = isNodeTest && nodeTestSidebarMode === 'sessions'
+  const showRoleSessions = isRoleChat && roleChatSidebarMode === 'sessions'
   const onLogoClick = () => {
     if (isNodeTest) {
       setState({ nodeTestSidebarMode: nodeTestSidebarMode === 'sessions' ? 'app' : 'sessions' })
+    } else if (isRoleChat) {
+      setState({ roleChatSidebarMode: roleChatSidebarMode === 'sessions' ? 'app' : 'sessions' })
     } else {
       setSidebarCollapsed(true)
     }
@@ -171,6 +177,9 @@ export default function AppLayout() {
           {showSessions ? (
             /* 节点测试 · 多 session 列表（替代 app 导航；logo 点击切回） */
             <SessionSidebar />
+          ) : showRoleSessions ? (
+            /* 角色交流 · session 列表（主界面 + 各参与者；logo 点击切回） */
+            <RoleChatSessionSidebar />
           ) : (
             <>
               {/* 当前作品选择器（移到 sidebar） */}

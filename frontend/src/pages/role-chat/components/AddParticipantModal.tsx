@@ -1,15 +1,13 @@
 import { useState, useEffect } from 'react'
-import { Modal, Space, Typography, List, Input, Select, Button, Avatar, App, Spin, Checkbox } from 'antd'
-import { SearchOutlined, UserOutlined } from '@ant-design/icons'
-import { useAppStore } from '../../../store/appStore'
-import type { RoleChatMode, RoleChatParticipant, OpencodeAgent } from '../../../services/types'
-import { listOpencodeAgents } from '../../../services/real/roleChat'
+import { Modal, Space, Typography, List, Input, Select, Avatar, App, Checkbox } from 'antd'
+import { SearchOutlined } from '@ant-design/icons'
+import { useAppStore, genId } from '../../../store/appStore'
+import type { RoleChatParticipant } from '../../../services/types'
 
 interface Props {
   open: boolean
-  mode: RoleChatMode
   onClose: () => void
-  /** 批量添加参与者（本地模式可一次添加多个；Opencode 模式数组长度为 1） */
+  /** 批量添加参与者（一次可勾选多个角色卡，各自指定推理节点） */
   onAddMany: (participants: RoleChatParticipant[]) => void
 }
 
@@ -23,25 +21,16 @@ function colorFromName(name: string): string {
   return colors[Math.abs(hash) % colors.length]
 }
 
-export default function AddParticipantModal({ open, mode, onClose, onAddMany }: Props) {
+export default function AddParticipantModal({ open, onClose, onAddMany }: Props) {
   const { message } = App.useApp()
   const currentBookId = useAppStore((s) => s.currentBookId)
   const cards = useAppStore((s) => s.cards)
   const providers = useAppStore((s) => s.providers)
-  const roleChatOpencodeURL = useAppStore((s) => s.roleChatOpencodeURL)
-  const setState = useAppStore((s) => s.setState)
 
-  // 本地模式状态：多选角色 + 每个角色独立节点
+  // 多选角色 + 每个角色独立节点
   const [selectedCardIds, setSelectedCardIds] = useState<string[]>([])
   const [cardNodeMap, setCardNodeMap] = useState<Record<string, string>>({})
   const [searchText, setSearchText] = useState('')
-
-  // Opencode 模式状态
-  const [opcodeURL, setOpcodeURL] = useState(roleChatOpencodeURL)
-  const [opcodeAgents, setOpcodeAgents] = useState<OpencodeAgent[]>([])
-  const [opcodeLoading, setOpcodeLoading] = useState(false)
-  const [selectedAgentName, setSelectedAgentName] = useState<string>()
-  const [selectedModel, setSelectedModel] = useState('opencode/default')
 
   // 当前作品的角色卡片
   const characterCards = cards.filter((c) => c.bookId === currentBookId && c.type === 'character')
@@ -59,9 +48,8 @@ export default function AddParticipantModal({ open, mode, onClose, onAddMany }: 
       setSelectedCardIds([])
       setCardNodeMap({})
       setSearchText('')
-      setSelectedAgentName(undefined)
     }
-  }, [open, mode])
+  }, [open])
 
   // 切换角色勾选（首次勾选时给默认节点）
   const toggleCard = (cardId: string) => {
@@ -77,76 +65,33 @@ export default function AddParticipantModal({ open, mode, onClose, onAddMany }: 
     setSelectedCardIds((prev) => (prev.includes(cardId) ? prev : [...prev, cardId]))
   }
 
-  // 加载 Opencode Agent 列表
-  const loadOpencodeAgents = async () => {
-    setOpcodeLoading(true)
-    try {
-      const agents = await listOpencodeAgents(opcodeURL)
-      setOpcodeAgents(agents)
-      if (agents.length > 0) {
-        setSelectedAgentName(agents[0].name)
-      }
-      message.success(`已连接 Opencode Server，找到 ${agents.length} 个 Agent`)
-    } catch (e) {
-      message.error(e instanceof Error ? e.message : '连接失败')
-      setOpcodeAgents([])
-    } finally {
-      setOpcodeLoading(false)
-    }
-  }
-
   // 确认添加
   const handleOk = () => {
-    if (mode === 'local') {
-      if (selectedCardIds.length === 0) {
-        message.warning('请至少勾选一个角色')
-        return
-      }
-
-      const participants: RoleChatParticipant[] = []
-      for (const cardId of selectedCardIds) {
-        const card = cards.find((c) => c.id === cardId)
-        if (!card) continue
-        const nodeId = cardNodeMap[cardId] || textNodes[0]?.id
-        if (!nodeId) {
-          message.warning(`角色「${card.name}」未选择节点`)
-          return
-        }
-        participants.push({
-          id: `participant-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-          name: card.name,
-          mode: 'local',
-          cardId,
-          nodeId,
-          avatar: card.fields.avatar,
-          color: colorFromName(card.name),
-          status: 'idle',
-        })
-      }
-
-      if (participants.length === 0) return
-      onAddMany(participants)
-    } else {
-      // Opencode 模式
-      if (!selectedAgentName) {
-        message.warning('请选择 Agent')
-        return
-      }
-
-      const participant: RoleChatParticipant = {
-        id: `participant-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-        name: selectedAgentName,
-        mode: 'opencode',
-        agentName: selectedAgentName,
-        model: selectedModel,
-        color: colorFromName(selectedAgentName),
-        status: 'idle',
-      }
-
-      onAddMany([participant])
-      // 保存 Opencode URL
-      setState({ roleChatOpencodeURL: opcodeURL })
+    if (selectedCardIds.length === 0) {
+      message.warning('请至少勾选一个角色')
+      return
     }
+    const participants: RoleChatParticipant[] = []
+    for (const cardId of selectedCardIds) {
+      const card = cards.find((c) => c.id === cardId)
+      if (!card) continue
+      const nodeId = cardNodeMap[cardId] || textNodes[0]?.id
+      if (!nodeId) {
+        message.warning(`角色「${card.name}」未选择节点`)
+        return
+      }
+      participants.push({
+        id: genId('participant'),
+        name: card.name,
+        cardId,
+        nodeId,
+        avatar: card.fields.avatar,
+        color: colorFromName(card.name),
+        status: 'idle',
+      })
+    }
+    if (participants.length === 0) return
+    onAddMany(participants)
   }
 
   return (
@@ -159,175 +104,85 @@ export default function AddParticipantModal({ open, mode, onClose, onAddMany }: 
       okText="添加"
       cancelText="取消"
     >
-      {mode === 'local' ? (
-        <Space direction="vertical" size={16} style={{ width: '100%' }}>
-          {/* 搜索框 */}
-          <Input
-            placeholder="搜索角色名称..."
-            prefix={<SearchOutlined />}
-            value={searchText}
-            onChange={(e) => setSearchText(e.target.value)}
-            allowClear
-          />
+      <Space direction="vertical" size={16} style={{ width: '100%' }}>
+        {/* 搜索框 */}
+        <Input
+          placeholder="搜索角色名称..."
+          prefix={<SearchOutlined />}
+          value={searchText}
+          onChange={(e) => setSearchText(e.target.value)}
+          allowClear
+        />
 
-          {/* 角色列表（可多选，每行右侧指定节点） */}
-          <div>
-            <Typography.Text type="secondary" style={{ fontSize: 12, marginBottom: 8, display: 'block' }}>
-              选择角色卡片（可多选，已选 {selectedCardIds.length} / {filteredCards.length} 个）
-            </Typography.Text>
-            <div style={{ maxHeight: 360, overflowY: 'auto', border: '1px solid #d9d9d9', borderRadius: 4 }}>
-              <List
-                size="small"
-                dataSource={filteredCards}
-                locale={{ emptyText: '暂无角色卡片' }}
-                renderItem={(card) => {
-                  const checked = selectedCardIds.includes(card.id)
-                  return (
-                    <List.Item
-                      style={{
-                        padding: '8px 12px',
-                        cursor: 'pointer',
-                        backgroundColor: checked ? '#e6f4ff' : undefined,
-                      }}
-                      onClick={() => toggleCard(card.id)}
-                    >
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%' }}>
-                        <Checkbox
-                          checked={checked}
-                          onChange={() => toggleCard(card.id)}
-                          onClick={(e) => e.stopPropagation()}
-                        />
-                        {card.fields.avatar ? (
-                          <Avatar src={card.fields.avatar} />
-                        ) : (
-                          <Avatar style={{ backgroundColor: colorFromName(card.name), flexShrink: 0 }}>
-                            {card.name[0].toUpperCase()}
-                          </Avatar>
-                        )}
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <Typography.Text strong style={{ fontSize: 13, display: 'block' }}>
-                            {card.name}
-                          </Typography.Text>
-                          <Typography.Text
-                            type="secondary"
-                            ellipsis
-                            style={{ fontSize: 12, display: 'block' }}
-                          >
-                            {card.description || '（无描述）'}
-                          </Typography.Text>
-                        </div>
-                        <Select
-                          size="small"
-                          style={{ width: 160, flexShrink: 0 }}
-                          value={cardNodeMap[card.id] || undefined}
-                          onChange={(v) => setCardNode(card.id, v)}
-                          onClick={(e) => e.stopPropagation()}
-                          options={textNodes.map((n) => ({ label: n.name, value: n.id }))}
-                          placeholder="选择节点"
-                          getPopupContainer={(t) => t.parentElement || document.body}
-                        />
+        {/* 角色列表（可多选，每行右侧指定节点） */}
+        <div>
+          <Typography.Text type="secondary" style={{ fontSize: 12, marginBottom: 8, display: 'block' }}>
+            选择角色卡片（可多选，已选 {selectedCardIds.length} / {filteredCards.length} 个）
+          </Typography.Text>
+          <div style={{ maxHeight: 360, overflowY: 'auto', border: '1px solid #d9d9d9', borderRadius: 4 }}>
+            <List
+              size="small"
+              dataSource={filteredCards}
+              locale={{ emptyText: '暂无角色卡片' }}
+              renderItem={(card) => {
+                const checked = selectedCardIds.includes(card.id)
+                return (
+                  <List.Item
+                    style={{
+                      padding: '8px 12px',
+                      cursor: 'pointer',
+                      backgroundColor: checked ? '#e6f4ff' : undefined,
+                    }}
+                    onClick={() => toggleCard(card.id)}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%' }}>
+                      <Checkbox
+                        checked={checked}
+                        onChange={() => toggleCard(card.id)}
+                        onClick={(e) => e.stopPropagation()}
+                      />
+                      {card.fields.avatar ? (
+                        <Avatar src={card.fields.avatar} />
+                      ) : (
+                        <Avatar style={{ backgroundColor: colorFromName(card.name), flexShrink: 0 }}>
+                          {card.name[0].toUpperCase()}
+                        </Avatar>
+                      )}
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <Typography.Text strong style={{ fontSize: 13, display: 'block' }}>
+                          {card.name}
+                        </Typography.Text>
+                        <Typography.Text
+                          type="secondary"
+                          ellipsis
+                          style={{ fontSize: 12, display: 'block' }}
+                        >
+                          {card.description || '（无描述）'}
+                        </Typography.Text>
                       </div>
-                    </List.Item>
-                  )
-                }}
-              />
-            </div>
-            {textNodes.length === 0 && (
-              <Typography.Text type="danger" style={{ fontSize: 12, marginTop: 8, display: 'block' }}>
-                暂无可用文本节点，请先在「系统设置」启用文本节点
-              </Typography.Text>
-            )}
+                      <Select
+                        size="small"
+                        style={{ width: 160, flexShrink: 0 }}
+                        value={cardNodeMap[card.id] || undefined}
+                        onChange={(v) => setCardNode(card.id, v)}
+                        onClick={(e) => e.stopPropagation()}
+                        options={textNodes.map((n) => ({ label: n.name, value: n.id }))}
+                        placeholder="选择节点"
+                        getPopupContainer={(t) => t.parentElement || document.body}
+                      />
+                    </div>
+                  </List.Item>
+                )
+              }}
+            />
           </div>
-        </Space>
-      ) : (
-        <Space direction="vertical" size={16} style={{ width: '100%' }}>
-          {/* Opencode Server 地址 */}
-          <div>
-            <Typography.Text type="secondary" style={{ fontSize: 12, marginBottom: 8, display: 'block' }}>
-              Opencode Server 地址
+          {textNodes.length === 0 && (
+            <Typography.Text type="danger" style={{ fontSize: 12, marginTop: 8, display: 'block' }}>
+              暂无可用文本节点，请先在「系统设置」启用文本节点
             </Typography.Text>
-            <Space.Compact style={{ width: '100%' }}>
-              <Input
-                value={opcodeURL}
-                onChange={(e) => setOpcodeURL(e.target.value)}
-                placeholder="http://127.0.0.1:4096"
-              />
-              <Button type="primary" onClick={loadOpencodeAgents} loading={opcodeLoading}>
-                连接
-              </Button>
-            </Space.Compact>
-          </div>
-
-          {/* Agent 列表 */}
-          {opcodeLoading ? (
-            <div style={{ textAlign: 'center', padding: '40px 0' }}>
-              <Spin />
-              <Typography.Text type="secondary" style={{ display: 'block', marginTop: 12 }}>
-                正在连接 Opencode Server...
-              </Typography.Text>
-            </div>
-          ) : opcodeAgents.length > 0 ? (
-            <>
-              <div>
-                <Typography.Text type="secondary" style={{ fontSize: 12, marginBottom: 8, display: 'block' }}>
-                  选择 Agent（{opcodeAgents.length} 个）
-                </Typography.Text>
-                <div style={{ maxHeight: 250, overflowY: 'auto', border: '1px solid #d9d9d9', borderRadius: 4 }}>
-                  <List
-                    size="small"
-                    dataSource={opcodeAgents}
-                    renderItem={(agent) => (
-                      <List.Item
-                        style={{
-                          padding: '8px 12px',
-                          cursor: 'pointer',
-                          backgroundColor: selectedAgentName === agent.name ? '#e6f4ff' : undefined,
-                        }}
-                        onClick={() => setSelectedAgentName(agent.name)}
-                      >
-                        <List.Item.Meta
-                          avatar={
-                            <Avatar style={{ backgroundColor: colorFromName(agent.name) }} icon={<UserOutlined />} />
-                          }
-                          title={agent.name}
-                          description={
-                            agent.description ? (
-                              <Typography.Text
-                                type="secondary"
-                                ellipsis
-                                style={{ fontSize: 12, maxWidth: 450, display: 'block' }}
-                              >
-                                {agent.description}
-                              </Typography.Text>
-                            ) : null
-                          }
-                        />
-                      </List.Item>
-                    )}
-                  />
-                </div>
-              </div>
-
-              {/* Model 选择 */}
-              <div>
-                <Typography.Text type="secondary" style={{ fontSize: 12, marginBottom: 8, display: 'block' }}>
-                  模型
-                </Typography.Text>
-                <Input
-                  value={selectedModel}
-                  onChange={(e) => setSelectedModel(e.target.value)}
-                  placeholder="opencode/default"
-                />
-              </div>
-            </>
-          ) : (
-            <div style={{ textAlign: 'center', padding: '40px 0', color: '#999' }}>
-              <UserOutlined style={{ fontSize: 48, marginBottom: 12, opacity: 0.3 }} />
-              <div>点击「连接」按钮加载 Agent 列表</div>
-            </div>
           )}
-        </Space>
-      )}
+        </div>
+      </Space>
     </Modal>
   )
 }

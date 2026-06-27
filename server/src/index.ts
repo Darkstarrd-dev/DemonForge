@@ -10,7 +10,6 @@ import { imageRoutes } from './routes/image'
 import { gptImageRoutes } from './routes/gptImage'
 import { xaiImageRoutes } from './routes/xaiImage'
 import { importSessionRoutes } from './routes/importSession'
-import { chatRoutes } from './routes/chat'
 import { getAppDataDir } from './utils/paths'
 import { getAssetDir, readAll } from './store/db'
 import { migrateImageB64Purge } from './store/migrateImageB64'
@@ -50,7 +49,6 @@ await app.register(imageRoutes)
 await app.register(gptImageRoutes)
 await app.register(xaiImageRoutes)
 await app.register(importSessionRoutes)
-await app.register(chatRoutes)
 app.get('/api/health', async () => ({ ok: true }))
 
 app.post('/api/shutdown', async (_req, reply) => {

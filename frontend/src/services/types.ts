@@ -219,23 +219,14 @@ export interface ChatSession {
 
 // ==================== 角色交流模块类型 ====================
 
-/** 角色交流模式：Opencode 服务器或本地节点池 */
-export type RoleChatMode = 'opencode' | 'local'
-
-/** 角色对话参与者（统一 Opencode Agent 和本地角色） */
+/** 角色对话参与者（本地角色卡 + 推理节点） */
 export interface RoleChatParticipant {
   id: string
   name: string
-  /** 模式：opencode = Opencode Agent / local = 本地角色卡 */
-  mode: RoleChatMode
-  /** Opencode 模式：Agent 名称 */
-  agentName?: string
-  /** Opencode 模式：Model 名称 */
-  model?: string
-  /** 本地模式：EntityCard ID */
-  cardId?: string
-  /** 本地模式：选中的节点 ID */
-  nodeId?: string
+  /** 角色卡 EntityCard ID */
+  cardId: string
+  /** 该角色推理所用的节点 ID */
+  nodeId: string
   /** 头像（可选，优先级：自定义 > 卡片 fields.avatar > 首字母） */
   avatar?: string
   /** 头像颜色（从名称生成） */
@@ -274,16 +265,20 @@ export interface RoleChatAutoConfig {
   reactionDelayMax: number
 }
 
-/** Opencode Agent 信息 */
-export interface OpencodeAgent {
-  name: string
-  description?: string
-}
-
-/** Opencode 会话信息 */
-export interface OpencodeSession {
-  sessionID: string
-  agentName: string
+/** 角色对话参与者 session 运行态（内存态，按参与者 id 索引，不持久化）。
+ *  复刻节点测试 SessionRuntime：每参与者一份独立流式文本/推理/Debug，UI 只订阅——
+ *  切到某参与者 session 即看其实时推理与 Debug，切走仍在后台继续。 */
+export interface RoleChatRuntime {
+  /** idle 空闲 / thinking 反应延迟中 / streaming 流式输出 / done 完成 / error 失败 */
+  status: 'idle' | 'thinking' | 'streaming' | 'done' | 'error'
+  /** 流式累积的正文 */
+  streamingText: string
+  /** 流式累积的 reasoning（done 后保留，供底部推理面板折叠展示） */
+  streamingReasoning: string
+  /** 本参与者独立 Debug Info（预览请求体 / 实际请求体 / 上游 SSE chunks） */
+  debug: DebugInfoData
+  /** 错误信息（status==='error' 时） */
+  error?: string
 }
 
 /** M3 推演场景：同一场景可轮流推演多个角色 */

@@ -19,7 +19,7 @@ describe('appStore · slice 组合完整性', () => {
     expect(Array.isArray(s.books)).toBe(true) // booksSlice
     expect(Array.isArray(s.testHistory)).toBe(true) // nodeTestSlice
     expect(typeof s.m1TitleTemplate).toBe('string') // m1ImportSlice
-    expect(s.roleChatMode).toBe('local') // roleChatSlice
+    expect(s.roleChatActiveSessionId).toBe('main') // roleChatSlice
     expect(Array.isArray(s.providers)).toBe(true) // providerSlice
     expect(s.theme).toBe('light') // uiPrefsSlice
     // 各域 action

@@ -20,7 +20,9 @@ import type {
   SessionRuntime,
   SplitPattern,
   ImageInputMode,
-  RoleChatMode,
+  RoleChatParticipant,
+  RoleChatMessage,
+  RoleChatRuntime,
   RoleChatAutoConfig,
 } from '../services/types'
 
@@ -119,6 +121,16 @@ export function defaultSessionRuntime(): SessionRuntime {
   }
 }
 
+/** 角色对话参与者 session 运行态默认值（新建/缺省时用）。 */
+export function defaultRoleChatRuntime(): RoleChatRuntime {
+  return {
+    status: 'idle',
+    streamingText: '',
+    streamingReasoning: '',
+    debug: { previewBody: null, actualBody: null, sseChunks: [] },
+  }
+}
+
 export interface AppState {
   books: Book[]
   chapters: Chapter[]
@@ -182,11 +194,19 @@ export interface AppState {
   nodeTestSidebarMode: 'app' | 'sessions'
   /** 图片归档保存目录（持久化到 settings.json）。空串=后端用默认 <dataDir>/images */
   imageArchiveDir: string
-  /** 角色交流模式（持久化到 settings.json） */
-  roleChatMode: RoleChatMode
-  /** 角色交流 Opencode Server 地址（持久化到 settings.json） */
-  roleChatOpencodeURL: string
-  /** 角色交流自动循环配置（持久化到 settings.json） */
+  /** 角色交流参与者列表（内存态，不持久化） */
+  roleChatParticipants: RoleChatParticipant[]
+  /** 角色交流群聊消息流（内存态，不持久化；各参与者从此单一数据源派生各自缓存前缀） */
+  roleChatMessages: RoleChatMessage[]
+  /** 角色交流共享场景设定（内存态，不持久化） */
+  roleChatSceneSetting: string
+  /** 角色交流当前激活 session：'main'=群聊主界面，否则为参与者 id（内存态，不持久化） */
+  roleChatActiveSessionId: string
+  /** 角色交流左侧栏内容模式：app 导航 / session 列表（内存态，不持久化） */
+  roleChatSidebarMode: 'app' | 'sessions'
+  /** 角色交流各参与者 session 运行态（内存态，按参与者 id 索引，不持久化） */
+  roleChatRuntimes: Record<string, RoleChatRuntime>
+  /** 角色交流自动循环配置 */
   roleChatAutoConfig: RoleChatAutoConfig
   /** UI 主题模式（持久化到 settings.json） */
   theme: 'light' | 'dark'
@@ -208,6 +228,10 @@ export interface AppState {
   patchSessionRuntime: (id: string, patch: Partial<SessionRuntime>) => void
   /** 节点测试：清除某 session 的运行态（删 session / 完成清理时）。不持久化。 */
   clearSessionRuntime: (id: string) => void
+  /** 角色交流：合并写入某参与者 session 的运行态（缺省自动建默认）。不持久化。 */
+  patchRoleChatRuntime: (id: string, patch: Partial<RoleChatRuntime>) => void
+  /** 角色交流：清除某参与者 session 的运行态（删除参与者 / 重置时）。不持久化。 */
+  clearRoleChatRuntime: (id: string) => void
   updateChapter: (id: string, patch: Partial<Chapter>) => void
   updateCard: (id: string, patch: Partial<EntityCard>) => void
   updateIssue: (id: string, patch: Partial<ConsistencyIssue>) => void
