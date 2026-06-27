@@ -159,8 +159,8 @@ export default function DebugInfoPanel({ data, onClose }: Props) {
         <Typography.Title level={5} style={{ margin: 0, color: token.colorText }}>Debug Information</Typography.Title>
         <Button type="text" size="small" icon={<CloseOutlined />} onClick={onClose} />
       </div>
-      {/* Body */}
-      <div style={{ flex: 1, overflowY: 'auto', padding: 12 }}>
+      {/* Body（hide-scrollbar：可滚动但不显示滚动条） */}
+      <div className="hide-scrollbar" style={{ flex: 1, overflowY: 'auto', padding: 12 }}>
         {!hasAny ? (
           <Typography.Text type="secondary" style={{ display: 'block', textAlign: 'center', marginTop: 40, fontSize: 13 }}>
             发送消息后将显示调试信息

@@ -398,8 +398,8 @@ export default function NodeTestPage() {
         )}
       </div>
 
-      {/* 右侧设置面板 */}
-      <div style={{ width: 320, background: token.colorBgElevated, borderLeft: `1px solid ${token.colorBorder}`, display: 'flex', flexDirection: 'column' }}>
+      {/* 右侧设置面板（minHeight:0：锁定为容器高度，防止内部 Debug 等长内容撑高 flex 行、连累左侧主列被 stretch） */}
+      <div style={{ width: 320, background: token.colorBgElevated, borderLeft: `1px solid ${token.colorBorder}`, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
         <NodeTestSidebar
           sidebarView={sidebarView}
           setSidebarView={setSidebarView}

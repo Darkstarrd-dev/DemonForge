@@ -155,7 +155,8 @@ export default function NodeTestSidebar(props: {
   }
 
   return (
-    <div style={{ width: 320, background: token.colorBgElevated, borderLeft: `1px solid ${token.colorBorder}`, display: 'flex', flexDirection: 'column' }}>
+    // flex:1 填满父列固定高度，minHeight:0 让内部各视图的 height:100%/flex:1 滚动（debug/sysPrompt/params）正确生效
+    <div style={{ width: 320, background: token.colorBgElevated, borderLeft: `1px solid ${token.colorBorder}`, display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
       {body}
     </div>
   )
