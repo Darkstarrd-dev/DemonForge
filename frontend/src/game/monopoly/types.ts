@@ -124,12 +124,13 @@ export interface GameState {
 }
 
 // —— Action（reducer 输入） ——
-// P1 已加 ROLL_DICE / END_TURN；地产购买 / 决策点见后续阶段
+// P2 已加 RESOLVE_DECISION（消解决策点）；地产升级 / 抵押见后续阶段
 // （见 docs/monopoly_plan.md §8）。
 export type Action =
   | { type: 'NEW_GAME'; config: NewGameConfig }
   | { type: 'ROLL_DICE'; dice: [number, number] }
   | { type: 'END_TURN' }
+  | { type: 'RESOLVE_DECISION'; optionId: string }
 
 export interface NewGamePlayerSpec {
   name: string

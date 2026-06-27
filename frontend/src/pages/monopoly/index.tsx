@@ -6,6 +6,7 @@ import type { GameState, NewGamePlayerSpec } from '../../game/monopoly/types'
 import Board from './Board'
 import PlayerHUD from './PlayerHUD'
 import GamePanel from './GamePanel'
+import DecisionModal from './DecisionModal'
 
 const DEFAULT_PLAYERS: NewGamePlayerSpec[] = [
   { name: '红方', color: '#E74C3C', controller: 'human' },
@@ -28,6 +29,7 @@ export default function MonopolyPage() {
   const current = state.players.find((p) => p.id === state.turn.currentPlayerId)
   const onRoll = () => dispatch({ type: 'ROLL_DICE', dice: rollDice() })
   const onEndTurn = () => dispatch({ type: 'END_TURN' })
+  const onDecide = (optionId: string) => dispatch({ type: 'RESOLVE_DECISION', optionId })
 
   return (
     <div
@@ -55,6 +57,7 @@ export default function MonopolyPage() {
         </div>
         <GamePanel state={state} current={current} onRoll={onRoll} onEndTurn={onEndTurn} />
       </div>
+      <DecisionModal state={state} onDecide={onDecide} />
     </div>
   )
 }
