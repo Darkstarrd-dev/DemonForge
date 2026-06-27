@@ -1,6 +1,7 @@
 // 真实 LLM 服务层 —— 经自家后端网关（/api/llm/*）调用，替代 mock/impl 中的 M1 清理与 Provider 测试。
 
 import { dequeueBatch } from './dequeue'
+import { NodeCircuitBreaker } from './circuitBreaker'
 
 export interface TestResult {
   ok: boolean
@@ -428,11 +429,9 @@ export function startCleanQueue(
   const activeBatches = new Map<string, { ac: AbortController; chapterIds: string[]; nodeId: string }>()
   // 模型切换覆盖：chapterId → 强制节点 id（切换后下轮调度仅匹配该节点）
   const nodeOverrides = new Map<string, string>()
-  // 节点熔断：连续失败 NODE_FAIL_LIMIT 次的节点加入此集合，pickCandidate 永久跳过
-  const disabledNodes = new Set<string>()
-  // 节点连续失败计数（成功即归零）；超过阈值触发 onNodeDisabled + 熔断
+  // 节点熔断：连续失败 NODE_FAIL_LIMIT 次的节点被熔断不再分配新任务（计数/熔断状态封装在 NodeCircuitBreaker）
   const NODE_FAIL_LIMIT = 3
-  const nodeConsecFails = new Map<string, number>()
+  const breaker = new NodeCircuitBreaker(NODE_FAIL_LIMIT)
   // 章节级"避开节点"：某章在某节点失败后，重试时优先避开它（除非只剩它），降低同一坏节点反复重试
   const chapterAvoidNodes = new Map<string, Set<string>>()
   // per-worker batch 序号：每 executeBatch 递增，供 UI 区分同一 worker 的多批
@@ -447,18 +446,14 @@ export function startCleanQueue(
     }
   }
 
-  /** 取本章应避开的节点（仅一个最强避让，传给 worker；多个避让时取最近失败的） */
+  /** 节点成功：连续失败计数归零 */
   const markNodeSuccess = (nodeId: string) => {
-    nodeConsecFails.set(nodeId, 0)
+    breaker.recordSuccess(nodeId)
   }
 
-  /** 记录节点失败：累加连续失败；达 NODE_FAIL_LIMIT 则熔断该节点并通知 UI */
+  /** 记录节点失败：累加连续失败；刚达阈值则熔断——中止该节点在途 batch（章节回流重试）并通知 UI */
   const markNodeFail = (node: CleanNode, reason: string) => {
-    if (disabledNodes.has(node.id)) return // 已熔断不再重复处理
-    const fails = (nodeConsecFails.get(node.id) ?? 0) + 1
-    nodeConsecFails.set(node.id, fails)
-    if (fails >= NODE_FAIL_LIMIT) {
-      disabledNodes.add(node.id)
+    if (breaker.recordFailure(node.id)) {
       // 立即中止该节点所有在途 batch → catch 块将章节放入 retryQueue 供其他节点接管
       for (const [, batch] of activeBatches) {
         if (batch.nodeId === node.id) batch.ac.abort()
@@ -511,7 +506,8 @@ export function startCleanQueue(
         if (phase === 'connect') {
           markNodeFail(node, errMsg)
         } else {
-          nodeConsecFails.set(node.id, 0)
+          // stream 阶段错误不计入熔断 → 连续失败计数归零（等价一次成功）
+          breaker.recordSuccess(node.id)
         }
       }
 
@@ -531,12 +527,12 @@ export function startCleanQueue(
           const fails = (failCounts.get(t.id) ?? 0) + 1
           failCounts.set(t.id, fails)
           // 节点已熔断时，给章节更宽容的重试预算（否则容易被单章 MAX_RETRIES 提前判死）
-          const limit = disabledNodes.has(node.id) ? MAX_RETRIES + 2 : MAX_RETRIES
+          const limit = breaker.isDisabled(node.id) ? MAX_RETRIES + 2 : MAX_RETRIES
           if (autoRetry) {
             // 自动重试模式：失败章节放回任务池，由其他空闲节点接管（无次数上限）。
             // chapterAvoidNodes 已累加当前节点，下次 dequeueBatch 优先避开它。
             // 兜底：若无可用的节点（全节点熔断或全被该章避开）→ 判终态失败。
-            const allAvailNodes = nodeConfigs.filter((n) => !disabledNodes.has(n.id))
+            const allAvailNodes = breaker.availableNodes(nodeConfigs)
             const avoids = chapterAvoidNodes.get(t.id)
             const noNodeLeft = allAvailNodes.length === 0 || (avoids != null && allAvailNodes.every((n) => avoids.has(n.id)))
             if (noNodeLeft) {
@@ -567,7 +563,7 @@ export function startCleanQueue(
       }
       // 读最新节点配置（热更新入口：batchSize / intervalSec 即时生效；节点删除/熔断则退出）
       const node = nodeConfigs.find((n) => n.id === assignedNode.id)
-      if (!node || disabledNodes.has(node.id)) break
+      if (!node || breaker.isDisabled(node.id)) break
       if (slot >= node.maxConcurrency) break
       const state = nodeStates.get(node.id)
       if (!state) break
@@ -670,9 +666,8 @@ export function startCleanQueue(
           nodeStates.set(n.id, { activeCount: 0, lastRequestTime: 0 })
         }
         // 用户把曾被自动熔断的节点重新纳入（开启参与）→ 视为手动恢复：清熔断与计数
-        if (disabledNodes.has(n.id)) {
-          disabledNodes.delete(n.id)
-          nodeConsecFails.set(n.id, 0)
+        if (breaker.isDisabled(n.id)) {
+          breaker.reset(n.id)
         }
         oldIds.delete(n.id)
       }
