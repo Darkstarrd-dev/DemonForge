@@ -18,7 +18,7 @@ export const lightTheme: ThemeConfig = {
     colorBgLayout: '#F7F4EF',
     colorBgContainer: '#FBF9F5',
     colorBgElevated: '#FFFFFF',
-    colorBgSpotlight: '#FFFFFF',
+    colorBgSpotlight: '#1F2421', // Tooltip 背景：深色配白字，确保浅色模式可读
 
     // 边框色 - 暖色调灰
     colorBorder: '#E7E1D7',

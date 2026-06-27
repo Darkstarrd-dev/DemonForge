@@ -2,11 +2,26 @@
 
 **最后更新**：2026-06-27  
 **当前位置**：办公场所 A
-**本轮主题**：4K 基准缩放修复（消除闪烁 + 跨显示器布局一致）
+**本轮主题**：UI 微调（导航栏 tooltip/滚动 + 节点测试按钮图标化 + 浅色 Tooltip 可读性）
 
 ---
 
-## 🆕 本轮完成：4K 基准缩放修复（2026-06-27）
+## 🆕 本轮完成：UI 微调四项（2026-06-27）
+
+均为前端纯 UI 改动，无后端/数据模型变更：
+
+1. **左侧导航栏 logo tooltip 移除**：`AppLayout.tsx` 去掉包裹 "NovelHelper" logo 的 `<Tooltip>`（hover 不再弹提示），并删除随之失效的 `Tooltip` 导入。
+2. **左侧导航栏可滚动 + 隐藏滚动条**：`AppLayout.tsx` 给 `<Menu>` 加 `minHeight:0 + overflowY:auto`（配合既有 `.ant-layout-sider-children` flex 列，菜单区在窗口高度不足时单独滚动，header/作品选择器/退出按钮保持固定），挂 `className="hide-scrollbar"`；`index.css` 新增 `.hide-scrollbar` 工具类（跨浏览器隐藏滚动条：Firefox `scrollbar-width` + Chromium/Electron `::-webkit-scrollbar`）。
+3. **节点测试右侧栏 header 四按钮纯图标化**：`node-test/index.tsx` 四个按钮（对比模式 / 新对话 / System Instructions / Debug Info）统一去文字、加 `Tooltip` 保留可发现性；新增图标 `ProfileOutlined`（System Instructions）/ `BugOutlined`（Debug Info），对比模式 `ColumnWidthOutlined`、新对话 `PlusOutlined` 沿用。
+4. **浅色模式 Tooltip 白底白字修复**：`styles/theme.ts` 浅色主题 `colorBgSpotlight`（antd Tooltip 背景 token）由误设的 `#FFFFFF` 改为暖近黑 `#1F2421`——此前白底配默认白字（`colorTextLightSolid` 未覆盖）导致浅色模式所有 Tooltip 不可读。根 token 修复，全局生效（不止节点测试四按钮）。
+
+**改动文件**：`frontend/src/layouts/AppLayout.tsx`、`frontend/src/index.css`、`frontend/src/pages/node-test/index.tsx`、`frontend/src/styles/theme.ts`。
+
+**验证**：前端 `tsc --noEmit` 零错误（含全部改动）。**Electron/浏览器实机视觉验证待用户确认**。
+
+---
+
+## 本轮完成：4K 基准缩放修复（2026-06-27）
 
 **问题**：开启「系统设置 → 通用设置 → 4K 基准缩放」后界面来回缩小/恢复高速闪烁，且 4K 最大化未保持不变。历史多次尝试失败。
 

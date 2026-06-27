@@ -1,4 +1,4 @@
-import { Button, Layout, Menu, Select, Segmented, Typography, Tooltip } from 'antd'
+import { Button, Layout, Menu, Select, Segmented, Typography } from 'antd'
 import {
   PoweroffOutlined,
   HomeOutlined,
@@ -145,14 +145,12 @@ export default function AppLayout() {
             gap: '12px',
             borderBottom: theme === 'dark' ? '1px solid #303030' : '1px solid #f0f0f0',
           }}>
-            <Tooltip title={isNodeTest ? '点击切换：会话列表 / 导航菜单' : '点击收起侧栏'} placement="right">
-              <span
-                style={{ flex: 1, cursor: 'pointer' }}
-                onClick={onLogoClick}
-              >
-                NovelHelper
-              </span>
-            </Tooltip>
+            <span
+              style={{ flex: 1, cursor: 'pointer' }}
+              onClick={onLogoClick}
+            >
+              NovelHelper
+            </span>
             <Segmented
               value={theme}
               onChange={(v) => {
@@ -195,6 +193,7 @@ export default function AppLayout() {
               </div>
 
               <Menu
+                className="hide-scrollbar"
                 theme={theme === 'dark' ? 'dark' : 'light'}
                 mode="inline"
                 items={MENU_ITEMS}
@@ -202,6 +201,8 @@ export default function AppLayout() {
                 onClick={(e) => navigate(e.key)}
                 style={{
                   flex: 1,
+                  minHeight: 0,
+                  overflowY: 'auto',
                   background: theme === 'dark' ? '#141414' : '#ffffff',
                   paddingTop: 0,
                 }}

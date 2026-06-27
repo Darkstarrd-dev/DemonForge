@@ -162,3 +162,12 @@ body {
 .ant-menu-inline {
   border-inline-end: none !important;
 }
+
+/* 隐藏滚动条但保留滚动能力（左侧导航在高度不足时可滚动） */
+.hide-scrollbar {
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* IE / 旧 Edge */
+}
+.hide-scrollbar::-webkit-scrollbar {
+  display: none; /* Chromium / Electron */
+}

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { App, Button, Space, Typography, Upload, Select, Segmented, theme, Tooltip, Collapse, Popconfirm, Modal } from 'antd'
-import { PictureOutlined, CloseOutlined, MessageOutlined, CopyOutlined, SendOutlined, FileImageOutlined, HistoryOutlined, BulbOutlined, RedoOutlined, EditOutlined, DeleteOutlined, ColumnWidthOutlined, PlusOutlined } from '@ant-design/icons'
+import { PictureOutlined, CloseOutlined, MessageOutlined, CopyOutlined, SendOutlined, FileImageOutlined, HistoryOutlined, BulbOutlined, RedoOutlined, EditOutlined, DeleteOutlined, ColumnWidthOutlined, PlusOutlined, ProfileOutlined, BugOutlined } from '@ant-design/icons'
 import { useAppStore } from '../../store/appStore'
 import { streamChat, sendInSession, cancelSession } from '../../services/api'
 import { genId, pushSettingsNow } from '../../store/appStore'
@@ -1943,7 +1943,8 @@ export default function NodeTestPage() {
             {/* 顶部 header：对比模式切换 + 新对话 + System Instructions + Debug Info 按钮 */}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', borderBottom: `1px solid ${token.colorBorder}`, flexShrink: 0 }}>
               <Space size={8}>
-                <Button
+                <Tooltip title="对比模式">
+                  <Button
                     size="small"
                     icon={<ColumnWidthOutlined />}
                     type={compareMode ? 'primary' : 'default'}
@@ -1964,11 +1965,18 @@ export default function NodeTestPage() {
                       }
                     }}
                   />
-                <Button size="small" icon={<PlusOutlined />} onClick={clearConversation}>新对话</Button>
+                </Tooltip>
+                <Tooltip title="新对话">
+                  <Button size="small" icon={<PlusOutlined />} onClick={clearConversation} />
+                </Tooltip>
               </Space>
               <Space size={8}>
-                <Button size="small" onClick={() => setSidebarView('sysPrompt')}>System Instructions</Button>
-                <Button size="small" onClick={() => setSidebarView('debug')}>Debug Info</Button>
+                <Tooltip title="System Instructions">
+                  <Button size="small" icon={<ProfileOutlined />} onClick={() => setSidebarView('sysPrompt')} />
+                </Tooltip>
+                <Tooltip title="Debug Info">
+                  <Button size="small" icon={<BugOutlined />} onClick={() => setSidebarView('debug')} />
+                </Tooltip>
               </Space>
             </div>
             <div style={{ padding: 16, flex: 1, overflowY: 'auto' }}>
