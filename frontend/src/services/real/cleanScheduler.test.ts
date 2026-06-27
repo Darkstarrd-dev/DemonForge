@@ -17,7 +17,8 @@
 //   故 mock 必须同时覆盖单/批两路。
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { startCleanQueue, type CleanNode, type CleanQueueCallbacks } from './llm'
+import { startCleanQueue } from './cleanScheduler'
+import type { CleanNode, CleanQueueCallbacks } from './llm'
 
 const SEP = '<<<|||CHAPTER_SEP|||>>>'
 
