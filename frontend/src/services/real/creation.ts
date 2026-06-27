@@ -1,5 +1,6 @@
 // 创作类真实服务层（阶段 B：起源流程）——经后端 /api/llm/{arch,blueprint} 网关调用。
-// SSE 客户端解析复用 real/llm.ts 的 reader/decoder/\n\n event 解析范式。
+// SSE 解析统一走 services/sse.ts 的 parseSSE。
+import { parseSSE } from '../sse'
 
 export interface CreationProvider {
   baseURL: string
@@ -59,36 +60,17 @@ export async function streamSSE(
   }
   if (!res.body) throw new Error('响应无 body')
 
-  const reader = res.body.getReader()
-  const decoder = new TextDecoder()
-  let buffer = ''
   let acc = ''
-  for (;;) {
-    const { done, value } = await reader.read()
-    const text = value ? decoder.decode(value, { stream: !done }) : ''
-    buffer += text
-    const events = buffer.split('\n\n')
-    buffer = events.pop() ?? ''
-    for (const evt of events) {
-      if (!evt.trim()) continue
-      let event = 'message'
-      let data = ''
-      for (const line of evt.split('\n')) {
-        if (line.startsWith('event:')) event = line.slice(6).trim()
-        else if (line.startsWith('data:')) data += line.slice(5).trim()
-      }
-      if (!data) continue
-      const parsed = JSON.parse(data) as { delta?: string; text?: string; message?: string }
-      if (event === 'delta') {
-        acc += parsed.delta ?? ''
-        onDelta(acc)
-      } else if (event === 'done') {
-        return parsed.text ?? acc
-      } else if (event === 'error') {
-        throw new Error(parsed.message ?? '生成失败')
-      }
+  for await (const { event, data } of parseSSE(res.body)) {
+    const parsed = data as { delta?: string; text?: string; message?: string }
+    if (event === 'delta') {
+      acc += parsed.delta ?? ''
+      onDelta(acc)
+    } else if (event === 'done') {
+      return parsed.text ?? acc
+    } else if (event === 'error') {
+      throw new Error(parsed.message ?? '生成失败')
     }
-    if (done) break
   }
   throw new Error('流式响应意外结束')
 }

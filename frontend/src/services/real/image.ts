@@ -1,5 +1,6 @@
 // 文生图真实服务层 —— 经后端 /api/image/generate 网关调用 ModelScope。
-// SSE 客户端解析复用 creation.ts 的 reader/decoder/\n\n event 解析范式（多事件分发版）。
+// SSE 解析统一走 services/sse.ts 的 parseSSE。
+import { parseSSE } from '../sse'
 
 export interface ImageGenParams {
   baseURL: string
@@ -57,31 +58,12 @@ export async function generateImage(
   }
   if (!res.body) throw new Error('响应无 body')
 
-  const reader = res.body.getReader()
-  const decoder = new TextDecoder()
-  let buffer = ''
-  for (;;) {
-    const { done, value } = await reader.read()
-    const text = value ? decoder.decode(value, { stream: !done }) : ''
-    buffer += text
-    const chunks = buffer.split('\n\n')
-    buffer = chunks.pop() ?? ''
-    for (const chunk of chunks) {
-      if (!chunk.trim()) continue
-      let event = 'message'
-      let data = ''
-      for (const line of chunk.split('\n')) {
-        if (line.startsWith('event:')) event = line.slice(6).trim()
-        else if (line.startsWith('data:')) data += line.slice(5).trim()
-      }
-      if (!data) continue
-      const parsed = JSON.parse(data) as Record<string, unknown>
-      if (event === 'submitted') events.submitted?.(parsed as unknown as { taskId: string })
-      else if (event === 'polling') events.polling?.(parsed as unknown as { status: string; attempt: number })
-      else if (event === 'done') events.done?.(parsed as unknown as { image: string; model: string })
-      else if (event === 'debug') events.debug?.(parsed as unknown as ImageGenDebug)
-      else if (event === 'error') throw new Error((parsed.message as string) ?? '生成失败')
-    }
-    if (done) break
+  for await (const { event, data } of parseSSE(res.body)) {
+    const parsed = data as Record<string, unknown>
+    if (event === 'submitted') events.submitted?.(parsed as unknown as { taskId: string })
+    else if (event === 'polling') events.polling?.(parsed as unknown as { status: string; attempt: number })
+    else if (event === 'done') events.done?.(parsed as unknown as { image: string; model: string })
+    else if (event === 'debug') events.debug?.(parsed as unknown as ImageGenDebug)
+    else if (event === 'error') throw new Error((parsed.message as string) ?? '生成失败')
   }
 }

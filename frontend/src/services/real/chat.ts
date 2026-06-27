@@ -1,4 +1,5 @@
 // 通用对话服务层 —— 支持纯文本推理和多模态理解（OpenAI 兼容格式）
+import { parseSSE } from '../sse'
 
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant'
@@ -67,55 +68,25 @@ export async function streamChat(
     return
   }
 
-  const reader = res.body.getReader()
-  const decoder = new TextDecoder()
-  let buffer = ''
   let fullText = ''
-
   try {
-    for (;;) {
-      const { done, value } = await reader.read()
-      if (done) break
-
-      buffer += decoder.decode(value, { stream: true })
-      const lines = buffer.split('\n')
-      buffer = lines.pop() ?? ''
-
-      for (let i = 0; i < lines.length; i++) {
-        const line = lines[i]
-        const trimmed = line.trim()
-        if (!trimmed || !trimmed.startsWith('event:')) continue
-
-        const eventMatch = trimmed.match(/^event:\s*([\w-]+)/)
-        if (!eventMatch) continue
-        const eventType = eventMatch[1]
-
-        // 查找下一行的 data
-        const dataLine = lines[i + 1]
-        if (!dataLine?.trim().startsWith('data:')) continue
-        const dataJson = dataLine.trim().slice(5).trim()
-
-        try {
-          const data = JSON.parse(dataJson)
-          if (eventType === 'request-body') {
-            events.requestBody?.(data)
-          } else if (eventType === 'raw') {
-            events.rawChunk?.(data as { line: string; json: unknown | null })
-          } else if (eventType === 'reasoning-delta' && typeof data.delta === 'string') {
-            events.reasoningDelta?.(data.delta)
-          } else if (eventType === 'delta' && typeof data.delta === 'string') {
-            fullText += data.delta
-            events.delta(data.delta)
-          } else if (eventType === 'done' && typeof data.text === 'string') {
-            events.done(data.text)
-            return
-          } else if (eventType === 'error' && typeof data.message === 'string') {
-            events.error(data.message)
-            return
-          }
-        } catch {
-          // 忽略解析失败的行
-        }
+    for await (const { event, data } of parseSSE(res.body)) {
+      const d = data as { delta?: string; text?: string; message?: string }
+      if (event === 'request-body') {
+        events.requestBody?.(data)
+      } else if (event === 'raw') {
+        events.rawChunk?.(data as { line: string; json: unknown | null })
+      } else if (event === 'reasoning-delta' && typeof d.delta === 'string') {
+        events.reasoningDelta?.(d.delta)
+      } else if (event === 'delta' && typeof d.delta === 'string') {
+        fullText += d.delta
+        events.delta(d.delta)
+      } else if (event === 'done' && typeof d.text === 'string') {
+        events.done(d.text)
+        return
+      } else if (event === 'error' && typeof d.message === 'string') {
+        events.error(d.message)
+        return
       }
     }
 

@@ -1,5 +1,6 @@
 // 角色交流模块服务层
 import type { OpencodeAgent, OpencodeSession, RoleChatMessage } from '../types'
+import { parseSSE } from '../sse'
 
 // ==================== Opencode 模式 ====================
 
@@ -93,49 +94,16 @@ export async function sendLocalRoleMessage(
     throw new Error(`HTTP ${response.status}${text ? ` - ${text}` : ''}`)
   }
 
-  const reader = response.body.getReader()
-  const decoder = new TextDecoder()
-  let buffer = ''
   let fullText = ''
-
-  try {
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
-
-      buffer += decoder.decode(value, { stream: true })
-      const lines = buffer.split('\n')
-      buffer = lines.pop() ?? ''
-
-      for (const line of lines) {
-        const trimmed = line.trim()
-        if (!trimmed || !trimmed.startsWith('data:')) continue
-
-        const dataStr = trimmed.slice(5).trim()
-        if (!dataStr) continue
-
-        try {
-          const data = JSON.parse(dataStr) as
-            | { delta: string }
-            | { text: string }
-            | { message: string }
-
-          if ('delta' in data && data.delta) {
-            fullText += data.delta
-            onDelta(data.delta)
-          } else if ('text' in data) {
-            // done 事件，已累积完整文本，不再追加
-          } else if ('message' in data) {
-            throw new Error(data.message)
-          }
-        } catch (e) {
-          if (e instanceof Error && e.message) throw e
-          // 忽略非 JSON 行（keep-alive）
-        }
-      }
+  for await (const { event, data } of parseSSE(response.body)) {
+    const d = data as { delta?: string; text?: string; message?: string }
+    if (event === 'delta' && d.delta) {
+      fullText += d.delta
+      onDelta(d.delta)
+    } else if (event === 'error') {
+      throw new Error(d.message ?? '角色回复失败')
     }
-  } finally {
-    reader.releaseLock()
+    // done 事件：text 已由 delta 累积完整，不再追加
   }
 
   return fullText

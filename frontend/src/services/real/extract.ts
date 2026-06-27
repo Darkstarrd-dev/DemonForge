@@ -1,6 +1,7 @@
 // M2 实体提取真实服务层——经后端 /api/llm/extract-entities 调用。
 
 import type { Chapter, EntityCard, MergeCandidate } from '../types'
+import { parseSSE } from '../sse'
 
 export interface ExtractProgress {
   stage: 'extracting' | 'embedding' | 'merging'
@@ -73,44 +74,14 @@ export async function extractEntities(
 
   if (!res.body) throw new Error('响应无 body')
 
-  const reader = res.body.getReader()
-  const decoder = new TextDecoder()
-  let buffer = ''
-
-  for (;;) {
-    const { done, value } = await reader.read()
-    const text = value ? decoder.decode(value, { stream: !done }) : ''
-    buffer += text
-
-    const events = buffer.split('\n\n')
-    buffer = events.pop() ?? ''
-
-    for (const evt of events) {
-      if (!evt.trim()) continue
-
-      let event = 'message'
-      let data = ''
-      for (const line of evt.split('\n')) {
-        if (line.startsWith('event:')) event = line.slice(6).trim()
-        else if (line.startsWith('data:')) data += line.slice(5).trim()
-      }
-
-      if (!data) continue
-
-      const parsed = JSON.parse(data)
-
-      if (event === 'progress') {
-        if (onProgress) {
-          onProgress(parsed as ExtractProgress)
-        }
-      } else if (event === 'done') {
-        return parsed as ExtractResult
-      } else if (event === 'error') {
-        throw new Error(parsed.message ?? '提取失败')
-      }
+  for await (const { event, data } of parseSSE(res.body)) {
+    if (event === 'progress') {
+      onProgress?.(data as ExtractProgress)
+    } else if (event === 'done') {
+      return data as ExtractResult
+    } else if (event === 'error') {
+      throw new Error((data as { message?: string }).message ?? '提取失败')
     }
-
-    if (done) break
   }
 
   throw new Error('流式响应意外结束')

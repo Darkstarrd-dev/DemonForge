@@ -1,7 +1,7 @@
 // M3 角色推演真实服务层——调用后端 /api/llm/simulate 网关，返回双候选流式推演。
 
 import type { SimScene, EntityCard } from '../types'
-// import { streamSSE } from './creation'
+import { parseSSE } from '../sse'
 
 export interface SimulateParams {
   baseURL: string
@@ -62,46 +62,23 @@ export async function simulateCharacter(
   }
   if (!res.body) throw new Error('响应无 body')
 
-  const reader = res.body.getReader()
-  const decoder = new TextDecoder()
-  let buffer = ''
   const accTexts: string[] = ['', ''] // 双候选累积数组
-
-  for (;;) {
-    const { done, value } = await reader.read()
-    const text = value ? decoder.decode(value, { stream: !done }) : ''
-    buffer += text
-    const events = buffer.split('\n\n')
-    buffer = events.pop() ?? ''
-
-    for (const evt of events) {
-      if (!evt.trim()) continue
-      let event = 'message'
-      let data = ''
-      for (const line of evt.split('\n')) {
-        if (line.startsWith('event:')) event = line.slice(6).trim()
-        else if (line.startsWith('data:')) data += line.slice(5).trim()
-      }
-      if (!data) continue
-
-      const parsed = JSON.parse(data) as {
-        candidateIdx?: number
-        delta?: string
-        candidates?: { id: string; text: string }[]
-        message?: string
-      }
-
-      if (event === 'delta') {
-        const idx = parsed.candidateIdx ?? 0
-        accTexts[idx] += parsed.delta ?? ''
-        onChunk(idx, accTexts[idx])
-      } else if (event === 'done') {
-        return parsed.candidates ?? accTexts.map((t, i) => ({ id: `cand-${i}`, text: t }))
-      } else if (event === 'error') {
-        throw new Error(parsed.message ?? 'M3 推演失败')
-      }
+  for await (const { event, data } of parseSSE(res.body)) {
+    const parsed = data as {
+      candidateIdx?: number
+      delta?: string
+      candidates?: { id: string; text: string }[]
+      message?: string
     }
-    if (done) break
+    if (event === 'delta') {
+      const idx = parsed.candidateIdx ?? 0
+      accTexts[idx] += parsed.delta ?? ''
+      onChunk(idx, accTexts[idx])
+    } else if (event === 'done') {
+      return parsed.candidates ?? accTexts.map((t, i) => ({ id: `cand-${i}`, text: t }))
+    } else if (event === 'error') {
+      throw new Error(parsed.message ?? 'M3 推演失败')
+    }
   }
 
   throw new Error('流式响应意外结束')

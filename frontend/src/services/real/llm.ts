@@ -117,6 +117,10 @@ interface ChapterTask {
 
 // ── 单章 SSE 流式请求（batchSize=1 时用） ──
 // 同时被 startCleanQueue 内部调用，以及全屏阅读模式单章清理直接调用。
+// 注：本文件刻意保留手写 SSE 解析（未套用 services/sse.ts::parseSSE）——清理流需累积原始
+//   字节（rawChunks）用于失败时 Debug Info 的 responseBody 诊断，且 streamBatch 还要按
+//   CHAPTER_SEP 增量拆分多章。这两点是 parseSSE（纯 {event,data}）不覆盖的业务需求，
+//   故作为 A-5 的明确例外。
 
 export async function streamSingleChapter(
   node: CleanNode,
