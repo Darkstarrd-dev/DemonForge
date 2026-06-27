@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Modal, Space, Typography, List, Input, Select, Button, Avatar, App, Spin } from 'antd'
+import { Modal, Space, Typography, List, Input, Select, Button, Avatar, App, Spin, Checkbox } from 'antd'
 import { SearchOutlined, UserOutlined } from '@ant-design/icons'
 import { useAppStore } from '../../../store/appStore'
 import type { RoleChatMode, RoleChatParticipant, OpencodeAgent } from '../../../services/types'
@@ -9,7 +9,8 @@ interface Props {
   open: boolean
   mode: RoleChatMode
   onClose: () => void
-  onAdd: (participant: RoleChatParticipant) => void
+  /** 批量添加参与者（本地模式可一次添加多个；Opencode 模式数组长度为 1） */
+  onAddMany: (participants: RoleChatParticipant[]) => void
 }
 
 // 生成头像颜色（从名称生成）
@@ -22,7 +23,7 @@ function colorFromName(name: string): string {
   return colors[Math.abs(hash) % colors.length]
 }
 
-export default function AddParticipantModal({ open, mode, onClose, onAdd }: Props) {
+export default function AddParticipantModal({ open, mode, onClose, onAddMany }: Props) {
   const { message } = App.useApp()
   const currentBookId = useAppStore((s) => s.currentBookId)
   const cards = useAppStore((s) => s.cards)
@@ -30,9 +31,9 @@ export default function AddParticipantModal({ open, mode, onClose, onAdd }: Prop
   const roleChatOpencodeURL = useAppStore((s) => s.roleChatOpencodeURL)
   const setState = useAppStore((s) => s.setState)
 
-  // 本地模式状态
-  const [selectedCardId, setSelectedCardId] = useState<string>()
-  const [selectedNodeId, setSelectedNodeId] = useState<string>()
+  // 本地模式状态：多选角色 + 每个角色独立节点
+  const [selectedCardIds, setSelectedCardIds] = useState<string[]>([])
+  const [cardNodeMap, setCardNodeMap] = useState<Record<string, string>>({})
   const [searchText, setSearchText] = useState('')
 
   // Opencode 模式状态
@@ -55,13 +56,26 @@ export default function AddParticipantModal({ open, mode, onClose, onAdd }: Prop
   useEffect(() => {
     if (open) {
       // eslint-disable-next-line react-hooks/set-state-in-effect -- 弹窗打开时一次性重置选择项
-      setSelectedCardId(undefined)
-      setSelectedNodeId(textNodes[0]?.id)
+      setSelectedCardIds([])
+      setCardNodeMap({})
       setSearchText('')
       setSelectedAgentName(undefined)
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- textNodes 每渲染重算，不应入依赖；仅按 open/mode 触发
   }, [open, mode])
+
+  // 切换角色勾选（首次勾选时给默认节点）
+  const toggleCard = (cardId: string) => {
+    setSelectedCardIds((prev) =>
+      prev.includes(cardId) ? prev.filter((id) => id !== cardId) : [...prev, cardId],
+    )
+    setCardNodeMap((prev) => (prev[cardId] ? prev : { ...prev, [cardId]: textNodes[0]?.id ?? '' }))
+  }
+
+  // 为某角色设定节点（同时自动勾选该角色）
+  const setCardNode = (cardId: string, nodeId: string) => {
+    setCardNodeMap((prev) => ({ ...prev, [cardId]: nodeId }))
+    setSelectedCardIds((prev) => (prev.includes(cardId) ? prev : [...prev, cardId]))
+  }
 
   // 加载 Opencode Agent 列表
   const loadOpencodeAgents = async () => {
@@ -84,26 +98,34 @@ export default function AddParticipantModal({ open, mode, onClose, onAdd }: Prop
   // 确认添加
   const handleOk = () => {
     if (mode === 'local') {
-      if (!selectedCardId || !selectedNodeId) {
-        message.warning('请选择角色和节点')
+      if (selectedCardIds.length === 0) {
+        message.warning('请至少勾选一个角色')
         return
       }
 
-      const card = cards.find((c) => c.id === selectedCardId)
-      if (!card) return
-
-      const participant: RoleChatParticipant = {
-        id: `participant-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-        name: card.name,
-        mode: 'local',
-        cardId: selectedCardId,
-        nodeId: selectedNodeId,
-        avatar: card.fields.avatar,
-        color: colorFromName(card.name),
-        status: 'idle',
+      const participants: RoleChatParticipant[] = []
+      for (const cardId of selectedCardIds) {
+        const card = cards.find((c) => c.id === cardId)
+        if (!card) continue
+        const nodeId = cardNodeMap[cardId] || textNodes[0]?.id
+        if (!nodeId) {
+          message.warning(`角色「${card.name}」未选择节点`)
+          return
+        }
+        participants.push({
+          id: `participant-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+          name: card.name,
+          mode: 'local',
+          cardId,
+          nodeId,
+          avatar: card.fields.avatar,
+          color: colorFromName(card.name),
+          status: 'idle',
+        })
       }
 
-      onAdd(participant)
+      if (participants.length === 0) return
+      onAddMany(participants)
     } else {
       // Opencode 模式
       if (!selectedAgentName) {
@@ -121,7 +143,7 @@ export default function AddParticipantModal({ open, mode, onClose, onAdd }: Prop
         status: 'idle',
       }
 
-      onAdd(participant)
+      onAddMany([participant])
       // 保存 Opencode URL
       setState({ roleChatOpencodeURL: opcodeURL })
     }
@@ -133,7 +155,7 @@ export default function AddParticipantModal({ open, mode, onClose, onAdd }: Prop
       open={open}
       onCancel={onClose}
       onOk={handleOk}
-      width={600}
+      width={640}
       okText="添加"
       cancelText="取消"
     >
@@ -148,64 +170,73 @@ export default function AddParticipantModal({ open, mode, onClose, onAdd }: Prop
             allowClear
           />
 
-          {/* 角色列表 */}
+          {/* 角色列表（可多选，每行右侧指定节点） */}
           <div>
             <Typography.Text type="secondary" style={{ fontSize: 12, marginBottom: 8, display: 'block' }}>
-              选择角色卡片（{filteredCards.length} 个）
+              选择角色卡片（可多选，已选 {selectedCardIds.length} / {filteredCards.length} 个）
             </Typography.Text>
-            <div style={{ maxHeight: 300, overflowY: 'auto', border: '1px solid #d9d9d9', borderRadius: 4 }}>
+            <div style={{ maxHeight: 360, overflowY: 'auto', border: '1px solid #d9d9d9', borderRadius: 4 }}>
               <List
                 size="small"
                 dataSource={filteredCards}
                 locale={{ emptyText: '暂无角色卡片' }}
-                renderItem={(card) => (
-                  <List.Item
-                    style={{
-                      padding: '8px 12px',
-                      cursor: 'pointer',
-                      backgroundColor: selectedCardId === card.id ? '#e6f4ff' : undefined,
-                    }}
-                    onClick={() => setSelectedCardId(card.id)}
-                  >
-                    <List.Item.Meta
-                      avatar={
-                        card.fields.avatar ? (
+                renderItem={(card) => {
+                  const checked = selectedCardIds.includes(card.id)
+                  return (
+                    <List.Item
+                      style={{
+                        padding: '8px 12px',
+                        cursor: 'pointer',
+                        backgroundColor: checked ? '#e6f4ff' : undefined,
+                      }}
+                      onClick={() => toggleCard(card.id)}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%' }}>
+                        <Checkbox
+                          checked={checked}
+                          onChange={() => toggleCard(card.id)}
+                          onClick={(e) => e.stopPropagation()}
+                        />
+                        {card.fields.avatar ? (
                           <Avatar src={card.fields.avatar} />
                         ) : (
-                          <Avatar style={{ backgroundColor: colorFromName(card.name) }}>
+                          <Avatar style={{ backgroundColor: colorFromName(card.name), flexShrink: 0 }}>
                             {card.name[0].toUpperCase()}
                           </Avatar>
-                        )
-                      }
-                      title={card.name}
-                      description={
-                        <Typography.Text
-                          type="secondary"
-                          ellipsis
-                          style={{ fontSize: 12, maxWidth: 400, display: 'block' }}
-                        >
-                          {card.description || '（无描述）'}
-                        </Typography.Text>
-                      }
-                    />
-                  </List.Item>
-                )}
+                        )}
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <Typography.Text strong style={{ fontSize: 13, display: 'block' }}>
+                            {card.name}
+                          </Typography.Text>
+                          <Typography.Text
+                            type="secondary"
+                            ellipsis
+                            style={{ fontSize: 12, display: 'block' }}
+                          >
+                            {card.description || '（无描述）'}
+                          </Typography.Text>
+                        </div>
+                        <Select
+                          size="small"
+                          style={{ width: 160, flexShrink: 0 }}
+                          value={cardNodeMap[card.id] || undefined}
+                          onChange={(v) => setCardNode(card.id, v)}
+                          onClick={(e) => e.stopPropagation()}
+                          options={textNodes.map((n) => ({ label: n.name, value: n.id }))}
+                          placeholder="选择节点"
+                          getPopupContainer={(t) => t.parentElement || document.body}
+                        />
+                      </div>
+                    </List.Item>
+                  )
+                }}
               />
             </div>
-          </div>
-
-          {/* 节点选择 */}
-          <div>
-            <Typography.Text type="secondary" style={{ fontSize: 12, marginBottom: 8, display: 'block' }}>
-              选择节点
-            </Typography.Text>
-            <Select
-              style={{ width: '100%' }}
-              value={selectedNodeId}
-              onChange={setSelectedNodeId}
-              options={textNodes.map((n) => ({ label: n.name, value: n.id }))}
-              placeholder="选择一个文本节点"
-            />
+            {textNodes.length === 0 && (
+              <Typography.Text type="danger" style={{ fontSize: 12, marginTop: 8, display: 'block' }}>
+                暂无可用文本节点，请先在「系统设置」启用文本节点
+              </Typography.Text>
+            )}
           </div>
         </Space>
       ) : (

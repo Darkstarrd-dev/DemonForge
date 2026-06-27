@@ -72,6 +72,7 @@ export async function sendLocalRoleMessage(
   nodeId: string,
   conversationHistory: RoleChatMessage[],
   onDelta: (delta: string) => void,
+  sceneSetting?: string,
   signal?: AbortSignal,
 ): Promise<string> {
   const response = await fetch('/api/chat/role', {
@@ -80,6 +81,7 @@ export async function sendLocalRoleMessage(
     body: JSON.stringify({
       cardId,
       nodeId,
+      sceneSetting,
       conversationHistory: conversationHistory.map((m) => ({
         participantName: m.participantName,
         content: m.content,

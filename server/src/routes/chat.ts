@@ -12,12 +12,14 @@ interface RoleChatBody {
     content: string
     isUser?: boolean
   }>
+  /** 本次交流的场景背景设定（可选），注入到角色 System Prompt */
+  sceneSetting?: string
 }
 
 export async function chatRoutes(app: FastifyInstance) {
   // 本地模式：角色对话（SSE 流式）
   app.post('/api/chat/role', async (req, reply) => {
-    const { cardId, nodeId, conversationHistory } = (req.body ?? {}) as RoleChatBody
+    const { cardId, nodeId, conversationHistory, sceneSetting } = (req.body ?? {}) as RoleChatBody
 
     if (!cardId || !nodeId || !Array.isArray(conversationHistory)) {
       reply.status(400).send({ error: '缺少 cardId / nodeId / conversationHistory' })
@@ -63,7 +65,7 @@ ${card.description || '（无设定描述）'}
 
 ${card.styleNote ? `语言风格：\n${card.styleNote}\n` : ''}
 ${card.styleExamples?.length ? `台词例句：\n${card.styleExamples.join('\n')}\n` : ''}
-请严格按照角色设定和语言风格回复，不要跳出角色。`
+${sceneSetting?.trim() ? `本次交流的场景背景：\n${sceneSetting.trim()}\n\n` : ''}请严格按照角色设定和语言风格回复，不要跳出角色。`
 
     // 将对话历史转换为 OpenAI 格式
     const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [

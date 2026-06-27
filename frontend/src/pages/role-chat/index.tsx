@@ -2,7 +2,6 @@ import { useState, useRef } from 'react'
 import {
   App,
   Button,
-  Card,
   Input,
   Space,
   Typography,
@@ -11,6 +10,7 @@ import {
   Divider,
   Modal,
   Dropdown,
+  theme,
 } from 'antd'
 import {
   PlusOutlined,
@@ -21,21 +21,25 @@ import {
   DownloadOutlined,
   QuestionCircleOutlined,
   DownOutlined,
+  EnvironmentOutlined,
 } from '@ant-design/icons'
 import { useAppStore } from '../../store/appStore'
 import type { RoleChatMode, RoleChatParticipant, RoleChatMessage } from '../../services/types'
 import { sendLocalRoleMessage, sendOpencodeMessage, createOpencodeSession } from '../../services/real/roleChat'
 import AddParticipantModal from './components/AddParticipantModal'
+import SceneSettingModal from './components/SceneSettingModal'
 import MessageList from './components/MessageList'
 import ParticipantList from './components/ParticipantList'
 import AutoLoopPanel from './components/AutoLoopPanel'
 
 export default function RoleChatPage() {
   const { message } = App.useApp()
+  const { token } = theme.useToken()
   const currentBookId = useAppStore((s) => s.currentBookId)
   const roleChatMode = useAppStore((s) => s.roleChatMode)
   const roleChatAutoConfig = useAppStore((s) => s.roleChatAutoConfig)
   const roleChatOpencodeURL = useAppStore((s) => s.roleChatOpencodeURL)
+  const providers = useAppStore((s) => s.providers)
   const setState = useAppStore((s) => s.setState)
 
   // 页面状态
@@ -46,6 +50,8 @@ export default function RoleChatPage() {
   const [isLooping, setIsLooping] = useState(false)
   const [isSending, setIsSending] = useState(false)
   const [helpModalOpen, setHelpModalOpen] = useState(false)
+  const [sceneSetting, setSceneSetting] = useState('')
+  const [sceneModalOpen, setSceneModalOpen] = useState(false)
   const abortRef = useRef(false)
   // Opencode 会话缓存：Map<agentName, sessionID>
   const opcodeSessionsRef = useRef<Map<string, string>>(new Map())
@@ -55,17 +61,23 @@ export default function RoleChatPage() {
     setState({ roleChatMode: mode })
   }
 
-  // 添加参与者
-  const handleAddParticipant = (participant: RoleChatParticipant) => {
-    setParticipants([...participants, participant])
+  // 添加参与者（批量）
+  const handleAddParticipants = (added: RoleChatParticipant[]) => {
+    if (added.length === 0) return
+    setParticipants((prev) => [...prev, ...added])
     setAddModalOpen(false)
-    message.success(`已添加参与者：${participant.name}`)
+    message.success(`已添加 ${added.length} 个参与者`)
   }
 
   // 删除参与者
   const handleRemoveParticipant = (id: string) => {
     setParticipants(participants.filter((p) => p.id !== id))
     message.success('已移除参与者')
+  }
+
+  // 编辑参与者的推理节点（仅本地模式）
+  const handleEditParticipantNode = (id: string, nodeId: string) => {
+    setParticipants((prev) => prev.map((p) => (p.id === id ? { ...p, nodeId } : p)))
   }
 
   // 更新参与者状态
@@ -128,6 +140,7 @@ export default function RoleChatPage() {
             }
           })
         },
+        sceneSetting,
       )
 
       // 替换临时消息为最终消息
@@ -179,7 +192,8 @@ export default function RoleChatPage() {
       const historyText = messages
         .map((m) => `[${m.participantName}]: ${m.content}`)
         .join('\n\n')
-      const prompt = `${historyText}\n\n请回复最后一条消息，保持角色设定。`
+      const scenePrefix = sceneSetting.trim() ? `本次交流的场景背景：\n${sceneSetting.trim()}\n\n` : ''
+      const prompt = `${scenePrefix}${historyText}\n\n请回复最后一条消息，保持角色设定。`
 
       const response = await sendOpencodeMessage(
         roleChatOpencodeURL,
@@ -226,6 +240,7 @@ export default function RoleChatPage() {
   const handleReset = () => {
     setMessages([])
     setParticipants([])
+    setSceneSetting('')
     opcodeSessionsRef.current.clear()
     message.success('已重置会话')
   }
@@ -398,141 +413,155 @@ export default function RoleChatPage() {
   }
 
   return (
-    <Space direction="vertical" size={16} style={{ width: '100%', height: '100%', overflow: 'hidden' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden', background: token.colorBgContainer }}>
       {/* 顶部控制栏 */}
-      <Card size="small" style={{ marginBottom: 0 }}>
-        <Space split={<Divider type="vertical" />} wrap>
-          <Space>
-            <Typography.Text type="secondary">模式</Typography.Text>
-            <Segmented
-              value={roleChatMode}
-              onChange={handleModeChange}
-              options={[
-                { label: '本地节点', value: 'local' },
-                { label: 'Opencode', value: 'opencode' },
-              ]}
-            />
-          </Space>
-          <Space>
-            <Badge status={participants.length > 0 ? 'success' : 'default'} />
-            <Typography.Text type="secondary">
-              {participants.length} 个参与者 · {messages.length} 条消息
-            </Typography.Text>
-          </Space>
-          <Space>
-            <Button
-              size="small"
-              icon={<QuestionCircleOutlined />}
-              onClick={() => setHelpModalOpen(true)}
-            >
-              帮助
-            </Button>
-          </Space>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 16,
+          flexWrap: 'wrap',
+          padding: '8px 16px',
+          borderBottom: `1px solid ${token.colorBorder}`,
+          flexShrink: 0,
+        }}
+      >
+        <Space>
+          <Typography.Text type="secondary">模式</Typography.Text>
+          <Segmented
+            value={roleChatMode}
+            onChange={handleModeChange}
+            options={[
+              { label: '本地节点', value: 'local' },
+              { label: 'Opencode', value: 'opencode' },
+            ]}
+          />
         </Space>
-      </Card>
+        <Divider type="vertical" style={{ margin: 0 }} />
+        <Space>
+          <Badge status={participants.length > 0 ? 'success' : 'default'} />
+          <Typography.Text type="secondary">
+            {participants.length} 个参与者 · {messages.length} 条消息
+          </Typography.Text>
+        </Space>
+        <div style={{ flex: 1 }} />
+        <Badge dot={!!sceneSetting.trim()}>
+          <Button size="small" icon={<EnvironmentOutlined />} onClick={() => setSceneModalOpen(true)}>
+            场景设定
+          </Button>
+        </Badge>
+        <Button size="small" icon={<QuestionCircleOutlined />} onClick={() => setHelpModalOpen(true)}>
+          帮助
+        </Button>
+      </div>
 
       {/* 主内容区 */}
-      <div style={{ display: 'flex', gap: 16, flex: 1, minHeight: 0 }}>
+      <div style={{ flex: 1, minHeight: 0, display: 'flex', overflow: 'hidden' }}>
         {/* 左侧边栏 */}
-        <Card
-          title="参与者与控制"
-          size="small"
-          style={{ width: 280, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}
-          bodyStyle={{ flex: 1, overflow: 'auto', padding: 12 }}
+        <div
+          style={{
+            width: 280,
+            flexShrink: 0,
+            display: 'flex',
+            flexDirection: 'column',
+            borderRight: `1px solid ${token.colorBorder}`,
+            overflow: 'hidden',
+          }}
         >
-          <Space direction="vertical" size={12} style={{ width: '100%' }}>
-            {/* 参与者列表 */}
-            <ParticipantList
-              participants={participants}
-              onRemove={handleRemoveParticipant}
-            />
+          <div style={{ flex: 1, overflow: 'auto', padding: 12 }}>
+            <Space direction="vertical" size={12} style={{ width: '100%' }}>
+              {/* 参与者列表 */}
+              <ParticipantList
+                participants={participants}
+                providers={providers}
+                onRemove={handleRemoveParticipant}
+                onEditNode={handleEditParticipantNode}
+              />
 
-            <Button
-              block
-              icon={<PlusOutlined />}
-              onClick={() => {
-                if (!currentBookId && roleChatMode === 'local') {
-                  message.warning('本地模式需要先选择当前作品')
-                  return
-                }
-                setAddModalOpen(true)
-              }}
-            >
-              添加参与者
-            </Button>
-
-            <Divider style={{ margin: '8px 0' }} />
-
-            {/* 自动循环控制面板 */}
-            <AutoLoopPanel
-              config={roleChatAutoConfig}
-              onConfigChange={(config) => setState({ roleChatAutoConfig: config })}
-            />
-
-            <Divider style={{ margin: '8px 0' }} />
-
-            {/* 操作按钮 */}
-            <Space direction="vertical" size={8} style={{ width: '100%' }}>
               <Button
                 block
-                type={isLooping ? 'default' : 'primary'}
-                danger={isLooping}
-                icon={isLooping ? <PauseCircleOutlined /> : <PlayCircleOutlined />}
-                onClick={handleToggleLoop}
-                disabled={participants.length === 0}
-              >
-                {isLooping ? '停止循环' : '启动循环'}
-              </Button>
-              <Button block icon={<ReloadOutlined />} onClick={handleReset}>
-                重置会话
-              </Button>
-              <Dropdown
-                menu={{
-                  items: [
-                    { key: 'json', label: '导出为 JSON', onClick: handleExport },
-                    { key: 'txt', label: '导出为 TXT', onClick: handleExportTxt },
-                  ],
+                icon={<PlusOutlined />}
+                onClick={() => {
+                  if (!currentBookId && roleChatMode === 'local') {
+                    message.warning('本地模式需要先选择当前作品')
+                    return
+                  }
+                  setAddModalOpen(true)
                 }}
-                disabled={messages.length === 0}
               >
-                <Button block icon={<DownloadOutlined />}>
-                  导出对话 <DownOutlined />
+                添加参与者
+              </Button>
+
+              <Divider style={{ margin: '8px 0' }} />
+
+              {/* 自动循环控制面板 */}
+              <AutoLoopPanel
+                config={roleChatAutoConfig}
+                onConfigChange={(config) => setState({ roleChatAutoConfig: config })}
+              />
+
+              <Divider style={{ margin: '8px 0' }} />
+
+              {/* 操作按钮 */}
+              <Space direction="vertical" size={8} style={{ width: '100%' }}>
+                <Button
+                  block
+                  type={isLooping ? 'default' : 'primary'}
+                  danger={isLooping}
+                  icon={isLooping ? <PauseCircleOutlined /> : <PlayCircleOutlined />}
+                  onClick={handleToggleLoop}
+                  disabled={participants.length === 0}
+                >
+                  {isLooping ? '停止循环' : '启动循环'}
                 </Button>
-              </Dropdown>
+                <Button block icon={<ReloadOutlined />} onClick={handleReset}>
+                  重置会话
+                </Button>
+                <Dropdown
+                  menu={{
+                    items: [
+                      { key: 'json', label: '导出为 JSON', onClick: handleExport },
+                      { key: 'txt', label: '导出为 TXT', onClick: handleExportTxt },
+                    ],
+                  }}
+                  disabled={messages.length === 0}
+                >
+                  <Button block icon={<DownloadOutlined />}>
+                    导出对话 <DownOutlined />
+                  </Button>
+                </Dropdown>
+              </Space>
             </Space>
-          </Space>
-        </Card>
+          </div>
+        </div>
 
         {/* 主对话区 */}
-        <Card
-          title="对话区"
-          size="small"
-          style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}
-          bodyStyle={{ flex: 1, display: 'flex', flexDirection: 'column', padding: 12, minHeight: 0 }}
-        >
-          {/* 消息列表 */}
-          <MessageList messages={messages} participants={participants} />
+        <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+          <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', padding: 12 }}>
+            {/* 消息列表 */}
+            <MessageList messages={messages} participants={participants} />
 
-          {/* 输入框 */}
-          <Space.Compact style={{ width: '100%', marginTop: 12 }}>
-            <Input
-              placeholder="输入消息..."
-              value={inputText}
-              onChange={(e) => setInputText(e.target.value)}
-              onPressEnter={handleSendMessage}
-              disabled={isLooping || isSending}
-            />
-            <Button
-              type="primary"
-              icon={<SendOutlined />}
-              onClick={handleSendMessage}
-              disabled={isLooping || isSending || !inputText.trim()}
-              loading={isSending}
-            >
-              发送
-            </Button>
-          </Space.Compact>
-        </Card>
+            {/* 输入框 */}
+            <Space.Compact style={{ width: '100%', marginTop: 12 }}>
+              <Input
+                placeholder="输入消息..."
+                value={inputText}
+                onChange={(e) => setInputText(e.target.value)}
+                onPressEnter={handleSendMessage}
+                disabled={isLooping || isSending}
+              />
+              <Button
+                type="primary"
+                icon={<SendOutlined />}
+                onClick={handleSendMessage}
+                disabled={isLooping || isSending || !inputText.trim()}
+                loading={isSending}
+              >
+                发送
+              </Button>
+            </Space.Compact>
+          </div>
+        </div>
       </div>
 
       {/* 添加参与者弹窗 */}
@@ -540,7 +569,16 @@ export default function RoleChatPage() {
         open={addModalOpen}
         mode={roleChatMode}
         onClose={() => setAddModalOpen(false)}
-        onAdd={handleAddParticipant}
+        onAddMany={handleAddParticipants}
+      />
+
+      {/* 场景设定弹窗 */}
+      <SceneSettingModal
+        open={sceneModalOpen}
+        value={sceneSetting}
+        participantNames={participants.map((p) => p.name)}
+        onClose={() => setSceneModalOpen(false)}
+        onSave={setSceneSetting}
       />
 
       {/* 帮助文档弹窗 */}
@@ -652,6 +690,6 @@ export default function RoleChatPage() {
           </div>
         </Space>
       </Modal>
-    </Space>
+    </div>
   )
 }
