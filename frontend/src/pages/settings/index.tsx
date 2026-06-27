@@ -414,7 +414,9 @@ function GeneralTabContent(props: {
   showMenuBar: boolean
   pushSettingsNow: () => void
   enable4KScale: boolean
+  scaleBaseWidth: number
 }) {
+  const { message } = App.useApp()
   return (
     <div style={{ padding: '24px', height: 'calc(100vh - 46px)', overflow: 'auto' }}>
       <div style={{ maxWidth: 1600, margin: '0 auto' }}>
@@ -441,11 +443,34 @@ function GeneralTabContent(props: {
                 </Space>
               </div>
               <div>
-                <Space>
+                <Space wrap>
                   <Typography.Text>4K 基准缩放</Typography.Text>
                   <Switch checked={props.enable4KScale} onChange={(v) => props.setState({ enable4KScale: v })} />
-                  <Typography.Text type="secondary">（以 3840px 为基准，窗口宽度变化时整体等比缩放）</Typography.Text>
+                  <Button
+                    size="small"
+                    onClick={async () => {
+                      const w = await window.electronAPI?.captureScaleBase?.()
+                      if (w && w > 0) {
+                        props.setState({ scaleBaseWidth: w })
+                        message.success(`已捕获当前窗口宽度 ${w}px 作为缩放基准`)
+                      } else {
+                        message.warning('捕获失败：请在 Electron 应用窗口内操作')
+                      }
+                    }}
+                  >
+                    以当前窗口为基准
+                  </Button>
+                  <Typography.Text type="secondary">
+                    {props.scaleBaseWidth > 0 ? `当前基准：${props.scaleBaseWidth}px` : '未设置基准（点左侧按钮捕获）'}
+                  </Typography.Text>
                 </Space>
+                <div style={{ marginTop: 6, maxWidth: 720 }}>
+                  <Typography.Text type="secondary">
+                    用法：在 4K 显示器上<b>最大化</b>窗口 → 点「以当前窗口为基准」记录基准布局 → 开启开关。
+                    之后窗口移动到其他分辨率显示器时，会以宽度等比缩放整体内容、保持同一套布局；
+                    缩放计算基于显示器无关的 DIP 宽度，自动适配 Windows DPI 缩放。
+                  </Typography.Text>
+                </div>
               </div>
             </Space>
           </Card>
@@ -1385,6 +1410,7 @@ export default function SettingsPage() {
             showMenuBar={showMenuBar}
             pushSettingsNow={pushSettingsNow}
             enable4KScale={useAppStore((s) => s.enable4KScale)}
+            scaleBaseWidth={useAppStore((s) => s.scaleBaseWidth)}
           />,
         },
         {

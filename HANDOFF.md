@@ -2,11 +2,32 @@
 
 **最后更新**：2026-06-27  
 **当前位置**：办公场所 A
-**本轮主题**：M2 设定卡片 — 手动新增 + AI 生成设定 + 卡片图片设定与批量生图队列
+**本轮主题**：4K 基准缩放修复（消除闪烁 + 跨显示器布局一致）
 
 ---
 
-## 🆕 本轮完成：M2 设定卡片三项增强（2026-06-27）
+## 🆕 本轮完成：4K 基准缩放修复（2026-06-27）
+
+**问题**：开启「系统设置 → 通用设置 → 4K 基准缩放」后界面来回缩小/恢复高速闪烁，且 4K 最大化未保持不变。历史多次尝试失败。
+
+**根因（两条）**：
+1. **反馈环（闪烁主因）**：旧 `ScaleWrapper` 在渲染进程用 `window.innerWidth / 3840` 算缩放比；但 `innerWidth` 是 CSS 像素、会随 `setZoomFactor` 反向变化 → 用受缩放影响的量算缩放，必然自激振荡（缩小→innerWidth变大→判定无需缩放→恢复→…）。
+2. **基准硬编码 3840 + DPI 未处理**：用户 4K 屏在 200%/不确定缩放下，最大化时内容宽其实是 1920 DIP，拿 3840 去除会再缩一半；且 `enable4KScale` 在 bootstrap **只写不读**，开关重启即丢。
+
+**修复方案（用户拍板：跨屏绝对一致 + 捕获基准不猜 DPI）**：
+- **计算下沉到主进程**（唯一真相源）：用 `mainWindow.getContentBounds().width`（DIP，**不受 setZoomFactor 影响**）算 `zoom = 当前宽 / 基准宽`，反馈环根除；DIP 公式中系统 DPI 自动抵消 → 结果与各屏 DPI 无关。钳制 `[0.25,5]`，**不钳到 1**（宽于基准的屏需放大才能保持同一布局）。
+- **基准由「捕获」得到**：设置页新增「以当前窗口为基准」按钮 → 在 4K 最大化时记录内容宽（DIP）存 `scaleBaseWidth`；基准屏天然 zoom=1（保持不变）。
+- **主进程监听** `resize`/`move`/`maximize`/`unmaximize`/`display-metrics-changed`（防抖）+ `did-finish-load` 重应用（页面重载会复位 zoom）。
+- **IPC 改版**：`set-zoom-factor` → `set-scale-config{enabled,baseWidth}` + `capture-scale-base`（invoke 返回宽度）。
+- **修复既存 bug**：bootstrap 补回读取 `enable4KScale` 与 `scaleBaseWidth`（之前只写不读）。
+
+**改动文件**：`electron/main.ts`、`electron/preload.cjs`、`electron/preload.ts`、`frontend/src/vite-env.d.ts`、`frontend/src/components/ScaleWrapper.tsx`、`frontend/src/main.tsx`、`frontend/src/store/appStore.ts`、`frontend/src/pages/settings/index.tsx`；文档 `docs/4k_scale_feature.md`。
+
+**验证**：electron `tsc -p electron/tsconfig.json --noEmit` + 前端 `tsc -b --noEmit` 均 0 错误。**Electron 实机功能测试（4K 捕获 → 移到 1080p 看布局一致 + 无闪烁）待用户验证**。
+
+---
+
+## 上一轮完成：M2 设定卡片三项增强（2026-06-27）
 
 **目标**：在 M2 设定卡片模块新增三类能力——① 手动新增设定；② AI 直接生成设定（不依赖原文，可编辑后重新生成/增加生成丰富）；③ 卡片图片设定 + 批量生图队列（为人物/场景/道具准备表情差分、全身形象、场景背景等素材）。最大化复用节点测试已完成的三协议生图能力。
 

@@ -57,7 +57,7 @@ function AppWithTheme() {
   return (
     <ConfigProvider locale={zhCN} theme={theme === 'dark' ? darkTheme : lightTheme}>
       <AntApp message={{ maxCount: 3 }}>
-        <ScaleWrapper baseWidth={3840}>
+        <ScaleWrapper>
           <HashRouter>
             <ErrorBoundary>
               <Routes>

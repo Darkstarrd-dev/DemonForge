@@ -1,51 +1,23 @@
 import { useEffect, type ReactNode } from 'react'
 import { useAppStore } from '../store/appStore'
 
-interface ScaleWrapperProps {
-  children: ReactNode
-  baseWidth?: number // 基准宽度，默认 4K (3840px)
-}
-
 /**
- * 缩放包装器 - 以 4K 为基准，根据窗口宽度等比缩放整个应用
+ * 4K 基准自适应缩放（仅 Electron 生效）。
  *
- * 工作原理：
- * - 使用 Electron 原生 webContents.setZoomFactor() 实现缩放
- * - 在浏览器引擎层面缩放，自动处理所有视口单位（vh/vw/%）
- * - 关闭缩放：zoomFactor = 1（正常显示）
- * - 开启缩放：
- *   - 4K 及以上（>= 3840px）：zoomFactor = 1（正常显示）
- *   - 小于 4K：zoomFactor = currentWidth / 3840（等比缩小）
+ * 设计要点：缩放计算全部在主进程完成 —— 主进程用 webContents 的 getContentBounds()
+ * 拿到 DIP 宽度（不受 setZoomFactor 影响），计算 zoom = 当前宽 / 基准宽。
+ * 这从根本上消除了旧实现「用 window.innerWidth 算缩放 → innerWidth 又被缩放反向改变」
+ * 的自激反馈环（界面来回缩小/恢复闪烁）。
+ *
+ * 本组件只负责把「开关 + 基准宽度」同步给主进程，自身不做任何测量、不监听 resize。
  */
-export default function ScaleWrapper({ children, baseWidth = 3840 }: ScaleWrapperProps) {
+export default function ScaleWrapper({ children }: { children: ReactNode }) {
   const enable4KScale = useAppStore((s) => s.enable4KScale)
+  const scaleBaseWidth = useAppStore((s) => s.scaleBaseWidth)
 
   useEffect(() => {
-    const updateZoom = () => {
-      if (!window.electronAPI?.setZoomFactor) {
-        // 非 Electron 环境，不支持缩放
-        return
-      }
+    window.electronAPI?.setScaleConfig?.({ enabled: enable4KScale, baseWidth: scaleBaseWidth })
+  }, [enable4KScale, scaleBaseWidth])
 
-      const currentWidth = window.innerWidth
-      let zoomFactor = 1
-
-      if (enable4KScale && currentWidth < baseWidth) {
-        // 开启缩放 + 窗口小于 4K：按比例缩放
-        zoomFactor = currentWidth / baseWidth
-      }
-
-      window.electronAPI.setZoomFactor(zoomFactor)
-    }
-
-    // 初始化
-    updateZoom()
-
-    // 监听窗口大小变化
-    window.addEventListener('resize', updateZoom)
-    return () => window.removeEventListener('resize', updateZoom)
-  }, [baseWidth, enable4KScale])
-
-  // 直接渲染子组件，缩放由 Electron 处理
   return <>{children}</>
 }

@@ -2,167 +2,63 @@
 
 ## 功能概述
 
-4K 基准缩放功能允许应用以 4K 分辨率（3840px 宽度）为设计基准，在不同分辨率的屏幕上自动等比例缩放，保持布局完全一致。
-
-## 使用场景
-
-- 在 4K 显示器上设计和调试界面
-- 在 1080P 或其他分辨率显示器上查看时保持相同的视觉布局
-- 多显示器环境下切换使用
+以「4K 显示器上最大化时的布局」为基准，在其他分辨率/DPI 的显示器上自动等比缩放整个窗口内容，
+**保持同一套布局**（不重排、不换行），实现跨显示器移动窗口时的视觉一致性。
 
 ## 工作原理
 
-### 缩放计算
+### 缩放计算（主进程为唯一真相源）
 
 ```
-zoomFactor = 当前窗口宽度 / 3840px （当窗口 < 3840px 时）
-zoomFactor = 1.0 （当窗口 >= 3840px 时）
+zoom = 当前内容宽度(DIP) / 基准宽度(DIP)        （开启且已捕获基准时）
+zoom = 1                                         （关闭或未捕获基准时）
 ```
 
-例如：
-- 4K 屏幕 (3840px)：zoomFactor = 1.0（原始大小，与关闭开关一致）
-- 1080P 屏幕 (1920px)：zoomFactor = 0.5（缩小一半）
-- 2K 屏幕 (2560px)：zoomFactor = 0.667（缩小约1/3）
+- **基准宽度**由用户在 4K 显示器上最大化窗口后「捕获」得到（记录当时的内容宽度，DIP 单位）。
+  因此基准屏上 `当前宽 == 基准宽 → zoom = 1`，**4K 最大化保持不变**，无需猜测系统 DPI。
+- 缩放比仅做安全钳制 `[0.25, 5]`（Chromium 支持区间）；**不钳到 1** —— 移动到比基准更宽的屏时
+  需要放大才能维持同一套布局。
 
-### 技术实现
+### 为什么用 DIP 宽度 + 在主进程计算（关键修复）
 
-**使用 Electron 原生 API 实现**（非 CSS 方案）
+历史版本一直闪烁（界面来回缩小/恢复跳动），根因是**反馈环**：
 
-1. **Electron 主进程** (`electron/main.ts`)
-   - 注册 IPC 事件监听 `set-zoom-factor`
-   - 调用 `webContents.setZoomFactor()` 设置缩放比例
-   - 浏览器引擎层面缩放，自动处理所有视口单位
+1. 旧实现在渲染进程用 `window.innerWidth / 3840` 算缩放比；
+2. 但 `window.innerWidth` 是 **CSS 像素**，会随 `setZoomFactor` 反向变化；
+3. 用受缩放影响的量去计算缩放 → 自激振荡：
+   `缩小 → innerWidth 变大 → 判定无需缩放 → 恢复 → innerWidth 变小 → 再缩小 → …`
 
-2. **Electron 预加载脚本** (`electron/preload.cjs`)
-   - 通过 `contextBridge` 暴露 `setZoomFactor` 方法
-   - 前端可通过 `window.electronAPI.setZoomFactor()` 调用
+修复方案：把计算移到**主进程**，改用 `mainWindow.getContentBounds().width`——
+该值是 **DIP**（设备无关像素，已被系统 DPI 除过），且**完全不受 `setZoomFactor` 影响**，
+反馈环被彻底切断。又因 `DIP = 物理像素 / 系统DPI`，公式中系统 DPI 自动抵消，
+**缩放结果与各屏 DPI 设置无关**，天然适配 Windows DPI 缩放。
 
-3. **前端缩放组件** (`frontend/src/components/ScaleWrapper.tsx`)
-   - 监听窗口 resize 事件
-   - 根据开关状态和窗口宽度计算 zoomFactor
-   - 调用 Electron API 应用缩放
-   - 直接渲染子组件，无需额外包装
+> 旧实现的第二个错误：把基准硬编码为 `3840`。在 4K@200% 上最大化时实际内容宽只有 1920 DIP，
+> 拿 3840 去除会把 4K 视图再缩一半。改为「捕获当前窗口」后，基准即用户真实设计环境的宽度，
+> 不再依赖 DPI 假设。
 
-4. **状态管理**
-   - `appStore.enable4KScale` 字段（默认关闭）
-   - 持久化到 `settings.json`
-   - 设置页面提供开关界面
+## 技术实现
 
-### 为什么选择 Electron 原生方案
-
-**CSS 方案的问题**（已废弃）：
-
-- `transform: scale()` - 只缩放渲染，不影响布局，导致视口单位（vh/vw）计算错误
-- `CSS zoom` - 同时影响布局和渲染，但在响应式布局中表现异常
-
-**Electron 原生方案的优势**：
-
-- ✅ 在浏览器引擎层面缩放，完美处理所有 CSS 单位
-- ✅ 自动处理响应式布局（vh/vw/%/calc 等）
-- ✅ 无需修改现有前端代码
-- ✅ 性能优秀，硬件加速
-- ✅ 在 4K 全屏时，开启/关闭开关显示完全一致
+| 层 | 文件 | 职责 |
+|---|---|---|
+| 主进程 | `electron/main.ts` | `applyAdaptiveZoom()` 计算并应用缩放；监听 `resize`/`move`/`maximize`/`unmaximize`/`display-metrics-changed`（防抖）+ `did-finish-load` 重应用；IPC `set-scale-config` / `capture-scale-base` |
+| 预加载 | `electron/preload.cjs` | 暴露 `setScaleConfig(cfg)` 与 `captureScaleBase()` |
+| 前端组件 | `frontend/src/components/ScaleWrapper.tsx` | 仅在开关/基准变化时把配置推给主进程；不测量、不监听 resize |
+| 状态 | `frontend/src/store/appStore.ts` | `enable4KScale` + `scaleBaseWidth`，持久化并在 bootstrap 回载 |
+| 设置页 | `frontend/src/pages/settings/index.tsx` | 开关 + 「以当前窗口为基准」按钮 + 当前基准显示 |
 
 ## 使用方法
 
-### 启用功能
+1. 进入「系统设置 → 通用设置」。
+2. 在 **4K 显示器上最大化** 应用窗口。
+3. 点「以当前窗口为基准」记录基准布局（会显示「当前基准：xxxxpx」）。
+4. 开启「4K 基准缩放」开关。
+5. 之后把窗口移动/最大化到其他显示器，内容会按宽度等比缩放，保持同一套布局。
 
-1. 打开应用，进入「系统设置」页面
-2. 找到「界面设置」区域
-3. 开启「4K 基准缩放」开关
-4. 调整窗口大小观察效果
-
-### 禁用功能
-
-1. 关闭「4K 基准缩放」开关
-2. 应用恢复为正常显示（zoomFactor = 1）
+> 仅在 Electron 环境生效；浏览器直接访问时为 no-op。
 
 ## 注意事项
 
-### 优点
-
-- ✅ 完全保持布局结构不变
-- ✅ 所有元素按比例缩放，视觉效果一致
-- ✅ 适合在不同分辨率屏幕间切换
-- ✅ 4K 全屏时，开关状态不影响显示效果
-
-### 限制
-
-- ⚠️ 在小屏幕上可能导致内容过小
-- ⚠️ 某些交互元素（如按钮）可能过小难以点击
-- ⚠️ 文本在缩小后可能不够清晰
-- ⚠️ 不适合移动设备或小尺寸窗口
-- ⚠️ 仅在 Electron 环境下生效（浏览器直接访问无效）
-
-### 建议
-
-- 主要在 4K 显示器上开发和使用
-- 在 1080P 及以下分辨率建议关闭此功能
-- 根据实际使用场景决定是否启用
-
-## 相关文件
-
-### Electron
-- `electron/main.ts` - IPC 事件监听和 setZoomFactor 调用
-- `electron/preload.cjs` - contextBridge API 暴露
-
-### 前端
-- `frontend/src/components/ScaleWrapper.tsx` - 缩放逻辑组件
-- `frontend/src/main.tsx` - 应用主入口，集成 ScaleWrapper
-- `frontend/src/pages/settings/index.tsx` - 设置页面开关
-- `frontend/src/vite-env.d.ts` - TypeScript 类型定义
-
-### 状态管理
-- `frontend/src/store/appStore.ts` - enable4KScale 字段定义和持久化
-
-## 技术细节
-
-### Electron API 调用流程
-
-```typescript
-// 1. 前端计算缩放比例
-const zoomFactor = window.innerWidth / 3840
-
-// 2. 通过 IPC 发送到主进程
-window.electronAPI.setZoomFactor(zoomFactor)
-
-// 3. 主进程应用缩放
-mainWindow.webContents.setZoomFactor(zoomFactor)
-```
-
-### 为什么废弃 CSS 方案
-
-经过多次尝试，CSS 方案（`transform: scale()` 和 `CSS zoom`）都无法正确处理响应式布局：
-
-1. **`transform: scale()` 问题**：
-   - 只缩放渲染像素，不改变布局计算
-   - `100vh` 仍按原始视口计算
-   - 导致高度只显示半截
-
-2. **`CSS zoom` 问题**：
-   - 虽然同时影响布局和渲染
-   - 但从外层缩放整个视口
-   - 导致内容缩到左上角
-
-3. **根本矛盾**：
-   - 响应式布局依赖视口单位（vh/vw/%）动态计算
-   - CSS 缩放无法正确传递视口信息给布局引擎
-   - 需要重构整个 CSS 体系才能解决
-
-**Electron 原生方案完美解决**：在浏览器引擎层面缩放，视口单位计算完全正确。
-
-## 性能考虑
-
-- 使用浏览器引擎内置缩放，硬件加速
-- resize 事件使用 useEffect 订阅，自动清理
-- 开关关闭时 zoomFactor = 1，无性能损耗
-- 非 Electron 环境自动降级，不报错
-
-## 未来改进方向
-
-1. 支持自定义基准宽度（不限于 4K）
-2. 提供预设方案（4K/2K/1080P）
-3. 智能检测屏幕分辨率自动启用/禁用
-4. 优化小屏幕体验（最小缩放比例限制）
-5. 记忆每个显示器的缩放偏好
-
+- ⚠️ 基准应在目标「设计屏」（4K）最大化时捕获；换了主显示器/改了分辨率可重新捕获。
+- ⚠️ 在远小于基准的窗口上内容会显著缩小（按宽度等比，符合预期）。
+- ⚠️ 缩放比下限 0.25、上限 5。

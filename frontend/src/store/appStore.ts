@@ -208,6 +208,8 @@ export interface AppState {
   theme: 'light' | 'dark'
   /** 4K 基准缩放开关（持久化到 settings.json，默认关闭） */
   enable4KScale: boolean
+  /** 4K 基准缩放的基准内容宽度（DIP）；0=未捕获。由「以当前窗口为基准」捕获，持久化到 settings.json */
+  scaleBaseWidth: number
   /** 节点池分组折叠状态（持久化到 settings.json）：key = groupKey (baseURL + groupName), value = 是否展开 */
   nodeGroupExpanded: Record<string, boolean>
   /** 节点测试 System Prompt 预设列表（全局共享，持久化到 settings.json） */
@@ -360,6 +362,7 @@ const seedState = () => ({
   imageArchiveDir: '',
   theme: 'light' as const,
   enable4KScale: false,
+  scaleBaseWidth: 0,
   nodeGroupExpanded: {},
   systemPromptPresets: [] as SystemPromptPreset[],
   systemPromptActiveId: null as string | null,
@@ -693,6 +696,8 @@ export async function bootstrapStore(): Promise<void> {
         m1TitleTemplate?: string
         m1TestText?: string
         theme?: 'light' | 'dark'
+        enable4KScale?: boolean
+        scaleBaseWidth?: number
         nodeGroupExpanded?: Record<string, boolean>
         systemPromptPresets?: SystemPromptPreset[]
         systemPromptActiveId?: string | null
@@ -745,6 +750,9 @@ export async function bootstrapStore(): Promise<void> {
       }
       // 主题配置（旧 settings.json 无此键则默认 light）
       if (d.theme === 'light' || d.theme === 'dark') patch.theme = d.theme
+      // 4K 基准缩放开关与基准宽度（旧实现遗漏回载，导致开关重启即丢；此处补回）
+      if (typeof d.enable4KScale === 'boolean') patch.enable4KScale = d.enable4KScale
+      if (typeof d.scaleBaseWidth === 'number') patch.scaleBaseWidth = d.scaleBaseWidth
       // 节点池分组折叠状态（旧 settings.json 无此键则默认空对象）
       if (d.nodeGroupExpanded && typeof d.nodeGroupExpanded === 'object') patch.nodeGroupExpanded = d.nodeGroupExpanded
       // 节点测试 System Prompt 预设列表与当前激活 id（旧 settings.json 无此键则沿用空数组+null）
@@ -983,6 +991,7 @@ export const settingsPayload = (s: AppState) => ({
   m1TestText: s.m1TestText,
   theme: s.theme,
   enable4KScale: s.enable4KScale,
+  scaleBaseWidth: s.scaleBaseWidth,
   nodeGroupExpanded: s.nodeGroupExpanded,
   systemPromptPresets: s.systemPromptPresets,
   systemPromptActiveId: s.systemPromptActiveId,
@@ -1008,6 +1017,7 @@ useAppStore.subscribe((s, prev) => {
     s.m1TestText === prev.m1TestText &&
     s.theme === prev.theme &&
     s.enable4KScale === prev.enable4KScale &&
+    s.scaleBaseWidth === prev.scaleBaseWidth &&
     s.nodeGroupExpanded === prev.nodeGroupExpanded &&
     s.systemPromptPresets === prev.systemPromptPresets &&
     s.systemPromptActiveId === prev.systemPromptActiveId &&

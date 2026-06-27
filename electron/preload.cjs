@@ -12,7 +12,10 @@ const { contextBridge, ipcRenderer } = require('electron')
 
 contextBridge.exposeInMainWorld('electronAPI', {
   setMenuBarVisibility: (visible) => ipcRenderer.send('set-menu-bar', visible),
-  setZoomFactor: (factor) => ipcRenderer.send('set-zoom-factor', factor),
+  // 4K 基准缩放：推送配置（开关 + 基准宽度），实际计算在主进程完成
+  setScaleConfig: (cfg) => ipcRenderer.send('set-scale-config', cfg),
+  // 捕获当前窗口内容宽度（DIP）作为缩放基准，返回该宽度
+  captureScaleBase: () => ipcRenderer.invoke('capture-scale-base'),
   // 目录选择（invoke：需要返回所选路径）
   pickDirectory: () => ipcRenderer.invoke('dialog:pick-directory'),
 })

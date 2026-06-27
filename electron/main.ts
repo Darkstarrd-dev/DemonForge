@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog, screen } from 'electron'
 import { spawn, execSync, ChildProcess } from 'node:child_process'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -25,6 +25,49 @@ if (process.platform === 'win32' && process.stdout) {
 let mainWindow: BrowserWindow | null = null
 let backendProcess: ChildProcess | null = null
 let frontendProcess: ChildProcess | null = null
+
+// ───────────────────────── 4K 基准自适应缩放 ─────────────────────────
+// 设计：主进程是缩放计算的唯一真相源。
+//
+// 历史 bug（闪烁）根因：渲染进程用 window.innerWidth / 3840 计算缩放比，但
+// window.innerWidth 是 CSS 像素，会随 setZoomFactor 反向变化 —— 用受缩放影响的量
+// 去计算缩放，必然自激振荡（缩小→innerWidth变大→判定无需缩放→恢复→…）。
+//
+// 修复：改用 mainWindow.getContentBounds().width（DIP 单位，完全不受 setZoomFactor
+// 影响）作为窗口宽度真相源。zoom = 当前内容宽(DIP) / 基准宽(DIP)。
+// 由于 DIP = 物理像素 / 系统DPI缩放，公式中系统 DPI 自动抵消，故结果与各屏 DPI 无关，
+// 实现「跨显示器布局绝对一致」。基准宽度由用户在 4K 上最大化后「捕获」得到，
+// 因此那块基准屏天然 zoom=1（保持不变），无需猜测 DPI。
+let scaleEnabled = false
+let scaleBaseWidth = 0 // 基准内容宽度（DIP）；0 = 未捕获，视为不缩放
+let lastAppliedZoom = -1
+let scaleApplyTimer: ReturnType<typeof setTimeout> | null = null
+
+/** 依据当前内容宽度（DIP）与基准宽度计算并应用缩放（带去重，避免重复 setZoomFactor）。 */
+function applyAdaptiveZoom(): void {
+  if (!mainWindow || mainWindow.isDestroyed()) return
+  let zoom = 1
+  if (scaleEnabled && scaleBaseWidth > 0) {
+    const { width } = mainWindow.getContentBounds() // DIP，零受 zoom 影响 → 无反馈环
+    if (width > 0) {
+      // 仅做安全钳制（Chromium 支持区间约 0.25~5）。
+      // 注意：不钳到 1 —— 移到比基准更宽的屏时需要放大才能保持同一套布局。
+      zoom = Math.min(Math.max(width / scaleBaseWidth, 0.25), 5)
+    }
+  }
+  if (Math.abs(zoom - lastAppliedZoom) < 0.002) return
+  lastAppliedZoom = zoom
+  mainWindow.webContents.setZoomFactor(zoom)
+}
+
+/** 防抖触发缩放重算：拖拽/最大化等会高频触发 resize/move，合并到一帧处理。 */
+function scheduleAdaptiveZoom(): void {
+  if (scaleApplyTimer) return
+  scaleApplyTimer = setTimeout(() => {
+    scaleApplyTimer = null
+    applyAdaptiveZoom()
+  }, 60)
+}
 
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged
 
@@ -363,6 +406,18 @@ function createWindow(showMenuBar = true) {
   mainWindow.on('closed', () => {
     mainWindow = null
   })
+
+  // 4K 基准自适应缩放：窗口几何变化时（防抖）重算
+  mainWindow.on('resize', scheduleAdaptiveZoom)
+  mainWindow.on('move', scheduleAdaptiveZoom)
+  mainWindow.on('maximize', scheduleAdaptiveZoom)
+  mainWindow.on('unmaximize', scheduleAdaptiveZoom)
+  // 页面（重新）加载会把 zoomFactor 复位为 1：重置去重缓存并在加载完成后重应用，
+  // 确保开发模式 HMR / 刷新后缩放仍生效。
+  mainWindow.webContents.on('did-finish-load', () => {
+    lastAppliedZoom = -1
+    applyAdaptiveZoom()
+  })
 }
 
 /**
@@ -468,12 +523,25 @@ app.whenReady().then(async () => {
       mainWindow?.setAutoHideMenuBar(!visible)
     })
 
-    // 注册 IPC：前端设置 4K 基准缩放比例
-    ipcMain.on('set-zoom-factor', (_event, factor: number) => {
-      if (mainWindow && typeof factor === 'number' && factor > 0 && factor <= 5) {
-        mainWindow.webContents.setZoomFactor(factor)
-      }
+    // 注册 IPC：前端推送 4K 基准缩放配置（开关 + 基准宽度 DIP），主进程据此重算
+    ipcMain.on('set-scale-config', (_event, cfg: { enabled?: boolean; baseWidth?: number }) => {
+      if (cfg && typeof cfg.enabled === 'boolean') scaleEnabled = cfg.enabled
+      if (cfg && typeof cfg.baseWidth === 'number' && cfg.baseWidth >= 0) scaleBaseWidth = cfg.baseWidth
+      applyAdaptiveZoom()
     })
+
+    // 注册 IPC：捕获当前窗口内容宽度（DIP）作为缩放基准，返回该宽度供前端持久化。
+    // 用户应在 4K 显示器上最大化窗口后调用，把「4K 最大化布局」定为基准。
+    ipcMain.handle('capture-scale-base', () => {
+      if (!mainWindow || mainWindow.isDestroyed()) return 0
+      const { width } = mainWindow.getContentBounds()
+      scaleBaseWidth = width
+      applyAdaptiveZoom()
+      return width
+    })
+
+    // 显示器参数变化（分辨率/DPI/排列）时重算，保证跨屏移动后布局一致
+    screen.on('display-metrics-changed', scheduleAdaptiveZoom)
 
     // 注册 IPC：前端请求打开原生目录选择对话框（图片保存目录等），返回所选路径或 null
     ipcMain.handle('dialog:pick-directory', async () => {
