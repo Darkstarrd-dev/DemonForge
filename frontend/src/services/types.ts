@@ -438,3 +438,43 @@ export interface ImportSession {
   /** 清理模式目标书 ID。存在 = 清理模式（仅 Step2/3，覆盖入库）；undefined = 新建模式 */
   targetBookId?: string
 }
+
+// ==================== 节点测试 · Debug Info / Session 运行态 ====================
+
+/** Debug Info 单条 SSE chunk（上游原始；json 为 null 表示 [DONE]）。
+ *  从 node-test/DebugInfoPanel 上移到此处共享，供 appStore 运行态注册表引用。 */
+export interface SseChunk {
+  line: string
+  json: unknown | null
+}
+
+/** Debug Info 数据（每 session 独立：预览请求体 / 实际请求体 / 上游 SSE chunks） */
+export interface DebugInfoData {
+  previewBody: object | null
+  actualBody: object | null
+  sseChunks: SseChunk[]
+}
+
+/** 节点测试 session 运行态状态机 */
+export type SessionRunStatus = 'idle' | 'streaming' | 'done' | 'error'
+
+/** 节点测试单 session 的运行态（内存态，按 sessionId 索引，不持久化）。
+ *  推理执行从组件下沉到 sessionEngine 后，运行态写到这里，UI 只订阅——
+ *  从而"显示哪个 session"与"哪个 session 在跑"完全解耦（切走仍继续）。 */
+export interface SessionRuntime {
+  status: SessionRunStatus
+  /** 流式累积的文本（图片模式为结果 URL，一般不经此） */
+  streamingText: string
+  /** 流式累积的 reasoning */
+  streamingReasoning: string
+  /** 图片阶段文案，如 "GPT Image 生成中…" / "下载图片中…" */
+  statusText: string
+  /** 计时基准（elapsed = now - startedAt） */
+  startedAt: number
+  /** 错误信息（status==='error' 时） */
+  error?: string
+  /** 本 session 正在流式写入的 assistant 占位消息 id（done 时替换为最终内容） */
+  pendingAssistantMsgId?: string
+  /** 每 session 独立 Debug Info */
+  debug: DebugInfoData
+}

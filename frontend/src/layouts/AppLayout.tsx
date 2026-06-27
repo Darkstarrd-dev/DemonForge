@@ -1,4 +1,4 @@
-import { Button, Layout, Menu, Select, Segmented, Typography } from 'antd'
+import { Button, Layout, Menu, Select, Segmented, Typography, Tooltip } from 'antd'
 import {
   PoweroffOutlined,
   HomeOutlined,
@@ -18,6 +18,7 @@ import {
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useState, useEffect } from 'react'
 import { useAppStore, flushStoreWrites, pushSettingsNow } from '../store/appStore'
+import SessionSidebar from '../pages/node-test/SessionSidebar'
 
 const MENU_ITEMS = [
   { key: '/', icon: <HomeOutlined />, label: '书库概览' },
@@ -42,10 +43,22 @@ export default function AppLayout() {
   const currentBookId = useAppStore((s) => s.currentBookId)
   const showMenuBar = useAppStore((s) => s.showMenuBar)
   const theme = useAppStore((s) => s.theme)
+  const nodeTestSidebarMode = useAppStore((s) => s.nodeTestSidebarMode)
   const setState = useAppStore((s) => s.setState)
   const projects = books.filter((b) => b.type === 'project')
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [floatingButtonHovered, setFloatingButtonHovered] = useState(false)
+
+  // 节点测试模式下：左上角 logo 点击切换左侧栏内容（app 导航 / session 列表）；其它路由维持折叠行为
+  const isNodeTest = location.pathname === '/node-test'
+  const showSessions = isNodeTest && nodeTestSidebarMode === 'sessions'
+  const onLogoClick = () => {
+    if (isNodeTest) {
+      setState({ nodeTestSidebarMode: nodeTestSidebarMode === 'sessions' ? 'app' : 'sessions' })
+    } else {
+      setSidebarCollapsed(true)
+    }
+  }
 
   // 同步 showMenuBar 到 Electron 主进程（兜底，确保前端状态与主窗口一致）
   useEffect(() => {
@@ -132,12 +145,14 @@ export default function AppLayout() {
             gap: '12px',
             borderBottom: theme === 'dark' ? '1px solid #303030' : '1px solid #f0f0f0',
           }}>
-            <span
-              style={{ flex: 1, cursor: 'pointer' }}
-              onClick={() => setSidebarCollapsed(true)}
-            >
-              NovelHelper
-            </span>
+            <Tooltip title={isNodeTest ? '点击切换：会话列表 / 导航菜单' : '点击收起侧栏'} placement="right">
+              <span
+                style={{ flex: 1, cursor: 'pointer' }}
+                onClick={onLogoClick}
+              >
+                NovelHelper
+              </span>
+            </Tooltip>
             <Segmented
               value={theme}
               onChange={(v) => {
@@ -153,39 +168,46 @@ export default function AppLayout() {
             />
           </div>
 
-          {/* 当前作品选择器（移到 sidebar） */}
-          <div style={{
-            padding: '8px 12px',
-            borderBottom: theme === 'dark' ? '1px solid #303030' : '1px solid #f0f0f0',
-          }}>
-            {projects.length > 0 ? (
-              <Select
-                style={{ width: '100%' }}
-                size="small"
-                value={currentBookId}
-                onChange={(v) => setState({ currentBookId: v })}
-                options={projects.map((b) => ({ value: b.id, label: b.title }))}
-                placeholder="选择作品"
-              />
-            ) : (
-              <Typography.Text type="secondary" style={{ fontSize: 12, paddingLeft: 8 }}>
-                暂无作品
-              </Typography.Text>
-            )}
-          </div>
+          {showSessions ? (
+            /* 节点测试 · 多 session 列表（替代 app 导航；logo 点击切回） */
+            <SessionSidebar />
+          ) : (
+            <>
+              {/* 当前作品选择器（移到 sidebar） */}
+              <div style={{
+                padding: '8px 12px',
+                borderBottom: theme === 'dark' ? '1px solid #303030' : '1px solid #f0f0f0',
+              }}>
+                {projects.length > 0 ? (
+                  <Select
+                    style={{ width: '100%' }}
+                    size="small"
+                    value={currentBookId}
+                    onChange={(v) => setState({ currentBookId: v })}
+                    options={projects.map((b) => ({ value: b.id, label: b.title }))}
+                    placeholder="选择作品"
+                  />
+                ) : (
+                  <Typography.Text type="secondary" style={{ fontSize: 12, paddingLeft: 8 }}>
+                    暂无作品
+                  </Typography.Text>
+                )}
+              </div>
 
-          <Menu
-            theme={theme === 'dark' ? 'dark' : 'light'}
-            mode="inline"
-            items={MENU_ITEMS}
-            selectedKeys={[location.pathname]}
-            onClick={(e) => navigate(e.key)}
-            style={{
-              flex: 1,
-              background: theme === 'dark' ? '#141414' : '#ffffff',
-              paddingTop: 0,
-            }}
-          />
+              <Menu
+                theme={theme === 'dark' ? 'dark' : 'light'}
+                mode="inline"
+                items={MENU_ITEMS}
+                selectedKeys={[location.pathname]}
+                onClick={(e) => navigate(e.key)}
+                style={{
+                  flex: 1,
+                  background: theme === 'dark' ? '#141414' : '#ffffff',
+                  paddingTop: 0,
+                }}
+              />
+            </>
+          )}
           <div style={{
             padding: '8px 12px',
             borderTop: theme === 'dark' ? '1px solid #303030' : '1px solid #f0f0f0',

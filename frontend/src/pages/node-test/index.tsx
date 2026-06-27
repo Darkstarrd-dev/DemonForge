@@ -2,10 +2,10 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { App, Button, Space, Typography, Upload, Select, Segmented, theme, Tooltip, Collapse, Popconfirm, Modal } from 'antd'
 import { PictureOutlined, CloseOutlined, MessageOutlined, CopyOutlined, SendOutlined, FileImageOutlined, HistoryOutlined, BulbOutlined, RedoOutlined, EditOutlined, DeleteOutlined, ColumnWidthOutlined, PlusOutlined } from '@ant-design/icons'
 import { useAppStore } from '../../store/appStore'
-import { generateImage, generateImageGpt, generateImageXai, streamChat, generateTitle } from '../../services/api'
+import { streamChat, sendInSession, cancelSession } from '../../services/api'
 import { genId, pushSettingsNow } from '../../store/appStore'
 import { imageHosts } from '../../services/imageHost'
-import type { ProviderNode, ProviderNodeType, ImageInputMode, ChatSession, ChatSessionMessage } from '../../services/types'
+import type { ProviderNode, ProviderNodeType, ImageInputMode, ChatSession } from '../../services/types'
 import type { NodeTestForm } from '../../store/appStore'
 import SystemPromptEditor from './SystemPromptEditor'
 import HistoryList from './HistoryList'
@@ -70,20 +70,17 @@ export default function NodeTestPage() {
   const saveSystemPromptPreset = useAppStore((s) => s.saveSystemPromptPreset)
   const deleteSystemPromptPreset = useAppStore((s) => s.deleteSystemPromptPreset)
   const setSystemPromptActiveId = useAppStore((s) => s.setSystemPromptActiveId)
+  const sessionRuntimes = useAppStore((s) => s.sessionRuntimes)
 
   // 测试模式：根据节点类型自动切换
   const [testMode, setTestMode] = useState<TestMode>('text')
 
-  // 聊天消息列表
-  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([])
   // 主区域视图：对话 / 历史记录列表
   const [mainView, setMainView] = useState<'chat' | 'history'>('chat')
   // 右侧侧边栏视图：参数设置 / System Instructions / Debug Info
   const [sidebarView, setSidebarView] = useState<'params' | 'sysPrompt' | 'debug'>('params')
   // 底部菜单展开状态
   const [bottomMenuOpen, setBottomMenuOpen] = useState(false)
-  // Debug Info（内存态，不持久化；每次发送重置）
-  const [debugInfo, setDebugInfo] = useState<DebugInfoData>({ previewBody: null, actualBody: null, sseChunks: [] })
   // 编辑态
   const [editingMsgId, setEditingMsgId] = useState<string | null>(null)
   const [editingText, setEditingText] = useState('')
@@ -117,24 +114,66 @@ export default function NodeTestPage() {
     }
   }, [providers, testMode])
 
-  const [phase, setPhase] = useState<Phase>('idle')
-  const statusTextRef = useRef('')
-  const setStatusText = (v: string) => { statusTextRef.current = v }
-  const [elapsed, setElapsed] = useState(0)
-  const currentTextResponseRef = useRef('')
-  const setCurrentTextResponse = (v: string) => { currentTextResponseRef.current = v } // 文本或图片 data URL
   const [selectedImages, setSelectedImages] = useState<File[]>([])
-  const acRef = useRef<AbortController | null>(null)
   const promptRef = useRef<HTMLTextAreaElement>(null)
   const chatEndRef = useRef<HTMLDivElement>(null)
   const prevNodeTypeRef = useRef<ProviderNodeType | undefined>(undefined)
 
-  useEffect(() => () => acRef.current?.abort(), [])
+  // ===== 多 session 运行态派生（单实例 phase/acRef/流式累积 已下沉到 sessionEngine + sessionRuntimes）=====
+  const activeSession = useMemo(
+    () => chatSessions.find((s: ChatSession) => s.id === activeChatSessionId) ?? null,
+    [chatSessions, activeChatSessionId],
+  )
+  const activeRuntime = activeChatSessionId ? sessionRuntimes[activeChatSessionId] : undefined
+  // 派生 phase（兼容旧渲染判断）：streaming/done/error/idle
+  const phase: Phase = activeRuntime?.status === 'streaming' ? 'streaming'
+    : activeRuntime?.status === 'done' ? 'done'
+    : activeRuntime?.status === 'error' ? 'error'
+    : 'idle'
+  const busy = activeRuntime?.status === 'streaming'
+  const statusText = activeRuntime?.statusText ?? ''
+  const debugInfo: DebugInfoData = activeRuntime?.debug ?? { previewBody: null, actualBody: null, sseChunks: [] }
+  // 当前会话展示消息 = 已落库 messages +（文本流式中）实时 assistant 气泡
+  const chatMessages: ChatMessage[] = useMemo(() => {
+    const base: ChatMessage[] = (activeSession?.messages ?? []).map((m) => ({ ...m }))
+    if (activeRuntime?.status === 'streaming' && testMode === 'text') {
+      base.push({
+        id: activeRuntime.pendingAssistantMsgId ?? 'streaming',
+        role: 'assistant',
+        content: activeRuntime.streamingText,
+        reasoning: activeRuntime.streamingReasoning || undefined,
+        timestamp: Date.now(),
+        nodeId: activeSession?.nodeId,
+        modelName: activeSession?.modelName,
+      })
+    }
+    return base
+  }, [activeSession, activeRuntime, testMode])
+
+  // 生成计时：busy 时按 startedAt 每秒派生 elapsed（替代每 session 独立计时器）
+  const [elapsed, setElapsed] = useState(0)
+  useEffect(() => {
+    if (!busy || !activeRuntime?.startedAt) { setElapsed(0); return }
+    const base = activeRuntime.startedAt
+    const tick = () => setElapsed(Math.max(0, Math.floor((Date.now() - base) / 1000)))
+    tick()
+    const id = setInterval(tick, 1000)
+    return () => clearInterval(id)
+  }, [busy, activeRuntime?.startedAt])
 
   // 自动滚动到聊天底部
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [chatMessages])
+
+  // 从 AppLayout 常驻侧栏切换/新建 session 时：同步测试模式并回到对话视图
+  // （侧栏在 AppLayout，无法直接设本页 mainView/testMode，故在此响应 activeChatSessionId 变化）
+  useEffect(() => {
+    setMainView('chat')
+    if (!activeChatSessionId) return
+    const s = useAppStore.getState().chatSessions.find((c) => c.id === activeChatSessionId)
+    if (s) setTestMode(s.testType === 'image' ? 'image' : 'text')
+  }, [activeChatSessionId])
 
   const effectiveNodeId = nodeTestGlobalForm.nodeId
   const selectedNode: ProviderNode | undefined = effectiveNodeId
@@ -169,7 +208,6 @@ export default function NodeTestPage() {
         onOk: () => {
           prevNodeTypeRef.current = currentNodeType
           setTestMode(currentNodeType === 'image' ? 'image' : 'text')
-          setChatMessages([])
           setActiveChatSessionId(null)
         },
         onCancel: () => {
@@ -184,7 +222,6 @@ export default function NodeTestPage() {
       // 无对话内容，直接切换
       prevNodeTypeRef.current = currentNodeType
       setTestMode(currentNodeType === 'image' ? 'image' : 'text')
-      setChatMessages([])
       setActiveChatSessionId(null)
     }
   }, [selectedNode, chatMessages.length, availableNodes, nodeTestGlobalForm, setState])
@@ -283,6 +320,7 @@ export default function NodeTestPage() {
   }
 
   // 同步 chatMessages 到 activeChatSession
+  // 把一组消息写回当前激活 session（编辑/删除用；session 即唯一真相源）
   const syncSessionMessages = (nextMessages: ChatMessage[]) => {
     const sid = activeChatSessionId
     if (!sid) return
@@ -309,18 +347,17 @@ export default function NodeTestPage() {
     setEditingText(msg.content)
   }
 
-  // 提交编辑
+  // 提交编辑（写回当前 session 的 messages）
   const commitEdit = () => {
     if (!editingMsgId) return
     if (!editingText.trim()) {
       message.warning('内容不能为空')
       return
     }
-    const nextMessages = chatMessages.map((m) =>
+    const nextMessages = (activeSession?.messages ?? []).map((m) =>
       m.id === editingMsgId ? { ...m, content: editingText } : m
     )
-    setChatMessages(nextMessages)
-    syncSessionMessages(nextMessages)
+    syncSessionMessages(nextMessages as ChatMessage[])
     setEditingMsgId(null)
     setEditingText('')
   }
@@ -332,11 +369,10 @@ export default function NodeTestPage() {
     setEditingCompareSide(null)
   }
 
-  // 删除消息
+  // 删除消息（从当前 session 的 messages 移除）
   const deleteMessage = (msgId: string) => {
-    const nextMessages = chatMessages.filter((m) => m.id !== msgId)
-    setChatMessages(nextMessages)
-    syncSessionMessages(nextMessages)
+    const nextMessages = (activeSession?.messages ?? []).filter((m) => m.id !== msgId)
+    syncSessionMessages(nextMessages as ChatMessage[])
     if (editingMsgId === msgId) {
       setEditingMsgId(null)
       setEditingText('')
@@ -468,23 +504,19 @@ export default function NodeTestPage() {
     }
   }
 
-  // 重试消息（user 或 assistant）
-  const retryMessage = async (msgId: string) => {
-    const index = chatMessages.findIndex((m) => m.id === msgId)
+  // 重试消息（user 或 assistant）：截断当前 session 到触发 user 之前，再经引擎在该 session 重发
+  const retryMessage = (msgId: string) => {
+    if (!activeChatSessionId || !activeSession) return
+    const msgs = activeSession.messages
+    const index = msgs.findIndex((m) => m.id === msgId)
     if (index === -1) return
-    const msg = chatMessages[index]
+    const msg = msgs[index]
 
-    let newMessages: ChatMessage[]
-    let triggerUser: ChatMessage
-
+    let triggerUser: typeof msgs[number]
     if (msg.role === 'user') {
-      // user 重试：截断到该 user 之前，以该 user 作为触发
-      newMessages = chatMessages.slice(0, index)
       triggerUser = msg
     } else {
-      // assistant 重试：截断到该 assistant 之前，找触发它的 user
-      newMessages = chatMessages.slice(0, index)
-      const lastUser = [...newMessages].reverse().find((m) => m.role === 'user')
+      const lastUser = [...msgs.slice(0, index)].reverse().find((m) => m.role === 'user')
       if (!lastUser) {
         message.warning('无法找到触发该回复的用户消息')
         return
@@ -493,166 +525,27 @@ export default function NodeTestPage() {
     }
 
     if (!selectedNode) {
-      message.warning('请先选择一个文本推理节点')
+      message.warning('请先选择一个节点')
       return
     }
 
-    acRef.current?.abort()
-    const ac = new AbortController()
-    acRef.current = ac
+    // 截断到触发 user 之前（其后所有消息移除——引擎会重新追加该 user + 新回复）
+    const triggerIndex = msgs.findIndex((m) => m.id === triggerUser.id)
+    const truncated = msgs.slice(0, triggerIndex)
+    updateChatSession(activeChatSessionId, { messages: truncated, updatedAt: new Date().toISOString() })
 
-    setChatMessages(newMessages)
-    setPhase('streaming')
-    setDebugInfo({ previewBody: null, actualBody: null, sseChunks: [] })
-
-    // 构造消息
-    const messages: any[] = []
-
-    // 添加 system prompt
-    if (activeSystemPrompt.trim()) {
-      messages.push({ role: 'system', content: activeSystemPrompt.trim() })
-    }
-
-    // 添加历史消息（即 newMessages）
-    newMessages.forEach((m) => {
-      if (m.role === 'user' && m.images && m.images.length > 0) {
-        const content: any[] = [{ type: 'text', text: m.content }]
-        m.images.forEach((url) => {
-          content.push({ type: 'image_url', image_url: { url } })
-        })
-        messages.push({ role: m.role, content })
-      } else {
-        messages.push({ role: m.role, content: m.content })
-      }
+    sendInSession({
+      sessionId: activeChatSessionId,
+      node: selectedNode,
+      testMode,
+      protocol: nodeProtocol as 'modelscope' | 'gpt' | 'xai',
+      isMultimodal,
+      userText: triggerUser.content,
+      imageInputs: triggerUser.images ?? [],
+      systemPrompt: activeSystemPrompt,
+      form: nodeTestForm,
+      isFirstRound: truncated.length === 0,
     })
-
-    // 添加当前触发 user 消息（重新发送）
-    if (triggerUser.images && triggerUser.images.length > 0) {
-      const content: any[] = [{ type: 'text', text: triggerUser.content }]
-      triggerUser.images.forEach((url) => {
-        content.push({ type: 'image_url', image_url: { url } })
-      })
-      messages.push({ role: 'user', content })
-    } else {
-      messages.push({ role: 'user', content: triggerUser.content })
-    }
-
-    // 新建助手占位消息
-    const assistantMsgId = genId('msg')
-    const assistantMsg: ChatMessage = {
-      id: assistantMsgId,
-      role: 'assistant',
-      content: '',
-      timestamp: Date.now(),
-      nodeId: selectedNode.id,
-      modelName: selectedNode.model,
-    }
-    setChatMessages((prev) => [...prev, assistantMsg])
-
-    // Debug Info：预览请求体
-    setDebugInfo((prev) => ({
-      ...prev,
-      previewBody: {
-        model: selectedNode!.model,
-        messages,
-        stream: true,
-        ...(typeof nodeTestForm.temperature === 'number' ? { temperature: nodeTestForm.temperature } : {}),
-        ...(typeof nodeTestForm.topP === 'number' ? { top_p: nodeTestForm.topP } : {}),
-        ...(typeof nodeTestForm.maxTokens === 'number' ? { max_tokens: nodeTestForm.maxTokens } : {}),
-      },
-    }))
-
-    let fullText = ''
-    let fullReasoning = ''
-
-    try {
-      await streamChat(
-        {
-          baseURL: selectedNode.baseURL,
-          apiKey: selectedNode.apiKey,
-          model: selectedNode.model,
-          messages,
-          includeRaw: true,
-          ...(typeof nodeTestForm.temperature === 'number' ? { temperature: nodeTestForm.temperature } : {}),
-          ...(typeof nodeTestForm.topP === 'number' ? { topP: nodeTestForm.topP } : {}),
-          ...(typeof nodeTestForm.maxTokens === 'number' ? { maxTokens: nodeTestForm.maxTokens } : {}),
-        },
-        {
-          reasoningDelta: (delta) => {
-            fullReasoning += delta
-            setChatMessages((prev) =>
-              prev.map((m) =>
-                m.id === assistantMsgId ? { ...m, reasoning: fullReasoning } : m
-              )
-            )
-          },
-          delta: (delta) => {
-            fullText += delta
-            setChatMessages((prev) =>
-              prev.map((m) =>
-                m.id === assistantMsgId ? { ...m, content: fullText } : m
-              )
-            )
-          },
-          requestBody: (body) => {
-            setDebugInfo((prev) => ({ ...prev, actualBody: body as object }))
-          },
-          rawChunk: (raw) => {
-            setDebugInfo((prev) => ({ ...prev, sseChunks: [...prev.sseChunks, raw] }))
-          },
-          done: (finalText) => {
-            const finalMessages = newMessages.map((m) => ({ ...m }))
-            finalMessages.push({
-              id: assistantMsgId,
-              role: 'assistant' as const,
-              content: finalText,
-              timestamp: Date.now(),
-              reasoning: fullReasoning || undefined,
-              nodeId: selectedNode!.id,
-              modelName: selectedNode!.model,
-            })
-            setChatMessages(finalMessages)
-            syncSessionMessages(finalMessages)
-            setPhase('done')
-            setStatusText('')
-          },
-          error: (err) => {
-            const errorMsg: ChatMessage = {
-              id: genId('msg'),
-              role: 'assistant',
-              content: `失败：${err}`,
-              timestamp: Date.now(),
-            }
-            const finalMessages = [...newMessages, errorMsg]
-            setChatMessages(finalMessages)
-            syncSessionMessages(finalMessages)
-            setPhase('error')
-            setStatusText('')
-          },
-        },
-        ac.signal,
-      )
-    } catch (e) {
-      if (ac.signal.aborted) {
-        setPhase('idle')
-        setStatusText('')
-        return
-      }
-      const errMsg = e instanceof Error ? e.message : String(e)
-      const errorMsg: ChatMessage = {
-        id: genId('msg'),
-        role: 'assistant',
-        content: `失败：${errMsg}`,
-        timestamp: Date.now(),
-      }
-      const finalMessages = [...newMessages, errorMsg]
-      setChatMessages(finalMessages)
-      syncSessionMessages(finalMessages)
-      setPhase('error')
-      setStatusText('')
-    } finally {
-      if (acRef.current === ac) acRef.current = null
-    }
   }
 
   // 粘贴图片监听（图生图或多模态时启用）
@@ -877,16 +770,7 @@ export default function NodeTestPage() {
       message.warning('请输入提示词')
       return
     }
-    acRef.current?.abort()
-    const ac = new AbortController()
-    acRef.current = ac
-
-    setPhase('idle')
-    setStatusText('')
-    setCurrentTextResponse('')
-    setDebugInfo({ previewBody: null, actualBody: null, sseChunks: [] })
-
-    // 处理图片输入（图生图或多模态）
+    // 处理图片输入（图生图或多模态）：base64 直传 or 上传图床
     const imageInputs: string[] = []
     const usedImageMode: ImageInputMode = nodeTestForm.imageInputMode || 'base64'
     if ((supportsEdit || isMultimodal || isGpt || isXai) && selectedImages.length > 0) {
@@ -925,515 +809,56 @@ export default function NodeTestPage() {
       }
     }
 
-    try {
-      if (isImageMode) {
-        // 图片生成模式
-        if (isGpt) {
-          const gptSize = nodeTestForm.resolution
-          await generateImageGpt(
-            {
-              baseURL: selectedNode.baseURL,
-              apiKey: selectedNode.apiKey,
-              model: selectedNode.model,
-              prompt: nodeTestForm.prompt.trim(),
-              ...(gptSize ? { size: gptSize } : {}),
-              ...(nodeTestForm.gptQuality ? { quality: nodeTestForm.gptQuality } : {}),
-              ...(nodeTestForm.gptBackground ? { background: nodeTestForm.gptBackground } : {}),
-              ...(nodeTestForm.gptModeration ? { moderation: nodeTestForm.gptModeration } : {}),
-              ...(imageInputs.length > 0 ? { imageInputs } : {}),
-            },
-            {
-              start: () => {
-                setPhase('submitted')
-                setStatusText('GPT Image 生成中…')
-              },
-              downloading: () => {
-                setPhase('polling')
-                setStatusText('下载图片中…')
-              },
-              done: ({ image: dataUrl, revisedPrompt }) => {
-                setPhase('done')
-                setStatusText('')
-                const userMsg: ChatMessage = {
-                  id: genId('msg'),
-                  role: 'user',
-                  content: nodeTestForm.prompt.trim(),
-                  timestamp: Date.now(),
-                  ...(imageInputs.length > 0 ? { images: imageInputs } : {}),
-                  nodeId: selectedNode!.id,
-                  modelName: selectedNode!.model,
-                }
-                const assistantMsg: ChatMessage = {
-                  id: genId('msg'),
-                  role: 'assistant',
-                  content: dataUrl,
-                  timestamp: Date.now(),
-                  nodeId: selectedNode!.id,
-                  modelName: selectedNode!.model,
-                  ...(revisedPrompt ? { revisedPrompt } : {}),
-                }
-                const testType: ChatSession['testType'] = imageInputs.length > 0 ? 'multimodal' : 'image'
-                let sessionId = activeChatSessionId
-                const isFirst = !sessionId
-                if (!sessionId) {
-                  sessionId = createChatSession({
-                    id: genId('cs'),
-                    title: nodeTestForm.prompt.trim().slice(0, 20),
-                    testType,
-                    nodeId: selectedNode!.id,
-                    modelName: selectedNode!.model,
-                    messages: [userMsg, assistantMsg],
-                    ...(gptSize ? { size: gptSize } : {}),
-                    ...(nodeTestForm.gptQuality ? { gptQuality: nodeTestForm.gptQuality } : {}),
-                    ...(nodeTestForm.gptBackground ? { gptBackground: nodeTestForm.gptBackground } : {}),
-                    ...(nodeTestForm.gptModeration ? { gptModeration: nodeTestForm.gptModeration } : {}),
-                    createdAt: new Date().toISOString(),
-                    updatedAt: new Date().toISOString(),
-                  })
-                  setActiveChatSessionId(sessionId)
-                } else {
-                  const cur = chatSessions.find((c: ChatSession) => c.id === sessionId)
-                  updateChatSession(sessionId, {
-                    messages: [...(cur?.messages ?? []), userMsg, assistantMsg],
-                    updatedAt: new Date().toISOString(),
-                  })
-                }
-                setChatMessages((prev) => [...prev, userMsg, assistantMsg])
-                if (isFirst) {
-                  const sid = sessionId
-                  generateTitle(
-                    { baseURL: selectedNode!.baseURL, apiKey: selectedNode!.apiKey, model: selectedNode!.model },
-                    nodeTestForm.prompt.trim(),
-                    '',
-                  ).then((title) => renameChatSession(sid, title)).catch(() => {})
-                }
-              },
-              debug: ({ stage, payload, response, error: dbgError }) => {
-                setDebugInfo((prev) => {
-                  const next = { ...prev }
-                  if (stage === 'submit') {
-                    next.previewBody = { model: selectedNode!.model, size: gptSize, prompt: nodeTestForm.prompt.trim() }
-                    if (payload !== undefined) next.actualBody = payload
-                  }
-                  const chunk: { line: string; json: unknown | null } = {
-                    line: `${stage}${dbgError ? ' \u26a0 ' + dbgError : ''}`,
-                    json: response ?? null,
-                  }
-                  return { ...next, sseChunks: [...prev.sseChunks, chunk] }
-                })
-              },
-            },
-            ac.signal,
-          )
-        } else if (isXai) {
-          await generateImageXai(
-            {
-              baseURL: selectedNode.baseURL,
-              apiKey: selectedNode.apiKey,
-              model: selectedNode.model,
-              prompt: nodeTestForm.prompt.trim(),
-              ...(nodeTestForm.xaiAspectRatio ? { aspectRatio: nodeTestForm.xaiAspectRatio } : {}),
-              ...(nodeTestForm.xaiResolution ? { resolution: nodeTestForm.xaiResolution } : {}),
-              ...(nodeTestForm.xaiN && nodeTestForm.xaiN > 1 ? { n: nodeTestForm.xaiN } : {}),
-              ...(imageInputs.length > 0 ? { imageInputs } : {}),
-            },
-            {
-              start: () => {
-                setPhase('submitted')
-                setStatusText('xAI Imagine 生成中…')
-              },
-              done: ({ image: dataUrl }) => {
-                setPhase('done')
-                setStatusText('')
-                const userMsg: ChatMessage = {
-                  id: genId('msg'),
-                  role: 'user',
-                  content: nodeTestForm.prompt.trim(),
-                  timestamp: Date.now(),
-                  ...(imageInputs.length > 0 ? { images: imageInputs } : {}),
-                  nodeId: selectedNode!.id,
-                  modelName: selectedNode!.model,
-                }
-                const assistantMsg: ChatMessage = {
-                  id: genId('msg'),
-                  role: 'assistant',
-                  content: dataUrl,
-                  timestamp: Date.now(),
-                  nodeId: selectedNode!.id,
-                  modelName: selectedNode!.model,
-                }
-                const testType: ChatSession['testType'] = imageInputs.length > 0 ? 'multimodal' : 'image'
-                let sessionId = activeChatSessionId
-                const isFirst = !sessionId
-                if (!sessionId) {
-                  sessionId = createChatSession({
-                    id: genId('cs'),
-                    title: nodeTestForm.prompt.trim().slice(0, 20),
-                    testType,
-                    nodeId: selectedNode!.id,
-                    modelName: selectedNode!.model,
-                    messages: [userMsg, assistantMsg],
-                    ...(nodeTestForm.xaiAspectRatio ? { xaiAspectRatio: nodeTestForm.xaiAspectRatio } : {}),
-                    ...(nodeTestForm.xaiResolution ? { xaiResolution: nodeTestForm.xaiResolution } : {}),
-                    createdAt: new Date().toISOString(),
-                    updatedAt: new Date().toISOString(),
-                  })
-                  setActiveChatSessionId(sessionId)
-                } else {
-                  const cur = chatSessions.find((c: ChatSession) => c.id === sessionId)
-                  updateChatSession(sessionId, {
-                    messages: [...(cur?.messages ?? []), userMsg, assistantMsg],
-                    updatedAt: new Date().toISOString(),
-                  })
-                }
-                setChatMessages((prev) => [...prev, userMsg, assistantMsg])
-                if (isFirst) {
-                  const sid = sessionId
-                  generateTitle(
-                    { baseURL: selectedNode!.baseURL, apiKey: selectedNode!.apiKey, model: selectedNode!.model },
-                    nodeTestForm.prompt.trim(),
-                    '',
-                  ).then((title) => renameChatSession(sid, title)).catch(() => {})
-                }
-              },
-              debug: ({ stage, payload, response, error: dbgError }) => {
-                setDebugInfo((prev) => {
-                  const next = { ...prev }
-                  if (stage === 'submit') {
-                    next.previewBody = { model: selectedNode!.model, prompt: nodeTestForm.prompt.trim() }
-                    if (payload !== undefined) next.actualBody = payload
-                  }
-                  const chunk: { line: string; json: unknown | null } = {
-                    line: `${stage}${dbgError ? ' \u26a0 ' + dbgError : ''}`,
-                    json: response ?? null,
-                  }
-                  return { ...next, sseChunks: [...prev.sseChunks, chunk] }
-                })
-              },
-            },
-            ac.signal,
-          )
-        } else {
-        const size = isModelScope ? nodeTestForm.resolution : undefined
-        await generateImage(
-          {
-            baseURL: selectedNode.baseURL,
-            apiKey: selectedNode.apiKey,
-            model: selectedNode.model,
-            prompt: nodeTestForm.prompt.trim(),
-            ...(size ? { size } : {}),
-            ...(nodeTestForm.negativePrompt?.trim() ? { negativePrompt: nodeTestForm.negativePrompt.trim() } : {}),
-            ...(typeof nodeTestForm.steps === 'number' && nodeTestForm.steps > 0 ? { steps: nodeTestForm.steps } : {}),
-            ...(typeof nodeTestForm.guidance === 'number' ? { guidance: nodeTestForm.guidance } : {}),
-            ...(typeof nodeTestForm.seed === 'number' ? { seed: nodeTestForm.seed } : {}),
-            ...(imageInputs.length > 0 ? { imageInputs } : {}),
-          },
-          {
-            submitted: ({ taskId }) => {
-              setPhase('submitted')
-              setStatusText(`任务 ${taskId.slice(0, 12)}… 已提交`)
-            },
-            polling: ({ status, attempt }) => {
-              setPhase('polling')
-              setStatusText(`${status}（第 ${attempt} 次轮询）`)
-            },
-            done: ({ image: dataUrl }) => {
-              setPhase('done')
-              setStatusText('')
-              // 对话记录：追加一轮 user prompt + assistant image
-              const userMsg: ChatMessage = {
-                id: genId('msg'),
-                role: 'user',
-                content: nodeTestForm.prompt.trim(),
-                timestamp: Date.now(),
-                ...(imageInputs.length > 0 ? { images: imageInputs } : {}),
-                nodeId: selectedNode!.id,
-                modelName: selectedNode!.model,
-              }
-              const assistantMsg: ChatMessage = {
-                id: genId('msg'),
-                role: 'assistant',
-                content: dataUrl,
-                timestamp: Date.now(),
-                nodeId: selectedNode!.id,
-                modelName: selectedNode!.model,
-              }
-              const testType: ChatSession['testType'] = imageInputs.length > 0 ? 'multimodal' : 'image'
-              let sessionId = activeChatSessionId
-              const isFirst = !sessionId
-              if (!sessionId) {
-                sessionId = createChatSession({
-                  id: genId('cs'),
-                  title: nodeTestForm.prompt.trim().slice(0, 20),
-                  testType,
-                  nodeId: selectedNode!.id,
-                  modelName: selectedNode!.model,
-                  messages: [userMsg, assistantMsg],
-                  ...(size ? { size } : {}),
-                  ...(nodeTestForm.negativePrompt?.trim() ? { negativePrompt: nodeTestForm.negativePrompt.trim() } : {}),
-                  ...(typeof nodeTestForm.steps === 'number' && nodeTestForm.steps > 0 ? { steps: nodeTestForm.steps } : {}),
-                  ...(typeof nodeTestForm.guidance === 'number' ? { guidance: nodeTestForm.guidance } : {}),
-                  ...(typeof nodeTestForm.seed === 'number' ? { seed: nodeTestForm.seed } : {}),
-...(imageInputs.length > 0 ? { imageInputMode: usedImageMode } : {}),
-                    createdAt: new Date().toISOString(),
-                    updatedAt: new Date().toISOString(),
-                  })
-                  setActiveChatSessionId(sessionId)
-                } else {
-                  const cur = chatSessions.find((c: ChatSession) => c.id === sessionId)
-                  updateChatSession(sessionId, {
-                    messages: [...(cur?.messages ?? []), userMsg, assistantMsg],
-                    updatedAt: new Date().toISOString(),
-                  })
-                }
-                setChatMessages((prev) => [...prev, userMsg, assistantMsg])
-                if (isFirst) {
-                  const sid = sessionId
-                  generateTitle(
-                  { baseURL: selectedNode!.baseURL, apiKey: selectedNode!.apiKey, model: selectedNode!.model },
-                  nodeTestForm.prompt.trim(),
-                  '',
-                ).then((title) => renameChatSession(sid, title)).catch(() => {})
-              }
-            },
-            debug: ({ stage, payload, response, error: dbgError }) => {
-              setDebugInfo((prev) => {
-                const next = { ...prev }
-                if (stage === 'submit') {
-                  next.previewBody = { model: selectedNode!.model, size, prompt: nodeTestForm.prompt.trim() }
-                  if (payload !== undefined) next.actualBody = payload
-                }
-                const chunk: { line: string; json: unknown | null } = {
-                  line: `${stage}${dbgError ? ' \u26a0 ' + dbgError : ''}`,
-                  json: response ?? null,
-                }
-                return { ...next, sseChunks: [...prev.sseChunks, chunk] }
-              })
-            },
-          },
-          ac.signal,
-        )
-        }
-      } else {
-        // 文本推理模式（聊天形式）
-        setPhase('streaming')
-        const userMsg: ChatMessage = {
-          id: genId('msg'),
-          role: 'user',
-          content: nodeTestForm.prompt.trim(),
-          timestamp: Date.now(),
-          images: imageInputs.length > 0 ? imageInputs : undefined,
-          nodeId: selectedNode.id,
-          modelName: selectedNode.model,
-        }
+    const prompt = nodeTestForm.prompt.trim()
 
-        // 立即添加一个助手消息占位符
-        const assistantMsgId = genId('msg')
-        const assistantMsg: ChatMessage = {
-          id: assistantMsgId,
-          role: 'assistant',
-          content: '',
-          timestamp: Date.now(),
-          nodeId: selectedNode.id,
-          modelName: selectedNode.model,
-        }
-        setChatMessages((prev) => [...prev, userMsg, assistantMsg])
-        setCurrentTextResponse('')
-
-        // 构造消息
-        const messages: any[] = []
-
-        // 添加 system prompt（取当前激活预设的已保存内容）
-        if (activeSystemPrompt.trim()) {
-          messages.push({ role: 'system', content: activeSystemPrompt.trim() })
-        }
-
-        // 添加历史消息
-        chatMessages.forEach((msg) => {
-          if (msg.role === 'user' && msg.images && msg.images.length > 0) {
-            // 多模态消息
-            const content: any[] = [{ type: 'text', text: msg.content }]
-            msg.images.forEach((url) => {
-              content.push({ type: 'image_url', image_url: { url } })
-            })
-            messages.push({ role: msg.role, content })
-          } else {
-            messages.push({ role: msg.role, content: msg.content })
-          }
-        })
-
-        // 添加当前用户消息
-        if (isMultimodal && imageInputs.length > 0) {
-          const content: any[] = [{ type: 'text', text: nodeTestForm.prompt.trim() }]
-          imageInputs.forEach((url) => {
-            content.push({ type: 'image_url', image_url: { url } })
-          })
-          messages.push({ role: 'user', content })
-        } else {
-          messages.push({ role: 'user', content: nodeTestForm.prompt.trim() })
-        }
-
-        // Debug Info：预览请求体
-        setDebugInfo((prev) => ({
-          ...prev,
-          previewBody: {
-            model: selectedNode!.model,
-            messages,
-            stream: true,
-            ...(typeof nodeTestForm.temperature === 'number' ? { temperature: nodeTestForm.temperature } : {}),
-            ...(typeof nodeTestForm.topP === 'number' ? { top_p: nodeTestForm.topP } : {}),
-            ...(typeof nodeTestForm.maxTokens === 'number' ? { max_tokens: nodeTestForm.maxTokens } : {}),
-          },
-        }))
-
-        let fullText = ''
-        let fullReasoning = ''
-        await streamChat(
-          {
-            baseURL: selectedNode.baseURL,
-            apiKey: selectedNode.apiKey,
-            model: selectedNode.model,
-            messages,
-            includeRaw: true,
-            ...(typeof nodeTestForm.temperature === 'number' ? { temperature: nodeTestForm.temperature } : {}),
-            ...(typeof nodeTestForm.topP === 'number' ? { topP: nodeTestForm.topP } : {}),
-            ...(typeof nodeTestForm.maxTokens === 'number' ? { maxTokens: nodeTestForm.maxTokens } : {}),
-          },
-          {
-            reasoningDelta: (delta) => {
-              fullReasoning += delta
-              // 实时更新助手消息的 reasoning
-              setChatMessages((prev) =>
-                prev.map((msg) =>
-                  msg.id === assistantMsgId ? { ...msg, reasoning: fullReasoning } : msg
-                )
-              )
-            },
-            delta: (delta) => {
-              fullText += delta
-              setCurrentTextResponse(fullText)
-              // 实时更新助手消息的内容
-              setChatMessages((prev) =>
-                prev.map((msg) =>
-                  msg.id === assistantMsgId ? { ...msg, content: fullText } : msg
-                )
-              )
-            },
-            requestBody: (body) => {
-              setDebugInfo((prev) => ({ ...prev, actualBody: body as object }))
-            },
-            rawChunk: (raw) => {
-              setDebugInfo((prev) => ({ ...prev, sseChunks: [...prev.sseChunks, raw] }))
-            },
-            done: (finalText) => {
-              // 更新助手消息为最终内容
-              setChatMessages((prev) =>
-                prev.map((msg) =>
-                  msg.id === assistantMsgId ? { ...msg, content: finalText, reasoning: fullReasoning || undefined } : msg
-                )
-              )
-              setCurrentTextResponse(finalText)
-              setPhase('done')
-              setStatusText('')
-              setForm({ prompt: '' })
-              // 对话记录
-              const finalUser: ChatSessionMessage = {
-                id: genId('msg'),
-                role: 'user',
-                content: nodeTestForm.prompt.trim(),
-                timestamp: Date.now(),
-                ...(imageInputs.length > 0 ? { images: imageInputs } : {}),
-                nodeId: selectedNode!.id,
-                modelName: selectedNode!.model,
-              }
-              const finalAsst: ChatSessionMessage = {
-                id: genId('msg'),
-                role: 'assistant',
-                content: finalText,
-                timestamp: Date.now(),
-                ...(fullReasoning ? { reasoning: fullReasoning } : {}),
-                nodeId: selectedNode!.id,
-                modelName: selectedNode!.model,
-              }
-              const testType2: ChatSession['testType'] = isMultimodal && imageInputs.length > 0 ? 'multimodal' : 'text'
-              let sid = activeChatSessionId
-              const isFirstRound = !sid
-              if (!sid) {
-                sid = createChatSession({
-                  id: genId('cs'),
-                  title: nodeTestForm.prompt.trim().slice(0, 20),
-                  testType: testType2,
-                  nodeId: selectedNode!.id,
-                  modelName: selectedNode!.model,
-                  messages: [finalUser, finalAsst],
-                  systemPromptContent: activeSystemPrompt.trim() || undefined,
-                  ...(typeof nodeTestForm.temperature === 'number' ? { temperature: nodeTestForm.temperature } : {}),
-                  ...(typeof nodeTestForm.topP === 'number' ? { topP: nodeTestForm.topP } : {}),
-                  ...(typeof nodeTestForm.maxTokens === 'number' ? { maxTokens: nodeTestForm.maxTokens } : {}),
-                  ...(imageInputs.length > 0 ? { imageInputMode: usedImageMode } : {}),
-                  createdAt: new Date().toISOString(),
-                  updatedAt: new Date().toISOString(),
-                })
-                setActiveChatSessionId(sid)
-              } else {
-                const cur = chatSessions.find((c: ChatSession) => c.id === sid)
-                updateChatSession(sid, {
-                  messages: [...(cur?.messages ?? []), finalUser, finalAsst],
-                  updatedAt: new Date().toISOString(),
-                })
-              }
-              if (isFirstRound) {
-                const csid = sid
-                generateTitle(
-                  { baseURL: selectedNode!.baseURL, apiKey: selectedNode!.apiKey, model: selectedNode!.model },
-                  nodeTestForm.prompt.trim(),
-                  finalText,
-                ).then((title) => renameChatSession(csid, title)).catch(() => {})
-              }
-            },
-            error: (err) => {
-              message.error('生成失败，请重试：' + err)
-              // 将错误显示在聊天气泡中
-              const errorMsg: ChatMessage = {
-                id: genId('msg'),
-                role: 'assistant',
-                content: `失败：${err}`,
-                timestamp: Date.now(),
-              }
-              setChatMessages((prev) => [...prev, errorMsg])
-              setPhase('error')
-              setStatusText('')
-            },
-          },
-          ac.signal,
-        )
-      }
-    } catch (e) {
-      if (ac.signal.aborted) {
-        setPhase('idle')
-        setStatusText('')
-        return
-      }
-      const msg = e instanceof Error ? e.message : String(e)
-      message.error('生成失败，请重试：' + msg)
-      // 将错误显示在聊天气泡中
-      const errorMsg: ChatMessage = {
-        id: genId('msg'),
-        role: 'assistant',
-        content: `失败：${msg}`,
-        timestamp: Date.now(),
-      }
-      setChatMessages((prev) => [...prev, errorMsg])
-      setPhase('error')
-      setStatusText('')
-    } finally {
-      if (acRef.current === ac) acRef.current = null
+    // 确保有激活 session（无则按当前节点新建空 session 并激活）——保证每次发送都有 sessionId
+    let sessionId = activeChatSessionId
+    const isFirstRound = !sessionId || (activeSession?.messages.length ?? 0) === 0
+    if (!sessionId) {
+      const testType: ChatSession['testType'] = isImageMode
+        ? (imageInputs.length > 0 ? 'multimodal' : 'image')
+        : (isMultimodal && imageInputs.length > 0 ? 'multimodal' : 'text')
+      sessionId = createChatSession({
+        id: genId('cs'),
+        title: prompt.slice(0, 20) || '新对话',
+        testType,
+        nodeId: selectedNode.id,
+        modelName: selectedNode.model,
+        messages: [],
+        ...(activeSystemPrompt.trim() ? { systemPromptContent: activeSystemPrompt.trim() } : {}),
+        ...(typeof nodeTestForm.temperature === 'number' ? { temperature: nodeTestForm.temperature } : {}),
+        ...(typeof nodeTestForm.topP === 'number' ? { topP: nodeTestForm.topP } : {}),
+        ...(typeof nodeTestForm.maxTokens === 'number' ? { maxTokens: nodeTestForm.maxTokens } : {}),
+        ...(isImageMode && nodeTestForm.resolution ? { size: nodeTestForm.resolution } : {}),
+        ...(imageInputs.length > 0 ? { imageInputMode: usedImageMode } : {}),
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      })
+      setActiveChatSessionId(sessionId)
     }
+
+    // 经引擎在该 session 发起一轮推理（写 sessionRuntimes[sessionId]，切走仍继续）
+    sendInSession({
+      sessionId,
+      node: selectedNode,
+      testMode,
+      protocol: nodeProtocol as 'modelscope' | 'gpt' | 'xai',
+      isMultimodal,
+      userText: prompt,
+      imageInputs,
+      imageInputMode: usedImageMode,
+      systemPrompt: activeSystemPrompt,
+      form: nodeTestForm,
+      isFirstRound,
+    })
+
+    // 清空输入区，便于继续操作其它 session
+    setForm({ prompt: '' })
+    setSelectedImages([])
   }
 
   const clearConversation = () => {
-    setChatMessages([])
-    setCurrentTextResponse('')
+    // 新对话：取消激活 session（派生 chatMessages 随之清空）。运行中的其它 session 不受影响。
     setActiveChatSessionId(null)
     if (compareMode) {
       setChatMessagesLeft([])
@@ -1442,10 +867,7 @@ export default function NodeTestPage() {
   }
 
   const handleCancel = () => {
-    acRef.current?.abort()
-    acRef.current = null
-    setPhase('idle')
-    setStatusText('')
+    if (activeChatSessionId) cancelSession(activeChatSessionId)
   }
 
   const handleFileSelect = (file: File) => {
@@ -1513,18 +935,6 @@ export default function NodeTestPage() {
     }
   }
 
-  const busy = phase === 'submitted' || phase === 'polling' || phase === 'streaming'
-
-  // 生成计时器：image 模式 busy 时每秒递增
-  useEffect(() => {
-    if (!busy || !isImageMode) {
-      setElapsed(0)
-      return
-    }
-    const id = setInterval(() => setElapsed((e) => e + 1), 1000)
-    return () => clearInterval(id)
-  }, [busy, isImageMode])
-
   // 节点池按 baseURL + 节点组名分组
   const groupedProviders = availableNodes.reduce((acc, node) => {
     const groupName = node.name.replace(/\s*\([^)]*\)\s*$/, '').trim() || node.baseURL
@@ -1554,20 +964,8 @@ export default function NodeTestPage() {
               const s = chatSessions.find((c: { id: string }) => c.id === id)
               if (s) {
                 setActiveChatSessionId(id)
-                setChatMessages((s.messages ?? []).map((m) => ({
-                  id: m.id || genId('msg'),
-                  role: m.role,
-                  content: m.content,
-                  timestamp: m.timestamp || Date.now(),
-                  ...(m.images ? { images: m.images } : {}),
-                  ...(m.reasoning ? { reasoning: m.reasoning } : {}),
-                  ...(m.nodeId ? { nodeId: m.nodeId } : {}),
-                  ...(m.modelName ? { modelName: m.modelName } : {}),
-                  ...(m.revisedPrompt ? { revisedPrompt: m.revisedPrompt } : {}),
-                })))
                 setTestMode(s.testType === 'image' ? 'image' : 'text')
                 setMainView('chat')
-                setCurrentTextResponse('')
               }
             }}
             onRename={(id, title) => renameChatSession(id, title)}
@@ -1691,7 +1089,7 @@ export default function NodeTestPage() {
                         </g>
                       </svg>
                       <Typography.Text style={{ fontSize: 14, color: token.colorText }}>
-                        {phase === 'polling' ? '下载中…' : '生成中…'}
+                        {statusText || '生成中…'}
                       </Typography.Text>
                       {elapsed > 0 && (
                         <Typography.Text type="secondary" style={{ fontSize: 12 }}>
@@ -2283,8 +1681,7 @@ export default function NodeTestPage() {
                   onChange={(v) => {
                     setTestMode(v as TestMode)
                     setState({ nodeTestGlobalForm: { ...nodeTestGlobalForm, nodeId: undefined } })
-setChatMessages([])
-            setActiveChatSessionId(null)
+                    setActiveChatSessionId(null)
                   }}
                   options={[
                     { label: '文本推理', value: 'text', icon: <MessageOutlined /> },
@@ -2559,7 +1956,6 @@ setChatMessages([])
                           cancelText: '取消',
                           onOk: () => {
                             setCompareMode(true)
-                            setChatMessages([])
                             setActiveChatSessionId(null)
                           },
                         })

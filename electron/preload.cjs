@@ -13,4 +13,6 @@ const { contextBridge, ipcRenderer } = require('electron')
 contextBridge.exposeInMainWorld('electronAPI', {
   setMenuBarVisibility: (visible) => ipcRenderer.send('set-menu-bar', visible),
   setZoomFactor: (factor) => ipcRenderer.send('set-zoom-factor', factor),
+  // 目录选择（invoke：需要返回所选路径）
+  pickDirectory: () => ipcRenderer.invoke('dialog:pick-directory'),
 })

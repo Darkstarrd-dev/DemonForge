@@ -4,6 +4,7 @@
 // 无输入图 → POST /v1/images/generations（JSON，文生图）
 // 有输入图 → 同上端点，附加 image_url 参数（data:image/png;base64,... 格式，图生图编辑）
 // 内置 3 次自动重试（应对代理端点偶发 500）
+import { archiveImage } from './utils/imageArchive'
 
 const MAX_RETRIES = 3
 
@@ -133,14 +134,15 @@ export async function generateImageXai(
       const imageData = data.data?.[0]
       if (!imageData || !imageData.b64_json) throw new Error('响应中无 b64_json 数据')
 
-      const dataUrl = `data:image/png;base64,${imageData.b64_json}`
+      // 落盘归档（带 alpha→png，否则→webp），回传文件 URL 而非 b64 dataUrl
+      const { url } = await archiveImage(Buffer.from(imageData.b64_json, 'base64'))
 
       const result: XaiImageResult = {
-        dataUrl,
+        dataUrl: url,
         n: data.data?.length,
       }
 
-      onEvent('done', { image: dataUrl, model: cfg.model, n: result.n })
+      onEvent('done', { image: url, model: cfg.model, n: result.n })
       return result
     } catch (e) {
       if (signal?.aborted) throw e

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog } from 'electron'
 import { spawn, execSync, ChildProcess } from 'node:child_process'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -473,6 +473,14 @@ app.whenReady().then(async () => {
       if (mainWindow && typeof factor === 'number' && factor > 0 && factor <= 5) {
         mainWindow.webContents.setZoomFactor(factor)
       }
+    })
+
+    // 注册 IPC：前端请求打开原生目录选择对话框（图片保存目录等），返回所选路径或 null
+    ipcMain.handle('dialog:pick-directory', async () => {
+      if (!mainWindow) return null
+      const r = await dialog.showOpenDialog(mainWindow, { properties: ['openDirectory'] })
+      if (r.canceled || !r.filePaths.length) return null
+      return r.filePaths[0]
     })
 
     console.log('[App] Creating main window...')

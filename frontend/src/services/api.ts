@@ -60,3 +60,7 @@ export type { XaiImageParams, XaiImageDone, XaiImageEvents, XaiImageDebug } from
 // 通用对话（文本推理 + 多模态理解）已接真实后端。
 export { streamChat, generateTitle } from './real/chat'
 export type { ChatMessage, ChatParams, ChatEvents } from './real/chat'
+
+// 节点测试 · 多 session 推理引擎（每 session 独立运行态，切走仍继续）。
+export { sendInSession, cancelSession, isSessionRunning } from './sessionEngine'
+export type { SendArgs } from './sessionEngine'

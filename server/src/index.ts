@@ -16,6 +16,7 @@ import { importSessionRoutes } from './routes/importSession'
 import { chatRoutes } from './routes/chat'
 import { getAppDataDir } from './utils/paths'
 import { getAssetDir, readAll } from './store/db'
+import { migrateImageB64Purge } from './store/migrateImageB64'
 
 const PORT = Number(process.env.PORT ?? 8787)
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)))
@@ -96,6 +97,12 @@ try {
   app.log.info(`[data-dir] settings/json at: ${getAppDataDir()}`)
   app.log.info(`[data-dir] asset db dir:   ${assetDir}`)
   app.log.info(`[data-dir] settings from .bak: ${wasLastReadRecovered() ? 'YES (主文件可能损坏)' : 'no'}`)
+  // 一次性迁移：清除 DB 内既有 b64 图片（图片已改落盘归档）。守卫确保仅执行一次。
+  try {
+    migrateImageB64Purge()
+  } catch (err) {
+    app.log.warn(`[migrate] b64 清除异常：${String(err)}`)
+  }
   // 各业务表行数概览——排查"书库又空了"的第一手信息
   let summary: string
   try {

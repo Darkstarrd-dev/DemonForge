@@ -329,6 +329,15 @@ function AdvancedTabContent(props: {
   applyingDir: boolean
   applyAssetDir: () => void
 }) {
+  const imageArchiveDir = useAppStore((s) => s.imageArchiveDir)
+  const setStateImg = useAppStore((s) => s.setState)
+  const pickImageDir = async () => {
+    const dir = await window.electronAPI?.pickDirectory?.()
+    if (dir) {
+      setStateImg({ imageArchiveDir: dir })
+      pushSettingsNow()
+    }
+  }
   return (
     <div style={{ padding: '24px', height: 'calc(100vh - 46px)', overflow: 'auto' }}>
       <div style={{ maxWidth: 1600, margin: '0 auto' }}>
@@ -373,6 +382,24 @@ function AdvancedTabContent(props: {
             />
             <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
               当前生效：{props.assetDir || '（默认）'}
+            </Typography.Paragraph>
+          </Card>
+
+          <Card title="图片保存目录" extra={
+            <Space>
+              {window.electronAPI?.pickDirectory && <Button onClick={pickImageDir}>选择目录</Button>}
+              <Button onClick={() => { setStateImg({ imageArchiveDir: '' }); pushSettingsNow() }} disabled={!imageArchiveDir}>恢复默认</Button>
+            </Space>
+          }>
+            <Input
+              value={imageArchiveDir}
+              onChange={(e) => setStateImg({ imageArchiveDir: e.target.value })}
+              onBlur={() => pushSettingsNow()}
+              placeholder="留空使用默认目录（数据目录/images）"
+              style={{ marginBottom: 8 }}
+            />
+            <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
+              文生图结果按此目录归档：带透明通道存 PNG，否则转 WebP；文件名按日期命名。当前生效：{imageArchiveDir || '（默认 数据目录/images）'}
             </Typography.Paragraph>
           </Card>
         </Space>

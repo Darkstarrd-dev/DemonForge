@@ -3,16 +3,9 @@ import type { CSSProperties } from 'react'
 import { App, Button, Collapse, Space, Typography, theme } from 'antd'
 import { CloseOutlined, CopyOutlined, ExpandAltOutlined, CompressOutlined } from '@ant-design/icons'
 
-export interface SseChunk {
-  line: string
-  json: unknown | null
-}
-
-export interface DebugInfoData {
-  previewBody: object | null
-  actualBody: object | null
-  sseChunks: SseChunk[]
-}
+// 类型已上移到 services/types.ts 共享（appStore 运行态注册表也需引用）；此处再导出保持兼容
+export type { SseChunk, DebugInfoData } from '../../services/types'
+import type { DebugInfoData } from '../../services/types'
 
 interface Props {
   data: DebugInfoData

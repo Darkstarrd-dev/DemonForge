@@ -16,6 +16,7 @@ import type {
   NovelArchitecture,
   TestHistoryItem,
   ChatSession,
+  SessionRuntime,
   SplitPattern,
   ImageInputMode,
   RoleChatMode,
@@ -122,6 +123,18 @@ export interface CleanRunState {
   startedAt: number
 }
 
+/** 节点测试 session 运行态默认值（新建/缺省时用）。 */
+export function defaultSessionRuntime(): SessionRuntime {
+  return {
+    status: 'idle',
+    streamingText: '',
+    streamingReasoning: '',
+    statusText: '',
+    startedAt: 0,
+    debug: { previewBody: null, actualBody: null, sseChunks: [] },
+  }
+}
+
 export interface AppState {
   books: Book[]
   chapters: Chapter[]
@@ -179,6 +192,12 @@ export interface AppState {
   m1TestText: string
   /** M1 Step3 清理运行状态（不持久化，仅内存）。跨 Step 页面保持任务控制权。 */
   cleanRun: CleanRunState | null
+  /** 节点测试各 session 运行态（内存态，按 sessionId 索引，不持久化）。推理执行下沉到 sessionEngine 后写此处，UI 订阅。 */
+  sessionRuntimes: Record<string, SessionRuntime>
+  /** 节点测试下左侧栏内容模式：app 导航 / session 列表（内存态，不持久化） */
+  nodeTestSidebarMode: 'app' | 'sessions'
+  /** 图片归档保存目录（持久化到 settings.json）。空串=后端用默认 <dataDir>/images */
+  imageArchiveDir: string
   /** 角色交流模式（持久化到 settings.json） */
   roleChatMode: RoleChatMode
   /** 角色交流 Opencode Server 地址（持久化到 settings.json） */
@@ -199,6 +218,10 @@ export interface AppState {
   setState: (patch: Partial<AppState>) => void
   /** M1 Step3 清洗运行状态合并写入（部分更新）。不持久化。 */
   setCleanRun: (patch: Partial<CleanRunState> | null) => void
+  /** 节点测试：合并写入某 session 的运行态（缺省自动建默认）。不持久化。 */
+  patchSessionRuntime: (id: string, patch: Partial<SessionRuntime>) => void
+  /** 节点测试：清除某 session 的运行态（删 session / 完成清理时）。不持久化。 */
+  clearSessionRuntime: (id: string) => void
   updateChapter: (id: string, patch: Partial<Chapter>) => void
   updateCard: (id: string, patch: Partial<EntityCard>) => void
   updateIssue: (id: string, patch: Partial<ConsistencyIssue>) => void
@@ -332,6 +355,9 @@ const seedState = () => ({
 （ 备用2群893964460）
 以上群号搜不到可以加qq264235286`,
   cleanRun: null,
+  sessionRuntimes: {} as Record<string, SessionRuntime>,
+  nodeTestSidebarMode: 'sessions' as 'app' | 'sessions',
+  imageArchiveDir: '',
   theme: 'light' as const,
   enable4KScale: false,
   nodeGroupExpanded: {},
@@ -350,6 +376,17 @@ export const useAppStore = create<AppState>()((set, get) => ({
     set((s) => ({
       cleanRun: patch === null ? null : { ...(s.cleanRun ?? { handle: null, running: false, paused: false, active: [], nodeSessions: [], startedAt: 0 }), ...patch },
     })),
+  patchSessionRuntime: (id, patch) =>
+    set((s) => ({
+      sessionRuntimes: { ...s.sessionRuntimes, [id]: { ...(s.sessionRuntimes[id] ?? defaultSessionRuntime()), ...patch } },
+    })),
+  clearSessionRuntime: (id) =>
+    set((s) => {
+      if (!(id in s.sessionRuntimes)) return {} as Partial<AppState>
+      const next = { ...s.sessionRuntimes }
+      delete next[id]
+      return { sessionRuntimes: next }
+    }),
   updateChapter: (id, patch) =>
     set((s) => ({
       chapters: s.chapters.map((c) => (c.id === id ? { ...c, ...patch } : c)),
@@ -464,18 +501,28 @@ export const useAppStore = create<AppState>()((set, get) => ({
     pushStoreNow()
   },
   deleteChatSession: (id) => {
-    set((s) => ({
-      chatSessions: s.chatSessions.filter((c) => c.id !== id),
-      activeChatSessionId: s.activeChatSessionId === id ? null : s.activeChatSessionId,
-    }))
+    set((s) => {
+      const next = { ...s.sessionRuntimes }
+      delete next[id]
+      return {
+        chatSessions: s.chatSessions.filter((c) => c.id !== id),
+        activeChatSessionId: s.activeChatSessionId === id ? null : s.activeChatSessionId,
+        sessionRuntimes: next,
+      }
+    })
     pushDeleteNow({ chatSessions: [id] })
   },
   deleteChatSessions: (ids) => {
     const idSet = new Set(ids)
-    set((s) => ({
-      chatSessions: s.chatSessions.filter((c) => !idSet.has(c.id)),
-      activeChatSessionId: s.activeChatSessionId && idSet.has(s.activeChatSessionId) ? null : s.activeChatSessionId,
-    }))
+    set((s) => {
+      const next = { ...s.sessionRuntimes }
+      for (const id of ids) delete next[id]
+      return {
+        chatSessions: s.chatSessions.filter((c) => !idSet.has(c.id)),
+        activeChatSessionId: s.activeChatSessionId && idSet.has(s.activeChatSessionId) ? null : s.activeChatSessionId,
+        sessionRuntimes: next,
+      }
+    })
     pushDeleteNow({ chatSessions: ids })
   },
   setActiveChatSessionId: (id) => {
@@ -649,6 +696,7 @@ export async function bootstrapStore(): Promise<void> {
         nodeGroupExpanded?: Record<string, boolean>
         systemPromptPresets?: SystemPromptPreset[]
         systemPromptActiveId?: string | null
+        imageArchiveDir?: string
       }
       storeInitialized = d.storeInitialized === true
       const patch: Partial<AppState> = {}
@@ -704,6 +752,8 @@ export async function bootstrapStore(): Promise<void> {
       if (d.systemPromptActiveId === null || typeof d.systemPromptActiveId === 'string') {
         patch.systemPromptActiveId = d.systemPromptActiveId
       }
+      // 图片归档目录（旧 settings.json 无此键则沿用空串，后端用默认 <dataDir>/images）
+      if (typeof d.imageArchiveDir === 'string') patch.imageArchiveDir = d.imageArchiveDir
       if (Object.keys(patch).length) useAppStore.setState(patch)
     }
   } catch {
@@ -936,6 +986,7 @@ export const settingsPayload = (s: AppState) => ({
   nodeGroupExpanded: s.nodeGroupExpanded,
   systemPromptPresets: s.systemPromptPresets,
   systemPromptActiveId: s.systemPromptActiveId,
+  imageArchiveDir: s.imageArchiveDir,
 })
 
 let settingsTimer: ReturnType<typeof setTimeout> | null = null
@@ -959,7 +1010,8 @@ useAppStore.subscribe((s, prev) => {
     s.enable4KScale === prev.enable4KScale &&
     s.nodeGroupExpanded === prev.nodeGroupExpanded &&
     s.systemPromptPresets === prev.systemPromptPresets &&
-    s.systemPromptActiveId === prev.systemPromptActiveId
+    s.systemPromptActiveId === prev.systemPromptActiveId &&
+    s.imageArchiveDir === prev.imageArchiveDir
   ) {
     return
   }

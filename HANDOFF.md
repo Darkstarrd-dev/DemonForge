@@ -2,7 +2,38 @@
 
 **最后更新**：2026-06-27  
 **当前位置**：办公场所 A
-**本轮主题**：书库概览导入文件模式竞态修复 + 既存 TS 错误清零
+**本轮主题**：节点测试 多 Session 并行推理 + 图片落盘归档 + 左侧栏切换
+
+---
+
+## 🆕 本轮完成：节点测试 多 Session 并行（2026-06-27）
+
+**目标**：节点测试支持多个独立会话并行推理，可随时切换到任意 session，切走后其推理在后台继续，
+动态图标提示「推理中/已完成/失败」。叠加：图片结果落盘归档（不再存 DB b64）、保存目录可设置、
+节点测试下左侧栏可在 app 导航与 session 列表间切换。
+
+- **架构**：推理执行从组件下沉到模块级引擎 `frontend/src/services/sessionEngine.ts`（每 session 一个
+  在途 AbortController，跨 session 并发、互不干扰；移植 opencode run-coordinator 语义）。运行态写到
+  appStore 非持久化注册表 `sessionRuntimes`（按 sessionId 索引），UI 只订阅 → 「显示哪个」与「哪个在跑」解耦。
+  后端零改造（无状态 SSE 代理 + 每连接独立 AbortController）。
+- **覆盖**：文本/多模态 + 三协议图片（GPT/ModelScope/xAI）全部走引擎统一派发。
+- **侧栏**：`frontend/src/pages/node-test/SessionSidebar.tsx`（动态状态图标：LoadingOutlined 旋转/对勾/叹号）；
+  渲染在 `AppLayout` 的 Sider 内，/node-test 下点击「NovelHelper」logo 切换 app 导航 ↔ session 列表
+  （`appStore.nodeTestSidebarMode`，默认 sessions）。
+- **图片归档**：`server/src/utils/imageArchive.ts`（sharp：带 alpha→PNG 否则→WebP，文件名 YYYYMMDD+同日递增后缀）；
+  三个 image client 的 done 回传 `/api/image/file/<name>` 而非 b64；静态路由在 `routes/image.ts`；
+  目录可在「系统设置→高级→图片保存目录」配置（Electron 原生目录选择器，`imageArchiveDir` 落 settings.json）。
+- **迁移**：`server/src/store/migrateImageB64.ts` 启动时一次性清除 DB 内既有 b64 图片
+  （chat_sessions 图片消息 + test_history 图库 b64 条目），`settings.imageB64Purged` 守卫。已在 A 场所 dev 库执行（清 9 条）。
+- **依赖**：server 新增 `sharp`（esbuild 已加 `--external:sharp`）。
+- **验证**：前端 `npm run build`、server/electron `tsc` 均通过；后端实跑 boot+health+迁移正常。
+- **已知限制**：前端驱动的流，关窗/刷新会丢在途流（已完成轮次已落库）；对比模式(left/right)维持原状不纳入注册表。
+- **打包待验**：`npm run dist` 后需实测 sharp 平台二进制随包可用（参照 better-sqlite3 经 extraResources 携带）。
+
+---
+
+## 上一轮主题
+书库概览导入文件模式竞态修复 + 既存 TS 错误清零
 
 ---
 

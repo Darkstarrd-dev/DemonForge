@@ -1,6 +1,8 @@
 // 文生图客户端（P0 起点）—— ModelScope 异步任务协议。
 // 与 llmClient.ts（OpenAI 兼容）分离：文生图走 ModelScope 独有的「提交任务 → 轮询 → 取图」流程。
 // 后端无状态：每次调用由前端传入 {baseURL, apiKey, model, prompt}，这里只做协议适配与转发。
+import { archiveImage } from './utils/imageArchive'
+
 
 export interface ImageGenConfig {
   baseURL: string
@@ -34,15 +36,6 @@ function authHeaders(apiKey: string): Record<string, string> {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
-/** 探测图片 MIME；不识别时回退 image/jpeg */
-function sniffMime(bytes: Uint8Array): string {
-  if (bytes.length >= 4 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47)
-    return 'image/png'
-  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return 'image/jpeg'
-  if (bytes.length >= 6 && bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46)
-    return 'image/webp'
-  return 'image/jpeg'
-}
 
 /** 尝试 JSON.parse；失败则原样返回字符串（调试展示用，避免大段 JSON 解析失败丢失原文） */
 function tryParseJson(s: string): unknown {
@@ -163,15 +156,9 @@ export async function generateImageModelScope<K extends ImageEventType>(
         ...(imgRes.ok ? { response: `HTTP ${imgRes.status} (${imgRes.headers.get('content-type') ?? 'unknown'})` } : { error: `HTTP ${imgRes.status} ${imgRes.statusText}` }),
       } as ImageEventPayloads[K])
       if (!imgRes.ok) throw new Error(`下载图片失败：HTTP ${imgRes.status} ${imgRes.statusText}`)
-      const buf = new Uint8Array(await imgRes.arrayBuffer())
-      const mime = sniffMime(buf)
-      let bin = ''
-      const chunk = 0x8000
-      for (let i = 0; i < buf.length; i += chunk) {
-        bin += String.fromCharCode.apply(null, Array.from(buf.subarray(i, i + chunk)) as unknown as number[])
-      }
-      const dataUrl = `data:${mime};base64,${btoa(bin)}`
-      onEvent('done' as K, { image: dataUrl, model: cfg.model } as ImageEventPayloads[K])
+      // 落盘归档（带 alpha→png，否则→webp），回传文件 URL 而非 b64 dataUrl
+      const { url } = await archiveImage(Buffer.from(await imgRes.arrayBuffer()))
+      onEvent('done' as K, { image: url, model: cfg.model } as ImageEventPayloads[K])
       return
     }
     if (data.task_status === 'FAILED') {

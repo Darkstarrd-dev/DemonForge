@@ -3,6 +3,7 @@
 // 后端无状态：每次调用由前端传入 {baseURL, apiKey, model, prompt}。
 // 无输入图 → POST /v1/images/generations（JSON，文生图）
 // 1+ 输入图 → POST /v1/images/edits（multipart，多图推理/图生图，gpt-image 支持 ≤16 张）
+import { archiveImage } from './utils/imageArchive'
 
 export interface GptImageConfig {
   baseURL: string
@@ -135,31 +136,29 @@ export async function generateImageGpt(
   const imageData = data.data?.[0]
   if (!imageData) throw new Error('响应中无 image data')
 
-  let dataUrl: string
+  // 取图字节：优先 b64_json，否则下载远程 url
+  let imgBuf: Buffer
   if (imageData.b64_json) {
-    dataUrl = `data:image/png;base64,${imageData.b64_json}`
+    imgBuf = Buffer.from(imageData.b64_json, 'base64')
   } else if (imageData.url) {
     onEvent('downloading', { message: '下载图片中...' })
     onEvent('debug', { stage: 'fetchImage', response: { url: imageData.url } })
     const imgRes = await fetch(imageData.url, { signal })
     if (!imgRes.ok) throw new Error(`下载图片失败 HTTP ${imgRes.status}`)
-    const buf = new Uint8Array(await imgRes.arrayBuffer())
-    let bin = ''
-    const chunk = 0x8000
-    for (let i = 0; i < buf.length; i += chunk) {
-      bin += String.fromCharCode.apply(null, Array.from(buf.subarray(i, i + chunk)) as unknown as number[])
-    }
-    dataUrl = `data:image/png;base64,${btoa(bin)}`
+    imgBuf = Buffer.from(await imgRes.arrayBuffer())
   } else {
     throw new Error('响应中既无 b64_json 也无 url')
   }
 
+  // 落盘归档（带 alpha→png，否则→webp），回传文件 URL 而非 b64 dataUrl
+  const { url } = await archiveImage(imgBuf)
+
   const result: GptImageResult = {
-    dataUrl,
+    dataUrl: url,
     revisedPrompt: imageData.revised_prompt,
     usage: data.usage,
   }
 
-  onEvent('done', { image: dataUrl, model: cfg.model, revisedPrompt: result.revisedPrompt, usage: result.usage })
+  onEvent('done', { image: url, model: cfg.model, revisedPrompt: result.revisedPrompt, usage: result.usage })
   return result
 }
