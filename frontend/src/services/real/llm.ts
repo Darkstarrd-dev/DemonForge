@@ -1,5 +1,7 @@
 // 真实 LLM 服务层 —— 经自家后端网关（/api/llm/*）调用，替代 mock/impl 中的 M1 清理与 Provider 测试。
 
+import { dequeueBatch } from './dequeue'
+
 export interface TestResult {
   ok: boolean
   models: string[]
@@ -445,37 +447,6 @@ export function startCleanQueue(
     }
   }
 
-  /** 从队列取任务，按 maxChars 字数累积（batchSize 现为字数上限，非章节数） */
-  const dequeueBatch = (maxChars: number): ChapterTask[] => {
-    const result: ChapterTask[] = []
-    let accChars = 0
-
-    // 优先重试队列
-    while (retryQueue.length > 0) {
-      const task = retryQueue[0]
-      // 已有章节时检查是否超限（首章不受限制，避免单章过大时永远取不到）
-      if (result.length > 0 && accChars + task.content.length > maxChars) break
-      retryQueue.shift()
-      result.push(task)
-      accChars += task.content.length
-      // 累积达标且已有至少1章，停止继续取
-      if (accChars >= maxChars) break
-    }
-
-    // 再从 pending 队列补足
-    while (pendingQueue.length > 0) {
-      const task = pendingQueue[0]
-      // 已有章节时检查是否超限
-      if (result.length > 0 && accChars + task.content.length > maxChars) break
-      pendingQueue.shift()
-      result.push(task)
-      accChars += task.content.length
-      if (accChars >= maxChars) break
-    }
-
-    return result
-  }
-
   /** 取本章应避开的节点（仅一个最强避让，传给 worker；多个避让时取最近失败的） */
   const markNodeSuccess = (nodeId: string) => {
     nodeConsecFails.set(nodeId, 0)
@@ -616,7 +587,7 @@ export function startCleanQueue(
       }
 
       // 取首章（重试优先，由 dequeueBatch 内部从 retryQueue 优先取）
-      const first = dequeueBatch(1)[0]  // 先取1字符试探（实际会取首章无论字数）
+      const first = dequeueBatch(retryQueue, pendingQueue, 1)[0]  // 先取1字符试探（实际会取首章无论字数）
       if (!first) {
         if (active === 0 && retryQueue.length === 0 && pendingQueue.length === 0) break
         await sleep(100)
@@ -632,7 +603,7 @@ export function startCleanQueue(
       }
 
       // 补满 batch（按字数累积，batchChars 现为字数上限）
-      const batch = [first, ...dequeueBatch(node.batchChars - first.content.length)]
+      const batch = [first, ...dequeueBatch(retryQueue, pendingQueue, node.batchChars - first.content.length)]
 
       // 执行并 await——每 worker 同时只跑一个 batch（maxConcurrency 由 worker 数保证）
       state.activeCount++
