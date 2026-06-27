@@ -2,7 +2,7 @@
 
 **最后更新**：2026-06-27  
 **当前位置**：办公场所 A
-**本轮主题**：第二、三梯队重构实施（A-5 已推送；A-9 已完成待提交；A-6/A-7/A-8 未开始）
+**本轮主题**：第二、三梯队重构实施（A-5/A-9/A-6 已完成推送；A-7/A-8 未开始）
 
 ---
 
@@ -10,7 +10,7 @@
 
 > 目标（用户 /goal）：实施 A-5~A-9，每项完成后更新文档 + 提交推送，直到处理完第二、三梯队。
 > 设计稿：`docs/quality/design-tier2-3-refactor.md`；追踪表：`docs/quality/logs/2026-06-27-audit-01.md` 第 5 节。
-> 进度：A-5 ✅（已推送 `e8c0557`）、A-9 ✅（已完成，待用户提交）、A-6/A-7/A-8 未开始。
+> 进度：A-5 ✅（`e8c0557`）、A-9 ✅（`8bb288c`/`66487c0`）、A-6 ✅（5 提交 `5b41f8c`→`82e1728`）、A-7/A-8 未开始。
 
 ### ✅ A-5 统一 SSE 解析（已完成并推送：commit `e8c0557`）
 - 新增 `frontend/src/services/sse.ts`（`parseSSE` async generator）+ `sse.test.ts`（7 测试）。
@@ -31,14 +31,15 @@
 - **改动文件**：`frontend/src/services/api.ts`（净删 ~14 行死导出）+ `docs/quality/logs/2026-06-27-audit-01.md`（A-9 标完成 + 回填 A-5 SHA）+ 本 HANDOFF。
 - ⚠️ **git 提交推送按项目 CLAUDE.md「Claude 不执行 git 操作」规则留待用户手动执行**；提交后回填 A-9 的 commit SHA 到追踪表（当前标"待回填"）。建议 commit message：`refactor(api): 删除 real generation 死导出 + 消歧义注释（A-9）`。
 
-### ☐ A-6 CleanScheduler 类化（未开始；本轮已通读调度器 + 备好测试策略）
-设计稿 §A-6。要点：characterization test 先行 → 抽 `dequeue` 纯函数 + `NodeCircuitBreaker` + `CleanScheduler` 类；`startCleanQueue` 对外签名不变（`api.ts` 转出）。调度器在 `frontend/src/services/real/llm.ts:396-748`。
-
-**本轮通读产出（下次直接用，省重复理解）**：
-- **闭包状态 13 项**：`paused/stopped/active/finished` + `nodeConfigs` + `nodeStates`(activeCount/lastRequestTime) + `pendingQueue/retryQueue` + `failCounts`(章节级) + `activeBatches` + `nodeOverrides`(模型切换) + `disabledNodes`+`nodeConsecFails`(熔断) + `chapterAvoidNodes` + `workerBatchSeq` + `spawnedSlots` + `activeWorkers`。
-- **可抽取**：`dequeueBatch`(449-477，纯逻辑但当前直接 shift 闭包队列 → 抽时改为传队列参数返回 batch)；熔断三件 `markNodeFail`/`markNodeSuccess`/`disabledNodes`+`nodeConsecFails` → `NodeCircuitBreaker`。`buildBatchContent`(225) 已是模块级纯函数。
-- **characterization 测试策略**：mock 全局 `fetch` 返回构造的 SSE 流（node 环境有 fetch/Response/ReadableStream/TextEncoder），黑盒测 `startCleanQueue`；以 `onFinish` resolve 的 promise 等结束；real timers + `intervalSec:0` 快速收敛；多节点用**聚合断言**（"每章 onDone 恰一次"）避免 flaky。令 `batchChars < 单章字数` 强制 `batch.length===1` 走 `streamSingleChapter` 路径锁调度核心（streamBatch 的 SEP 拆分另测）。clean 端点：`POST /api/llm/clean`，body `{baseURL,apiKey,model,content,systemPrompt}`，响应 event `delta{delta}`/`done{text}`/`error{message}`；无 delta 直接 done 时错误 phase 判为 `connect`（executeBatch 据此 `markNodeFail`，连续 3 次熔断）。
-- **⚠️ 关键发现（测试断言据此放宽）**：重试路由**不**钉离失败节点——`chapterAvoidNodes` 仅在 autoRetry 下用作"全避开即终态失败"闸门（568-573），实际重试回共享 `retryQueue` 由任意 worker 领取，失败节点可能再次领到同章。故"节点失败→重试"场景应断"该章最终 onDone"（fetchMock 对该章首次返回 error、二次返回 success），而非"在另一节点重试"。
+### ✅ A-6 CleanScheduler 类化（已完成，5 提交全部推送）
+五步增量推进，每步 tsc -b + vitest 全绿后独立提交：
+- **步骤1**（`5b41f8c`）：characterization 测试网 `cleanScheduler.test.ts`——mock 全局 fetch 返回构造 SSE 流，黑盒锁定 4 场景（单节点串行 / 多节点并发 / 失败+autoRetry 回流 / 连续失败熔断）。
+- **步骤2**（`5231a36`）：抽 `dequeue.ts` 纯函数（泛型 `<T extends {content}>`，逐字搬迁）+ 6 边界单测。
+- **步骤3**（`0527035`）：抽 `circuitBreaker.ts::NodeCircuitBreaker`（`recordFailure` 返回"刚触发熔断"以解耦中止在途 batch + onNodeDisabled 副作用）+ 6 单测。
+- **步骤4a**（`3957fa0`）：测试网补强 pause/stop/updateNodes（mock 改 signal 感知 + 可闸门 gate），锁住可变状态机（paused/stopped/activeWorkers）。
+- **步骤4b**（`82e1728`）：`startCleanQueue` 闭包工厂类化为 `CleanScheduler`（13 状态→私有字段 / 6 函数→方法），迁出 llm.ts 至独立 `cleanScheduler.ts`；llm.ts 导出 `streamBatch`/`CleanError` 供调度器复用，收为流式传输 + testProvider/getDefaultPrompt；api.ts 的 startCleanQueue 转出改从 cleanScheduler，调用方（Step3Clean/book-reader）零改动。
+- **关键修正**：上轮 HANDOFF 记的"令 `batchChars<单章字数` 强制 batch.length===1"经源码追踪**为误**——dequeueBatch 首章无条件取出、第二次调用总再抓一章；故 mock 同时覆盖单/批两路（批量路径需绕过指令文案里字面的 `===CHAPTER_ID:X===` 示例）。
+- **最终**：7 场景 characterization + 12 纯函数单测 = 40 测试全绿；tsc -b 0；eslint 0。注：`erasableSyntaxOnly` 禁参数属性 → class 用显式字段 + 构造体内赋值。
 
 ### ☐ A-7 appStore 切片化（未开始）
 设计稿 §A-7。分两阶段：阶段1 抽 `persistence.ts`/`bootstrap.ts`（不动状态结构）+ 单测；阶段2 切 6 个 slice。`appStore.ts` 1152 行。
@@ -47,11 +48,11 @@
 设计稿 §A-8。建 `frontend/src/hooks/`；node-test(2355 行)/settings(1868 行) 抽 hooks+panels；index 收为编排。需为 vitest 加 jsdom 环境做组件测试。
 
 ### 下次对话起步建议
-1. A-9 已完成（待用户提交）；从 **A-6** 开始（CleanScheduler 类化），然后 A-7 → A-8。
-2. A-6 要点：characterization test 先行 → 抽 `dequeue` 纯函数 + `NodeCircuitBreaker` + `CleanScheduler` 类；`startCleanQueue` 对外签名不变（`api.ts` 转出）。调度器在 `frontend/src/services/real/llm.ts:392-744`（350 行巨型闭包，竞态敏感，**必须先有 characterization 测试网才动**）。
-3. 每项完成：`cd frontend && npx tsc -b` + `npx vitest run` 全绿 → 更新 `audit-01.md` 追踪表 → 由用户提交推送。
-4. 全部完成后回填各 commit SHA 到追踪表 + 刷新本 HANDOFF。
-5. **提交规范**：`type(scope): 描述（A-N）`，中文，参考 `e8c0557`。
+1. A-5/A-9/A-6 已完成推送。从 **A-7** 开始（appStore 切片化），然后 A-8。
+2. A-7 要点（设计稿 §A-7）：**分两阶段**——阶段1 只抽 `persistence.ts`/`bootstrap.ts`（不动状态结构）+ 为持久化写单测（脏检查命中 / debounce / `enqueueWrite` 串行队列顺序）；阶段2 按域切 6 个 slice。`appStore.ts` 1152 行，含三套持久化引擎（business/settings/importSession）+ 13 项手写 `s.xxx===prev.xxx` 脏检查，**阶段1 必须有单测护住 `storeReady` 时序 / "空库不回种"/"删光不复活"既有契约**。
+3. 每项完成：`cd frontend && npx tsc -b` + `npx vitest run` 全绿 → 更新 `audit-01.md` 追踪表 → 提交推送（用户本轮已授权 Claude 执行 git）。
+4. **提交规范**：`type(scope): 描述（A-N）`，中文，参考 `82e1728`。
+5. **A-6 经验**（A-7 沿用）：竞态/契约敏感大改写前先补强 characterization/单测网再动结构；逐字翻译保持行为；每步独立可提交可回滚。
 
 ---
 
