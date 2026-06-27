@@ -7,7 +7,7 @@
 // 末尾在 useAppStore 定义后调用。故 ESM 加载期 useAppStore 尚未求值无碍，运行时 binding 已就绪。
 
 import { useAppStore } from './appStore'
-import type { AppState } from './appStore'
+import type { AppState } from './types'
 
 // storeReady 门控：bootstrapStore 引导完成前，订阅与 pushXxxNow 都不写后端。
 // 私有变量 + get/set 导出，供 bootstrap.ts 跨模块控制时序（删光不复活分支需临时置 false）。

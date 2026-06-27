@@ -22,11 +22,24 @@ import type {
   RoleChatMode,
   RoleChatAutoConfig,
 } from '../services/types'
-import { seedModuleMapping } from '../mocks/seed'
+import {
+  seedModuleMapping,
+  seedBooks,
+  seedChapters,
+  seedCards,
+  seedOutline,
+  seedScenes,
+  seedFragments,
+  seedStateEvents,
+  seedIssues,
+  seedArchitectures,
+  seedMergeCandidates,
+} from '../mocks/seed'
 import { normalizeProvider } from '../utils/provider'
-import { useAppStore, seedState } from './appStore'
-import type { AppState, ImageDemoForm, NodeTestForm, SystemPromptPreset } from './appStore'
-import { businessPayload, pushStore, setStoreReady } from './persistence'
+import { useAppStore } from './appStore'
+import type { AppState, ImageDemoForm, NodeTestForm, SystemPromptPreset } from './types'
+import { pushStore, setStoreReady } from './persistence'
+import { defaultRoleChatAutoConfig } from './slices/roleChatSlice'
 
 /** 启动引导：先拉设置，再拉业务数据；后端为空且从未初始化过才用种子播种。 */
 export async function bootstrapStore(): Promise<void> {
@@ -108,7 +121,7 @@ export async function bootstrapStore(): Promise<void> {
       if (typeof d.roleChatMode === 'string') patch.roleChatMode = d.roleChatMode as RoleChatMode
       if (typeof d.roleChatOpencodeURL === 'string') patch.roleChatOpencodeURL = d.roleChatOpencodeURL
       if (d.roleChatAutoConfig && typeof d.roleChatAutoConfig === 'object') {
-        patch.roleChatAutoConfig = { ...seedState().roleChatAutoConfig, ...d.roleChatAutoConfig }
+        patch.roleChatAutoConfig = { ...defaultRoleChatAutoConfig, ...d.roleChatAutoConfig }
       }
       // 主题配置（旧 settings.json 无此键则默认 light）
       if (d.theme === 'light' || d.theme === 'dark') patch.theme = d.theme
@@ -161,8 +174,22 @@ export async function bootstrapStore(): Promise<void> {
           }).catch(() => {})
         }
       } else if (!storeInitialized) {
-        // 仅「首次运行」播种：后端为空且从未初始化过 → 用种子并持久化 + 标记已初始化
-        const seed = businessPayload(seedState() as unknown as AppState)
+        // 仅「首次运行」播种：后端为空且从未初始化过 → 用种子并持久化 + 标记已初始化。
+        // 业务种子 = 12 业务字段（seedBooks 等当前均为空数组），与原 businessPayload(seedState()) 等价。
+        const seed = {
+          books: seedBooks,
+          chapters: seedChapters,
+          cards: seedCards,
+          outline: seedOutline,
+          scenes: seedScenes,
+          fragments: seedFragments,
+          stateEvents: seedStateEvents,
+          issues: seedIssues,
+          architectures: seedArchitectures,
+          mergeCandidates: seedMergeCandidates,
+          testHistory: [],
+          chatSessions: [],
+        }
         useAppStore.setState(seed)
         await pushStore(seed)
         await fetch('/api/settings', {
