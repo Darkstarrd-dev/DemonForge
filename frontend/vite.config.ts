@@ -1,3 +1,4 @@
+/// <reference types="vitest/config" />
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
@@ -5,6 +6,11 @@ import react from '@vitejs/plugin-react'
 export default defineConfig({
   base: './',
   plugins: [react()],
+  test: {
+    // 当前仅覆盖纯函数工具（无 DOM 依赖），用 node 环境最轻量。
+    environment: 'node',
+    include: ['src/**/*.{test,spec}.{ts,tsx}'],
+  },
   server: {
     // 开发期把 /api 转发到本地 LLM 网关（server/，监听 8787）；SSE 流式透传
     proxy: {

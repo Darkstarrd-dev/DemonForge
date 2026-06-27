@@ -2,11 +2,33 @@
 
 **最后更新**：2026-06-27  
 **当前位置**：办公场所 A
-**本轮主题**：UI 微调（导航栏 tooltip/滚动 + 节点测试按钮图标化 + 浅色 Tooltip 可读性）
+**本轮主题**：代码质量审计体系建立 + 第一梯队整改（删死文件 / 修 UTC bug / vitest 测试地基）
 
 ---
 
-## 🆕 本轮完成：UI 微调四项（2026-06-27）
+## 🆕 本轮完成：代码质量审计体系 + 第一梯队整改（2026-06-27）
+
+**背景**：用户发起定期代码质量维护。完成全量代码审计 + 建立可复用的质量控制流程 + 落地第一梯队（低风险高收益）整改。
+
+**1. 质量控制体系（新增 `docs/quality/`）**
+- `docs/quality/TEMPLATE.md`：审计报告模板（元信息 / 四维度评分 / 核心问题 / 逐项审计 Before-After / 行动指南 / 整改追踪表）。每次审核复制到 `logs/` 按 `YYYY-MM-DD-audit-NN.md` 命名。
+- `docs/quality/logs/2026-06-27-audit-01.md`：首次全量审计 log。四维度评分 6.5 / 4.5 / 6.0 / 7.0；核心问题 P0-1 上帝 Store、P0-2 SSE 解析跨 11 文件重复 34 处、P0-3 零测试 + 死文件；行动项 A-1~A-11 入追踪表闭环管理。
+
+**2. 第一梯队整改（A-1~A-4，均已完成）**
+- **A-1 删死文件**：`node-test/index.tsx.backup`（1114 行，git 历史 `2402e74` 可恢复）。
+- **A-2 修 UTC 日期 bug**：`consumeProviderUsage` 每日额度重置原用 `new Date().toISOString().slice(0,10)`（UTC 日），UTC+8 凌晨 0–8 点不重置。抽 `utils/date.ts::localDateKey()`（本地自然日）替换 `appStore.ts:580`。
+- **A-3 vitest 测试地基**：装 vitest 4.1.9，`vite.config.ts` 加 `test` 字段（node 环境），`package.json` 加 `test`/`test:watch` script。
+- **A-4 首批单测**：`date.test.ts`（含 UTC bug 回归，本地时区构造使断言与运行环境无关）、`split.test.ts`（stripChapterMarker/applyTitleTemplate/retentionRate）、`ruleClean.test.ts`（不可见字符/空行折叠/正文保留）。
+
+**改动文件**：新增 `docs/quality/TEMPLATE.md`、`docs/quality/logs/2026-06-27-audit-01.md`、`frontend/src/utils/date.ts`、`frontend/src/utils/{date,split,ruleClean}.test.ts`；改 `frontend/src/store/appStore.ts`、`frontend/vite.config.ts`、`frontend/package.json`；删 `frontend/src/pages/node-test/index.tsx.backup`。
+
+**验证**：`npx vitest run` → **14 passed**（3 文件，538ms）；`tsc -b` → **0 错误**。
+
+**下一步（第二梯队，见 log A-5/A-6）**：① 抽 `services/sse.ts::parseSSE` async generator 消除前端 9 处 SSE 解析重复（P0-2）；② `startCleanQueue` 350 行闭包 → `CleanScheduler` 类 + 熔断/重试单测（3.3）。两者均需先出小设计稿再动手。
+
+---
+
+## 本轮完成：UI 微调四项（2026-06-27）
 
 均为前端纯 UI 改动，无后端/数据模型变更：
 

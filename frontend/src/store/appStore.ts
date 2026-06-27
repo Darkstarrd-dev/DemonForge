@@ -39,6 +39,7 @@ import {
 import { DEFAULT_SPLIT_PATTERNS } from '../utils/split'
 // normalizeProvider 抽到纯工具模块（backup.ts 单测需要，避免依赖 zustand/浏览器环境）
 import { normalizeProvider } from '../utils/provider'
+import { localDateKey } from '../utils/date'
 
 /** 节点测试表单草稿（轻量，持久化到 settings.json） */
 export interface NodeTestForm {
@@ -577,7 +578,7 @@ export const useAppStore = create<AppState>()((set, get) => ({
     const node = useAppStore.getState().providers.find((p) => p.id === nodeId)
     if (!node) return false
     if (!node.usageLimitEnabled) return true
-    const today = new Date().toISOString().slice(0, 10)
+    const today = localDateKey()
     let left = node.usageLeft ?? 0
     let resetDate = node.usageResetDate ?? ''
     if (resetDate !== today) {
