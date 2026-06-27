@@ -33,16 +33,32 @@ export default function PlayerHUD({ players, currentPlayerId }: Props) {
               borderRadius: 8,
               border: `1px solid ${active ? p.color : token.colorBorderSecondary}`,
               background: active ? token.colorFillTertiary : token.colorBgContainer,
+              opacity: p.bankrupt ? 0.45 : 1,
             }}
           >
+            {/* 角色头像（首字母色块；接真实角色卡后可换为图片） */}
             <span
-              style={{ width: 14, height: 14, borderRadius: '50%', background: p.color, flexShrink: 0 }}
-            />
+              style={{
+                width: 28,
+                height: 28,
+                borderRadius: '50%',
+                background: p.color,
+                color: '#fff',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: 13,
+                fontWeight: 600,
+                flexShrink: 0,
+              }}
+            >
+              {p.name.slice(0, 1)}
+            </span>
             <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.2 }}>
               <span style={{ fontWeight: 600, fontSize: 13, color: token.colorText }}>
                 {p.name}
                 <span style={{ marginLeft: 6, fontSize: 11, color: token.colorTextSecondary }}>
-                  {p.controller === 'human' ? '玩家' : 'AI'}
+                  {p.bankrupt ? '已出局' : p.controller === 'human' ? '玩家' : 'AI'}
                 </span>
               </span>
               <span style={{ fontSize: 12, color: token.colorTextSecondary }}>

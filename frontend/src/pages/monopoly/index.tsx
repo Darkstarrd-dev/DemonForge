@@ -1,19 +1,25 @@
-import { useEffect, useReducer } from 'react'
-import { theme } from 'antd'
+import { useEffect, useReducer, useState } from 'react'
+import { Button, Typography, theme } from 'antd'
 import { createInitialState, reducer, rollDice } from '../../game/monopoly/engine'
 import { aiNextAction } from '../../game/monopoly/ai'
 import { createDefaultBoard } from '../../game/monopoly/board.preset'
+import { PRESET_CHARACTERS } from '../../game/monopoly/characters.preset'
 import type { GameState, NewGamePlayerSpec } from '../../game/monopoly/types'
 import Board from './Board'
 import PlayerHUD from './PlayerHUD'
 import GamePanel from './GamePanel'
 import DecisionModal from './DecisionModal'
+import NewGameModal from './NewGameModal'
 
-const DEFAULT_PLAYERS: NewGamePlayerSpec[] = [
-  { name: '红方', color: '#E74C3C', controller: 'human' },
-  { name: '蓝方', color: '#3498DB', controller: 'ai' },
-  { name: '绿方', color: '#27AE60', controller: 'ai' },
-]
+// 默认用前 3 个示例角色（玩家 1 为人类，其余 AI）
+const DEFAULT_PLAYERS: NewGamePlayerSpec[] = PRESET_CHARACTERS.slice(0, 3).map(
+  (c, i): NewGamePlayerSpec => ({
+    name: c.name,
+    color: c.color,
+    controller: i === 0 ? 'human' : 'ai',
+    characterCardId: c.id,
+  }),
+)
 
 const AI_DELAY = 800 // AI 每步延迟（ms），便于观察
 
@@ -28,9 +34,9 @@ function initGame(): GameState {
 export default function MonopolyPage() {
   const { token } = theme.useToken()
   const [state, dispatch] = useReducer(reducer, undefined, initGame)
+  const [newGameOpen, setNewGameOpen] = useState(false)
 
-  // AI 自动驾驶：当前为 AI 回合时，延迟后自动执行下一步；轮到 human 则停下等操作。
-  // 每次 state 变化重新评估，形成 human/AI 混合循环。
+  // AI 自动驾驶：当前为 AI 回合时延迟自动执行下一步；轮到 human 则停下等操作。
   useEffect(() => {
     const action = aiNextAction(state)
     if (!action) return
@@ -39,14 +45,18 @@ export default function MonopolyPage() {
   }, [state])
 
   const current = state.players.find((p) => p.id === state.turn.currentPlayerId)
+  const interactive = current?.controller === 'human'
   const onRoll = () => dispatch({ type: 'ROLL_DICE', dice: rollDice() })
   const onEndTurn = () => dispatch({ type: 'END_TURN' })
   const onDecide = (optionId: string) => dispatch({ type: 'RESOLVE_DECISION', optionId })
   const onMortgage = (tileId: number) => dispatch({ type: 'MORTGAGE_PROPERTY', tileId })
   const onRedeem = (tileId: number) => dispatch({ type: 'REDEEM_PROPERTY', tileId })
-
-  // 仅 human 玩家可手动操作；AI 回合交给自动循环
-  const interactive = current?.controller === 'human'
+  const onStartNewGame = (players: NewGamePlayerSpec[]) => {
+    dispatch({
+      type: 'NEW_GAME',
+      config: { board: createDefaultBoard(), players, startingCash: 15000 },
+    })
+  }
 
   return (
     <div
@@ -57,6 +67,25 @@ export default function MonopolyPage() {
         background: token.colorBgLayout,
       }}
     >
+      {/* 工具栏 */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          padding: '8px 16px',
+          borderBottom: `1px solid ${token.colorBorderSecondary}`,
+          flexShrink: 0,
+        }}
+      >
+        <Typography.Text strong style={{ fontSize: 15, color: token.colorText }}>
+          🎲 大富翁
+        </Typography.Text>
+        <Button size="small" onClick={() => setNewGameOpen(true)}>
+          新游戏
+        </Button>
+      </div>
+
       <PlayerHUD players={state.players} currentPlayerId={state.turn.currentPlayerId} />
       <div style={{ flex: 1, minHeight: 0, display: 'flex', overflow: 'hidden' }}>
         <div
@@ -82,7 +111,9 @@ export default function MonopolyPage() {
           onRedeem={onRedeem}
         />
       </div>
+
       <DecisionModal state={state} interactive={interactive} onDecide={onDecide} />
+      <NewGameModal open={newGameOpen} onClose={() => setNewGameOpen(false)} onStart={onStartNewGame} />
     </div>
   )
 }
