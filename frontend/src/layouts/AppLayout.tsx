@@ -11,6 +11,7 @@ import {
   SettingOutlined,
   BlockOutlined,
   AppstoreOutlined,
+  DollarOutlined,
   PictureOutlined,
   MessageOutlined,
   ExperimentOutlined,
@@ -32,6 +33,7 @@ const MENU_ITEMS = [
   { key: '/image-helper', icon: <PictureOutlined />, label: '图片辅助' },
   { key: '/demo-3d', icon: <BlockOutlined />, label: '3D环境Demo' },
   { key: '/demo-2d', icon: <AppstoreOutlined />, label: '2D环境Demo' },
+  { key: '/monopoly', icon: <DollarOutlined />, label: '大富翁' },
   { key: '/node-test', icon: <ExperimentOutlined />, label: '节点测试' },
   { key: '/settings', icon: <SettingOutlined />, label: '系统设置' },
 ]

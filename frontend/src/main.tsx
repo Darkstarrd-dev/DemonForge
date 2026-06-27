@@ -38,6 +38,8 @@ const Demo3DPage = lazy(() => import('./pages/demo-3d'))
 // eslint-disable-next-line react-refresh/only-export-components
 const Demo2DPage = lazy(() => import('./pages/demo-2d'))
 // eslint-disable-next-line react-refresh/only-export-components
+const MonopolyPage = lazy(() => import('./pages/monopoly'))
+// eslint-disable-next-line react-refresh/only-export-components
 const ImageHelperPage = lazy(() => import('./pages/image-helper'))
 // eslint-disable-next-line react-refresh/only-export-components
 const NodeTestPage = lazy(() => import('./pages/node-test'))
@@ -79,6 +81,7 @@ function AppWithTheme() {
                   <Route path="/image-helper" element={<Suspense fallback={<Spin size="large" />}><ImageHelperPage /></Suspense>} />
                   <Route path="/demo-3d" element={<Suspense fallback={<Spin size="large" />}><Demo3DPage /></Suspense>} />
                   <Route path="/demo-2d" element={<Suspense fallback={<Spin size="large" />}><Demo2DPage /></Suspense>} />
+                  <Route path="/monopoly" element={<Suspense fallback={<Spin size="large" />}><MonopolyPage /></Suspense>} />
                   <Route path="/settings" element={<Suspense fallback={<Spin size="large" />}><SettingsPage /></Suspense>} />
                 </Route>
               </Routes>
