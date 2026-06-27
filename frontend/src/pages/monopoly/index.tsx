@@ -1,10 +1,11 @@
 import { useReducer } from 'react'
 import { theme } from 'antd'
-import { createInitialState, reducer } from '../../game/monopoly/engine'
+import { createInitialState, reducer, rollDice } from '../../game/monopoly/engine'
 import { createDefaultBoard } from '../../game/monopoly/board.preset'
 import type { GameState, NewGamePlayerSpec } from '../../game/monopoly/types'
 import Board from './Board'
 import PlayerHUD from './PlayerHUD'
+import GamePanel from './GamePanel'
 
 const DEFAULT_PLAYERS: NewGamePlayerSpec[] = [
   { name: '红方', color: '#E74C3C', controller: 'human' },
@@ -22,8 +23,11 @@ function initGame(): GameState {
 
 export default function MonopolyPage() {
   const { token } = theme.useToken()
-  // 引擎即 reducer；P0 为静态展示，dispatch 留待 P1（骰子 / 回合）接入
-  const [state] = useReducer(reducer, undefined, initGame)
+  const [state, dispatch] = useReducer(reducer, undefined, initGame)
+
+  const current = state.players.find((p) => p.id === state.turn.currentPlayerId)
+  const onRoll = () => dispatch({ type: 'ROLL_DICE', dice: rollDice() })
+  const onEndTurn = () => dispatch({ type: 'END_TURN' })
 
   return (
     <div
@@ -35,18 +39,21 @@ export default function MonopolyPage() {
       }}
     >
       <PlayerHUD players={state.players} currentPlayerId={state.turn.currentPlayerId} />
-      <div
-        style={{
-          flex: 1,
-          minHeight: 0,
-          overflow: 'auto',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          padding: 16,
-        }}
-      >
-        <Board state={state} />
+      <div style={{ flex: 1, minHeight: 0, display: 'flex', overflow: 'hidden' }}>
+        <div
+          style={{
+            flex: 1,
+            minWidth: 0,
+            overflow: 'auto',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 16,
+          }}
+        >
+          <Board state={state} />
+        </div>
+        <GamePanel state={state} current={current} onRoll={onRoll} onEndTurn={onEndTurn} />
       </div>
     </div>
   )

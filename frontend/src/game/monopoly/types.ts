@@ -124,9 +124,12 @@ export interface GameState {
 }
 
 // —— Action（reducer 输入） ——
-// P0 仅 NEW_GAME；后续阶段扩展 ROLL_DICE / RESOLVE_DECISION / END_TURN
+// P1 已加 ROLL_DICE / END_TURN；地产购买 / 决策点见后续阶段
 // （见 docs/monopoly_plan.md §8）。
-export type Action = { type: 'NEW_GAME'; config: NewGameConfig }
+export type Action =
+  | { type: 'NEW_GAME'; config: NewGameConfig }
+  | { type: 'ROLL_DICE'; dice: [number, number] }
+  | { type: 'END_TURN' }
 
 export interface NewGamePlayerSpec {
   name: string
