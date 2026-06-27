@@ -103,14 +103,14 @@ export default function AppLayout() {
                 position: 'absolute',
                 top: 16,
                 left: 16,
-                background: theme === 'dark' ? '#141414' : '#ffffff',
+                background: 'var(--app-sider-bg)',
                 borderRadius: 8,
                 boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
                 padding: '12px 16px',
                 cursor: 'pointer',
                 fontWeight: 600,
                 fontSize: 17,
-                color: theme === 'dark' ? '#fff' : '#1F2421',
+                color: 'var(--app-sider-text)',
                 transition: 'opacity 0.2s',
               }}
               onClick={() => setSidebarCollapsed(false)}
@@ -130,20 +130,20 @@ export default function AppLayout() {
             display: 'flex',
             flexDirection: 'column',
             height: '100%',
-            background: theme === 'dark' ? '#141414' : '#ffffff',
-            borderRight: theme === 'dark' ? '1px solid #303030' : '1px solid #f0f0f0',
+            background: 'var(--app-sider-bg)',
+            borderRight: '1px solid var(--app-sider-border)',
           }}
         >
           <div style={{
             padding: '16px 20px',
-            color: theme === 'dark' ? '#fff' : '#1F2421',
+            color: 'var(--app-sider-text)',
             fontSize: 17,
             fontWeight: 600,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
             gap: '12px',
-            borderBottom: theme === 'dark' ? '1px solid #303030' : '1px solid #f0f0f0',
+            borderBottom: '1px solid var(--app-sider-border)',
           }}>
             <span
               style={{ flex: 1, cursor: 'pointer' }}
@@ -174,7 +174,7 @@ export default function AppLayout() {
               {/* 当前作品选择器（移到 sidebar） */}
               <div style={{
                 padding: '8px 12px',
-                borderBottom: theme === 'dark' ? '1px solid #303030' : '1px solid #f0f0f0',
+                borderBottom: '1px solid var(--app-sider-border)',
               }}>
                 {projects.length > 0 ? (
                   <Select
@@ -203,7 +203,7 @@ export default function AppLayout() {
                   flex: 1,
                   minHeight: 0,
                   overflowY: 'auto',
-                  background: theme === 'dark' ? '#141414' : '#ffffff',
+                  background: 'var(--app-sider-bg)',
                   paddingTop: 0,
                 }}
               />
@@ -211,7 +211,7 @@ export default function AppLayout() {
           )}
           <div style={{
             padding: '8px 12px',
-            borderTop: theme === 'dark' ? '1px solid #303030' : '1px solid #f0f0f0',
+            borderTop: '1px solid var(--app-sider-border)',
           }}>
             <Button
               block

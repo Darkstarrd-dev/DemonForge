@@ -1,5 +1,5 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react'
-import { Result, Button, Space } from 'antd'
+import { Result, Button, Space, Typography } from 'antd'
 import { ReloadOutlined, HomeOutlined } from '@ant-design/icons'
 
 interface Props {
@@ -43,8 +43,9 @@ export default class ErrorBoundary extends Component<Props, State> {
 
   /** 返回首页（hash 路由跳转，绕过可能已损坏的子树） */
   handleGoHome = () => {
-    // 直接改 location，避免依赖可能已卸载的路由上下文
-    window.location.assign('/')
+    // HashRouter：改 hash 回首页。原 assign('/') 会在 Electron file:// 下导航到文件系统根而白屏。
+    // 直接改 location 也绕过可能已卸载的路由上下文。
+    window.location.hash = '#/'
   }
 
   render() {
@@ -59,10 +60,10 @@ export default class ErrorBoundary extends Component<Props, State> {
             title="页面运行出错"
             subTitle={
               <Space direction="vertical" align="center" size={4}>
-                <span style={{ color: 'rgba(0,0,0,0.65)' }}>{`${errName}: ${errMsg}`}</span>
-                <span style={{ color: 'rgba(0,0,0,0.45)', fontSize: 12 }}>
+                <Typography.Text type="secondary">{`${errName}: ${errMsg}`}</Typography.Text>
+                <Typography.Text type="secondary" style={{ fontSize: 12 }}>
                   可以尝试重置当前页面，或返回首页继续使用其它功能。
-                </span>
+                </Typography.Text>
               </Space>
             }
             extra={

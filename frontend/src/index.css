@@ -15,6 +15,19 @@ body,
 body {
   font-family: system-ui, 'Segoe UI', 'Microsoft YaHei', Roboto, sans-serif;
   overflow: hidden;
+
+  /* 应用框架级主题色（侧栏 / 折叠悬浮 logo）——原 AppLayout 内联 `theme === 'dark' ? … : …`
+     主题三元收敛至此（A-10）。此处为浅色默认值；[data-theme='dark'] 覆盖为深色，
+     main.tsx 切主题时更新 body[data-theme]，CSS 变量随之级联，视觉与原三元等价。 */
+  --app-sider-bg: #ffffff;
+  --app-sider-text: #1F2421;
+  --app-sider-border: #f0f0f0;
+}
+
+[data-theme='dark'] {
+  --app-sider-bg: #141414;
+  --app-sider-text: #fff;
+  --app-sider-border: #303030;
 }
 
 /* 响应式页面容器 */
