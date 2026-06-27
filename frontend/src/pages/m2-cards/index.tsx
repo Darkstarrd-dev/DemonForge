@@ -9,9 +9,11 @@ import {
   Drawer,
   Empty,
   Form,
+  Image,
   Input,
   List,
   Modal,
+  Popconfirm,
   Progress,
   Radio,
   Row,
@@ -19,13 +21,24 @@ import {
   Space,
   Tabs,
   Tag,
+  Tooltip,
   Typography,
 } from 'antd'
-import { ExperimentOutlined, MergeCellsOutlined } from '@ant-design/icons'
-import { useAppStore } from '../../store/appStore'
+import {
+  ExperimentOutlined,
+  MergeCellsOutlined,
+  PlusOutlined,
+  ThunderboltOutlined,
+  PictureOutlined,
+  DeleteOutlined,
+  DownloadOutlined,
+} from '@ant-design/icons'
+import { useAppStore, pushStoreNow } from '../../store/appStore'
 import { extractEntities } from '../../services/api'
-import type { EntityType } from '../../services/types'
+import type { CardImage, EntityCard, EntityType } from '../../services/types'
 import type { ExtractProgress } from '../../services/api'
+import CardEditorModal from './CardEditorModal'
+import ImageBatchModal from './ImageBatchModal'
 
 const TYPE_META: Record<EntityType, { label: string; color: string }> = {
   character: { label: '人物', color: 'blue' },
@@ -42,6 +55,8 @@ export default function M2CardsPage() {
   const chapters = useAppStore((s) => s.chapters)
   const currentBookId = useAppStore((s) => s.currentBookId)
   const mergeCandidates = useAppStore((s) => s.mergeCandidates)
+  const providers = useAppStore((s) => s.providers)
+  const moduleMapping = useAppStore((s) => s.moduleMapping)
   const setState = useAppStore((s) => s.setState)
   const updateCard = useAppStore((s) => s.updateCard)
 
@@ -56,8 +71,13 @@ export default function M2CardsPage() {
   const [extractProgress, setExtractProgress] = useState<ExtractProgress | null>(null)
   const [activeTab, setActiveTab] = useState<'cards' | 'merge'>('cards')
   const [newIds, setNewIds] = useState<string[]>([])
+  const [cardEditor, setCardEditor] = useState<{ mode: 'manual' | 'ai' } | null>(null)
+  const [batchCardId, setBatchCardId] = useState<string | null>(null)
   const [extractForm] = Form.useForm<{ bookId: string }>()
   const [editForm] = Form.useForm()
+
+  const defaultTextNodeId = moduleMapping.m2Extract?.nodeId ?? undefined
+  const defaultImageNodeId = providers.find((p) => p.nodeType === 'image' && p.enabled)?.id ?? undefined
 
   const filtered = useMemo(() => {
     return cards.filter((c) => {
@@ -154,6 +174,44 @@ export default function M2CardsPage() {
     message.success('卡片已保存')
   }
 
+  const handleCardSaved = (card: EntityCard) => {
+    setState({ cards: [...useAppStore.getState().cards, card] })
+    pushStoreNow()
+    setCardEditor(null)
+    setNewIds([card.id])
+    setDetailId(card.id)
+    setEditing(false)
+    message.success(`已新增卡片「${card.name}」`)
+  }
+
+  const handleSaveImage = (cardId: string, img: CardImage) => {
+    const c = useAppStore.getState().cards.find((x) => x.id === cardId)
+    if (!c) return
+    updateCard(cardId, { images: [...(c.images ?? []), img], updatedAt: new Date().toISOString() })
+    pushStoreNow()
+  }
+
+  const handleDeleteImage = (cardId: string, imgId: string) => {
+    const c = useAppStore.getState().cards.find((x) => x.id === cardId)
+    if (!c) return
+    updateCard(cardId, { images: (c.images ?? []).filter((i) => i.id !== imgId), updatedAt: new Date().toISOString() })
+    pushStoreNow()
+  }
+
+  // 下载归档图片：经 fetch→blob 触发（走 Electron 下被 patch 的 fetch），保留原文件扩展名。
+  const downloadImage = async (url: string) => {
+    try {
+      const blob = await (await fetch(url)).blob()
+      const a = document.createElement('a')
+      a.href = URL.createObjectURL(blob)
+      a.download = decodeURIComponent(url.split('/').pop() || `image-${Date.now()}`)
+      a.click()
+      URL.revokeObjectURL(a.href)
+    } catch {
+      message.error('下载失败')
+    }
+  }
+
   const cardsTab = (
     <Space direction="vertical" size={16} style={{ width: '100%' }}>
       <Space data-slot="filter-panel" wrap>
@@ -187,6 +245,12 @@ export default function M2CardsPage() {
         />
         <Button data-slot="btn-extract" type="primary" icon={<ExperimentOutlined />} onClick={() => setExtractOpen(true)}>
           从章节提取设定
+        </Button>
+        <Button data-slot="btn-add-manual" icon={<PlusOutlined />} onClick={() => setCardEditor({ mode: 'manual' })}>
+          手动新增
+        </Button>
+        <Button data-slot="btn-add-ai" icon={<ThunderboltOutlined />} onClick={() => setCardEditor({ mode: 'ai' })}>
+          AI 生成
         </Button>
       </Space>
       {filtered.length === 0 ? (
@@ -384,6 +448,80 @@ export default function M2CardsPage() {
               </div>
             )}
             <div>
+              <Space style={{ width: '100%', justifyContent: 'space-between' }}>
+                <Typography.Title level={5} style={{ margin: 0 }}>
+                  <PictureOutlined /> 图片素材
+                </Typography.Title>
+                <Button size="small" icon={<ThunderboltOutlined />} onClick={() => setBatchCardId(detail.id)}>
+                  批量生成图片
+                </Button>
+              </Space>
+              {(() => {
+                const imgs = detail.images ?? []
+                if (imgs.length === 0) {
+                  return (
+                    <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 8 }}>
+                      暂无图片，点击「批量生成图片」准备表情差分 / 全身形象 / 场景背景等素材。
+                    </Typography.Text>
+                  )
+                }
+                const groups = new Map<string, CardImage[]>()
+                for (const im of imgs) {
+                  const g = im.group || '默认'
+                  if (!groups.has(g)) groups.set(g, [])
+                  groups.get(g)!.push(im)
+                }
+                return (
+                  <Image.PreviewGroup>
+                    <Space direction="vertical" size={12} style={{ width: '100%', marginTop: 8 }}>
+                      {[...groups.entries()].map(([g, list]) => (
+                        <div key={g}>
+                          <Tag color="geekblue">{g}（{list.length}）</Tag>
+                          <div
+                            style={{
+                              display: 'grid',
+                              gridTemplateColumns: 'repeat(auto-fill, minmax(110px, 1fr))',
+                              gap: 8,
+                              marginTop: 6,
+                            }}
+                          >
+                            {list.map((im) => (
+                              <div key={im.id} style={{ position: 'relative' }}>
+                                <Tooltip title={im.prompt}>
+                                  <Image
+                                    src={im.url}
+                                    width="100%"
+                                    height={110}
+                                    style={{ objectFit: 'cover', borderRadius: 6 }}
+                                  />
+                                </Tooltip>
+                                <Space
+                                  size={2}
+                                  style={{ position: 'absolute', top: 2, right: 2, background: 'rgba(0,0,0,0.45)', borderRadius: 4 }}
+                                >
+                                  <Tooltip title="下载">
+                                    <Button
+                                      size="small"
+                                      type="text"
+                                      icon={<DownloadOutlined style={{ color: '#fff' }} />}
+                                      onClick={() => downloadImage(im.url)}
+                                    />
+                                  </Tooltip>
+                                  <Popconfirm title="删除该图片？" okText="删除" okButtonProps={{ danger: true }} onConfirm={() => handleDeleteImage(detail.id, im.id)}>
+                                    <Button size="small" type="text" icon={<DeleteOutlined style={{ color: '#fff' }} />} />
+                                  </Popconfirm>
+                                </Space>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </Space>
+                  </Image.PreviewGroup>
+                )
+              })()}
+            </div>
+            <div>
               <Typography.Title level={5}>出处引用（点击回溯原文）</Typography.Title>
               <List
                 size="small"
@@ -495,6 +633,33 @@ export default function M2CardsPage() {
           )}
         </Form>
       </Modal>
+
+      {cardEditor && (
+        <CardEditorModal
+          initialMode={cardEditor.mode}
+          books={books}
+          providers={providers}
+          defaultTextNodeId={defaultTextNodeId}
+          defaultBookId={currentBookId || books[0]?.id}
+          onClose={() => setCardEditor(null)}
+          onSaved={handleCardSaved}
+        />
+      )}
+
+      {batchCardId && (() => {
+        const bc = cards.find((c) => c.id === batchCardId)
+        if (!bc) return null
+        return (
+          <ImageBatchModal
+            card={bc}
+            providers={providers}
+            defaultTextNodeId={defaultTextNodeId}
+            defaultImageNodeId={defaultImageNodeId}
+            onClose={() => setBatchCardId(null)}
+            onSaveImage={(img) => handleSaveImage(bc.id, img)}
+          />
+        )
+      })()}
     </div>
   )
 }

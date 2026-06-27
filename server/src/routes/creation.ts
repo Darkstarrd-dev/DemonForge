@@ -10,6 +10,8 @@ import {
   CONSISTENCY_SYSTEM_PROMPT,
   EXTRACT_ENTITIES_SYSTEM_PROMPT,
   SIMULATE_CHARACTER_SYSTEM_PROMPT,
+  GENERATE_CARD_SYSTEM_PROMPT,
+  CARD_IMAGE_PROMPTS_SYSTEM_PROMPT,
 } from '../prompts'
 import { assembleContext, type AssembleInput } from '../contextAssembler'
 import { hijackSSE } from '../utils/sseHelper'
@@ -61,6 +63,44 @@ type ExtractEntitiesBody = ProviderConfig & {
   chapterIds: string[]
   /** 已存在的卡片名称（用于去重） */
   existingCardNames?: string[]
+}
+type GenerateCardBody = ProviderConfig & {
+  /** 实体类型 character/location/item/skill/faction */
+  type: string
+  /** 用户描述指令 */
+  instruction: string
+  /** 模式：新建 / 在已有卡片基础上丰富 */
+  mode?: 'create' | 'enrich'
+  /** enrich 模式下的已有卡片内容（JSON 字符串或对象的描述） */
+  existingCard?: string
+}
+type CardImagePromptsBody = ProviderConfig & {
+  /** 卡片描述（人物/场景/道具设定） */
+  cardDescription: string
+  /** 用户意图，如「8 个表情差分」 */
+  intent: string
+  /** 需要的提示词数量 */
+  count?: number
+}
+
+/** 去掉 LLM 输出里可能的 ```json``` 围栏，返回纯 JSON 文本。 */
+function stripJsonFence(text: string): string {
+  let t = text.trim()
+  if (t.startsWith('```')) {
+    t = t.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '').trim()
+  }
+  return t
+}
+
+/** 非流式收集一次 chat completion 的完整文本（复用 chatStream 的 no-op delta）。 */
+async function collectText(provider: ProviderConfig, system: string, user: string, signal?: AbortSignal): Promise<string> {
+  return chatStream(
+    { baseURL: provider.baseURL, apiKey: provider.apiKey, model: provider.model, messages: [
+      { role: 'system', content: system },
+      { role: 'user', content: user },
+    ], signal },
+    () => {},
+  )
 }
 
 /**
@@ -582,6 +622,72 @@ export async function creationRoutes(app: FastifyInstance) {
       }
     } finally {
       raw.end()
+    }
+  })
+
+  // M2 设定卡片 · AI 直接生成（不依赖原文）——非流式 JSON 响应
+  app.post('/api/llm/generate-card', async (req, reply) => {
+    const { baseURL, apiKey, model, type, instruction, mode, existingCard } = (req.body ?? {}) as GenerateCardBody
+    if (!baseURL || !model || !type?.trim() || !instruction?.trim()) {
+      reply.status(400).send({ error: '缺少 baseURL / model / type / instruction' })
+      return
+    }
+    const isEnrich = mode === 'enrich' && existingCard?.trim()
+    const userPrompt = [
+      `实体类型（type）：${type.trim()}`,
+      `模式：${isEnrich ? 'enrich（在已有卡片基础上丰富扩写）' : 'create（从零创作）'}`,
+      isEnrich ? `\n【已有卡片内容】\n${existingCard!.trim()}` : '',
+      `\n【用户描述/指令】\n${instruction.trim()}`,
+      '\n请按输出格式生成单个 JSON 对象。',
+    ]
+      .filter(Boolean)
+      .join('\n')
+
+    try {
+      const full = await collectText({ baseURL, apiKey, model }, GENERATE_CARD_SYSTEM_PROMPT, userPrompt)
+      let card: unknown
+      try {
+        card = JSON.parse(stripJsonFence(full))
+      } catch (e) {
+        reply.status(502).send({ error: `生成结果解析失败：${e instanceof Error ? e.message : String(e)}`, raw: full.slice(0, 500) })
+        return
+      }
+      reply.send({ card })
+    } catch (e) {
+      reply.status(502).send({ error: e instanceof Error ? e.message : String(e) })
+    }
+  })
+
+  // M2 设定卡片 · 批量生图提示词生成——非流式 JSON 响应
+  app.post('/api/llm/card-image-prompts', async (req, reply) => {
+    const { baseURL, apiKey, model, cardDescription, intent, count } = (req.body ?? {}) as CardImagePromptsBody
+    if (!baseURL || !model || !cardDescription?.trim() || !intent?.trim()) {
+      reply.status(400).send({ error: '缺少 baseURL / model / cardDescription / intent' })
+      return
+    }
+    const n = typeof count === 'number' && count > 0 ? Math.min(count, 30) : 6
+    const userPrompt = [
+      `【卡片描述】\n${cardDescription.trim()}`,
+      `\n【用户意图】\n${intent.trim()}`,
+      `\n需要的提示词数量（count）：${n}`,
+      '\n请按输出格式生成 JSON 对象，prompts 数组长度必须等于 count。',
+    ].join('\n')
+
+    try {
+      const full = await collectText({ baseURL, apiKey, model }, CARD_IMAGE_PROMPTS_SYSTEM_PROMPT, userPrompt)
+      let parsed: { prompts?: Array<{ label?: string; prompt?: string }> }
+      try {
+        parsed = JSON.parse(stripJsonFence(full)) as { prompts?: Array<{ label?: string; prompt?: string }> }
+      } catch (e) {
+        reply.status(502).send({ error: `提示词解析失败：${e instanceof Error ? e.message : String(e)}`, raw: full.slice(0, 500) })
+        return
+      }
+      const prompts = (parsed.prompts ?? [])
+        .filter((p) => p && typeof p.prompt === 'string' && p.prompt.trim())
+        .map((p) => ({ label: (p.label ?? '').trim(), prompt: p.prompt!.trim() }))
+      reply.send({ prompts })
+    } catch (e) {
+      reply.status(502).send({ error: e instanceof Error ? e.message : String(e) })
     }
   })
 }

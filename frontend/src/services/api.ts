@@ -64,3 +64,11 @@ export type { ChatMessage, ChatParams, ChatEvents } from './real/chat'
 // 节点测试 · 多 session 推理引擎（每 session 独立运行态，切走仍继续）。
 export { sendInSession, cancelSession, isSessionRunning } from './sessionEngine'
 export type { SendArgs } from './sessionEngine'
+
+// M2 设定卡片 · AI 生成（卡片 + 批量生图提示词）。
+export { generateCard, generateCardImagePrompts, serializeCardForEnrich } from './real/cardGen'
+export type { GenerateCardArgs, GeneratedCard, ImagePromptItem, CardImagePromptsArgs } from './real/cardGen'
+
+// M2 设定卡片 · 批量生图（三协议派发 + 并发池）。
+export { generateOneCardImage, runImageBatch } from './real/cardImage'
+export type { CardImageParams, BatchItemStatus, BatchItemUpdate } from './real/cardImage'

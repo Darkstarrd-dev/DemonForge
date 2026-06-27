@@ -2,11 +2,34 @@
 
 **最后更新**：2026-06-27  
 **当前位置**：办公场所 A
-**本轮主题**：2D 环境 Demo 交互增强（刚体碰撞拖拽/蓄力斥力/基础斥力滑块 + 人物状态演示占位 UI）
+**本轮主题**：M2 设定卡片 — 手动新增 + AI 生成设定 + 卡片图片设定与批量生图队列
 
 ---
 
-## 🆕 本轮完成：2D 环境 Demo 交互增强（2026-06-27）
+## 🆕 本轮完成：M2 设定卡片三项增强（2026-06-27）
+
+**目标**：在 M2 设定卡片模块新增三类能力——① 手动新增设定；② AI 直接生成设定（不依赖原文，可编辑后重新生成/增加生成丰富）；③ 卡片图片设定 + 批量生图队列（为人物/场景/道具准备表情差分、全身形象、场景背景等素材）。最大化复用节点测试已完成的三协议生图能力。
+
+- **数据模型**：`types.ts` 给 `EntityCard` 加 `images?: CardImage[]`，新增 `CardImage{id,url,prompt,group?,createdAt}`。文档式 JSON 存储免迁移；图片存 `/api/image/file/<name>` 归档 URL（非 b64），DB 不膨胀。
+- **后端**（生图链路零改动）：
+  - `prompts.ts` 新增 `GENERATE_CARD_SYSTEM_PROMPT`（AI 生成卡片，create/enrich 两模式，输出结构化 JSON）+ `CARD_IMAGE_PROMPTS_SYSTEM_PROMPT`（批量生图提示词，输出 `{prompts:[{label,prompt}]}`，含形象一致性约束）。
+  - `routes/creation.ts` 新增 `POST /api/llm/generate-card` + `POST /api/llm/card-image-prompts`（非流式 JSON 响应，复用 `chatStream` no-op delta 收集全文 + `stripJsonFence` 容错解析）。
+- **前端服务层**：
+  - 新建 `services/real/cardGen.ts`（`generateCard` / `generateCardImagePrompts` / `serializeCardForEnrich`）。
+  - 新建 `services/real/cardImage.ts`（`generateOneCardImage` 按 `node.protocol` 派发三协议 `generateImage*`，resolve 归档 URL；`runImageBatch` 小并发池，单项失败不中断）。
+  - `api.ts` 导出以上。
+- **前端 UI**（`pages/m2-cards/`）：
+  - 工具栏加「手动新增」「AI 生成」按钮 → `CardEditorModal.tsx`（新建/AI 合一，条件挂载免 useEffect 重置；AI 区：文本节点选择器 + 指令 + 生成/重新生成/增加生成；下方字段全可编辑：类型/名称/别名/描述/结构化字段动态键值/人物 styleNote+styleExamples）。
+  - 详情 Drawer 新增「图片素材」区：按 `group` 分组的 `Image.PreviewGroup` 网格（点击看大图、prompt Tooltip、下载经 fetch→blob、删除 Popconfirm）+「批量生成图片」按钮。
+  - 新建 `ImageBatchModal.tsx`（暂存区模型）：配置（文本/图片节点选择器 + 意图 + 分组 + 数量 + 并发 + 协议参数）→ 步骤1 生成提示词（可编辑、可增删）→ 步骤2 并发生图 → 队列项 看大图/保存(采纳进卡片立即落库)/删除(从队列丢弃)/重试(同 prompt 重生成)；关闭中止在途、未保存图丢弃。
+- **节点指定**：面板内选择器，文本默认取 `moduleMapping.m2Extract.nodeId`，图片默认取首个启用 image 节点。
+- **复用**：`generateImage/Gpt/Xai`、`streamChat`、`updateCard/genId/pushStoreNow`、图片落盘归档全部直接复用。
+- **验证**：前端 `tsc -p tsconfig.app.json --noEmit` + `tsc -b && vite build` 通过；后端 `tsc --noEmit` 零错误 + tsx 加载 creation 路由 OK。**浏览器/Electron 功能测试待做**。
+- **已知**：归档图片 `<img src="/api/image/file/...">` 在 Electron 打包版（file://）下的加载与节点测试同属既存「打包待验」项（dev 经 vite proxy 正常），非本轮引入。
+
+---
+
+## 上一轮主题：2D 环境 Demo 交互增强（2026-06-27）
 
 **目标**：2D 环境 Demo（`frontend/src/pages/demo-2d/index.tsx`，Phaser 4.1.0 + Matter.js）从单一静态演示
 升级为可切换、可交互的物理沙盒；新增「人物状态演示」占位 UI 预留入口。分两轮迭代。

@@ -37,6 +37,18 @@ export interface EntityRef {
   excerpt: string
 }
 
+/** 卡片图片（落盘归档后只存文件 URL，不存 b64，避免 DB 膨胀） */
+export interface CardImage {
+  id: string
+  /** 归档文件 URL（/api/image/file/<name>） */
+  url: string
+  /** 生成该图所用的提示词（看大图时展示） */
+  prompt: string
+  /** 分组标签，如 '表情差分' / '全身形象' / '场景背景'；空=默认组 */
+  group?: string
+  createdAt: string
+}
+
 export interface EntityCard {
   id: string
   bookId: string
@@ -51,6 +63,8 @@ export interface EntityCard {
   /** 人物专用：台词例句 */
   styleExamples?: string[]
   refs: EntityRef[]
+  /** 图片素材（表情差分/全身形象/场景背景等，按 group 分组） */
+  images?: CardImage[]
   updatedAt: string
 }
 
