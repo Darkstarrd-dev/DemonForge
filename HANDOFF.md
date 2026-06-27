@@ -1,8 +1,8 @@
 # HANDOFF.md — novelhelper 交接备忘
 
-**最后更新**：2026-06-27
+**最后更新**：2026-06-28
 **当前位置**：办公场所 A
-**本轮主题**：**角色交流模块增强 + 布局修复**（复选添加 / 逐角色节点指定·编辑 / 场景设定 / 占满去圆角布局）；上一轮节点测试·文生图四项修复
+**本轮主题**：**第二轮质量审核 audit-02**（验证 A-5~A-14 重构成果 + 审计新增功能 role-chat/m2-cards，纯只读审计，未改源码）；上一轮角色交流模块增强 + 布局修复
 
 > 📦 **历史明细已归档** → `docs/handoff_history.md`
 > 本文件只保留「恢复工作所需的活内容」：进行中任务、模块清单、下一步、交接参考。
@@ -67,7 +67,12 @@
 ## 质量审计体系（2026-06-27 建立）
 
 - `docs/quality/TEMPLATE.md`：审计报告模板。每次审核复制到 `logs/` 按 `YYYY-MM-DD-audit-NN.md` 命名。
-- `docs/quality/logs/2026-06-27-audit-01.md`：首次全量审计 + 整改追踪表（A-1~A-11）。
+- `docs/quality/logs/2026-06-27-audit-01.md`：首次全量审计（A-1~A-14，**已全部收口**：A-1~A-10/A-13/A-14 完成，A-11 won't-fix，A-12 deferred）。
+- `docs/quality/logs/2026-06-28-audit-02.md`：**第二轮全量复审（本轮）**。结论：重构线四维全面向好（架构 6.5→7.5 / 拆分 4.5→6.5 / 质量 6.0→6.5 / 技术栈 7.0→7.5），重构产物经精读确认实现干净、无退化；前端 vitest **55 绿** + 后端 tsc **0**。**新发现 11 项（B-1~B-11），均落在「重构未覆盖的新功能」里**，两个 user-facing 高优先级：
+  - **B-1（P0-1，高）**：`server/src/routes/chat.ts:45` 用 `new URL('../data/settings.json')` 绕过 `getAppDataDir()` → **role-chat 本地模式在 Electron 打包版读不到 providers，必返 404**（开发环境两路径碰巧一致故未暴露）。改用 `readSettings()` 即可（单文件机械修复）。
+  - **B-2（P0-2，高）**：`role-chat/index.tsx` 自动循环——① `respondLocal:118` 未传 `signal`（流不可中断）；② 无 `useEffect` 卸载清理（切走页面后循环继续后台跑 + 烧 token + 对已卸载组件 setState）；③ 疑似闭包陷阱：`runAgentLoop` 用启动时刻的 `messages` 快照，循环中各 Agent 互相看不到新发言（机理确定，用户感知需实测）。
+  - B-3~B-11：持久化脏检查声明式化（承接 audit-01 P0-1，A-7 只搬未消除）/ settings 组件手写 SSE 残留（audit-01 P0-2 漏查点）/ useInferenceSession 780 行胖 hook 消重 / creation 731 拆分 / 若干低优先级类型与一致性项。详见报告第 5 节追踪表。
+- **下一步建议**：先做 **B-1**（消除打包版 role-chat 失效，单文件低风险），再做 **B-2**（需配端到端实测：停止打断在途流 / 卸载停循环 / 循环中 Agent 互见新消息）。
 - 第一梯队 A-1~A-4 已完成（删死文件 / 修 UTC 日期 bug / vitest 地基 / 首批单测）。详见归档。
 
 ---
