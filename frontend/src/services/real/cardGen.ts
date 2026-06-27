@@ -2,6 +2,7 @@
 // 节点由调用方从节点池选定后传入（面板内选择器，非模块映射）。
 
 import type { EntityCard, EntityType, ProviderNode } from '../types'
+import { parseSSE } from '../sse'
 
 /** 选中节点里取连通所需的最小字段。 */
 type NodeLike = Pick<ProviderNode, 'baseURL' | 'apiKey' | 'model'>
@@ -63,6 +64,62 @@ export async function generateCard(node: NodeLike, args: GenerateCardArgs): Prom
       ? c.styleExamples.filter((s): s is string => typeof s === 'string')
       : undefined,
   }
+}
+
+/** 流式生成卡片：经 /api/llm/generate-card-stream（SSE）逐 delta 回调，结束 onDone(card)。
+ *  previewBody 同步返回给调用方做 Debug 展示；signal 用于中途停止。 */
+export interface StreamGenerateCardHandlers {
+  /** 流式文本增量（拼接为右栏实时输出 + Debug sseChunks 累积） */
+  onDelta?: (delta: string) => void
+  /** 解析成功的卡片字段 */
+  onDone?: (card: GeneratedCard) => void
+}
+
+export async function streamGenerateCard(
+  node: NodeLike,
+  args: GenerateCardArgs,
+  handlers: StreamGenerateCardHandlers,
+  signal?: AbortSignal,
+): Promise<{ previewBody: object }> {
+  const body = {
+    baseURL: node.baseURL,
+    apiKey: node.apiKey,
+    model: node.model,
+    type: args.type,
+    instruction: args.instruction,
+    mode: args.mode,
+    ...(args.existingCard ? { existingCard: args.existingCard } : {}),
+  }
+  const res = await fetch('/api/llm/generate-card-stream', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    signal,
+  })
+  if (!res.ok) {
+    const text = await res.text().catch(() => '')
+    throw new Error(`生成失败 HTTP ${res.status}${text ? `：${text.slice(0, 200)}` : ''}`)
+  }
+  if (!res.body) throw new Error('响应无 body')
+
+  for await (const { event, data } of parseSSE(res.body)) {
+    const parsed = data as Record<string, unknown>
+    if (event === 'delta') handlers.onDelta?.(String(parsed.delta ?? ''))
+    else if (event === 'done') {
+      const c = (parsed.card ?? {}) as Partial<GeneratedCard>
+      handlers.onDone?.({
+        name: typeof c.name === 'string' ? c.name : '',
+        aliases: Array.isArray(c.aliases) ? c.aliases.filter((a): a is string => typeof a === 'string') : [],
+        description: typeof c.description === 'string' ? c.description : '',
+        fields: c.fields && typeof c.fields === 'object' ? (c.fields as Record<string, string>) : {},
+        styleNote: typeof c.styleNote === 'string' ? c.styleNote : undefined,
+        styleExamples: Array.isArray(c.styleExamples)
+          ? c.styleExamples.filter((s): s is string => typeof s === 'string')
+          : undefined,
+      })
+    } else if (event === 'error') throw new Error((parsed.message as string) ?? '生成失败')
+  }
+  return { previewBody: body }
 }
 
 /** 把一张卡片序列化为可读文本，供 enrich 模式喂回 LLM。 */

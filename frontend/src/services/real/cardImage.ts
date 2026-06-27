@@ -19,6 +19,8 @@ export interface CardImageParams {
   xaiAspectRatio?: string
   /** xAI 分辨率，如 '2k' */
   xaiResolution?: string
+  /** 参考图（data URL / 图床 URL）：用于角色一致化，按协议走图生图/edits */
+  imageInputs?: string[]
 }
 
 /** 在指定图片节点上生成一张图，resolve 出归档文件 URL。失败 / 中止抛错。 */
@@ -40,6 +42,7 @@ export async function generateOneCardImage(
           ...(params.size ? { size: params.size } : {}),
           ...(params.gptQuality ? { quality: params.gptQuality } : {}),
           ...(params.gptBackground ? { background: params.gptBackground } : {}),
+          ...(params.imageInputs?.length ? { imageInputs: params.imageInputs } : {}),
         },
         { done: ({ image }) => onDone(image) },
         signal,
@@ -53,6 +56,7 @@ export async function generateOneCardImage(
           baseURL: node.baseURL, apiKey: node.apiKey ?? '', model: node.model, prompt,
           ...(params.xaiAspectRatio ? { aspectRatio: params.xaiAspectRatio } : {}),
           ...(params.xaiResolution ? { resolution: params.xaiResolution } : {}),
+          ...(params.imageInputs?.length ? { imageInputs: params.imageInputs } : {}),
         },
         { done: ({ image }) => onDone(image) },
         signal,
@@ -65,6 +69,7 @@ export async function generateOneCardImage(
       {
         baseURL: node.baseURL, apiKey: node.apiKey ?? '', model: node.model, prompt,
         ...(params.size ? { size: params.size } : {}),
+        ...(params.imageInputs?.length ? { imageInputs: params.imageInputs } : {}),
       },
       { done: ({ image }) => onDone(image) },
       signal,

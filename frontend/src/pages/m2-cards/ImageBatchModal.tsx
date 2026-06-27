@@ -2,7 +2,7 @@
 // 步骤 1：文本节点出一组提示词（可编辑）→ 步骤 2：图片节点并发生图 → 队列里看大图/保存/删除/重试。
 // 「保存」=采纳进卡片相册（立即落库）；「删除」=从队列丢弃；关闭时未保存的图自动丢弃（归档文件留盘）。
 import { useMemo, useRef, useState } from 'react'
-import { App, Button, Image, Input, InputNumber, Modal, Select, Space, Spin, Tag, Tooltip, Typography } from 'antd'
+import { App, Button, Image, Input, InputNumber, Modal, Select, Space, Spin, Tag, Tooltip, Typography, Upload } from 'antd'
 import {
   PlusOutlined,
   DeleteOutlined,
@@ -68,6 +68,20 @@ export default function ImageBatchModal({
   const [batchRunning, setBatchRunning] = useState(false)
   const acRef = useRef<AbortController | null>(null)
 
+  // 参考图（角色一致化）：可从本卡相册勾选 + 本地上传，传给生图 imageInputs
+  const albumImages = card.images ?? []
+  const [refImages, setRefImages] = useState<string[]>([])
+  const uploadedRefs = refImages.filter((u) => !albumImages.some((im) => im.url === u))
+  const toggleRef = (url: string) =>
+    setRefImages((arr) => (arr.includes(url) ? arr.filter((u) => u !== url) : [...arr, url]))
+  const handleUploadRef = (file: File) => {
+    const reader = new FileReader()
+    reader.onload = () => setRefImages((arr) => [...arr, reader.result as string])
+    reader.onerror = () => message.error('图片读取失败')
+    reader.readAsDataURL(file)
+    return false // 阻止 antd 自动上传
+  }
+
   const imageNode = providers.find((p) => p.id === imageNodeId)
   const protocol = imageNode?.protocol ?? 'modelscope'
 
@@ -75,6 +89,7 @@ export default function ImageBatchModal({
     size,
     xaiAspectRatio,
     xaiResolution,
+    ...(refImages.length ? { imageInputs: refImages } : {}),
   })
 
   const patchItem = (idx: number, patch: Partial<QItem>) =>
@@ -311,6 +326,51 @@ export default function ImageBatchModal({
           </Button>
         </Space>
 
+        {/* 参考图（角色一致化） */}
+        <div>
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+            参考图（角色一致化，可选；按协议走图生图/edits，GPT 走 /images/edits）：已选 {refImages.length}
+          </Typography.Text>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 6, alignItems: 'center' }}>
+            {albumImages.map((im) => (
+              <div
+                key={im.id}
+                onClick={() => toggleRef(im.url)}
+                title={im.prompt}
+                style={{
+                  cursor: 'pointer',
+                  width: 56,
+                  height: 56,
+                  borderRadius: 6,
+                  overflow: 'hidden',
+                  border: refImages.includes(im.url) ? '2px solid #1677ff' : '1px solid var(--ant-color-border, #d9d9d9)',
+                }}
+              >
+                <img src={im.url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              </div>
+            ))}
+            {uploadedRefs.map((url) => (
+              <div
+                key={url}
+                style={{ position: 'relative', width: 56, height: 56, borderRadius: 6, overflow: 'hidden', border: '2px solid #1677ff' }}
+              >
+                <img src={url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                <Button
+                  size="small"
+                  type="text"
+                  danger
+                  icon={<DeleteOutlined style={{ color: '#fff' }} />}
+                  onClick={() => toggleRef(url)}
+                  style={{ position: 'absolute', top: 0, right: 0, background: 'rgba(0,0,0,0.45)' }}
+                />
+              </div>
+            ))}
+            <Upload accept="image/*" multiple beforeUpload={handleUploadRef} showUploadList={false}>
+              <Button size="small" icon={<PlusOutlined />}>上传</Button>
+            </Upload>
+          </div>
+        </div>
+
         {/* 队列 */}
         <Spin spinning={promptLoading} tip="生成提示词中…">
           {items.length === 0 ? (
@@ -341,7 +401,7 @@ export default function ImageBatchModal({
                     }}
                   >
                     {it.status === 'done' && it.url ? (
-                      <Image src={it.url} width="100%" style={{ objectFit: 'cover' }} />
+                      <Image src={it.url} width="100%" height="100%" style={{ objectFit: 'contain' }} />
                     ) : it.status === 'generating' ? (
                       <Spin />
                     ) : it.status === 'failed' ? (

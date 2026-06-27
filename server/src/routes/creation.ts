@@ -658,6 +658,44 @@ export async function creationRoutes(app: FastifyInstance) {
     }
   })
 
+  // M2 设定卡片 · AI 直接生成（SSE 流式）——支持前端的实时输出+停止
+  app.post('/api/llm/generate-card-stream', async (req, reply) => {
+    const { baseURL, apiKey, model, type, instruction, mode, existingCard } = (req.body ?? {}) as GenerateCardBody
+    if (!baseURL || !model || !type?.trim() || !instruction?.trim()) {
+      reply.status(400).send({ error: '缺少 baseURL / model / type / instruction' })
+      return
+    }
+    const isEnrich = mode === 'enrich' && existingCard?.trim()
+    const userPrompt = [
+      `实体类型（type）：${type.trim()}`,
+      `模式：${isEnrich ? 'enrich（在已有卡片基础上丰富扩写）' : 'create（从零创作）'}`,
+      isEnrich ? `\n【已有卡片内容】\n${existingCard!.trim()}` : '',
+      `\n【用户描述/指令】\n${instruction.trim()}`,
+      '\n请按输出格式生成单个 JSON 对象。',
+    ]
+      .filter(Boolean)
+      .join('\n')
+
+    const { raw, send, ac } = hijackSSE(reply)
+    chatStream(
+      { baseURL, apiKey, model, messages: [{ role: 'system', content: GENERATE_CARD_SYSTEM_PROMPT }, { role: 'user', content: userPrompt }], signal: ac.signal },
+      (delta) => send('delta', { delta }),
+    )
+      .then((full) => {
+        try {
+          const card = JSON.parse(stripJsonFence(full))
+          send('done', { card })
+        } catch (e) {
+          send('error', { message: `生成结果解析失败：${e instanceof Error ? e.message : String(e)}`, raw: full.slice(0, 500) })
+        }
+      })
+      .catch((e: unknown) => {
+        if (ac.signal.aborted) return
+        send('error', { message: e instanceof Error ? e.message : String(e) })
+      })
+      .finally(() => raw.end())
+  })
+
   // M2 设定卡片 · 批量生图提示词生成——非流式 JSON 响应
   app.post('/api/llm/card-image-prompts', async (req, reply) => {
     const { baseURL, apiKey, model, cardDescription, intent, count } = (req.body ?? {}) as CardImagePromptsBody

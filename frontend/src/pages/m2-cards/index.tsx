@@ -32,6 +32,8 @@ import {
   PictureOutlined,
   DeleteOutlined,
   DownloadOutlined,
+  StarOutlined,
+  StarFilled,
 } from '@ant-design/icons'
 import { useAppStore, pushStoreNow } from '../../store/appStore'
 import { extractEntities } from '../../services/api'
@@ -161,6 +163,7 @@ export default function M2CardsPage() {
   const saveEdit = async () => {
     const values = await editForm.validateFields()
     updateCard(detail!.id, {
+      bookId: values.bookId,
       name: values.name,
       aliases: values.aliases,
       description: values.description,
@@ -284,8 +287,8 @@ export default function M2CardsPage() {
                       </Space>
                     }
                     extra={
-                      <Tag color={book?.type === 'project' ? 'blue' : 'default'} style={{ margin: 0 }}>
-                        {book?.title}
+                      <Tag color={book ? (book.type === 'project' ? 'blue' : 'default') : 'gold'} style={{ margin: 0 }}>
+                        {book?.title ?? '素材库'}
                       </Tag>
                     }
                   >
@@ -401,6 +404,7 @@ export default function M2CardsPage() {
             <Button
               onClick={() => {
                 editForm.setFieldsValue({
+                  bookId: detail.bookId,
                   name: detail.name,
                   aliases: detail.aliases,
                   description: detail.description,
@@ -434,8 +438,38 @@ export default function M2CardsPage() {
               ]}
             />
             <div>
-              <Typography.Title level={5}>描述</Typography.Title>
-              <Typography.Paragraph>{detail.description}</Typography.Paragraph>
+              {(() => {
+                const imgs = detail.images ?? []
+                const cover = imgs.find((i) => i.id === detail.coverImageId) ?? imgs[0]
+                return (
+                  <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
+                    <div
+                      style={{
+                        width: 160,
+                        flexShrink: 0,
+                        aspectRatio: '1 / 1',
+                        border: '1px solid var(--ant-color-border, #d9d9d9)',
+                        borderRadius: 8,
+                        overflow: 'hidden',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        background: 'rgba(127,127,127,0.06)',
+                      }}
+                    >
+                      {cover ? (
+                        <Image src={cover.url} width="100%" height="100%" style={{ objectFit: 'contain' }} />
+                      ) : (
+                        <Typography.Text type="secondary" style={{ fontSize: 12 }}>暂无主图</Typography.Text>
+                      )}
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <Typography.Title level={5} style={{ marginTop: 0 }}>描述</Typography.Title>
+                      <Typography.Paragraph>{detail.description}</Typography.Paragraph>
+                    </div>
+                  </div>
+                )
+              })()}
             </div>
             {detail.styleNote && (
               <div>
@@ -493,13 +527,28 @@ export default function M2CardsPage() {
                                     src={im.url}
                                     width="100%"
                                     height={110}
-                                    style={{ objectFit: 'cover', borderRadius: 6 }}
+                                    style={{
+                                      objectFit: 'contain',
+                                      borderRadius: 6,
+                                      ...(im.id === detail.coverImageId ? { outline: '2px solid #faad14', outlineOffset: -2 } : {}),
+                                    }}
                                   />
                                 </Tooltip>
                                 <Space
                                   size={2}
                                   style={{ position: 'absolute', top: 2, right: 2, background: 'rgba(0,0,0,0.45)', borderRadius: 4 }}
                                 >
+                                  <Tooltip title={im.id === detail.coverImageId ? '当前主图' : '设为主图'}>
+                                    <Button
+                                      size="small"
+                                      type="text"
+                                      icon={im.id === detail.coverImageId ? <StarFilled style={{ color: '#faad14' }} /> : <StarOutlined style={{ color: '#fff' }} />}
+                                      onClick={() => {
+                                        updateCard(detail.id, { coverImageId: im.id, updatedAt: new Date().toISOString() })
+                                        pushStoreNow()
+                                      }}
+                                    />
+                                  </Tooltip>
                                   <Tooltip title="下载">
                                     <Button
                                       size="small"
@@ -548,6 +597,14 @@ export default function M2CardsPage() {
         )}
         {detail && editing && (
           <Form form={editForm} layout="vertical">
+            <Form.Item name="bookId" label="归属">
+              <Select
+                options={[
+                  { value: '', label: '素材库（不归属任何书）' },
+                  ...books.map((b) => ({ value: b.id, label: `${b.title}（${b.type === 'project' ? '作品' : '素材'}）` })),
+                ]}
+              />
+            </Form.Item>
             <Form.Item name="name" label="名称" rules={[{ required: true }]}>
               <Input />
             </Form.Item>
