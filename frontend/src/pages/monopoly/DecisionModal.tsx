@@ -13,12 +13,13 @@ function decisionText(d: DecisionRequest): string {
 
 interface Props {
   state: GameState
+  interactive: boolean // AI 的决策由自动循环处理，不向 human 弹窗
   onDecide: (optionId: string) => void
 }
 
-export default function DecisionModal({ state, onDecide }: Props) {
+export default function DecisionModal({ state, interactive, onDecide }: Props) {
   const d = state.awaitingDecision
-  const open = state.turn.phase === 'DECIDE' && !!d
+  const open = state.turn.phase === 'DECIDE' && !!d && interactive
 
   return (
     <Modal

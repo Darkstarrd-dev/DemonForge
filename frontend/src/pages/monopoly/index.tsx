@@ -1,6 +1,7 @@
-import { useReducer } from 'react'
+import { useEffect, useReducer } from 'react'
 import { theme } from 'antd'
 import { createInitialState, reducer, rollDice } from '../../game/monopoly/engine'
+import { aiNextAction } from '../../game/monopoly/ai'
 import { createDefaultBoard } from '../../game/monopoly/board.preset'
 import type { GameState, NewGamePlayerSpec } from '../../game/monopoly/types'
 import Board from './Board'
@@ -14,6 +15,8 @@ const DEFAULT_PLAYERS: NewGamePlayerSpec[] = [
   { name: '绿方', color: '#27AE60', controller: 'ai' },
 ]
 
+const AI_DELAY = 800 // AI 每步延迟（ms），便于观察
+
 function initGame(): GameState {
   return createInitialState({
     board: createDefaultBoard(),
@@ -26,12 +29,24 @@ export default function MonopolyPage() {
   const { token } = theme.useToken()
   const [state, dispatch] = useReducer(reducer, undefined, initGame)
 
+  // AI 自动驾驶：当前为 AI 回合时，延迟后自动执行下一步；轮到 human 则停下等操作。
+  // 每次 state 变化重新评估，形成 human/AI 混合循环。
+  useEffect(() => {
+    const action = aiNextAction(state)
+    if (!action) return
+    const timer = setTimeout(() => dispatch(action), AI_DELAY)
+    return () => clearTimeout(timer)
+  }, [state])
+
   const current = state.players.find((p) => p.id === state.turn.currentPlayerId)
   const onRoll = () => dispatch({ type: 'ROLL_DICE', dice: rollDice() })
   const onEndTurn = () => dispatch({ type: 'END_TURN' })
   const onDecide = (optionId: string) => dispatch({ type: 'RESOLVE_DECISION', optionId })
   const onMortgage = (tileId: number) => dispatch({ type: 'MORTGAGE_PROPERTY', tileId })
   const onRedeem = (tileId: number) => dispatch({ type: 'REDEEM_PROPERTY', tileId })
+
+  // 仅 human 玩家可手动操作；AI 回合交给自动循环
+  const interactive = current?.controller === 'human'
 
   return (
     <div
@@ -60,13 +75,14 @@ export default function MonopolyPage() {
         <GamePanel
           state={state}
           current={current}
+          interactive={interactive}
           onRoll={onRoll}
           onEndTurn={onEndTurn}
           onMortgage={onMortgage}
           onRedeem={onRedeem}
         />
       </div>
-      <DecisionModal state={state} onDecide={onDecide} />
+      <DecisionModal state={state} interactive={interactive} onDecide={onDecide} />
     </div>
   )
 }

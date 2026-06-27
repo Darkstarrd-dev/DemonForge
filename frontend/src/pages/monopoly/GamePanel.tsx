@@ -4,6 +4,7 @@ import type { GameState, Player } from '../../game/monopoly/types'
 interface Props {
   state: GameState
   current?: Player
+  interactive: boolean // 仅 human 回合可手动操作；AI 回合交给自动循环
   onRoll: () => void
   onEndTurn: () => void
   onMortgage: (tileId: number) => void
@@ -13,6 +14,7 @@ interface Props {
 export default function GamePanel({
   state,
   current,
+  interactive,
   onRoll,
   onEndTurn,
   onMortgage,
@@ -57,6 +59,9 @@ export default function GamePanel({
               <span style={{ fontWeight: 600, fontSize: 16, color: token.colorText }}>
                 {current?.name ?? '-'}
               </span>
+              <span style={{ fontSize: 11, color: token.colorTextSecondary }}>
+                {current?.controller === 'human' ? '玩家' : 'AI'}
+              </span>
             </>
           )}
         </div>
@@ -99,22 +104,22 @@ export default function GamePanel({
           <div style={{ fontSize: 13, color: token.colorTextSecondary }}>合计 {dice[0] + dice[1]} 点</div>
         )}
 
-        {!ended && phase === 'ROLL' && (
+        {ended ? null : !interactive ? (
+          <div style={{ fontSize: 13, color: token.colorTextSecondary }}>🤖 AI 行动中…</div>
+        ) : phase === 'ROLL' ? (
           <Button type="primary" block onClick={onRoll}>
             {inHospital ? '住院中 · 跳过回合' : '掷骰子'}
           </Button>
-        )}
-        {!ended && phase === 'DECIDE' && (
+        ) : phase === 'DECIDE' ? (
           <div style={{ fontSize: 13, color: token.colorTextSecondary }}>请在弹窗中做出选择…</div>
-        )}
-        {!ended && phase === 'END_TURN' && (
+        ) : (
           <Button block onClick={onEndTurn}>
             结束回合
           </Button>
         )}
       </div>
 
-      {/* 我的地产（抵押 / 赎回） */}
+      {/* 我的地产（抵押 / 赎回，仅 human 回合可操作） */}
       {myTiles.length > 0 && (
         <div
           style={{
@@ -150,11 +155,11 @@ export default function GamePanel({
                   </span>
                 </div>
                 {prop.mortgaged ? (
-                  <Button size="small" disabled={ended} onClick={() => onRedeem(tid)}>
+                  <Button size="small" disabled={ended || !interactive} onClick={() => onRedeem(tid)}>
                     赎回
                   </Button>
                 ) : (
-                  <Button size="small" disabled={ended} onClick={() => onMortgage(tid)}>
+                  <Button size="small" disabled={ended || !interactive} onClick={() => onMortgage(tid)}>
                     抵押
                   </Button>
                 )}
