@@ -204,6 +204,7 @@ export default function M2CardsPage() {
       const blob = await (await fetch(url)).blob()
       const a = document.createElement('a')
       a.href = URL.createObjectURL(blob)
+      // eslint-disable-next-line react-hooks/purity -- 下载处理器内生成文件名兜底，非渲染期
       a.download = decodeURIComponent(url.split('/').pop() || `image-${Date.now()}`)
       a.click()
       URL.revokeObjectURL(a.href)

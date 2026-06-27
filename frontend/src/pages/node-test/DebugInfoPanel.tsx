@@ -121,7 +121,7 @@ export default function DebugInfoPanel({ data, onClose }: Props) {
           size="small"
           type="text"
           icon={allChunksExpanded ? <CompressOutlined /> : <ExpandAltOutlined />}
-          onClick={(e) => { e.stopPropagation(); allChunksExpanded ? collapseAllChunks() : expandAllChunks() }}
+          onClick={(e) => { e.stopPropagation(); if (allChunksExpanded) collapseAllChunks(); else expandAllChunks() }}
         />
       </Space>
     ) : undefined,

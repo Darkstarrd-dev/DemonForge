@@ -114,13 +114,17 @@ export default function Step4Review() {
 
   // 切换章节时重置修改行索引
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 切换章节时复位修改行索引
     setCurrentDiffRowIdx(0)
   }, [selectedId])
 
   // 获取当前章节内的所有修改行索引
+  /* eslint-disable react-hooks/refs -- DiffView 命令式暴露修改行索引；memo 内读取 ref 为有意为之 */
   const currentChapterDiffRows = useMemo(() => {
     return diffViewRef.current?.getDiffRowIndices() ?? []
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 依赖正文/清理后文本变化触发重算
   }, [current?.content, current?.cleanedContent])
+  /* eslint-enable react-hooks/refs */
 
   const jumpToPrevDiff = () => {
     const diffRows = diffViewRef.current?.getDiffRowIndices() ?? []

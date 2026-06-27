@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { Button, Input, Slider, Space, Typography, message } from 'antd'
 import { CloseOutlined, CheckOutlined } from '@ant-design/icons'
+import { type Layer } from './LayerEditor'
 
 const { Text } = Typography
 
@@ -15,7 +16,7 @@ interface Slice {
   id: number
   canvas: HTMLCanvasElement
   delay: number
-  layers: any[]
+  layers: Layer[]
 }
 
 interface GlobalCropPanelProps {
@@ -41,18 +42,23 @@ export default function GlobalCropPanel({ slices, onApplyCrop, onCancel }: Globa
   useEffect(() => {
     if (previewSlice) {
       // Initialize crop rect to full image
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- 新图载入时一次性初始化裁剪框
       setCropRect({
         x: 0,
         y: 0,
         w: previewSlice.canvas.width,
         h: previewSlice.canvas.height
       })
+      // eslint-disable-next-line react-hooks/immutability -- resetView 为组件内稳定闭包，effect 运行期已声明
       resetView()
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 仅在 previewSlice 变化时复位，不依赖 resetView 标识
   }, [previewSlice])
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/immutability -- draw 为组件内稳定闭包，effect 运行期已声明
     draw()
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 仅在裁剪框/预览帧变化时重绘
   }, [cropRect, previewSlice])
 
   const draw = () => {

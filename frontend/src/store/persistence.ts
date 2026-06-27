@@ -57,7 +57,7 @@ export const pushStore = (payload: Record<string, unknown>) => {
     }
   } catch (err) {
     console.error('[pushStore] JSON.stringify 失败:', err)
-    throw new Error(`序列化数据失败：${err instanceof Error ? err.message : String(err)}`)
+    throw new Error(`序列化数据失败：${err instanceof Error ? err.message : String(err)}`, { cause: err })
   }
 
   return enqueueWrite(() =>
@@ -130,11 +130,11 @@ export async function pushStoreNowChecked(): Promise<void> {
     // 网络错误、超时、序列化失败等
     if (err instanceof Error) {
       if (err.name === 'AbortError') {
-        throw new Error('请求超时（超过 60 秒），数据量可能过大。建议分批入库或清理旧数据。')
+        throw new Error('请求超时（超过 60 秒），数据量可能过大。建议分批入库或清理旧数据。', { cause: err })
       }
-      throw new Error(`网络请求失败：${err.message}`)
+      throw new Error(`网络请求失败：${err.message}`, { cause: err })
     }
-    throw new Error(`未知错误：${String(err)}`)
+    throw new Error(`未知错误：${String(err)}`, { cause: err })
   }
 
   if (!res.ok) {

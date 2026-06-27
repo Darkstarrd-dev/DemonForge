@@ -1,6 +1,10 @@
-import { Button, Card, Input, Segmented, Select, Space, Table, Tag, Typography } from 'antd'
+import { Button, Card, Input, Segmented, Select, Space, Table, Tag, Typography, theme } from 'antd'
+import type { TableColumnsType } from 'antd'
 import { DownOutlined, UpOutlined } from '@ant-design/icons'
 import type { ModuleKey, ProviderNode, ProviderNodeType } from '../../../services/types'
+import type { AppState } from '../../../store/types'
+
+type ModuleRow = { key: ModuleKey; label: string; nodeId: string | null; model?: string }
 
 export default function NodesTabContent(props: {
   nodeTypeFilter: ProviderNodeType
@@ -11,11 +15,11 @@ export default function NodesTabContent(props: {
   groupedProviders: Record<string, { baseURL: string; groupName: string; nodes: ProviderNode[] }>
   nodeGroupExpanded: Record<string, boolean>
   toggleGroup: (key: string) => void
-  columns: any[]
+  columns: TableColumnsType<ProviderNode>
   providers: ProviderNode[]
-  moduleMapping: Record<string, any>
+  moduleMapping: AppState['moduleMapping']
   MODULE_LABELS: Record<ModuleKey, string>
-  setState: any
+  setState: AppState['setState']
   draftPrompt: string
   setDraftPrompt: (v: string) => void
   loadingPrompt: boolean
@@ -25,7 +29,7 @@ export default function NodesTabContent(props: {
   draftTestText: string
   setDraftTestText: (v: string) => void
   m1TestText: string
-  token: any
+  token: ReturnType<typeof theme.useToken>['token']
 }) {
   return (
     <div style={{ padding: '24px', height: 'calc(100vh - 46px)', overflow: 'auto' }}>
@@ -114,7 +118,7 @@ export default function NodesTabContent(props: {
                   title: '节点（模型随节点配置）',
                   dataIndex: 'nodeId',
                   width: 300,
-                  render: (v: string | null, row: { key: ModuleKey }) => (
+                  render: (v: string | null, row: ModuleRow) => (
                     <Select
                       style={{ minWidth: 200, width: '100%' }}
                       value={v ?? undefined}
@@ -137,7 +141,7 @@ export default function NodesTabContent(props: {
                   title: '将使用模型',
                   key: 'model',
                   width: 200,
-                  render: (_: unknown, row: any) => {
+                  render: (_: unknown, row: ModuleRow) => {
                     const node = props.providers.find((p) => p.id === row.nodeId)
                     return node?.model ? <Tag>{node.model}</Tag> : <Typography.Text type="secondary">—</Typography.Text>
                   },

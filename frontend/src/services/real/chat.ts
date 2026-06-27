@@ -39,7 +39,9 @@ export async function streamChat(
   events: ChatEvents,
   signal?: AbortSignal,
 ): Promise<void> {
-  const body: any = {
+  const body: Pick<ChatParams, 'baseURL' | 'apiKey' | 'model' | 'messages'> & {
+    temperature?: number; top_p?: number; max_tokens?: number; includeRaw?: boolean
+  } = {
     baseURL: params.baseURL,
     apiKey: params.apiKey,
     model: params.model,

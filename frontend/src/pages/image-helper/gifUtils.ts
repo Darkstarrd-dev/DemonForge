@@ -62,8 +62,8 @@ export async function parseGifFile(file: File): Promise<GifFrame[]> {
         }
 
         resolve(frames)
-      } catch (err: any) {
-        reject(new Error('GIF 解析失败: ' + err.message))
+      } catch (err) {
+        reject(new Error('GIF 解析失败: ' + (err instanceof Error ? err.message : String(err)), { cause: err }))
       }
     }
     reader.onerror = () => reject(new Error('文件读取失败'))
@@ -80,7 +80,7 @@ export async function exportGif(
   transparent: boolean,
   onProgress?: (progress: number) => void
 ): Promise<Blob> {
-  return new Promise((resolve, _reject) => {
+  return new Promise((resolve) => {
     // Create worker blob inline to avoid path issues
     const workerBlob = new Blob(
       [`importScripts('https://cdnjs.cloudflare.com/ajax/libs/gif.js/0.2.0/gif.worker.js');`],
@@ -88,7 +88,10 @@ export async function exportGif(
     )
     const workerUrl = URL.createObjectURL(workerBlob)
 
-    const gifOptions: any = {
+    const gifOptions: {
+      workers: number; quality: number; width: number; height: number
+      workerScript: string; transparent?: number
+    } = {
       workers: 4,
       quality: quality,
       width: width,

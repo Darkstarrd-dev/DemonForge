@@ -1,6 +1,6 @@
 // 在 Electron 生产模式下，将 /api/ 请求重定向到后端服务器 (127.0.0.1:8787)
 // 开发模式下 Vite proxy 自动转发，此处无需干预
-if (typeof window !== 'undefined' && (window as any).electronAPI) {
+if (typeof window !== 'undefined' && (window as Window & { electronAPI?: unknown }).electronAPI) {
   const _fetch = window.fetch.bind(window)
   window.fetch = (input: RequestInfo | URL, init?: RequestInit) => {
     if (typeof input === 'string' && input.startsWith('/api/')) {
@@ -46,6 +46,7 @@ const RoleChatPage = lazy(() => import('./pages/role-chat'))
 const SettingsPage = lazy(() => import('./pages/settings'))
 
 // 主题包装组件
+// eslint-disable-next-line react-refresh/only-export-components
 function AppWithTheme() {
   const theme = useAppStore((s) => s.theme)
 

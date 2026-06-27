@@ -93,6 +93,7 @@ export default function NodeTestPage() {
 
   // 从 AppLayout 常驻侧栏切换/新建 session 时：同步测试模式并回到对话视图
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 侧栏切换会话时同步回到对话视图
     setMainView('chat')
     if (!activeChatSessionId) return
     const s = useAppStore.getState().chatSessions.find((c) => c.id === activeChatSessionId)
@@ -143,7 +144,7 @@ export default function NodeTestPage() {
       setTestMode(currentNodeType === 'image' ? 'image' : 'text')
       setActiveChatSessionId(null)
     }
-  }, [selectedNode, inf.chatMessages.length, availableNodes, nodeTestGlobalForm, setState])
+  }, [selectedNode, inf.chatMessages.length, availableNodes, nodeTestGlobalForm, setState, setActiveChatSessionId])
 
   // 粘贴图片监听（图生图或多模态时启用）
   useEffect(() => {

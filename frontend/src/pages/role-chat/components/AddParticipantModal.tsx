@@ -54,11 +54,13 @@ export default function AddParticipantModal({ open, mode, onClose, onAdd }: Prop
   // 重置状态
   useEffect(() => {
     if (open) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- 弹窗打开时一次性重置选择项
       setSelectedCardId(undefined)
       setSelectedNodeId(textNodes[0]?.id)
       setSearchText('')
       setSelectedAgentName(undefined)
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- textNodes 每渲染重算，不应入依赖；仅按 open/mode 触发
   }, [open, mode])
 
   // 加载 Opencode Agent 列表

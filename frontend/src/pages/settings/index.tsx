@@ -569,6 +569,15 @@ export default function SettingsPage() {
       const patch: Record<string, unknown> = {}
       const s = bundle.settings
       const currentState = useAppStore.getState()
+      // 旧版/兼容字段不在 settings 类型上，集中以一个宽松视图读取（取代散落的 as any）
+      const legacy = s as {
+        nodeTestGlobalForm?: unknown
+        imageDemoGlobalForm?: unknown
+        nodeTestFormPerNode?: typeof currentState.nodeTestFormPerNode
+        imageDemoFormPerNode?: typeof currentState.nodeTestFormPerNode
+        imageDemoForm?: Record<string, unknown>
+        theme?: typeof currentState.theme
+      }
 
       // providers：仅添加当前不存在的节点（按 baseURL+model 判定重复）
       if (Array.isArray(s.providers)) {
@@ -617,13 +626,13 @@ export default function SettingsPage() {
       }
 
       // nodeTestGlobalForm：仅当当前未配置节点时导入
-      const importGlobal = (s as any).nodeTestGlobalForm || (s as any).imageDemoGlobalForm
+      const importGlobal = legacy.nodeTestGlobalForm || legacy.imageDemoGlobalForm
       if (importGlobal && !currentState.nodeTestGlobalForm.nodeId) {
         patch.nodeTestGlobalForm = importGlobal
       }
 
       // nodeTestFormPerNode：仅添加当前不存在的节点表单
-      const importPerNode = (s as any).nodeTestFormPerNode || (s as any).imageDemoFormPerNode
+      const importPerNode = legacy.nodeTestFormPerNode || legacy.imageDemoFormPerNode
       if (importPerNode && typeof importPerNode === 'object') {
         const merged = { ...currentState.nodeTestFormPerNode }
         let hasNew = false
@@ -637,13 +646,13 @@ export default function SettingsPage() {
       }
 
       // 旧格式迁移（仅当当前完全没配置时）
-      if ((s as any).imageDemoForm && !(s as any).nodeTestFormPerNode && !(s as any).imageDemoFormPerNode) {
+      if (legacy.imageDemoForm && !legacy.nodeTestFormPerNode && !legacy.imageDemoFormPerNode) {
         if (!currentState.nodeTestGlobalForm.nodeId) {
-          const rawForm = (s as any).imageDemoForm as any
+          const rawForm = legacy.imageDemoForm as Record<string, unknown>
           const { nodeId, provider, ...params } = rawForm
           patch.nodeTestGlobalForm = { provider: (provider as string) || 'modelscope', nodeId: nodeId as string | undefined }
-          if (nodeId && !currentState.nodeTestFormPerNode[nodeId]) {
-            patch.nodeTestFormPerNode = { ...currentState.nodeTestFormPerNode, [nodeId]: params }
+          if (nodeId && !currentState.nodeTestFormPerNode[nodeId as string]) {
+            patch.nodeTestFormPerNode = { ...currentState.nodeTestFormPerNode, [nodeId as string]: params }
           }
         }
       }
@@ -668,8 +677,8 @@ export default function SettingsPage() {
       if (typeof s.m1AutoRetry === 'boolean' && currentState.m1AutoRetry === true) {
         patch.m1AutoRetry = s.m1AutoRetry
       }
-      if ((s as any).theme && currentState.theme === 'light') {
-        patch.theme = (s as any).theme
+      if (legacy.theme && currentState.theme === 'light') {
+        patch.theme = legacy.theme
       }
 
       useAppStore.setState(patch)

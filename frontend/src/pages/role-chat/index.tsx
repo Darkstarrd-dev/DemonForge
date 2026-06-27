@@ -343,7 +343,7 @@ export default function RoleChatPage() {
           )
           await new Promise((resolve) => setTimeout(resolve, Math.max(0, cooldown)))
         }
-      } catch (e) {
+      } catch {
         // 错误已在 respondLocal/respondOpencode 中处理
         await new Promise((resolve) => setTimeout(resolve, 500))
       }

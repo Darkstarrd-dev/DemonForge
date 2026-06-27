@@ -1,15 +1,18 @@
 import { Alert, Button, Card, Checkbox, Modal, Space, Typography, Upload } from 'antd'
 import { CloudDownloadOutlined, DownloadOutlined, UploadOutlined } from '@ant-design/icons'
+import type { BackupBundle } from '../../../utils/backup'
+
+type ImportPreview = { bundle: BackupBundle; warnings: string[]; filename: string }
 
 export default function BackupTabContent(props: {
   exportRedact: boolean
   setExportRedact: (v: boolean) => void
   handleExport: (kind: 'settings' | 'full') => void
   handleImportFile: (file: File) => Promise<boolean>
-  importPreview: any
-  setImportPreview: (v: any) => void
-  confirmImportSettings: (bundle: any, replaceBusiness: boolean) => void
-  clearBusinessThenImport: (bundle: any) => void
+  importPreview: ImportPreview | null
+  setImportPreview: (v: ImportPreview | null) => void
+  confirmImportSettings: (bundle: BackupBundle, replaceBusiness: boolean) => void
+  clearBusinessThenImport: (bundle: BackupBundle) => void
   importBusy: boolean
 }) {
   return (
@@ -48,7 +51,7 @@ export default function BackupTabContent(props: {
                   key="import"
                   type="primary"
                   loading={props.importBusy}
-                  onClick={() => props.confirmImportSettings(props.importPreview.bundle, props.importPreview.bundle.kind === 'full')}
+                  onClick={() => props.confirmImportSettings(props.importPreview!.bundle, props.importPreview!.bundle.kind === 'full')}
                 >
                   确认导入
                 </Button>,
@@ -57,7 +60,7 @@ export default function BackupTabContent(props: {
                     key="clear"
                     danger
                     loading={props.importBusy}
-                    onClick={() => props.clearBusinessThenImport(props.importPreview.bundle)}
+                    onClick={() => props.clearBusinessThenImport(props.importPreview!.bundle)}
                   >
                     清空并导入
                   </Button>

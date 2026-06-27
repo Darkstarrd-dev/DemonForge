@@ -2,7 +2,7 @@
 
 **最后更新**：2026-06-27
 **当前位置**：办公场所 A
-**本轮主题**：质量审计 A 系列收尾（A-5~A-9 已毕并提交；本轮 **A-10 主题色收敛** 完成 + **A-11 won't-fix**，A-1~A-11 全部收口）
+**本轮主题**：**前端 lint 清零**（`eslint-plugin-react-hooks@7` 升级后 92 error/7 warning → 0/0）；质量审计 A-1~A-11 已全部收口
 
 > 📦 **历史明细已归档** → `docs/handoff_history.md`
 > 本文件只保留「恢复工作所需的活内容」：进行中任务、模块清单、下一步、交接参考。
@@ -26,16 +26,16 @@
 | A-8 node-test 浅拆 | ✅ | `d764b55` |
 | A-8 node-test 深度拆分 | ✅ | `645c495` |
 | A-9 服务层 mock 收口 | ✅ | `8bb288c` |
-| **A-10 主题色收敛** | ✅ **待提交** | — |
+| **A-10 主题色收敛** | ✅ | `fbf6a48` |
 | **A-11 生图 client 抽接口** | ⊘ won't-fix | — |
 
-**本轮 A-10 主题色收敛（待提交）**：
+**本轮 A-10 主题色收敛（已提交 `fbf6a48`）**：
 - 甄别后只改真问题（audit 旧述「dark? 三元到处」已不符——主题切换早已改 CSS 变量+`[data-theme]`，三元零匹配；63 处颜色字面量 ~53 处合理不动）：
   - **ErrorBoundary**：① 文字 `rgba(0,0,0,.65/.45)`→`Typography.Text type=secondary`（深色可读）；② `location.assign('/')`→`location.hash='#/'`（修 HashRouter + Electron file:// 白屏）；+ 护网 `ErrorBoundary.test.tsx`（3 用例）。
   - **AppLayout**：9 处 `theme==='dark'?…:…` 颜色三元 → `index.css` 的 `--app-sider-bg/text/border`（light 默认 + `[data-theme=dark]` 覆盖，逐值等价、视觉不变），保留 Sider/Menu 的 antd `theme` prop。
 - **A-11 与用户确认 won't-fix**：三套生图 client 协议本质不同 + 文件头标注「完全独立」有意设计，真重复仅 3 个工具函数（normalizeBase/authHeaders/stripImagePayload），强抽统一接口属过度抽象。
 - 验收：`tsc -b` 0 + `vite build` 成功 + `vitest run` **55 绿**（52 旧 + 3 新）。
-- ⚠️ **git 由用户手动**。建议 commit：`refactor(theme): ErrorBoundary 修 2 bug + AppLayout 主题三元收敛 CSS 变量（A-10）`；提交后回填 SHA 到 audit-01.md A-10 行 + 本表。另：**A-8(`645c495`)/A-9(`8bb288c`) 此前已提交，本次已把进度表 commit 列与 audit-01 回填到位**。
+- ✅ **已提交并推送**：`fbf6a48`（main，7 文件：A-10 五件 + HANDOFF + handoff_history）。audit-01 与本表 A-10 SHA 已回填；并补回填 audit A-8 行（`645c495`）。那批 lint/消除 any 改动属另一批独立工作，已于本轮单独提交（见下「近期修复」）。
 
 ### 下次对话起步建议
 1. **质量审计 A-1~A-11 全部收口**（A-10 已做、A-11 won't-fix）。代码重构线告一段落。
@@ -87,6 +87,7 @@
 - [x] **对话记录删除"重启复活"根因修复**：`@fastify/cors` 默认 methods 不含 DELETE → Electron 跨域预检拦截 DELETE。修复 4 处（CORS methods 显式列 DELETE + keepalive + pushDeleteNow 不静默吞错 + origin 函数式白名单放行 file://）。✅ 已实证。
 - [x] **书库概览导入文件模式竞态修复**：DELETE/GET 并发无序 + 恢复 useEffect 无条件覆盖。方案 A（navigate state.fresh 区分意图 + guard）。✅ 已测试。
 - [x] **既存 TS 错误清零**：m2-cards stage 旧枚举 + appStore enqueueWrite 返回类型。✅ tsc EXIT 0。
+- [x] **前端 lint 清零**（`eslint-plugin-react-hooks@7` 升级后新增 react-compiler 规则集）：92 error + 7 warning → **0/0**，跨 23 文件。机械类正确修复——39 `no-explicit-any` 按真实形态补类型（`Pick<ChatParams>` / `AppState['setState']` / `ReturnType<typeof theme.useToken>` / `TableColumnsType` / `ChatPart` 联合 / `ModuleRow` / settings 恢复函数收敛为一个 `legacy` 视图；仅 Phaser Matter 因类型定义缺失保留 `any`+注释禁用）；7 `preserve-caught-error` 补 `{ cause }`；25 `no-irregular-whitespace` 实为 `m1TestText` 样本的中文全角空格缩进（有意数据，块级 disable 圈住未改）；prefer-const / no-unused / react-refresh 直接修。react-compiler 严格规则（set-state-in-effect / purity / immutability / refs）**务实混合**：2 处真修（流式气泡 `Date.now`→`startedAt`、effect 补稳定 dep），其余画布重绘 / prop 变化复位 / 事件处理器生成 id 加注释 `eslint-disable` 并写明理由。验收 `eslint .` 0 + `tsc -b` 0 + `vitest` **55 绿**。
 
 ### 🚧 待完善
 

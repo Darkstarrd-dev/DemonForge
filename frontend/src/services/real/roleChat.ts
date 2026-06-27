@@ -12,7 +12,7 @@ export async function listOpencodeAgents(baseURL: string): Promise<OpencodeAgent
     const data = (await res.json()) as { name: string; description?: string }[]
     return Array.isArray(data) ? data : []
   } catch (e) {
-    throw new Error(`无法连接到 Opencode Server: ${e instanceof Error ? e.message : String(e)}`)
+    throw new Error(`无法连接到 Opencode Server: ${e instanceof Error ? e.message : String(e)}`, { cause: e })
   }
 }
 
@@ -33,7 +33,7 @@ export async function createOpencodeSession(
     if (!sessionID) throw new Error('Opencode Server 未返回有效的 sessionID')
     return { sessionID, agentName }
   } catch (e) {
-    throw new Error(`创建 Opencode 会话失败: ${e instanceof Error ? e.message : String(e)}`)
+    throw new Error(`创建 Opencode 会话失败: ${e instanceof Error ? e.message : String(e)}`, { cause: e })
   }
 }
 
@@ -60,7 +60,7 @@ export async function sendOpencodeMessage(
     const textParts = (data.parts ?? []).filter((p) => p.type === 'text' && p.text).map((p) => p.text!)
     return textParts.join('\n')
   } catch (e) {
-    throw new Error(`Opencode 消息发送失败: ${e instanceof Error ? e.message : String(e)}`)
+    throw new Error(`Opencode 消息发送失败: ${e instanceof Error ? e.message : String(e)}`, { cause: e })
   }
 }
 

@@ -58,7 +58,9 @@ export default function ImageHelperPage() {
   const [previewUrl, setPreviewUrl] = useState('')
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/immutability -- draw 为组件内稳定闭包，effect 运行期已声明
     draw()
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 仅在以下绘制相关状态变化时重绘
   }, [slices, selectedSliceIdx, mode, cropT, cropB, cropL, cropR, rows, cols, processedImg, enableTrans, keyColor, fuzziness])
 
   const draw = () => {
@@ -116,8 +118,8 @@ export default function ImageHelperPage() {
         s.layers.forEach((l) => {
           ctx.save()
           if (l.type === 'text') {
-            let fontStyle = l.italic ? 'italic' : 'normal'
-            let fontWeight = l.bold ? 'bold' : 'normal'
+            const fontStyle = l.italic ? 'italic' : 'normal'
+            const fontWeight = l.bold ? 'bold' : 'normal'
             ctx.font = `${fontStyle} ${fontWeight} ${l.size}px sans-serif`
             ctx.fillStyle = l.color || '#ffffff'
             ctx.textBaseline = 'top'
@@ -188,9 +190,9 @@ export default function ImageHelperPage() {
         }
 
         message.success(`成功加载 ${frames.length} 帧 GIF`)
-      } catch (err: any) {
+      } catch (err) {
         message.destroy()
-        message.error(err.message || 'GIF 解析失败')
+        message.error((err instanceof Error ? err.message : '') || 'GIF 解析失败')
       }
       return
     }
@@ -274,6 +276,7 @@ export default function ImageHelperPage() {
     const ctx = nc.getContext('2d')
     if (ctx) ctx.drawImage(src.canvas, 0, 0)
     const newSlice: Slice = {
+      // eslint-disable-next-line react-hooks/purity -- 事件处理器内生成唯一 id（复制切片），非渲染期
       id: Date.now() + Math.random(),
       canvas: nc,
       delay: src.delay,
@@ -331,8 +334,8 @@ export default function ImageHelperPage() {
       link.click()
 
       message.success('Sprite Sheet 导出成功')
-    } catch (err: any) {
-      message.error('导出失败: ' + err.message)
+    } catch (err) {
+      message.error('导出失败: ' + (err instanceof Error ? err.message : String(err)))
     }
   }
 
@@ -390,9 +393,9 @@ export default function ImageHelperPage() {
       setPreviewModalVisible(true)
       setIsExporting(false)
       message.success('GIF 生成成功')
-    } catch (err: any) {
+    } catch (err) {
       setIsExporting(false)
-      message.error('GIF 导出失败: ' + err.message)
+      message.error('GIF 导出失败: ' + (err instanceof Error ? err.message : String(err)))
     }
   }
 
@@ -451,9 +454,9 @@ export default function ImageHelperPage() {
 
       setIsExporting(false)
       message.success('ZIP 导出成功')
-    } catch (err: any) {
+    } catch (err) {
       setIsExporting(false)
-      message.error('ZIP 导出失败: ' + err.message)
+      message.error('ZIP 导出失败: ' + (err instanceof Error ? err.message : String(err)))
     }
   }
 

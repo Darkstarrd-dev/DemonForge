@@ -60,6 +60,7 @@ export default function LayerEditor({
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 帧数变化时复位区间终点
     setRangeEnd(totalFrames - 1)
   }, [totalFrames])
 
@@ -127,6 +128,7 @@ export default function LayerEditor({
   const duplicateLayer = (layer: Layer) => {
     const newLayer: Layer = {
       ...layer,
+      // eslint-disable-next-line react-hooks/purity -- 事件处理器内生成唯一 id（复制图层），非渲染期
       id: Date.now(),
       x: layer.x + 10,
       y: layer.y + 10,

@@ -1,8 +1,9 @@
 import { App, Button, Card, Segmented, Space, Switch, Typography } from 'antd'
+import type { AppState } from '../../../store/types'
 
 export default function GeneralTabContent(props: {
   theme: 'light' | 'dark'
-  setState: any
+  setState: AppState['setState']
   showMenuBar: boolean
   pushSettingsNow: () => void
   enable4KScale: boolean
@@ -20,7 +21,7 @@ export default function GeneralTabContent(props: {
                 <div style={{ marginTop: 8 }}>
                   <Segmented
                     value={props.theme}
-                    onChange={(v) => props.setState({ theme: v })}
+                    onChange={(v) => props.setState({ theme: v as 'light' | 'dark' })}
                     options={[
                       { value: 'light', label: '🌞 浅色' },
                       { value: 'dark', label: '🌙 深色' },

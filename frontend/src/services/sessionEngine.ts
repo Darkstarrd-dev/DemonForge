@@ -143,11 +143,12 @@ export function sendInSession(args: SendArgs): void {
 
   // ===== 文本 / 多模态推理 =====
   if (testMode === 'text') {
-    const messages: any[] = []
+    type ChatPart = { type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } }
+    const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string | ChatPart[] }> = []
     if (systemPrompt && systemPrompt.trim()) messages.push({ role: 'system', content: systemPrompt.trim() })
     for (const m of history) {
       if (m.role === 'user' && m.images && m.images.length > 0) {
-        const content: any[] = [{ type: 'text', text: m.content }]
+        const content: ChatPart[] = [{ type: 'text', text: m.content }]
         m.images.forEach((url) => content.push({ type: 'image_url', image_url: { url } }))
         messages.push({ role: m.role, content })
       } else {
@@ -155,7 +156,7 @@ export function sendInSession(args: SendArgs): void {
       }
     }
     if (isMultimodal && imageInputs.length > 0) {
-      const content: any[] = [{ type: 'text', text: userText }]
+      const content: ChatPart[] = [{ type: 'text', text: userText }]
       imageInputs.forEach((url) => content.push({ type: 'image_url', image_url: { url } }))
       messages.push({ role: 'user', content })
     } else {

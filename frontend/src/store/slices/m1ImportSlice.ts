@@ -19,6 +19,7 @@ export const createM1ImportSlice: StateCreator<AppState, [], [], M1ImportSlice> 
   cleanNodeOverrides: {} as AppState['cleanNodeOverrides'],
   m1AutoRetry: true,
   m1TitleTemplate: '第{0n}章 {title}',
+  /* eslint-disable no-irregular-whitespace -- 测试样本为真实小说文本，段首使用中文全角空格（U+3000）缩进，属有意数据 */
   m1TestText: `[爱心]第1章
 
 　　中少女穿着巫女服，深棕色的长发，编成发辫垂在胸前，额头上沁出细密的汗珠。
@@ -59,6 +60,7 @@ export const createM1ImportSlice: StateCreator<AppState, [], [], M1ImportSlice> 
 （中转群371729119）
 （ 备用2群893964460）
 以上群号搜不到可以加qq264235286`,
+  /* eslint-enable no-irregular-whitespace */
   cleanRun: null,
 
   setCleanRun: (patch) =>

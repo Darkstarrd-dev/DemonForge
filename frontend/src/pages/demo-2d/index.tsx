@@ -15,6 +15,7 @@ const REPEL_FORCE_SCALE = 0.01 // 力缩放（Matter 力单位，约重力 gravi
 
 class PhysicsScene extends Phaser.Scene {
   // 原生 Matter 库（Phaser 类型定义未声明 Query/Constraint/Body 等，运行时存在，故 any）
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private M: any = (Phaser.Physics.Matter as any).Matter
   private dragConstraint: MatterJS.ConstraintType | null = null
   private charging = false
@@ -251,7 +252,6 @@ export default function Demo2DPage() {
       cancelAnimationFrame(timer)
       destroyGame()
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [demoType])
 
   const onStrengthChange = (v: number) => {

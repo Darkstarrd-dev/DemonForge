@@ -102,7 +102,7 @@ export function useInferenceSession(args: InferenceSessionArgs) {
         role: 'assistant',
         content: activeRuntime.streamingText,
         reasoning: activeRuntime.streamingReasoning || undefined,
-        timestamp: Date.now(),
+        timestamp: activeRuntime?.startedAt ?? 0,
         nodeId: activeSession?.nodeId,
         modelName: activeSession?.modelName,
       })
@@ -113,6 +113,7 @@ export function useInferenceSession(args: InferenceSessionArgs) {
   // 生成计时：busy 时按 startedAt 每秒派生 elapsed（替代每 session 独立计时器）
   const [elapsed, setElapsed] = useState(0)
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- busy 状态切换时一次性复位计时
     if (!busy || !activeRuntime?.startedAt) { setElapsed(0); return }
     const base = activeRuntime.startedAt
     const tick = () => setElapsed(Math.max(0, Math.floor((Date.now() - base) / 1000)))
@@ -304,7 +305,7 @@ export function useInferenceSession(args: InferenceSessionArgs) {
     const allMessages = [...newMessages, triggerUser, assistantMsg]
     setter(allMessages)
 
-    const apiMessages: any[] = []
+    const apiMessages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = []
     if (activeSystemPrompt.trim()) apiMessages.push({ role: 'system', content: activeSystemPrompt.trim() })
     newMessages.forEach((m) => { apiMessages.push({ role: m.role, content: m.content }) })
     apiMessages.push({ role: 'user', content: triggerUser.content })
@@ -444,7 +445,7 @@ export function useInferenceSession(args: InferenceSessionArgs) {
       setChatMessagesRight(prev => [...prev, userMsg, assistantMsg])
     }
 
-    const messages: any[] = []
+    const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = []
     if (activeSystemPrompt.trim()) {
       messages.push({ role: 'system', content: activeSystemPrompt.trim() })
     }
