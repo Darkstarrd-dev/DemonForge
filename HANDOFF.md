@@ -2,7 +2,7 @@
 
 **最后更新**：2026-06-27  
 **当前位置**：办公场所 A
-**本轮主题**：第二、三梯队重构实施（A-5 已完成推送；A-9 盘点完成待落地；A-6/A-7/A-8 未开始）
+**本轮主题**：第二、三梯队重构实施（A-5 已推送；A-9 已完成待提交；A-6/A-7/A-8 未开始）
 
 ---
 
@@ -10,7 +10,7 @@
 
 > 目标（用户 /goal）：实施 A-5~A-9，每项完成后更新文档 + 提交推送，直到处理完第二、三梯队。
 > 设计稿：`docs/quality/design-tier2-3-refactor.md`；追踪表：`docs/quality/logs/2026-06-27-audit-01.md` 第 5 节。
-> ⚠️ 本轮因助手工具调用反复格式错误而中断。**工作区干净（无半成品代码）**，可从 A-9 干净起步。
+> 进度：A-5 ✅（已推送 `e8c0557`）、A-9 ✅（已完成，待用户提交）、A-6/A-7/A-8 未开始。
 
 ### ✅ A-5 统一 SSE 解析（已完成并推送：commit `e8c0557`）
 - 新增 `frontend/src/services/sse.ts`（`parseSSE` async generator）+ `sse.test.ts`（7 测试）。
@@ -18,20 +18,27 @@
 - `llm.ts` **作为明确例外保留手写 SSE**（注释已写明：rawChunks 原始流诊断 + streamBatch 的 CHAPTER_SEP 增量拆分，parseSSE 不覆盖）。
 - 验证：`tsc -b` 通过；`vitest run` 21 passed（14 旧 + 7 新）。
 
-### ◐ A-9 服务层 mock 收口（盘点已完成，代码改动未落地）
-**盘点结论（已 grep 确认，下次可直接动手，无需重新分析）**：
-- mock 三件套**都仍在用**，非死代码：`aiSplitChapter`(M1 `Step2Split.tsx:153`)、`generateChapterDraft`(M4 `m4-generate/index.tsx:67`)、`checkConsistency`(M5 `m5-chapters/index.tsx:74`)。
-- `api.ts` 的 **real generation 导出块零外部引用**（死导出）：`generateDraft`/`finalizeChapter`/`checkConsistency as checkConsistencyReal` + 7 个类型。`batch.ts` 直接从 `./generation` import（绕过 api.ts），单章页面用 mock。
-- 故设计稿"mock 已被 real 取代"的前提**不成立**——mock 是当前实现，real 仅 batch 在用；单章页面真实化属**后续功能工作**，不在质量重构范围。
+### ✅ A-9 服务层 mock 收口（已完成，待提交）
+**盘点结论经本轮 grep 全量复核确认**：
+- mock 三件套确认仍在用，保留：`aiSplitChapter`(M1 `Step2Split.tsx:153`)、`generateChapterDraft`(M4 `m4-generate/index.tsx:67`)、`checkConsistency`(M5 `m5-chapters/index.tsx:74`)，均从 `../../services/api` import。
+- `api.ts` real generation 导出块经 grep 复核为**零外部引用**：`checkConsistencyReal` 完全无引用；`generateDraft`/`finalizeChapter`/`DraftContext` 仅 `batch.ts` 用且**直接从 `./generation` import（绕过 api.ts）**；其余 6 个类型零引用。
 
-**A-9 待执行的最小安全收口（删死导出 + 消歧义，不改功能）**：
-1. `api.ts` 删除整个 real generation 导出块——即 `export { generateDraft, finalizeChapter, checkConsistency as checkConsistencyReal } from './real/generation'` 及其紧随的 `export type { DraftContext, DraftParams, FinalizeParams, FinalizeResult, ConsistencyParams, ConsistencyResult, ConsistencyIssueRaw } from './real/generation'`，替换为一行注释（real 实现在 generation.ts，由 batch.ts 直接调用）。
-2. 更新 `api.ts` 顶部注释，澄清 M1/M4/M5 单章页面当前用 mock、real 由 batch 用。
-3. 保留 mock 导出（aiSplitChapter / generateChapterDraft / checkConsistency）。
-4. 验证 `tsc -b`（batch.ts 不受影响，它直接 import generation）→ 提交推送 → log A-9 标完成。
+**已落地的改动**：
+1. 删除 `api.ts` 第 27–42 行整个 real generation 导出块（`generateDraft`/`finalizeChapter`/`checkConsistencyReal` + 7 类型），替换为一行说明注释。
+2. 更新 `api.ts` 顶部注释，澄清 M1/M4/M5 单章页面当前用 mock、M4/M5 的 real 实现仅由 batch.ts 直接调用。
+3. 保留 mock 导出块（aiSplitChapter / generateChapterDraft / checkConsistency）不动。
+4. 验证：`tsc -b` → 0 错误；`vitest run` → 21 passed（4 文件）。
+- **改动文件**：`frontend/src/services/api.ts`（净删 ~14 行死导出）+ `docs/quality/logs/2026-06-27-audit-01.md`（A-9 标完成 + 回填 A-5 SHA）+ 本 HANDOFF。
+- ⚠️ **git 提交推送按项目 CLAUDE.md「Claude 不执行 git 操作」规则留待用户手动执行**；提交后回填 A-9 的 commit SHA 到追踪表（当前标"待回填"）。建议 commit message：`refactor(api): 删除 real generation 死导出 + 消歧义注释（A-9）`。
 
-### ☐ A-6 CleanScheduler 类化（未开始）
-设计稿 §A-6。要点：characterization test 先行 → 抽 `dequeue` 纯函数 + `NodeCircuitBreaker` + `CleanScheduler` 类；`startCleanQueue` 对外签名不变（`api.ts` 转出）。调度器在 `frontend/src/services/real/llm.ts:392-744`。
+### ☐ A-6 CleanScheduler 类化（未开始；本轮已通读调度器 + 备好测试策略）
+设计稿 §A-6。要点：characterization test 先行 → 抽 `dequeue` 纯函数 + `NodeCircuitBreaker` + `CleanScheduler` 类；`startCleanQueue` 对外签名不变（`api.ts` 转出）。调度器在 `frontend/src/services/real/llm.ts:396-748`。
+
+**本轮通读产出（下次直接用，省重复理解）**：
+- **闭包状态 13 项**：`paused/stopped/active/finished` + `nodeConfigs` + `nodeStates`(activeCount/lastRequestTime) + `pendingQueue/retryQueue` + `failCounts`(章节级) + `activeBatches` + `nodeOverrides`(模型切换) + `disabledNodes`+`nodeConsecFails`(熔断) + `chapterAvoidNodes` + `workerBatchSeq` + `spawnedSlots` + `activeWorkers`。
+- **可抽取**：`dequeueBatch`(449-477，纯逻辑但当前直接 shift 闭包队列 → 抽时改为传队列参数返回 batch)；熔断三件 `markNodeFail`/`markNodeSuccess`/`disabledNodes`+`nodeConsecFails` → `NodeCircuitBreaker`。`buildBatchContent`(225) 已是模块级纯函数。
+- **characterization 测试策略**：mock 全局 `fetch` 返回构造的 SSE 流（node 环境有 fetch/Response/ReadableStream/TextEncoder），黑盒测 `startCleanQueue`；以 `onFinish` resolve 的 promise 等结束；real timers + `intervalSec:0` 快速收敛；多节点用**聚合断言**（"每章 onDone 恰一次"）避免 flaky。令 `batchChars < 单章字数` 强制 `batch.length===1` 走 `streamSingleChapter` 路径锁调度核心（streamBatch 的 SEP 拆分另测）。clean 端点：`POST /api/llm/clean`，body `{baseURL,apiKey,model,content,systemPrompt}`，响应 event `delta{delta}`/`done{text}`/`error{message}`；无 delta 直接 done 时错误 phase 判为 `connect`（executeBatch 据此 `markNodeFail`，连续 3 次熔断）。
+- **⚠️ 关键发现（测试断言据此放宽）**：重试路由**不**钉离失败节点——`chapterAvoidNodes` 仅在 autoRetry 下用作"全避开即终态失败"闸门（568-573），实际重试回共享 `retryQueue` 由任意 worker 领取，失败节点可能再次领到同章。故"节点失败→重试"场景应断"该章最终 onDone"（fetchMock 对该章首次返回 error、二次返回 success），而非"在另一节点重试"。
 
 ### ☐ A-7 appStore 切片化（未开始）
 设计稿 §A-7。分两阶段：阶段1 抽 `persistence.ts`/`bootstrap.ts`（不动状态结构）+ 单测；阶段2 切 6 个 slice。`appStore.ts` 1152 行。
@@ -40,11 +47,11 @@
 设计稿 §A-8。建 `frontend/src/hooks/`；node-test(2355 行)/settings(1868 行) 抽 hooks+panels；index 收为编排。需为 vitest 加 jsdom 环境做组件测试。
 
 ### 下次对话起步建议
-1. 从 **A-9** 开始（最小，按上方"待执行"四步直接做）；然后 A-6 → A-7 → A-8。
-2. 每项完成：`cd frontend && npx tsc -b` + `npx vitest run` 全绿 → 更新 `audit-01.md` 追踪表 → 提交推送（origin/main 已验证可推）。
-3. 全部完成后回填各 commit SHA 到追踪表 + 刷新本 HANDOFF。
-4. **提交规范**：`type(scope): 描述（A-N）`，中文，参考 `e8c0557`。
-5. ⚠️ 工具格式提醒：本会话曾多次误写工具标签，注意严格使用正确的工具调用格式。
+1. A-9 已完成（待用户提交）；从 **A-6** 开始（CleanScheduler 类化），然后 A-7 → A-8。
+2. A-6 要点：characterization test 先行 → 抽 `dequeue` 纯函数 + `NodeCircuitBreaker` + `CleanScheduler` 类；`startCleanQueue` 对外签名不变（`api.ts` 转出）。调度器在 `frontend/src/services/real/llm.ts:392-744`（350 行巨型闭包，竞态敏感，**必须先有 characterization 测试网才动**）。
+3. 每项完成：`cd frontend && npx tsc -b` + `npx vitest run` 全绿 → 更新 `audit-01.md` 追踪表 → 由用户提交推送。
+4. 全部完成后回填各 commit SHA 到追踪表 + 刷新本 HANDOFF。
+5. **提交规范**：`type(scope): 描述（A-N）`，中文，参考 `e8c0557`。
 
 ---
 

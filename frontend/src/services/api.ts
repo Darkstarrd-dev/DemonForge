@@ -1,9 +1,9 @@
 // 统一服务入口：页面只从这里调用。
 // M1 清理（startCleanQueue）、Provider 连通性测试（testProvider）、M0 起源（generateArch/generateBlueprint）已接真实后端；
 // M2 提取（extractEntities）已接真实后端（services/real/extract）；
-// M3 推演（simulateCharacter）已接真实后端（services/real/simulate）；
-// M4 生成（generateDraft）、M5 管理（finalizeChapter/checkConsistency）已接真实后端（services/real/generation）；
-// M4 旧接口（generateChapterDraft）仍为 mock（services/mock）。
+// M3 推演（simulateCharacter）已接真实后端（services/real/simulate）。
+// M1 切分（aiSplitChapter）、M4 单章生成（generateChapterDraft）、M5 单章审校（checkConsistency）当前仍走 mock（services/mock）；
+// M4/M5 的 real 实现（generateDraft/finalizeChapter/checkConsistency in services/real/generation）目前仅由批量生产 batch.ts 直接调用，不经本入口转出。
 export {
   aiSplitChapter,
   generateChapterDraft, // 保留 mock 版本，M4 页面改造时再切换
@@ -24,22 +24,8 @@ export type { ArchParams, ArchInputParams, ArchInputResult, BlueprintParams, Cre
 // M3 推演已接真实后端（services/real/simulate）。
 export { simulateCharacter } from './real/simulate'
 
-// M4/M5 生成与管理已接真实后端（services/real/generation）。
-// generateDraft/finalizeChapter/checkConsistencyReal 为新接口，供 M4/M5 页面改造时使用。
-export {
-  generateDraft,
-  finalizeChapter,
-  checkConsistency as checkConsistencyReal, // 重命名以区分 mock 版本
-} from './real/generation'
-export type {
-  DraftContext,
-  DraftParams,
-  FinalizeParams,
-  FinalizeResult,
-  ConsistencyParams,
-  ConsistencyResult,
-  ConsistencyIssueRaw,
-} from './real/generation'
+// M4/M5 生成与管理的 real 实现见 services/real/generation，由批量生产 batch.ts 直接 import 调用（绕过本入口），
+// 故此处不再转出 generateDraft/finalizeChapter/checkConsistency 及其类型；单章 M4/M5 页面当前仍用上方 mock 版本。
 
 // 批量生成（阶段 D）已接真实后端。
 export { startBatchGenerate } from './real/batch'
