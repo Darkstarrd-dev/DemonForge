@@ -2,15 +2,15 @@
 
 **最后更新**：2026-06-27  
 **当前位置**：办公场所 A
-**本轮主题**：第二、三梯队重构实施（A-5/A-9/A-6 已完成推送；A-7/A-8 未开始）
+**本轮主题**：第二、三梯队重构（A-5/A-6/A-9 已毕；本轮 **A-7 全完成** + **A-8 settings 完成 + node-test 部分**）
 
 ---
 
-## 🆕 进行中：第二、三梯队重构实施（2026-06-27，未完成）
+## 🆕 进行中：第二、三梯队重构实施（2026-06-27）
 
-> 目标（用户 /goal）：实施 A-5~A-9，每项完成后更新文档 + 提交推送，直到处理完第二、三梯队。
+> 目标（用户 /goal）：A-7 + A-8 全部完成并测试通过、提交推送。
 > 设计稿：`docs/quality/design-tier2-3-refactor.md`；追踪表：`docs/quality/logs/2026-06-27-audit-01.md` 第 5 节。
-> 进度：A-5 ✅（`e8c0557`）、A-9 ✅（`8bb288c`/`66487c0`）、A-6 ✅（5 提交 `5b41f8c`→`82e1728`）、A-7/A-8 未开始。
+> 进度：A-5 ✅（`e8c0557`）、A-9 ✅（`8bb288c`/`66487c0`）、A-6 ✅（`5b41f8c`→`82e1728`）、**A-7 ✅**（`0222a0d`/`3256bea`）、**A-8 ◐**（settings ✅ `a918edc`；node-test 部分 ✅ `d764b55`，深度拆分待续）。
 
 ### ✅ A-5 统一 SSE 解析（已完成并推送：commit `e8c0557`）
 - 新增 `frontend/src/services/sse.ts`（`parseSSE` async generator）+ `sse.test.ts`（7 测试）。
@@ -41,18 +41,25 @@
 - **关键修正**：上轮 HANDOFF 记的"令 `batchChars<单章字数` 强制 batch.length===1"经源码追踪**为误**——dequeueBatch 首章无条件取出、第二次调用总再抓一章；故 mock 同时覆盖单/批两路（批量路径需绕过指令文案里字面的 `===CHAPTER_ID:X===` 示例）。
 - **最终**：7 场景 characterization + 12 纯函数单测 = 40 测试全绿；tsc -b 0；eslint 0。注：`erasableSyntaxOnly` 禁参数属性 → class 用显式字段 + 构造体内赋值。
 
-### ☐ A-7 appStore 切片化（未开始）
-设计稿 §A-7。分两阶段：阶段1 抽 `persistence.ts`/`bootstrap.ts`（不动状态结构）+ 单测；阶段2 切 6 个 slice。`appStore.ts` 1152 行。
+### ✅ A-7 appStore 切片化（已完成，2 提交推送）
+分两阶段，每阶段 tsc -b + vitest 全绿后独立提交：
+- **阶段1**（`0222a0d`）：抽 `persistence.ts`（三套持久化引擎 + `enqueueWrite` 串行队列 + 三套 subscribe 收敛为 `registerPersisters()` + `pushXxxNow`/`flush` + `getStoreReady`/`setStoreReady`）+ `bootstrap.ts`（bootstrapStore/reloadStoreFromBackend）。appStore `export seedState`、actions 改 import 持久化函数、末尾调 registerPersisters、统一 re-export 保调用方零改动。**先写 `persistence.test.ts`**（7 契约 characterization：payload 键集/storeReady 门控/首次播种/删光不复活/有数据载入/enqueueWrite 串行/debounce），重构前后全绿证明行为不变。循环依赖经"函数体内才用 useAppStore"化解。
+- **阶段2**（`3256bea`）：新增 `types.ts`（AppState + 子接口 + defaultSessionRuntime）/`id.ts`（genId），按域切 6 slice（`slices/`：booksSlice/nodeTestSlice/m1ImportSlice/roleChatSlice/providerSlice/uiPrefsSlice，各 `StateCreator` 含初值+action，`Pick<AppState>` partition 不重不漏）。appStore 收为 **90 行组合根**（6 slice + getter 别名 + setState + registerPersisters + re-export），AppState 接口整体不变 → 调用方零改动。bootstrap 去 seedState 依赖（首次播种直接构造业务种子）。新增 `appStore.test.ts`（slice 组合完整性 + getter 别名映射）。
+- **关键经验**：① getter 别名（imageGallery 等）必须放最外层 create（slice spread 会求值 getter 使其固化为快照——zustand setState 内部 Object.assign 亦然，此为 pre-existing 行为，经 grep 确认无组件读取该别名，无害）。② 测试网证明持久化/播种/订阅行为前后一致。
+- **最终**：tsc -b 0 / vitest 49 绿（40 旧 + persistence 7 + appStore 2）/ vite build 成功 / eslint 净 0 新增（29 个为 m1TestText 全角空格 + 搬迁 throw 的 pre-existing）。
 
-### ☐ A-8 组件拆分 + hooks 层（未开始）
-设计稿 §A-8。建 `frontend/src/hooks/`；node-test(2355 行)/settings(1868 行) 抽 hooks+panels；index 收为编排。需为 vitest 加 jsdom 环境做组件测试。
+### ◐ A-8 组件拆分（settings 完成；node-test 部分；深度拆分待续）
+- **settings ✅**（`a918edc`）：4 个 Tab 内联组件（已 props 化）抽到 `pages/settings/panels/`（NodesTabContent/AdvancedTabContent/GeneralTabContent/BackupTabContent），index −455 行（1868→~1413），清理 6 个随之未用 import。no-explicit-any 21 个守恒（逐字搬迁）。
+- **node-test 部分 ✅**（`d764b55`）：抽 `constants.ts`（RESOLUTIONS/GPT_SIZES）+ `panels/ParamsPanel.tsx`（右侧栏参数面板，三协议图片参数 + 文本参数，render-only ~345 行，token 内部 useToken 自取），index −350 行（2355→~2005）。ParamsPanel/constants 0 lint 错误。
+- **🔜 node-test 剩余（下次续做）**：①`hooks/useInferenceSession.ts`（handleGenerate 739/handleGenerateSide 574/retryMessage 508/retryCompareMessage 422 + phase/ac/elapsed state + sessionEngine 桥接，**含 effect/ref 时序，最高风险**）②`hooks/useNodeTestForm.ts`（setForm + per-node 读写 + activeForm 派生）③`ChatTranscript.tsx`（消息气泡流 ~600 行，编辑/重试/删除/reasoning，~15 props，render-only 中风险）④顶部 header 按钮组。index 目标 <300 行。
+  - **为何停在此**：node-test 主逻辑高耦合（~19 store 字段 + ~30 本地 state + effect/ref），本轮选「tsc+build+手测」无组件测试网，激进抽 hooks 的副作用时序回归 tsc 抓不到、又无法手测验证 → 仅做 tsc 可强保护的 render-only 抽取（ParamsPanel）。续做前建议：要么先加 jsdom+RTL 冒烟测试护网，要么逐块抽 + 每块人工跑节点测试页回归（多 session/对比/Debug/SysPrompt/三协议生图/气泡编辑重试删除）。
 
 ### 下次对话起步建议
-1. A-5/A-9/A-6 已完成推送。从 **A-7** 开始（appStore 切片化），然后 A-8。
-2. A-7 要点（设计稿 §A-7）：**分两阶段**——阶段1 只抽 `persistence.ts`/`bootstrap.ts`（不动状态结构）+ 为持久化写单测（脏检查命中 / debounce / `enqueueWrite` 串行队列顺序）；阶段2 按域切 6 个 slice。`appStore.ts` 1152 行，含三套持久化引擎（business/settings/importSession）+ 13 项手写 `s.xxx===prev.xxx` 脏检查，**阶段1 必须有单测护住 `storeReady` 时序 / "空库不回种"/"删光不复活"既有契约**。
-3. 每项完成：`cd frontend && npx tsc -b` + `npx vitest run` 全绿 → 更新 `audit-01.md` 追踪表 → 提交推送（用户本轮已授权 Claude 执行 git）。
-4. **提交规范**：`type(scope): 描述（A-N）`，中文，参考 `82e1728`。
-5. **A-6 经验**（A-7 沿用）：竞态/契约敏感大改写前先补强 characterization/单测网再动结构；逐字翻译保持行为；每步独立可提交可回滚。
+1. A-7 已全完成。A-8 续做 node-test 深度拆分（见上「node-test 剩余」四块，按 ② useNodeTestForm（最独立）→ ③ ChatTranscript（render-only）→ ① useInferenceSession（最难，建议有测试网）顺序）。
+2. **续做纪律**：逐字翻译保持行为；render-only 抽取靠 tsc 强保护（缺 prop 即报错）；hooks 抽取改 effect/ref 前先补冒烟测试或每步人工回归。
+3. 每块完成：`cd frontend && npx tsc -b` + `npx vitest run` 全绿 + `npx vite build` → 更新 `audit-01.md` A-8 行 → 提交推送。
+4. **提交规范**：`type(scope): 描述（A-N）`，中文，参考 `d764b55`。
+5. **环境注意**：Windows bash，工作目录已在 `frontend/`（首个 `cd frontend` 会失败，用绝对路径或不 cd）；git 操作用 `git -C ..`（repo root）；提交只 `git add` 本次改动文件，勿带 `.claude/settings.local.json` 与 `ref/asset/`。
 
 ---
 
