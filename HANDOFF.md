@@ -2,11 +2,38 @@
 
 **最后更新**：2026-06-28
 **当前位置**：办公场所 A
-**本轮主题**：**第二轮质量审核 audit-02**（验证 A-5~A-14 重构成果 + 审计新增功能 role-chat/m2-cards，纯只读审计，未改源码）；上一轮角色交流模块增强 + 布局修复
+**本轮主题**：**角色交流模块重构**（修复发消息 HTTP 500 + 移除 opencode + session 化交互 + 每参与者独立缓存；build 全绿，待提交）；上一轮第二轮质量审核 audit-02
 
 > 📦 **历史明细已归档** → `docs/handoff_history.md`
 > 本文件只保留「恢复工作所需的活内容」：进行中任务、模块清单、下一步、交接参考。
 > 各轮工作的逐项实现细节、技术决策记录、详尽验证清单全部移入归档文件，按需查阅。
+
+---
+
+## 🆕 角色交流模块重构（2026-06-28，已完成，build 全绿，待提交）
+
+把角色交流从「本地/Opencode 双模式」收敛为**纯本地多角色群聊 + node-test 式 session 化交互**，并修复 audit-02 的 B-1/B-2。
+
+- **0 · 修 HTTP 500（根因）**：旧 `server/src/routes/chat.ts:45` 用 `new URL('../data/settings.json')` 越过 `getAppDataDir()`，在 Z: 盘/打包版拼出 `Z:\Z:\…` 读不到节点配置必 500/404。**整端点废弃删除**——前端改由 `roleChatEngine` 直接把选定节点的 baseURL/apiKey/model 传给通用 `/api/llm/chat`（`streamChat`），后端不再读 settings 文件（与 node-test 同源，零状态）。
+- **1 · 移除 opencode**：删 `services/real/roleChat.ts`、`routes/chat.ts`、`OpencodeAgent/OpencodeSession/RoleChatMode` 类型、`roleChatMode/roleChatOpencodeURL` store 字段与 bootstrap 读取；`AddParticipantModal` 砍成纯本地多选。（`settings.json` 里两个死键无害保留，bootstrap 已不读。）
+- **2 · session 化交互**：进模块后 app 左栏变 session 切换界面（仿 node-test，`roleChatSidebarMode` 默认 `sessions`，logo 点击切回 app 导航）。第一项「主界面·群聊」=总控；其后每参与者一行=独立 session。参与者视角版面（适配现有设计语言）：**顶=设定（角色名/节点切换/场景与 System 提示词预览）/ 左=独立 DebugInfoPanel（可折叠，复用 node-test）/ 右=对话情况（群聊 transcript + 在途流式）/ 下=推理过程（复刻 node-test ChatBubble：推理中流式卡片 / 完成后折叠「思考过程」）**，用 antd `Splitter`（横向 + 右侧纵向嵌套）。
+- **3 · 每参与者独立缓存（修 B-2 闭包）**：单一数据源 `roleChatMessages`（append-only），`buildParticipantMessages` 纯函数从中**派生**各参与者视角（自己→assistant，他人含用户→合并进 user，严格交替）。前缀确定且 append-only → 同一参与者多轮调用命中 prompt cache；不同参与者复用同节点因 system（角色卡）不同各自独立。每参与者独立 `AbortController`（模块级 Map，仿 sessionEngine）→ 流可中断、切走/移除即停。运行态写 `roleChatRuntimes[pid]`，UI 只订阅 → 切走仍后台跑、回来看实时流。
+- **新增/改动文件**：新增 `services/roleChatEngine.ts` + `pages/role-chat/{RoleChatSessionSidebar,ParticipantSessionView}.tsx`；改 `services/types.ts`（去 Opencode 类型 + 加 `RoleChatRuntime`）、`store/{types,slices/roleChatSlice,bootstrap,appStore.test}.ts`、`layouts/AppLayout.tsx`、`role-chat/{index,components/AddParticipantModal}.tsx`、`server/src/index.ts`；删 `routes/chat.ts`、`services/real/roleChat.ts`、孤儿 `components/ParticipantList.tsx`。
+- **决策**：① 后端复用 `streamChat`（前端直传 provider）；② 参与者视角实时展示 debug/推理（非只读静态），「只读」仅指不在该处发起新对话；③ 全程内存态、不持久化（仅 `roleChatAutoConfig` 留配置位）。
+- **验收**：前端 `npm run build`（tsc+vite）✓、后端 `tsc --noEmit` 0、`eslint` 改动文件 0/0、`appStore.test` 2 绿。**待端到端实测**（群聊发言/自动循环/切 session 看实时推理与 Debug/缓存命中）。
+
+---
+
+## 🆕 大富翁游戏模块（2026-06-28，P0–P6 全部完成）
+
+项目内新增独立游戏模块，复用角色卡 / AI 节点 / Phaser·Three 能力。完整计划 → `docs/monopoly_plan.md`。已在 main 提交 7 个（P0 `835d8de` → P6 `616a220`）。
+
+- **定位**：当前项目内新模块；数据驱动（逻辑与渲染彻底分离）；2D blockout（DOM/CSS+antd）+ 3D（Three）双版本；**大陆「大富翁」风格**。
+- **架构**：唯一真相源 `GameState` + 纯函数 `reducer`（`game/monopoly/engine.ts`，零渲染依赖）；2D `Board`（CSS Grid）/ 3D `Board3D`（Three）只是同一 state 的两个视图，顶栏可切换。
+- **双预留（架构内生）**：角色卡接入（`Player.characterCardId`，P5 用 `characters.preset` 占位，待接 M2 真实角色卡）+ AI 驱动（`Player.controller`/`aiNodeId` + 决策点 `DecisionRequest`；`ai.ts` 的 `aiNextAction` 即 LLM 挂载点）。
+- **各阶段**：P0 地基 / P1 移动·住院 / P2 经济·决策点·破产胜负 / P3 升级·抵押 / P4 AI 自动循环 / P5 角色绑定·新游戏配置 / P6 3D 适配层。入口：左侧菜单「大富翁」、路由 `/monopoly`。
+- **⚠️ 整体 build 曾受阻（非本模块，✅ 2026-06-28 已修复）**：工作区曾有未提交半成品 role-chat（`D services/real/roleChat.ts` + `M services/types.ts` 等）导致整体 `npm run build` 红。**与大富翁无关**——大富翁全程用「过滤 monopoly 的单独验证」确认每阶段 `tsc` 0 + `eslint` 0/0。已由本轮「角色交流模块重构」收尾，整体 build 恢复全绿。
+- **后续**：① ~~修 role-chat 半成品恢复整体 build~~ ✅ 已完成；② P5 数据源换真实 M2 角色卡（`store.cards`）；③ 后置系统（股市 / 卡片道具 / 载具 / 随机事件，计划 §7 已留扩展位）。
 
 ---
 
@@ -69,8 +96,8 @@
 - `docs/quality/TEMPLATE.md`：审计报告模板。每次审核复制到 `logs/` 按 `YYYY-MM-DD-audit-NN.md` 命名。
 - `docs/quality/logs/2026-06-27-audit-01.md`：首次全量审计（A-1~A-14，**已全部收口**：A-1~A-10/A-13/A-14 完成，A-11 won't-fix，A-12 deferred）。
 - `docs/quality/logs/2026-06-28-audit-02.md`：**第二轮全量复审（本轮）**。结论：重构线四维全面向好（架构 6.5→7.5 / 拆分 4.5→6.5 / 质量 6.0→6.5 / 技术栈 7.0→7.5），重构产物经精读确认实现干净、无退化；前端 vitest **55 绿** + 后端 tsc **0**。**新发现 11 项（B-1~B-11），均落在「重构未覆盖的新功能」里**，两个 user-facing 高优先级：
-  - **B-1（P0-1，高）**：`server/src/routes/chat.ts:45` 用 `new URL('../data/settings.json')` 绕过 `getAppDataDir()` → **role-chat 本地模式在 Electron 打包版读不到 providers，必返 404**（开发环境两路径碰巧一致故未暴露）。改用 `readSettings()` 即可（单文件机械修复）。
-  - **B-2（P0-2，高）**：`role-chat/index.tsx` 自动循环——① `respondLocal:118` 未传 `signal`（流不可中断）；② 无 `useEffect` 卸载清理（切走页面后循环继续后台跑 + 烧 token + 对已卸载组件 setState）；③ 疑似闭包陷阱：`runAgentLoop` 用启动时刻的 `messages` 快照，循环中各 Agent 互相看不到新发言（机理确定，用户感知需实测）。
+  - **B-1（P0-1，高）✅ 2026-06-28 已修复**：`server/src/routes/chat.ts:45` 用 `new URL('../data/settings.json')` 绕过 `getAppDataDir()` → role-chat 读不到 providers 必 500/404。本轮「角色交流模块重构」**直接废弃删除该端点**，前端改由 `roleChatEngine` 直传选定节点给通用 `/api/llm/chat`，后端不再读 settings 文件，根除该类路径 bug。
+  - **B-2（P0-2，高）✅ 2026-06-28 已修复**：role-chat 自动循环——① 每参与者独立 `AbortController`（流可中断）；② 移除参与者/切走即 `cancelParticipant`（停后台循环）；③ 闭包陷阱根治：改单一数据源 `roleChatMessages` + 纯函数 `buildParticipantMessages` 每轮重新派生 → 循环中各参与者实时互见新发言。详见上方「角色交流模块重构」。
   - B-3~B-11：持久化脏检查声明式化（承接 audit-01 P0-1，A-7 只搬未消除）/ settings 组件手写 SSE 残留（audit-01 P0-2 漏查点）/ useInferenceSession 780 行胖 hook 消重 / creation 731 拆分 / 若干低优先级类型与一致性项。详见报告第 5 节追踪表。
 - **下一步建议**：先做 **B-1**（消除打包版 role-chat 失效，单文件低风险），再做 **B-2**（需配端到端实测：停止打断在途流 / 卸载停循环 / 循环中 Agent 互见新消息）。
 - 第一梯队 A-1~A-4 已完成（删死文件 / 修 UTC 日期 bug / vitest 地基 / 首批单测）。详见归档。
@@ -94,7 +121,7 @@
 - [x] **节点测试**（完整重构 + 聊天界面 + System Instructions + 对话记录 + Debug Info + Reasoning + 气泡功能扩展 + 对比模式 + 多 Session 并行）
 - [x] **文生图三协议**（ModelScope 异步 / GPT Image 同步 / xAI Imagine 同步；设置页协议选择器）
 - [x] **M2 设定卡片三项增强**（手动新增 / AI 生成 / 卡片图片批量生图队列）
-- [x] **角色交流模块**（阶段 A-E：本地 + Opencode 双模式 + 自动循环 + 导出；**2026-06-27 增强**：复选添加多角色 + 逐角色节点指定/编辑 + 场景设定（手动/AI 生成注入 System Prompt）+ 布局占满去圆角）
+- [x] **角色交流模块**（**2026-06-28 重构**：纯本地多角色群聊 + node-test 式 session 化交互；移除 opencode；每参与者独立 `AbortController` + 纯函数派生缓存前缀命中 prompt cache；参与者视角 Splitter 版面：顶设定/左 Debug/右对话/下推理；修复 audit-02 B-1/B-2。旧能力保留：复选添加多角色 + 逐角色节点指定 + 场景设定 AI 生成 + 自动循环 + 导出）
 - [x] **沉浸式阅读器**（全屏阅读 + 查找替换 + 单章 AI 清理 + 书签 + 字体/自动播放/翻页）
 - [x] **图片辅助模块**（GIF/ZIP/Sprite 导出 + 图层编辑 + 全局裁剪）
 - [x] **前端主题系统 + 响应式布局**（浅/深双主题，13 页覆盖）
@@ -157,7 +184,7 @@
 - 节点测试：`pages/node-test/`（index 444 行 + 7 组件 + `hooks/` 2 hook + `panels/ParamsPanel` + `constants.ts`）。
 - 设置页：`pages/settings/index.tsx` + `panels/`（4 Tab 组件）。
 - 阅读器：`pages/book-reader/ImmersiveReader.tsx` + `.css`。
-- 后端：`server/src/` — `llmClient.ts`（含 embed）/ `imageClient.ts`(ModelScope) / `gptImageClient.ts` / `xaiImageClient.ts` / `prompts.ts` / `contextAssembler.ts` / `store/{db,vector}.ts`；路由 `routes/{creation,image,gptImage,xaiImage,chat,llm}.ts`。
+- 后端：`server/src/` — `llmClient.ts`（含 embed）/ `imageClient.ts`(ModelScope) / `gptImageClient.ts` / `xaiImageClient.ts` / `prompts.ts` / `contextAssembler.ts` / `store/{db,vector}.ts`；路由 `routes/{creation,image,gptImage,xaiImage,llm}.ts`（role-chat 已改走 `llm` 通用对话端点，原 `chat.ts` 已删）。
 
 ### 数据兼容性
 - 旧 `imageGallery`→`testHistory`；`imageDemoForm`→`nodeTestForm`；表 `image_gallery`→`test_history`（向后兼容）。
@@ -166,7 +193,7 @@
 
 ### 各页使用要点
 - **节点测试**：设置页配节点（文本勾「多模态」/ 图片勾「图片编辑」，xAI/GPT 协议硬编码图片编辑 true）→ Segmented 切模式 → 选节点 → 输入。
-- **角色交流**：切模式（本地/Opencode）→ 添加参与者 → 发送 → 自动循环面板 → 导出（JSON/TXT）。
+- **角色交流**：左栏选 session（主界面/各参与者）→ 主界面「添加参与者」（多选角色卡+逐角色节点）→ 场景设定 → 发送（各参与者依次响应）/ 自动循环 → 切到参与者 session 看其实时推理+Debug → 导出（JSON/TXT）。
 - **主题/4K 缩放**：设置 → 通用设置 / 界面设置。4K 缩放建议主用 4K 屏，1080P 及以下关闭。
 
 ---
