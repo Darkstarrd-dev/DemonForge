@@ -1,11 +1,12 @@
 import { useEffect, useReducer, useState } from 'react'
-import { Button, Typography, theme } from 'antd'
+import { Button, Segmented, Typography, theme } from 'antd'
 import { createInitialState, reducer, rollDice } from '../../game/monopoly/engine'
 import { aiNextAction } from '../../game/monopoly/ai'
 import { createDefaultBoard } from '../../game/monopoly/board.preset'
 import { PRESET_CHARACTERS } from '../../game/monopoly/characters.preset'
 import type { GameState, NewGamePlayerSpec } from '../../game/monopoly/types'
 import Board from './Board'
+import Board3D from './Board3D'
 import PlayerHUD from './PlayerHUD'
 import GamePanel from './GamePanel'
 import DecisionModal from './DecisionModal'
@@ -35,6 +36,7 @@ export default function MonopolyPage() {
   const { token } = theme.useToken()
   const [state, dispatch] = useReducer(reducer, undefined, initGame)
   const [newGameOpen, setNewGameOpen] = useState(false)
+  const [view, setView] = useState<'2d' | '3d'>('2d')
 
   // AI 自动驾驶：当前为 AI 回合时延迟自动执行下一步；轮到 human 则停下等操作。
   useEffect(() => {
@@ -73,6 +75,7 @@ export default function MonopolyPage() {
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
+          gap: 12,
           padding: '8px 16px',
           borderBottom: `1px solid ${token.colorBorderSecondary}`,
           flexShrink: 0,
@@ -81,25 +84,41 @@ export default function MonopolyPage() {
         <Typography.Text strong style={{ fontSize: 15, color: token.colorText }}>
           🎲 大富翁
         </Typography.Text>
-        <Button size="small" onClick={() => setNewGameOpen(true)}>
-          新游戏
-        </Button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <Segmented
+            value={view}
+            onChange={(v) => setView(v as '2d' | '3d')}
+            options={[
+              { label: '2D', value: '2d' },
+              { label: '3D', value: '3d' },
+            ]}
+          />
+          <Button size="small" onClick={() => setNewGameOpen(true)}>
+            新游戏
+          </Button>
+        </div>
       </div>
 
       <PlayerHUD players={state.players} currentPlayerId={state.turn.currentPlayerId} />
       <div style={{ flex: 1, minHeight: 0, display: 'flex', overflow: 'hidden' }}>
-        <div
-          style={{
-            flex: 1,
-            minWidth: 0,
-            overflow: 'auto',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: 16,
-          }}
-        >
-          <Board state={state} />
+        <div style={{ flex: 1, minWidth: 0, position: 'relative', overflow: 'hidden' }}>
+          {view === '2d' ? (
+            <div
+              style={{
+                width: '100%',
+                height: '100%',
+                overflow: 'auto',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: 16,
+              }}
+            >
+              <Board state={state} />
+            </div>
+          ) : (
+            <Board3D state={state} />
+          )}
         </div>
         <GamePanel
           state={state}
