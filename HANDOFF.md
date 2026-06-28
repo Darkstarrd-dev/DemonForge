@@ -2,7 +2,7 @@
 
 **最后更新**：2026-06-28
 **当前位置**：办公场所 A
-**本轮主题**：**提示词归一化全模块迁移**——PromptEditorButton+usePromptOverride+promptOverrides 注册表覆盖 M0/M1/M2/M3/M4/M5/批量共 13 个 promptKey，后端 6 个端点加 systemPrompt 参数，前端 5 个服务层加 systemPrompt 传参；顺修 5 个 build 错误（遗留变量/类型不全/属性不存在）。前序：四模块需求落地 12 项
+**本轮主题**：**大富翁模块全量规划文档**——参考 `ref/gamedesign/richman.md`（台湾大富翁4完整设计文档）设计数据驱动层全量落地的实施计划文档与模块说明文档。决策：双地图共存 + 全量规则 + 重构引擎（五子系统）+ 资产后置。产物：`docs/monopoly_full_plan.md`（M0→M12 实施计划）+ `docs/monopoly_module_guide.md`（模块说明）。前序：提示词归一化全模块迁移（已提交 + 推送）
 
 > 📦 **历史明细已归档** → `docs/handoff_history.md`
 > 本文件只保留「恢复工作所需的活内容」：进行中任务、模块清单、下一步、交接参考。
@@ -85,16 +85,44 @@
 
 ---
 
-## 🆕 大富翁游戏模块（2026-06-28，P0–P6 全部完成）
+## 🆕 大富翁模块全量规划文档（2026-06-28，已完成，待提交）
 
-项目内新增独立游戏模块，复用角色卡 / AI 节点 / Phaser·Three 能力。完整计划 → `docs/monopoly_plan.md`。已在 main 提交 7 个（P0 `835d8de` → P6 `616a220`）。
+参考 `ref/gamedesign/richman.md`（台湾大富翁4完整设计文档，1357 行），结合已有 P0–P6 blockout 模块，设计了两份文档：
+
+- **`docs/monopoly_full_plan.md`**（实施计划方案，183 行）— 供高速实施 agent 直接读取分阶段实施：
+  - 决策摘要（用户拍板：双地图共存 / 全量规则 / 重构引擎 / 资产后置）
+  - 五子系统架构（Board/Player/Card/TurnFSM/Economy） + reducer 组合
+  - 全量数据模型（`AssetRef`/`TilemapLayer` 为 2D/3D 资产驱动与 Tilemap Editor 预留）
+  - 完整 TurnFSM 状态机 + 破产清算 + 物价指数双模式 + 租金计算
+  - 内容数据清单（30 卡片 / 13 道具 / 13 神明 / 12 角色 / 7 公司 / 20 新闻 / 15 魔法屋 / 双地图 / 多版本配置）
+  - AI 三档难度 + LLM 接入（复用 `streamChat` + `aiNodeId` + 角色卡 persona）
+  - **M0→M12 里程碑**（每阶段可演示成果 + 依赖 + 验收标准）
+  - 2D/3D 资产驱动方案（§9 待实施，本轮仅设计接口）
+  - 风险与回避 + 实施代理工作指引
+
+- **`docs/monopoly_module_guide.md`**（模块说明文档，129 行）— 以后增删改模块内容时查阅：
+  - 目录结构（每个文件职责一句话）+ 数据模型速查
+  - §5 内容数据如何增删改（9 类内容的 JSON 文件位置 + 字段说明 + 扩展方法）
+  - §9 常见扩展场景 Cookbook（加卡片/地图/事件/角色/接 LLM/加 2D 瓦片/加 3D 模型）
+  - §10 与项目其他模块交互（M2 EntityCard / ProviderNode / streamChat / role-chat / settings / Electron）
+  - 附录 A 关键文件快速定位表 + 附录 B 版本变体对照 + 附录 C 扩展检查清单
+
+**产出过程中直接问用户 3 个关键决策**（地图方案/规则深度/代码处置），均当日拍板落地文档。
+
+**新增文件**：`docs/monopoly_full_plan.md`、`docs/monopoly_module_guide.md`（本轮仅文档，不实施代码）。**待提交与推送**。
+
+---
+
+### P0–P6 已完成记录（旧 `monopoly_plan.md`，已由新文档 supersede）
+
+项目内新增独立游戏模块，复用角色卡 / AI 节点 / Phaser·Three 能力。旧计划 → `docs/monopoly_plan.md`（已由 `docs/monopoly_full_plan.md` supersede）。已在 main 提交 7 个（P0 `835d8de` → P6 `616a220`）。
 
 - **定位**：当前项目内新模块；数据驱动（逻辑与渲染彻底分离）；2D blockout（DOM/CSS+antd）+ 3D（Three）双版本；**大陆「大富翁」风格**。
 - **架构**：唯一真相源 `GameState` + 纯函数 `reducer`（`game/monopoly/engine.ts`，零渲染依赖）；2D `Board`（CSS Grid）/ 3D `Board3D`（Three）只是同一 state 的两个视图，顶栏可切换。
 - **双预留（架构内生）**：角色卡接入（`Player.characterCardId`，P5 用 `characters.preset` 占位，待接 M2 真实角色卡）+ AI 驱动（`Player.controller`/`aiNodeId` + 决策点 `DecisionRequest`；`ai.ts` 的 `aiNextAction` 即 LLM 挂载点）。
 - **各阶段**：P0 地基 / P1 移动·住院 / P2 经济·决策点·破产胜负 / P3 升级·抵押 / P4 AI 自动循环 / P5 角色绑定·新游戏配置 / P6 3D 适配层。入口：左侧菜单「大富翁」、路由 `/monopoly`。
 - **⚠️ 整体 build 曾受阻（非本模块，✅ 2026-06-28 已修复）**：工作区曾有未提交半成品 role-chat（`D services/real/roleChat.ts` + `M services/types.ts` 等）导致整体 `npm run build` 红。**与大富翁无关**——大富翁全程用「过滤 monopoly 的单独验证」确认每阶段 `tsc` 0 + `eslint` 0/0。已由本轮「角色交流模块重构」收尾，整体 build 恢复全绿。
-- **后续**：① ~~修 role-chat 半成品恢复整体 build~~ ✅ 已完成；② P5 数据源换真实 M2 角色卡（`store.cards`）；③ 后置系统（股市 / 卡片道具 / 载具 / 随机事件，计划 §7 已留扩展位）。
+- **后续**：① ~~修 role-chat 半成品恢复整体 build~~ ✅ 已完成；② **数据驱动层全量落地已规划（`docs/monopoly_full_plan.md` + `docs/monopoly_module_guide.md`）**，待按 M0→M12 实施；③ P5 数据源换真实 M2 角色卡（`store.cards`）；④ 2D/3D 资产后置。
 
 ---
 
@@ -195,6 +223,7 @@
 - [x] **data-slot 体系**（11 页，150+ 属性，规范文档齐全）
 - [x] **编译打包**（NSIS 安装包 + 便携版；file:// 协议修复）
 - [x] **M1 文本导入合并到书库概览**（新建/清理双模式）
+- [x] **大富翁模块全量规划文档**（`docs/monopoly_full_plan.md` + `docs/monopoly_module_guide.md`，数据驱动层全量落地计划，参考 richman.md 设计；本轮仅文档不实施）
 
 ### 🔧 近期修复（2026-06-27）
 
@@ -231,6 +260,7 @@
 2. **验证节点测试各模块**（气泡功能 / 对话记录 / Debug Info / System Instructions / 对比模式 / GPT 10 项增强）。
 3. **验证全屏阅读**（查找替换 / 单章 AI 清理 / 回归原有功能）。
 4. **M2/M3 实测**（优先级高，端到端闭环验证）。
+5. **大富翁模块按 `docs/monopoly_full_plan.md` 实施**（M0 重构地基起步，引擎拆五子系统 + 类型扩展 + 数据文件落地 + 双地图 JSON）。
 
 ---
 
