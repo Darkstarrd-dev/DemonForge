@@ -1,8 +1,8 @@
 # HANDOFF.md — novelhelper 交接备忘
 
 **最后更新**：2026-06-28
-**当前位置**：办公场所 A
-**本轮主题**：**大富翁 M11 回归与单测**——全 17 个 engine 子文件单测覆盖，新增 8 文件 82 单测（`turn`/`board`/`player`/`company`/`serializer`/`character-mapper`/`ai-strategies`/`ai`），总计 27 文件 **337 绿**。build（tsc + vite）+ vitest 全绿。M0→M11 里程碑全部完成。
+**当前位置**：办公场所 A（已提交+推送）
+**本轮主题**：**大富翁 M0–M11 实施审计**——对照 `docs/monopoly_full_plan.md` 逐项审核代码实现，发现 **P0 阻塞 1 项、P1 高优 12 项、P2 中优 18 项、P3 低优 5 项**；核心问题：`FullGameState`/`TileV2.id`/`TurnContext` 仅作为僵尸类型存在，引擎与 UI 仍基于旧 P0–P6 `GameState` 运行。审计报告已保存 `docs/quality/logs/2026-06-28-monopoly-implementation-audit.md`。当前测试 337 绿，但全部基于旧类型。
 
 > 📦 **历史明细已归档** → `docs/handoff_history.md`
 > 本文件只保留「恢复工作所需的活内容」：进行中任务、模块清单、下一步、交接参考。
@@ -82,6 +82,36 @@
 - **新增/改动文件**：新增 `services/roleChatEngine.ts` + `pages/role-chat/{RoleChatSessionSidebar,ParticipantSessionView}.tsx`；改 `services/types.ts`（去 Opencode 类型 + 加 `RoleChatRuntime`）、`store/{types,slices/roleChatSlice,bootstrap,appStore.test}.ts`、`layouts/AppLayout.tsx`、`role-chat/{index,components/AddParticipantModal}.tsx`、`server/src/index.ts`；删 `routes/chat.ts`、`services/real/roleChat.ts`、孤儿 `components/ParticipantList.tsx`。
 - **决策**：① 后端复用 `streamChat`（前端直传 provider）；② 参与者视角实时展示 debug/推理（非只读静态），「只读」仅指不在该处发起新对话；③ 全程内存态、不持久化（仅 `roleChatAutoConfig` 留配置位）。
 - **验收**：前端 `npm run build`（tsc+vite）✓、后端 `tsc --noEmit` 0、`eslint` 改动文件 0/0、`appStore.test` 2 绿。**待端到端实测**（群聊发言/自动循环/切 session 看实时推理与 Debug/缓存命中）。
+
+---
+
+## 🆕 大富翁 M0–M11 实施审计（2026-06-28，已提交+推送）
+
+对照 `docs/monopoly_full_plan.md`（2026-06-28 立项）逐项审核代码实现 **M0–M11 全部子里程碑**。审计发现与 HANDOFF 此前所述有显著差距：
+
+- **架构偏差（P0）**：`FullGameState`/`TileV2.id`/`TurnContext`/`TurnPhaseV2` 均仅作为未使用的"僵尸类型"存在。引擎 reducer 与 UI 全部基于旧 P0–P6 `GameState` 工作。`boardDataToBoardConfig` 把新 `BoardData`（TileV2[]）降级为旧 `BoardConfig`（Tile[]），设计方案要求的类型统一未达成。
+- **引擎缺口（P1）**：破产清算未按 §4.5 分步走；租金缺少联合租金/连锁店/查封/涨价逻辑；物价指数 auto_increment 未在回合中触发；AI `aiNextAction` 内置随机源违反"随机源外置"原则；LLM 决策未走 `aiDecideAsync`/`buildLLMMessages`；卡片反制链 REACTION 窗口未集成；`ItemDefinition` 无 effect 字段仍靠硬编码 ID 判断。
+- **数据文件语义错误（P1）**：卡片 30 张 effectType/params 错误集中（`card-23` 红利卡效果为征税）；神明 `god-04` transformTo 指向错位；魔法屋 15 条中 10 条 type 与描述不符；新闻/命运事件缺参数。
+- **UI 未迁移（P2）**：全部页面仍消费旧 `GameState`；`DecisionModal` 只覆盖 `buyProperty`/`upgradeProperty`，缺其余 11 种决策文案；HUD 未显示银行/股票/神明/交通工具信息。
+- **单测全绿但基座错误**：337 绿全部基于旧 `GameState` 类型，类型统一后需重写。
+
+审计报告（含分级整改清单、验收标准、给低阶模型的实施指引）已保存至：
+→ `docs/quality/logs/2026-06-28-monopoly-implementation-audit.md`
+
+<details>
+<summary>整改阶段一览（共 5 Phase，仅含 P0 起的关键项）</summary>
+
+| Phase | 内容 | 项数 |
+|---|---|---|
+| **Phase 0** 类型统一 | `FullGameState`→`GameState`；`TileV2`→`Tile`；ID 全改 `string`；`TurnContext` 替代 `TurnState`；删除 Legacy 类型 | 6 |
+| **Phase 1** 引擎迁移 | `reducer` 返回新状态；完整租金/破产清算；auto_increment 触发；反制链集成；`ItemDefinition` 加 effect 字段 | 9 |
+| **Phase 2** 数据修正 | 地图/卡片/神明/魔法屋/新闻/命运/配置语义与参数修正 | 7 |
+| **Phase 3** UI 迁移 | 全部页面迁移新 `GameState`；`DecisionModal` 全覆盖；HUD 显示经济/神明/交通信息 | 6 |
+| **Phase 4** 单测清理 | 按新类型重写单测（≥337 绿）；删死文件 `board.preset.ts`；收敛 `engine.ts` 导出 | 3 |
+
+</details>
+
+**结论**：M0–M11 在"功能数量"和"单测绿数"上达标，但"架构落地"严重偏离设计方案——实质相当于在旧 P0–P6 地基上堆砌了新功能层。建议优先执行 Phase 0 类型统一。
 
 ---
 
@@ -235,6 +265,7 @@
 - **2026-06-28 第三次走查·修复（待提交）**：按上述优先级**已修复 8 项**——C-1（roleChatAutoConfig 入 settingsPayload，后端 merge 透传闭环已验）/ C-2（role-chat 卸载 useEffect，切路由停循环+中止在途流）/ B-3（持久化脏检查声明式化，payload 键集驱动，根治漏写）/ B-4（settings 手写 SSE→parseSSE，顺带理顺 done 重复显示）/ B-6（batchChars 注解）/ B-9（三弹窗卸载 abort）/ B-10（import 收口 api.ts）/ B-11（sseHelper ACAO 经 reply.request 回显白名单）。回归：后端 tsc 0 + 前端 build + vitest **55 绿** + 改动文件 eslint 0。详见 audit-02 **第 7 节**。
 - **2026-06-28 第四次走查·实施（已提交 `6b1ce9d`）**：第三梯队两项结构重构**已完成**——**B-5**（`useInferenceSession` 抽 `useCompareSession`：slot 字典消 30+ 三元 + `runStream` 合并两处 streamChat 回调 + 卸载 useEffect abort 左右 acRef；780→471 行委托并 spread，`index.tsx`/`index.test.tsx` 零改动）/ **B-8**（`creation.ts` 731 行按领域拆 `creation.shared`+`origin`+`generate`(含 M3 simulate)+`m2`，creation.ts→12 行 barrel，`server/index.ts` 零改动）。回归：后端 tsc 0 + 前端 build + vitest **55 绿** + 改动文件 eslint 0。详见 audit-02 **第 8 节**。
 - **仍遗留**：新模块单测缺口（monopoly `engine.ts` / roleChatEngine `buildParticipantMessages` 纯函数，复审 6.5）——audit-02 全部 B-/C- 行动项除此外已全部收口。
+- **monopoly 实施审计**：`docs/quality/logs/2026-06-28-monopoly-implementation-audit.md`，对照 `docs/monopoly_full_plan.md` 逐项审核 M0–M11 落地情况，发现 36 项整改（P0×1/ P1×12/ P2×18/ P3×5）。
 - 第一梯队 A-1~A-4 已完成（删死文件 / 修 UTC 日期 bug / vitest 地基 / 首批单测）。详见归档。
 
 ---
@@ -266,18 +297,18 @@
 - [x] **编译打包**（NSIS 安装包 + 便携版；file:// 协议修复）
 - [x] **M1 文本导入合并到书库概览**（新建/清理双模式）
 - [x] **大富翁模块全量规划文档**（`docs/monopoly_full_plan.md` + `docs/monopoly_module_guide.md`，数据驱动层全量落地计划）
-- [x] **大富翁 M0 重构地基**（types.ts 全量扩展 + engine.ts 拆 14 子系统 + 双地图 JSON + 数据目录 12 JSON 文件 + 29 单测）
-- [x] **大富翁 M1 地图数据双地图**（双地图 JSON + 桥接函数 + 地图选择器 UI + 渲染层自适应 + 5 单测，89 绿）
-- [x] **大富翁 M2 经济系统**（物价指数双模式 + 银行存贷 + 股票交易 + 第 15 日分红 + 董事长机制 + 7 公司企业落点/持股红利 + reducer 路由 + 33 单测，122 绿）
-- [x] **大富翁 M3 卡片系统**（30 种卡片效果执行 + 反制链 REACTION 窗口 + 商店库存 + 点数系统 + 手牌上限 15 + 25 单测，147 绿）
-- [x] **大富翁 M4 道具系统**（13 种道具全量实现 + 道具店/研究所双购买通道 + 持有上限 5 + 耐久系统 + 地雷/路障/定时炸弹棋盘陷阱 + 交通工具切换 + 飞弹/核子飞弹范围攻击 + 吸尘器/机器娃娃/传送器/工程车等工具 + 陷阱触发 resolveTraps + 定时炸弹倒计时 *tickTimedBombs + 27 单测，174 绿）
-- [x] **大富翁 M5 神明系统**（13 种神明定义 + `engine/god.ts` 全量实现：`applyPlayerGodDailyEffect` 每日现金/卡片效果、`tickGodDurations` 过期离开/变身、`handleGodPossession` 附身、`handleGodDismiss` 送神含死神不可送、`calcGodModifiedRent` 租金修正、`getGodMoveBoost` 步数加成/减成；`engine.ts` ROLL_DICE 前应用每日效果、END_TURN 后 tick 倒计时；`turn.ts` 租金整合 `calcGodModifiedRent`、骰子步数整合 `getGodMoveBoost`；`card.ts` SUMMON_GOD 召来最近神明、DISMISS_GOD 走送神/不可送分支；35 单测，**209 绿**）
-- [x] **大富翁 M6 事件系统**（2026-06-28 完成）：新闻(20) + 魔法屋(15) + 命运(12) + 小游戏(3) + 乐透 + 宝箱 + 传送 + 银行/商店事件格全量实现；`engine/event.ts` 完整实现；38 单测覆盖全部 7 类事件格路由、效果应用、决策流、旧 TileType 回退、边界情况，**247 绿**
-- [x] **大富翁 M7 多版本变体**（2026-06-28 完成）：3 个配置预设（richman4/10/11）+ `GameConfig.version`/`variant` 贯穿 NewGameConfig→GameState→reducer + `TileType` 新增 `attack` + `engine/turn.ts` 攻击格伤害逻辑 + 热斗模式（PROPERTY→ATTACK_SPACE, HOSPITAL→PARK, cash=HP）+ `NewGameModal` 版本选择器 + config preset loader `getConfigPresets`/`loadConfig` 桥接 JSON；4 engine + 4 loader 单测覆盖配置加载、版本切换、热斗棋盘转换、攻击扣钱，**255 绿**
-- [x] **大富翁 M8 AI 三档 + LLM 接口**（2026-06-28 完成）：`ai-strategies.ts` 三档全决策种类实现（buyProperty/upgradeProperty/jailChoice/payOrMortgage/useCard/useItem/bankOperation/stockTrade/cardReaction/lotteryBet/teleportTarget/magicHouseEffect/trade/choosePath）；`ai-llm.ts` LLM prompt 构建 + `LLMDecisionFn` 回调类型；`engine/ai.ts` 统一 AIController（`configureAIController`/`aiDecideAsync`/兜底降级 easy 档）；NewGameModal AI 玩家行加 Select 难度选择器；index.tsx LLM 决策开关（Switch）+ `streamChat` 集成；`NewGamePlayerSpec.aiDifficulty` 类型；build 全绿 + vitest **247 绿**
-- [x] **大富翁 M9 角色卡接入真实 M2**（2026-06-28 完成）：`engine/character-mapper.ts`（`mapEntityCardToCharacter`：EntityCard→MonopolyCharacter 映射）；NewGameModal 改读 `useAppStore(s => s.cards)`（filter `type === 'character'`）；PlayerHUD 解析 `p.characterCardId` 查 coverImageId 显示头像 `<img>`；GamePanel 头像同步；`characters.preset.ts` 已删除；build 全绿 + vitest **247 绿**
-- [x] **大富翁 M10 存档/读档**（2026-06-28 完成）：`serializer.ts` 完整实现（serializeGame/deserializeGame/extractSaveMeta/validateSaveIntegrity/migrateSaveVersion）；`saveStorage.ts` 存储抽象层（Electron IPC + localStorage 回退）；Electron IPC 4 通道（list/get/put/delete）写入 `app.getPath('userData')/saves/monopoly/`；`preload.cjs`/`preload.ts`/`vite-env.d.ts` 暴露类型安全接口；`engine.ts` añadir LOAD_GAME reducer case；`SaveLoadModal.tsx` 存档/读档 UI（存档名输入、对局列表展示/选择/删除）；`index.tsx` 工具栏加存档/读档按钮；修正乐透单测 flaky 为确定性断言；build 全绿 + vitest **255 绿**
-- [x] **大富翁 M11 回归与单测**（2026-06-28 完成）：8 个新的单测文件覆盖全部 17 个 engine 子文件——`turn.test.ts`(20 回合状态机)、`board.test.ts`(11 抵押/赎回)、`player.test.ts`(7 破产清算)、`company.test.ts`(6 公司企业)、`serializer.test.ts`(13 存档序列化)、`character-mapper.test.ts`(5 角色卡映射)、`ai-strategies.test.ts`(11 三档 AI 决策)、`ai.test.ts`(9 AI 控制器)；82 新单测，共计 27 文件 **337 绿**；build（tsc + vite）+ vitest 全绿
+- [x] **大富翁 M0 重构地基** — ⚠️ **审计见 P0-1~P0-3**：`FullGameState`/`TileV2`/`TurnContext` 仅僵尸类型，引擎仍用旧 `GameState`
+- [x] **大富翁 M1 地图数据双地图** — ⚠️ **审计见 P0-2/P1-1**：`boardDataToBoardConfig` 降级新地图为旧 BoardConfig
+- [x] **大富翁 M2 经济系统** — ⚠️ **审计见 P1-5**：auto_increment 模式未在 turn 中触发；P2-7/2-9：银行/股票在 TurnFSM 中无专用阶段
+- [x] **大富翁 M3 卡片系统** — ⚠️ **审计见 P1-9**：反制链 REACTION 窗口未集成；P1-11：数据文件 effectParams 大量缺失
+- [x] **大富翁 M4 道具系统** — ⚠️ **审计见 P1-8**：`ItemDefinition` 无 effect 字段
+- [x] **大富翁 M5 神明系统** — ⚠️ **审计见 P1-12**：`god-04` transformTo 指向错；效果方向待复核
+- [x] **大富翁 M6 事件系统** — ⚠️ **审计见 P1-13~P1-15**：魔法屋/新闻/命运描述与 effect 大量不符
+- [x] **大富翁 M7 多版本变体** — ⚠️ **审计见 P1-5**：auto_increment 未触发；P1-16：hot-fight 配置参数不完整
+- [x] **大富翁 M8 AI 三档 + LLM 接口** — ⚠️ **审计见 P1-6/P1-7**：aiNextAction 内置随机源；页面 LLM 决策未走 `aiDecideAsync`/`buildLLMMessages`
+- [x] **大富翁 M9 角色卡接入真实 M2** — ✅ 审计通过，仅缺角色头像预览（P2-5）
+- [x] **大富翁 M10 存档/读档** — ⚠️ **审计见 P2-6**：序列化基于旧 `GameState`
+- [x] **大富翁 M11 回归与单测** — ⚠️ **审计见 P3-3**：337 绿全基于旧类型，类型统一后需重写
 
 ### 🔧 近期修复（2026-06-27）
 
@@ -298,9 +329,11 @@
 
 ### 🚧 待完善
 
-- [ ] **M2/M3/M7/M8 端到端实测**：配置模块节点映射 → 提取 3-5 章验证 EntityCard → 创建场景推演 → 端到端 M0→M5 实际走通。大富翁多版本切换、热斗模式实际可玩、AI 三档行为差异可观察。
-- [x] **M10 存档/读档**（`serializer.ts` + SaveGame 文件 IO + Electron IPC + 对局列表 UI）+ 修正乐透 flaky 单测
-- [x] **M11 回归与单测**（全子系统单测覆盖 + 端到端玩通一局）— vitest **337 绿**
+- [ ] **相位 0：大富翁类型系统统一（P0）** — `FullGameState`→`GameState`；`TileV2`→`Tile`；ID 全改 `string`；`TurnContext` 替代 `TurnState`
+- [ ] **相位 1：引擎迁移与规则补全（P×9）** — 完整租金/破产清算/反制链/auto_increment/随机源外置/LLM 决策走 aiDecideAsync
+- [ ] **相位 2：数据文件修正（P×7）** — 卡片/神明/魔法屋/新闻/命运/配置语义与参数
+- [ ] **相位 3：UI 迁移（P×6）** — 全部页面迁移新类型；DecisionModal 全覆盖；HUD 显示经济/神明/交通
+- [ ] **相位 4：单测清理（P×3）** — 按新类型重写单测（≥337 绿）；删 `board.preset.ts`
 - [ ] **M12 2D/3D 资产驱动**（Tiled Tilemap + glTF 模型替换 blockout，资产制作后置）
 - [ ] **打包后首次启动**：`~/.novelhelper/` 无 settings.json，需手动配置 Provider 节点。
 
@@ -310,12 +343,12 @@
 
 > 完整逐项验证清单见归档 §「下一步任务」。以下为优先级摘要：
 
-1. **大富翁端到端实测 M0→M10**：开新局 → 选版本（大富翁4/10/11+热斗）→ 选地图 → 热斗模式验证 → 切回经典 → 切换台湾地图 → 观察 AI 三档 → M9 角色头像 → **存档 → 读档验证状态恢复**。
-2. **验证提示词归一化端到端**（各模块 PromptEditorButton 打开→加载默认→编辑→保存→实际生效；M1 优先级链本次>持久化>设置页>后端；M2 按类型分支 `m2-card-single:character` 等正确区分）。
-3. **验证文生图三协议**（设置页协议选择器三选项；节点测试右侧面板按协议切换字段；文生图 + 图生图 + Debug Info b64 剥离）。
-4. **验证节点测试各模块**（气泡功能 / 对话记录 / Debug Info / System Instructions / 对比模式 / GPT 10 项增强）。
-5. **验证全屏阅读**（查找替换 / 单章 AI 清理 / 回归原有功能）。
-6. **M2/M3/M7/M8 实测**（优先级高，端到端闭环验证）。
+1. **🚨 大富翁 Phase 0 类型系统统一（P0 阻塞）** — `FullGameState`→`GameState`；`TileV2.id`→`string`；`TurnContext` 替代 `TurnState`。必须先做完，否则引擎/UI/单测的迁移全部卡住。
+2. **Phase 1–4 按序实施** — 引擎迁移 → 数据文件修正 → UI 迁移 → 单测清理（见 `docs/quality/logs/2026-06-28-monopoly-implementation-audit.md` 完整清单）。
+3. **验证提示词归一化端到端**（各模块 PromptEditorButton 打开→加载默认→编辑→保存→实际生效；M1 优先级链本次>持久化>设置页>后端；M2 按类型分支 `m2-card-single:character` 等正确区分）。
+4. **验证文生图三协议**（设置页协议选择器三选项；节点测试右侧面板按协议切换字段；文生图 + 图生图 + Debug Info b64 剥离）。
+5. **验证节点测试各模块**（气泡功能 / 对话记录 / Debug Info / System Instructions / 对比模式 / GPT 10 项增强）。
+6. **验证全屏阅读**（查找替换 / 单章 AI 清理 / 回归原有功能）。
 
 ---
 
