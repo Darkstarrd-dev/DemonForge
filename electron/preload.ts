@@ -7,4 +7,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   captureScaleBase: () => ipcRenderer.invoke('capture-scale-base'),
   pickDirectory: () => ipcRenderer.invoke('dialog:pick-directory'),
   openPath: (dir: string) => ipcRenderer.invoke('shell:open-path', dir),
+  monopolyListSaves: () => ipcRenderer.invoke('monopoly:list-saves'),
+  monopolyGetSave: (id: string) => ipcRenderer.invoke('monopoly:get-save', id),
+  monopolyPutSave: (save: unknown) => ipcRenderer.invoke('monopoly:put-save', save),
+  monopolyDeleteSave: (id: string) => ipcRenderer.invoke('monopoly:delete-save', id),
 })

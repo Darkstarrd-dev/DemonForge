@@ -2,7 +2,7 @@ import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
 import { Button, Segmented, Switch, Tooltip, Typography, theme } from 'antd'
 import { createInitialState, reducer, rollDice, loadMapData, boardDataToBoardConfig } from '../../game/monopoly/engine'
 import { aiNextAction, configureAIController, resetAIController } from '../../game/monopoly/engine/ai'
-import type { NewGamePlayerSpec, GameState } from '../../game/monopoly/types'
+import type { NewGamePlayerSpec, GameState, SaveGame } from '../../game/monopoly/types'
 import { mapEntityCardToCharacter } from '../../game/monopoly/engine/character-mapper'
 import { useAppStore } from '../../store/appStore'
 import { streamChat } from '../../services/api'
@@ -13,6 +13,7 @@ import PlayerHUD from './PlayerHUD'
 import GamePanel from './GamePanel'
 import DecisionModal from './DecisionModal'
 import NewGameModal from './NewGameModal'
+import SaveLoadModal from './SaveLoadModal'
 
 function buildDefaultPlayersFromCards(cards: ReturnType<typeof useAppStore.getState>['cards']): NewGamePlayerSpec[] {
   const chars = cards.filter((c) => c.type === 'character').map(mapEntityCardToCharacter)
@@ -44,6 +45,8 @@ export default function MonopolyPage() {
   const { token } = theme.useToken()
   const [state, dispatch] = useReducer(reducer, undefined, initGame)
   const [newGameOpen, setNewGameOpen] = useState(false)
+  const [saveLoadOpen, setSaveLoadOpen] = useState(false)
+  const [saveLoadMode, setSaveLoadMode] = useState<'save' | 'load'>('save')
   const [view, setView] = useState<'2d' | '3d'>('2d')
   const [llmEnabled, setLlmEnabled] = useState(false)
   const lastStateRef = useRef(state)
@@ -111,6 +114,12 @@ export default function MonopolyPage() {
     })
   }
 
+  const onLoadSave = (save: SaveGame) => {
+    dispatch({ type: 'LOAD_GAME', save })
+  }
+
+  const gameConfig = state.config ?? null
+
   return (
     <div
       style={{
@@ -151,6 +160,12 @@ export default function MonopolyPage() {
           />
           <Button size="small" onClick={() => setNewGameOpen(true)}>
             新游戏
+          </Button>
+          <Button size="small" onClick={() => { setSaveLoadMode('save'); setSaveLoadOpen(true) }} disabled={state.status === 'ended'}>
+            存档
+          </Button>
+          <Button size="small" onClick={() => { setSaveLoadMode('load'); setSaveLoadOpen(true) }}>
+            读档
           </Button>
         </div>
       </div>
@@ -193,6 +208,14 @@ export default function MonopolyPage() {
 
       <DecisionModal state={state} interactive={interactive} onDecide={onDecide} />
       <NewGameModal open={newGameOpen} onClose={() => setNewGameOpen(false)} onStart={onStartNewGame} />
+      <SaveLoadModal
+        open={saveLoadOpen}
+        mode={saveLoadMode}
+        onClose={() => setSaveLoadOpen(false)}
+        state={state}
+        config={gameConfig}
+        onLoad={onLoadSave}
+      />
     </div>
   )
 }

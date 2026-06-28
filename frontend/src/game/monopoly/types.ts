@@ -550,10 +550,25 @@ export interface ConfigPreset {
 // ════════════════════════════════════════════
 
 export interface SaveGame {
+  id: string                    // 唯一存档标识（UUID）
+  name: string                  // 用户可自定义的存档名
+  version: string               // 存档格式版本，如 "richman@1.0.0"
+  timestamp: number             // 存档时间戳
+  gameState: GameState
+  config: GameConfig
+}
+
+/** 存档元信息（对局列表展示用） */
+export interface SaveMeta {
+  id: string
+  name: string
   version: string
   timestamp: number
-  gameState: FullGameState
-  config: GameConfig
+  playerCount: number
+  mapId: string
+  mapName: string
+  day: number
+  status: GameStatusStr
 }
 
 // ════════════════════════════════════════════

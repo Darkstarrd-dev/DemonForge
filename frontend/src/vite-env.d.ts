@@ -10,6 +10,11 @@ interface ElectronAPI {
   pickDirectory?: () => Promise<string | null>
   /** 用系统文件管理器打开指定目录；返回 '' 成功，否则为错误串 */
   openPath?: (dir: string) => Promise<string>
+  /** 大富翁存档 CRUD */
+  monopolyListSaves?: () => Promise<unknown[]>
+  monopolyGetSave?: (id: string) => Promise<unknown | null>
+  monopolyPutSave?: (save: unknown) => Promise<void>
+  monopolyDeleteSave?: (id: string) => Promise<void>
 }
 
 interface Window {

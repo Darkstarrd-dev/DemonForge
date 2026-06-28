@@ -18,6 +18,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   captureScaleBase: () => ipcRenderer.invoke('capture-scale-base'),
   // 目录选择（invoke：需要返回所选路径）
   pickDirectory: () => ipcRenderer.invoke('dialog:pick-directory'),
-  // 用系统文件管理器打开目录（invoke：返回 '' 成功或错误串）
+  // 用系统文件管理器打开指定目录（invoke：返回 '' 成功或错误串）
   openPath: (dir) => ipcRenderer.invoke('shell:open-path', dir),
+  // 大富翁存档 CRUD
+  monopolyListSaves: () => ipcRenderer.invoke('monopoly:list-saves'),
+  monopolyGetSave: (id) => ipcRenderer.invoke('monopoly:get-save', id),
+  monopolyPutSave: (save) => ipcRenderer.invoke('monopoly:put-save', save),
+  monopolyDeleteSave: (id) => ipcRenderer.invoke('monopoly:delete-save', id),
 })

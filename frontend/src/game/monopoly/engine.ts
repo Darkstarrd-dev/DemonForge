@@ -91,6 +91,10 @@ export function reducer(state: GameState, action: Action): GameState {
   switch (action.type) {
     case 'NEW_GAME':
       return createInitialState(action.config)
+    case 'LOAD_GAME': {
+      const loaded = action.save.gameState
+      return { ...JSON.parse(JSON.stringify(loaded)) } as GameState
+    }
     case 'ROLL_DICE': {
       const withGodEffects = applyAllGodDailyEffects(state)
       return handleRoll(withGodEffects, action.dice)
@@ -145,6 +149,9 @@ export { createCardDeck, findCardDef, giveCardToPlayer, refreshShop, resolveCard
 export { createItemDeck, findItemDef, handleBuyItem, handleUseItem, resolveItemChoice, buildItemChoiceDecision, resolveTraps, tickTimedBombs, refreshItemShop, ITEM_HAND_LIMIT } from './engine/item'
 export { aiDecide, aiNextAction, aiDecideAsync, configureAIController, resetAIController } from './engine/ai'
 export { aiDecideWithStrategy, AI_CONFIGS } from './engine/ai-strategies'
+export { serializeGame, deserializeGame, extractSaveMeta, generateSaveId, validateSaveIntegrity } from './engine/serializer'
+export { createSaveStorage } from './engine/saveStorage'
+export type { SaveStorage } from './engine/saveStorage'
 export { buildLLMMessages } from './engine/ai-llm'
 export type { LLMDecisionFn } from './engine/ai-llm'
 export { liquidate, calcTotalAssets } from './engine/player'

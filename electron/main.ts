@@ -2,7 +2,7 @@ import { app, BrowserWindow, ipcMain, dialog, screen, shell } from 'electron'
 import { spawn, execSync, ChildProcess } from 'node:child_process'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { existsSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync, unlinkSync } from 'node:fs'
 import { homedir } from 'node:os'
 
 const __filename = fileURLToPath(import.meta.url)
@@ -558,6 +558,57 @@ app.whenReady().then(async () => {
     ipcMain.handle('shell:open-path', async (_event, dir: string) => {
       if (!dir || typeof dir !== 'string') return '路径为空'
       return shell.openPath(dir)
+    })
+
+    // ──── 大富翁存档 IPC ────
+    const SAVE_DIR = join(app.getPath('userData'), 'saves', 'monopoly')
+
+    function ensureSaveDir(): void {
+      if (!existsSync(SAVE_DIR)) mkdirSync(SAVE_DIR, { recursive: true })
+    }
+
+    function savePath(id: string): string {
+      return join(SAVE_DIR, `${id}.json`)
+    }
+
+    ipcMain.handle('monopoly:list-saves', async () => {
+      try {
+        ensureSaveDir()
+        const files = readdirSync(SAVE_DIR).filter((f) => f.endsWith('.json'))
+        const saves = files.map((f) => {
+          try { return JSON.parse(readFileSync(join(SAVE_DIR, f), 'utf-8')) }
+          catch { return null }
+        }).filter(Boolean)
+        return saves.sort((a: any, b: any) => (b.timestamp ?? 0) - (a.timestamp ?? 0))
+      } catch { return [] }
+    })
+
+    ipcMain.handle('monopoly:get-save', async (_event, id: string) => {
+      try {
+        ensureSaveDir()
+        const fp = savePath(id)
+        if (!existsSync(fp)) return null
+        return JSON.parse(readFileSync(fp, 'utf-8'))
+      } catch { return null }
+    })
+
+    ipcMain.handle('monopoly:put-save', async (_event, save: any) => {
+      try {
+        ensureSaveDir()
+        writeFileSync(savePath(save.id), JSON.stringify(save, null, 2), 'utf-8')
+      } catch (err) {
+        throw new Error(`保存失败: ${err}`)
+      }
+    })
+
+    ipcMain.handle('monopoly:delete-save', async (_event, id: string) => {
+      try {
+        ensureSaveDir()
+        const fp = savePath(id)
+        if (existsSync(fp)) unlinkSync(fp)
+      } catch (err) {
+        throw new Error(`删除失败: ${err}`)
+      }
     })
 
     console.log('[App] Creating main window...')

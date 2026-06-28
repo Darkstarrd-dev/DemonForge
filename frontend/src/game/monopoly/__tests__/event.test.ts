@@ -191,12 +191,13 @@ describe('Lottery', () => {
     expect(result.players[0].cash).toBe(cash)
   })
 
-  it('resolveLottery with bet deducts 200 cash', () => {
+  it('resolveLottery with bet deducts 200 cash (or wins prize)', () => {
     const state = baseState()
     const cash = state.players[0].cash
     const result = resolveLottery(state, state.players[0].id, true)
-    expect(result.players[0].cash).toBeLessThan(cash)
-    expect(result.players[0].cash).toBeGreaterThanOrEqual(cash - 2200)
+    const diff = result.players[0].cash - cash
+    // 扣除 200 投注金；若中奖（30% 概率）则加 1000-3000 → 净增 800-2800
+    expect(diff === -200 || (diff >= 800 && diff <= 2800)).toBe(true)
   })
 
   it('resolveLottery with bet but insufficient cash returns unchanged', () => {

@@ -276,6 +276,7 @@
 - [x] **大富翁 M7 多版本变体**（2026-06-28 完成）：3 个配置预设（richman4/10/11）+ `GameConfig.version`/`variant` 贯穿 NewGameConfig→GameState→reducer + `TileType` 新增 `attack` + `engine/turn.ts` 攻击格伤害逻辑 + 热斗模式（PROPERTY→ATTACK_SPACE, HOSPITAL→PARK, cash=HP）+ `NewGameModal` 版本选择器 + config preset loader `getConfigPresets`/`loadConfig` 桥接 JSON；4 engine + 4 loader 单测覆盖配置加载、版本切换、热斗棋盘转换、攻击扣钱，**255 绿**
 - [x] **大富翁 M8 AI 三档 + LLM 接口**（2026-06-28 完成）：`ai-strategies.ts` 三档全决策种类实现（buyProperty/upgradeProperty/jailChoice/payOrMortgage/useCard/useItem/bankOperation/stockTrade/cardReaction/lotteryBet/teleportTarget/magicHouseEffect/trade/choosePath）；`ai-llm.ts` LLM prompt 构建 + `LLMDecisionFn` 回调类型；`engine/ai.ts` 统一 AIController（`configureAIController`/`aiDecideAsync`/兜底降级 easy 档）；NewGameModal AI 玩家行加 Select 难度选择器；index.tsx LLM 决策开关（Switch）+ `streamChat` 集成；`NewGamePlayerSpec.aiDifficulty` 类型；build 全绿 + vitest **247 绿**
 - [x] **大富翁 M9 角色卡接入真实 M2**（2026-06-28 完成）：`engine/character-mapper.ts`（`mapEntityCardToCharacter`：EntityCard→MonopolyCharacter 映射）；NewGameModal 改读 `useAppStore(s => s.cards)`（filter `type === 'character'`）；PlayerHUD 解析 `p.characterCardId` 查 coverImageId 显示头像 `<img>`；GamePanel 头像同步；`characters.preset.ts` 已删除；build 全绿 + vitest **247 绿**
+- [x] **大富翁 M10 存档/读档**（2026-06-28 完成）：`serializer.ts` 完整实现（serializeGame/deserializeGame/extractSaveMeta/validateSaveIntegrity/migrateSaveVersion）；`saveStorage.ts` 存储抽象层（Electron IPC + localStorage 回退）；Electron IPC 4 通道（list/get/put/delete）写入 `app.getPath('userData')/saves/monopoly/`；`preload.cjs`/`preload.ts`/`vite-env.d.ts` 暴露类型安全接口；`engine.ts` añadir LOAD_GAME reducer case；`SaveLoadModal.tsx` 存档/读档 UI（存档名输入、对局列表展示/选择/删除）；`index.tsx` 工具栏加存档/读档按钮；修正乐透单测 flaky 为确定性断言；build 全绿 + vitest **255 绿**
 
 ### 🔧 近期修复（2026-06-27）
 
@@ -297,7 +298,7 @@
 ### 🚧 待完善
 
 - [ ] **M2/M3/M7/M8 端到端实测**：配置模块节点映射 → 提取 3-5 章验证 EntityCard → 创建场景推演 → 端到端 M0→M5 实际走通。大富翁多版本切换、热斗模式实际可玩、AI 三档行为差异可观察。
-- [ ] **M10 存档/读档**（`serializer.ts` + SaveGame 文件 IO）
+- [x] **M10 存档/读档**（`serializer.ts` + SaveGame 文件 IO + Electron IPC + 对局列表 UI）+ 修正乐透 flaky 单测
 - [ ] **M11 回归与单测**（全子系统单测覆盖 + 端到端玩通一局）
 - [ ] **M12 2D/3D 资产驱动**（Tiled Tilemap + glTF 模型替换 blockout，资产制作后置）
 - [ ] **打包后首次启动**：`~/.novelhelper/` 无 settings.json，需手动配置 Provider 节点。
@@ -308,13 +309,13 @@
 
 > 完整逐项验证清单见归档 §「下一步任务」。以下为优先级摘要：
 
-1. **大富翁端到端实测 M0→M9**：开新局 → 选版本（大富翁4/10/11+热斗）→ 选地图 → 热斗模式验证（地产全变攻击格、无医院、踩格扣钱、破产淘汰）→ 切回经典验证买地升级 → 切换台湾地图 → 观察 AI 三档行为差异 → 验证 M9 真实角色卡头像显示。
-2. **大富翁 M10 存档/读档**（`serializer.ts` 已搭骨架 `serializeGame`/`deserializeGame`；需打通 SaveGame 文件 IO（Electron IPC）+ 对局列表 UI）
-3. **验证提示词归一化端到端**（各模块 PromptEditorButton 打开→加载默认→编辑→保存→实际生效；M1 优先级链本次>持久化>设置页>后端；M2 按类型分支 `m2-card-single:character` 等正确区分）。
-4. **验证文生图三协议**（设置页协议选择器三选项；节点测试右侧面板按协议切换字段；文生图 + 图生图 + Debug Info b64 剥离）。
-5. **验证节点测试各模块**（气泡功能 / 对话记录 / Debug Info / System Instructions / 对比模式 / GPT 10 项增强）。
-6. **验证全屏阅读**（查找替换 / 单章 AI 清理 / 回归原有功能）。
-7. **M2/M3/M7/M8 实测**（优先级高，端到端闭环验证）。
+1. **大富翁端到端实测 M0→M10**：开新局 → 选版本（大富翁4/10/11+热斗）→ 选地图 → 热斗模式验证 → 切回经典 → 切换台湾地图 → 观察 AI 三档 → M9 角色头像 → **存档 → 读档验证状态恢复**。
+2. **验证提示词归一化端到端**（各模块 PromptEditorButton 打开→加载默认→编辑→保存→实际生效；M1 优先级链本次>持久化>设置页>后端；M2 按类型分支 `m2-card-single:character` 等正确区分）。
+3. **验证文生图三协议**（设置页协议选择器三选项；节点测试右侧面板按协议切换字段；文生图 + 图生图 + Debug Info b64 剥离）。
+4. **验证节点测试各模块**（气泡功能 / 对话记录 / Debug Info / System Instructions / 对比模式 / GPT 10 项增强）。
+5. **验证全屏阅读**（查找替换 / 单章 AI 清理 / 回归原有功能）。
+6. **M2/M3/M7/M8 实测**（优先级高，端到端闭环验证）。
+7. **M11 回归与单测**（全子系统单测覆盖 + 端到端玩通一局）。
 
 ---
 
