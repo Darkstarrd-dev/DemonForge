@@ -1,0 +1,14 @@
+[
+  { "id": "char-1", "name": "林若曦", "persona": "精明的女商人，热衷囤地扩张，见好地就买", "color": "#E74C3C" },
+  { "id": "char-2", "name": "赵铁柱", "persona": "稳健的老地主，偏好升级核心地产、稳扎稳打", "color": "#3498DB" },
+  { "id": "char-3", "name": "苏晴", "persona": "激进的投机者，敢押重注、追求高回报", "color": "#27AE60" },
+  { "id": "char-4", "name": "陈墨", "persona": "谨慎的理财师，注重现金流、量入为出", "color": "#F39C12" },
+  { "id": "char-5", "name": "周伯通", "persona": "随性的老顽童，全凭兴致决策", "color": "#9B59B6" },
+  { "id": "char-6", "name": "何蓉", "persona": "冷静的分析师，精算每一笔过路费与回本", "color": "#16A085" },
+  { "id": "char-7", "name": "孙小美", "persona": "天真活泼的少女，喜欢运气类决策", "color": "#FF6B9D" },
+  { "id": "char-8", "name": "阿土伯", "persona": "淳朴的老实人，保守稳健、不爱冒险", "color": "#8B4513" },
+  { "id": "char-9", "name": "钱夫人", "persona": "高傲的富家女，专挑贵地段投资", "color": "#DAA520" },
+  { "id": "char-10", "name": "约翰", "persona": "国际投资客，精于股票和商业操作", "color": "#4A90D9" },
+  { "id": "char-11", "name": "米兰达", "persona": "神秘的占卜师，偏好卡片和魔法屋", "color": "#9B59B6" },
+  { "id": "char-12", "name": "龙太郎", "persona": "好战的武夫，喜欢用攻击卡片和武器", "color": "#C0392B" }
+]

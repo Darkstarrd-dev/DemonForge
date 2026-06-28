@@ -1,0 +1,25 @@
+{
+  "id": "richman10-online",
+  "name": "大富翁10 联网配置",
+  "config": {
+    "playerCount": 4,
+    "startingCash": 10000,
+    "mapId": "classic-40",
+    "victoryCondition": "LAST_STANDING",
+    "diceMode": "dice",
+    "allowDoubleRoll": true,
+    "allowConsecutiveDoublesJail": true,
+    "priceIndexEnabled": true,
+    "priceIndexMode": "auto_increment",
+    "bankEnabled": true,
+    "stockEnabled": false,
+    "initialDeposit": 0,
+    "cardHandLimit": 10,
+    "pointSystem": "cash",
+    "bankruptcyMode": "ELIMINATE",
+    "gameMode": "ONLINE",
+    "variant": "classic",
+    "renderMode": "2D",
+    "version": "richman10"
+  }
+}

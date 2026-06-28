@@ -1,0 +1,25 @@
+{
+  "id": "richman4-default",
+  "name": "大富翁4 默认配置",
+  "config": {
+    "playerCount": 4,
+    "startingCash": 15000,
+    "mapId": "classic-40",
+    "victoryCondition": "LAST_STANDING",
+    "diceMode": "dice",
+    "allowDoubleRoll": false,
+    "allowConsecutiveDoublesJail": false,
+    "priceIndexEnabled": true,
+    "priceIndexMode": "asset_based",
+    "bankEnabled": true,
+    "stockEnabled": true,
+    "initialDeposit": 0,
+    "cardHandLimit": 15,
+    "pointSystem": "points",
+    "bankruptcyMode": "ELIMINATE",
+    "gameMode": "HOT_SEAT",
+    "variant": "classic",
+    "renderMode": "2D",
+    "version": "richman4"
+  }
+}

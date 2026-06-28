@@ -1,0 +1,25 @@
+{
+  "id": "richman11-hotfight",
+  "name": "大富翁11 热斗模式",
+  "config": {
+    "playerCount": 4,
+    "startingCash": 8000,
+    "mapId": "classic-40",
+    "victoryCondition": "LAST_STANDING",
+    "diceMode": "dice",
+    "allowDoubleRoll": true,
+    "allowConsecutiveDoublesJail": true,
+    "priceIndexEnabled": true,
+    "priceIndexMode": "auto_increment",
+    "bankEnabled": false,
+    "stockEnabled": false,
+    "initialDeposit": 0,
+    "cardHandLimit": 5,
+    "pointSystem": "cash",
+    "bankruptcyMode": "ELIMINATE",
+    "gameMode": "HOT_SEAT",
+    "variant": "hot_fight",
+    "renderMode": "2D",
+    "version": "richman11"
+  }
+}

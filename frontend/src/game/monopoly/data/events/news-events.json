@@ -1,0 +1,22 @@
+[
+  { "id": "news-00", "title": "经济景气", "description": "所有玩家获得 ¥500 现金", "effect": { "type": "ALL_GAIN_CASH", "value": 500, "target": "ALL" } },
+  { "id": "news-01", "title": "股市大涨", "description": "所有股票价格翻倍", "effect": { "type": "STOCK_SURGE", "value": 2.0, "target": "ALL" } },
+  { "id": "news-02", "title": "天灾警报", "description": "所有玩家损失 10% 现金", "effect": { "type": "ALL_LOSE_PERCENT", "value": 0.1, "target": "ALL" } },
+  { "id": "news-03", "title": "房地产热", "description": "所有地产价格上涨 20%", "effect": { "type": "PROPERTY_PRICE_UP", "value": 0.2, "target": "ALL" } },
+  { "id": "news-04", "title": "利率下调", "description": "银行存款利息提高", "effect": { "type": "ALL_GAIN_CASH", "value": 200, "target": "ALL" } },
+  { "id": "news-05", "title": "黑心商品", "description": "随机一名玩家罚款 ¥800", "effect": { "type": "RANDOM_PLAYER_LOSE", "value": 800, "target": "RANDOM" } },
+  { "id": "news-06", "title": "乐透中奖", "description": "随机一名玩家获得 ¥1000", "effect": { "type": "RANDOM_PLAYER_GAIN", "value": 1000, "target": "RANDOM" } },
+  { "id": "news-07", "title": "房东加租", "description": "最富玩家损失 ¥1500", "effect": { "type": "ALL_LOSE_CASH", "value": 500, "target": "ALL" } },
+  { "id": "news-08", "title": "环保倡议", "description": "所有玩家缴纳环保税 ¥300", "effect": { "type": "ALL_LOSE_CASH", "value": 300, "target": "ALL" } },
+  { "id": "news-09", "title": "经济衰退", "description": "物价指数下降一档", "effect": { "type": "PROPERTY_PRICE_DOWN", "value": 0.15, "target": "ALL" } },
+  { "id": "news-10", "title": "科技突破", "description": "所有科技公司股票涨停", "effect": { "type": "STOCK_SURGE", "value": 1.5, "target": "ALL" } },
+  { "id": "news-11", "title": "台风过境", "description": "最穷玩家获得补助 ¥600", "effect": { "type": "RANDOM_PLAYER_GAIN", "value": 600, "target": "POOREST" } },
+  { "id": "news-12", "title": "节庆促销", "description": "商店所有卡片半价", "effect": { "type": "ALL_GAIN_CASH", "value": 300, "target": "ALL" } },
+  { "id": "news-13", "title": "交通大罢工", "description": "所有玩家步行一回合（只掷1颗骰子）", "effect": { "type": "ALL_LOSE_CASH", "value": 200, "target": "ALL" } },
+  { "id": "news-14", "title": "海外投资", "description": "最富玩家获得 ¥2000", "effect": { "type": "RANDOM_PLAYER_GAIN", "value": 2000, "target": "RICHEST" } },
+  { "id": "news-15", "title": "金融海啸", "description": "所有玩家损失 20% 现金", "effect": { "type": "ALL_LOSE_PERCENT", "value": 0.2, "target": "ALL" } },
+  { "id": "news-16", "title": "土地重划", "description": "随机一条路段涨价卡效果 3 天", "effect": { "type": "PROPERTY_PRICE_UP", "value": 0.3, "target": "ALL" } },
+  { "id": "news-17", "title": "观光热潮", "description": "所有玩家获得 ¥400", "effect": { "type": "ALL_GAIN_CASH", "value": 400, "target": "ALL" } },
+  { "id": "news-18", "title": "股市崩盘", "description": "所有股票跌停", "effect": { "type": "STOCK_CRASH", "value": 0.5, "target": "ALL" } },
+  { "id": "news-19", "title": "政府补贴", "description": "最穷玩家获得 ¥800", "effect": { "type": "RANDOM_PLAYER_GAIN", "value": 800, "target": "POOREST" } }
+]

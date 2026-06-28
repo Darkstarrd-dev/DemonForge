@@ -2,7 +2,7 @@
 
 **最后更新**：2026-06-28
 **当前位置**：办公场所 A
-**本轮主题**：**大富翁模块全量规划文档**——参考 `ref/gamedesign/richman.md`（台湾大富翁4完整设计文档）设计数据驱动层全量落地的实施计划文档与模块说明文档。决策：双地图共存 + 全量规则 + 重构引擎（五子系统）+ 资产后置。产物：`docs/monopoly_full_plan.md`（M0→M12 实施计划）+ `docs/monopoly_module_guide.md`（模块说明）。前序：提示词归一化全模块迁移（已提交 + 推送）
+**本轮主题**：**大富翁 M0 重构地基**——按 `docs/monopoly_full_plan.md` §7 M0 里程碑实施。types.ts 全量扩展（§3 全部 40+ 接口/枚举）+ engine.ts 拆 14 子系统（board/player/turn/economy/card/item/god/event/company/ai/ai-strategies/ai-llm/validator/loader/serializer）+ 内容数据目录 12 JSON 文件（双地图/30 卡片/13 道具/13 神明/12 角色/7 公司/20 新闻/15 魔法屋/命运/小游戏/三版本配置）+ 29 新增单测。前序：大富翁模块全量规划文档（docs/monopoly_full_plan.md + docs/monopoly_module_guide.md，已由上一轮完成但尚未提交）
 
 > 📦 **历史明细已归档** → `docs/handoff_history.md`
 > 本文件只保留「恢复工作所需的活内容」：进行中任务、模块清单、下一步、交接参考。
@@ -136,6 +136,55 @@
 
 ---
 
+## 🆕 M0 大富翁重构地基（2026-06-28，已完成，build 全绿 + vitest 84 绿）
+
+基于 `docs/monopoly_full_plan.md` §7 M0 里程碑实施。**不执行 git 操作**，待用户手动提交。
+
+### 产出
+
+**引擎重构（`engine.ts` → 14 个子系统）**：
+- `types.ts`：全量 §3 接口（旧类型保持兼容 + 新类型如 `BoardData`/`CardDefinition`/`ItemDefinition`/`GodDefinition`/`FullGameState`/`GameConfig`/`SaveGame` 等 40+ 接口 + 所有枚举）
+- `engine.ts`：薄路由层（~50 行，`switch` 派发到子系统）
+- `engine/board.ts`：地产抵押/赎回
+- `engine/player.ts`：破产清算/资产计算
+- `engine/turn.ts`：回合状态机（掷骰/移动/落点结算/决策消解/回合切换）
+- `engine/economy.ts`：物价指数计算（双模式）+ 初始经济创建
+- `engine/{card,item,god,event,company}.ts`：子系统骨架（M3+ 实现）
+- `engine/ai.ts`：AI 控制器（规则式 aiDecide/aiNextAction，从旧 ai.ts 迁移）
+- `engine/ai-strategies.ts`：三档难度配置（M8 实现）
+- `engine/ai-llm.ts`：LLM 决策接口（M8 实现）
+- `engine/validator.ts`：地图数据校验（连通性/引用完整性/枚举合法/建筑等级连续；7 单测）
+- `engine/loader.ts`：数据加载器（Vite 原生 JSON 导入，注册表式双地图；4 单测）
+- `engine/serializer.ts`：存档序列化骨架
+
+**内容数据文件（12 个 JSON 文件/9 个目录）**：
+- `data/maps/classic-40.json`：经典 40 格环形地图（从 `board.preset.ts` 迁移，含 `SpaceType`/`neighborIds`/`AssetRef` 预留）
+- `data/maps/richman4-taiwan.json`：台湾地图 36 格（基于 `ref/gamedesign/richman.md` §2.3）
+- `data/cards/richman4-cards.json`：30 种卡片（全效果定义 + 反制链）
+- `data/items/richman4-items.json`：13 种道具
+- `data/gods/richman4-gods.json`：13 种神明（含死神不可送）
+- `data/characters/richman4-characters.json`：12 名角色
+- `data/companies/richman4-companies.json`：7 类公司（含董事长特权）
+- `data/events/news-events.json`：20 条新闻
+- `data/events/magic-house-events.json`：15 条魔法屋
+- `data/events/fate-events.json`：命运事件
+- `data/minigames/minigame-definitions.json`：小游戏定义
+- `data/config/richman4-default.json` / `richman10-online.json` / `richman11-hotfight.json`：三版本预设
+
+**单测（29 新增 → 总计 84 绿）**：
+- `engine.test.ts`：18 单测（createInitialState 4 + ROLL_DICE 4 + RESOLVE_DECISION 3 + MORTGAGE/REDEEM 2 + END_TURN 2 + NEW_GAME 1 + 破产 2）
+- `validator.test.ts`：7 单测（合法通过 + size 不匹配 + 重复 ID + 缺 basePrice + 非法 neighborId + 连通性 ±）
+- `loader.test.ts`：4 单测（地图列表 + 经典 40 格 + 台湾 36 格 + 未知 ID 抛错）
+
+**验收**：前端 `tsc -b` 0 + `vite build` ✓ + `vitest` **84 绿**（14 文件）。P0–P6 功能回归（旧 `board.preset.ts` + `ai.ts` 重导出保持向后兼容，pages/monopoly 页面零改动）。
+
+### 待用户操作
+1. 端到端实测：打开大富翁页面 → 新游戏 → 掷骰/购买/升级/抵押/赎回/破产 → 确认 P0-P6 功能正常
+2. 手动 git 提交本轮改动（文件清单见下）
+3. 后续里程碑 M1（地图数据双地图切换 + `NewGameModal` 地图选择器）
+
+---
+
 ## 🆕 进行中：第二、三梯队重构（2026-06-27）
 
 > 目标（用户 /goal）：A-7 + A-8 全部完成并测试通过、提交推送。
@@ -223,7 +272,8 @@
 - [x] **data-slot 体系**（11 页，150+ 属性，规范文档齐全）
 - [x] **编译打包**（NSIS 安装包 + 便携版；file:// 协议修复）
 - [x] **M1 文本导入合并到书库概览**（新建/清理双模式）
-- [x] **大富翁模块全量规划文档**（`docs/monopoly_full_plan.md` + `docs/monopoly_module_guide.md`，数据驱动层全量落地计划，参考 richman.md 设计；本轮仅文档不实施）
+- [x] **大富翁模块全量规划文档**（`docs/monopoly_full_plan.md` + `docs/monopoly_module_guide.md`，数据驱动层全量落地计划）
+- [x] **大富翁 M0 重构地基**（types.ts 全量扩展 + engine.ts 拆 14 子系统 + 双地图 JSON + 数据目录 12 JSON 文件 + 29 单测）
 
 ### 🔧 近期修复（2026-06-27）
 
@@ -253,14 +303,16 @@
 
 > 完整逐项验证清单见归档 §「下一步任务」。以下为优先级摘要：
 
-1. **验证提示词归一化端到端**（各模块 PromptEditorButton 打开→加载默认→编辑→保存→实际生效；M1 优先级链本次>持久化>设置页>后端；M2 按类型分支 `m2-card-single:character` 等正确区分）。
-2. **验证文生图三协议**（设置页协议选择器三选项；节点测试右侧面板按协议切换字段；文生图 + 图生图 + Debug Info b64 剥离）。
+1. **大富翁 M0 端到端实测**：打开大富翁页面 → 新游戏 → 掷骰/购买/升级/抵押/赎回/破产 → 确认 P0–P6 功能正常。
+2. **大富翁 M1 地图数据双地图**：`NewGameModal` 加地图选择器 + 渲染层适配 `Tile.id`（string）+ 双地图 JSON 切换可用。
+3. **验证提示词归一化端到端**（各模块 PromptEditorButton 打开→加载默认→编辑→保存→实际生效；M1 优先级链本次>持久化>设置页>后端；M2 按类型分支 `m2-card-single:character` 等正确区分）。
+4. **验证文生图三协议**（设置页协议选择器三选项；节点测试右侧面板按协议切换字段；文生图 + 图生图 + Debug Info b64 剥离）。
    - xAI 测试端点 `https://maoyulin.xyz/`，模型 `grok-imagine-image-lite`。
    - GPT 测试端点 `https://jiuuij.de5.net/`，模型 `gpt-image-2`。
-2. **验证节点测试各模块**（气泡功能 / 对话记录 / Debug Info / System Instructions / 对比模式 / GPT 10 项增强）。
-3. **验证全屏阅读**（查找替换 / 单章 AI 清理 / 回归原有功能）。
-4. **M2/M3 实测**（优先级高，端到端闭环验证）。
-5. **大富翁模块按 `docs/monopoly_full_plan.md` 实施**（M0 重构地基起步，引擎拆五子系统 + 类型扩展 + 数据文件落地 + 双地图 JSON）。
+5. **验证节点测试各模块**（气泡功能 / 对话记录 / Debug Info / System Instructions / 对比模式 / GPT 10 项增强）。
+6. **验证全屏阅读**（查找替换 / 单章 AI 清理 / 回归原有功能）。
+7. **M2/M3 实测**（优先级高，端到端闭环验证）。
+8. **大富翁后续里程碑**：M1→M12 按 `docs/monopoly_full_plan.md` 逐步实施。
 
 ---
 

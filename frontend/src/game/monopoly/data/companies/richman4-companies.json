@@ -1,0 +1,9 @@
+[
+  { "id": "company-00", "name": "中央银行", "type": "BANK", "initialStockPrice": 200, "chairmanPrivilege": "存款利率翻倍" },
+  { "id": "company-01", "name": "太平洋百货", "type": "DEPARTMENT_STORE", "initialStockPrice": 150, "chairmanPrivilege": "踩本公司过路费减半" },
+  { "id": "company-02", "name": "中国石油", "type": "GAS_STATION", "initialStockPrice": 180, "chairmanPrivilege": "每轮获得加油费分成" },
+  { "id": "company-03", "name": "快乐谷游乐园", "type": "AMUSEMENT_PARK", "initialStockPrice": 120, "chairmanPrivilege": "每轮获得小游戏收益" },
+  { "id": "company-04", "name": "豪华餐厅", "type": "RESTAURANT", "initialStockPrice": 100, "chairmanPrivilege": "踩本公司免过路费" },
+  { "id": "company-05", "name": "台积电", "type": "TECH_COMPANY", "initialStockPrice": 300, "chairmanPrivilege": "股价涨跌幅减半" },
+  { "id": "company-06", "name": "平安保险", "type": "INSURANCE_COMPANY", "initialStockPrice": 160, "chairmanPrivilege": "住院时仍可收租" }
+]

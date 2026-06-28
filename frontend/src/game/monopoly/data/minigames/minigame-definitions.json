@@ -1,0 +1,5 @@
+[
+  { "id": "mg-00", "name": "猜大小", "triggerCondition": "LAND_ON_SPACE", "rewardFormula": "score * 100 * priceIndex", "penaltyFormula": "score * 50 * priceIndex" },
+  { "id": "mg-01", "name": "射击场", "triggerCondition": "LAND_ON_SPACE", "rewardFormula": "score * 80 * priceIndex", "penaltyFormula": "score * 40 * priceIndex" },
+  { "id": "mg-02", "name": "赛马", "triggerCondition": "SPECIFIC_DAY", "rewardFormula": "bet * 3", "penaltyFormula": "bet * 0" }
+]
