@@ -1,10 +1,13 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useCallback } from 'react'
 import { Button, Select, Slider, Space } from 'antd'
 import { ReloadOutlined } from '@ant-design/icons'
 import Phaser from 'phaser'
 import CharacterDemo from './CharacterDemo'
+import DiceSpriteScene from './DiceSpriteScene'
+import DiceMatterScene from './DiceMatterScene'
+import Dice2DPanel from './Dice2DPanel'
 
-type DemoType = 'rigid' | 'character'
+type DemoType = 'rigid' | 'character' | 'dice-sprite' | 'dice-matter'
 
 // 右键蓄力斥力参数（经验默认，可按手感微调）
 const REPEL_MAX_HOLD = 1500 // 蓄力封顶 (ms)
@@ -185,6 +188,8 @@ export default function Demo2DPage() {
   const [demoType, setDemoType] = useState<DemoType>('rigid')
   const [baseStrength, setBaseStrength] = useState(1.5)
   const baseStrengthRef = useRef(1.5)
+  const [diceResult, setDiceResult] = useState<{ values: number[]; total: number } | null>(null)
+  const [diceRolling, setDiceRolling] = useState(false)
 
   const createGame = (parent: HTMLElement) => {
     const width = parent.clientWidth
@@ -236,16 +241,64 @@ export default function Demo2DPage() {
     }
   }
 
+  const createDiceGame = (parent: HTMLElement, mode: 'dice-sprite' | 'dice-matter') => {
+    const width = parent.clientWidth
+    const height = parent.clientHeight
+    if (width < 10 || height < 10) return null
+
+    const phaserDiv = document.createElement('div')
+    phaserDiv.style.width = '100%'
+    phaserDiv.style.height = '100%'
+    parent.appendChild(phaserDiv)
+    phaserDivRef.current = phaserDiv
+
+    const scene = mode === 'dice-sprite' ? DiceSpriteScene : DiceMatterScene
+
+    const game = new Phaser.Game({
+      type: Phaser.CANVAS,
+      width,
+      height,
+      parent: phaserDiv,
+      backgroundColor: '#1a1a2e',
+      physics:
+        mode === 'dice-matter'
+          ? { default: 'matter', matter: { gravity: { x: 0, y: 1.5 }, debug: false } }
+          : undefined,
+      scene,
+      scale: {
+        mode: Phaser.Scale.RESIZE,
+        autoCenter: Phaser.Scale.CENTER_BOTH,
+      },
+      input: {
+        keyboard: true,
+        mouse: true,
+        touch: true,
+      },
+    })
+
+    game.events.on('dice-roll-complete', (result: { values: number[]; total: number }) => {
+      setDiceResult(result)
+      setDiceRolling(false)
+    })
+
+    return game
+  }
+
   useEffect(() => {
-    if (demoType !== 'rigid') {
+    if (demoType !== 'rigid' && demoType !== 'dice-sprite' && demoType !== 'dice-matter') {
       destroyGame()
       return
     }
     const timer = requestAnimationFrame(() => {
       const wrapper = wrapperRef.current
       if (!wrapper) return
-      const game = createGame(wrapper)
-      if (game) gameRef.current = game
+      if (demoType === 'rigid') {
+        const game = createGame(wrapper)
+        if (game) gameRef.current = game
+      } else {
+        const game = createDiceGame(wrapper, demoType as 'dice-sprite' | 'dice-matter')
+        if (game) gameRef.current = game
+      }
     })
 
     return () => {
@@ -264,9 +317,22 @@ export default function Demo2DPage() {
     const wrapper = wrapperRef.current
     if (!wrapper) return
     destroyGame()
-    const game = createGame(wrapper)
-    if (game) gameRef.current = game
+    if (demoType === 'rigid') {
+      const game = createGame(wrapper)
+      if (game) gameRef.current = game
+    } else if (demoType === 'dice-sprite' || demoType === 'dice-matter') {
+      const game = createDiceGame(wrapper, demoType)
+      if (game) gameRef.current = game
+    }
   }
+
+  const handleDiceRoll = useCallback((presetValues?: number[]) => {
+    setDiceRolling(true)
+    setDiceResult(null)
+    gameRef.current?.events.emit('dice-roll', presetValues)
+  }, [])
+
+  const isDice = demoType === 'dice-sprite' || demoType === 'dice-matter'
 
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%', overflow: 'hidden' }}>
@@ -291,7 +357,7 @@ export default function Demo2DPage() {
           <Button
             icon={<ReloadOutlined />}
             onClick={handleReset}
-            disabled={demoType !== 'rigid'}
+            disabled={demoType === 'character'}
             style={{ width: 140 }}
           >
             复位
@@ -303,6 +369,8 @@ export default function Demo2DPage() {
             options={[
               { value: 'rigid', label: '刚体碰撞演示' },
               { value: 'character', label: '人物状态演示' },
+              { value: 'dice-sprite', label: '骰子·帧动画' },
+              { value: 'dice-matter', label: '骰子·物理刚体' },
             ]}
           />
           {demoType === 'rigid' && (
@@ -310,6 +378,14 @@ export default function Demo2DPage() {
               <div style={{ fontSize: 12, color: '#333' }}>基础斥力 {baseStrength.toFixed(1)}</div>
               <Slider min={0} max={4} step={0.1} value={baseStrength} onChange={onStrengthChange} />
             </div>
+          )}
+          {isDice && (
+            <Dice2DPanel
+              mode={demoType === 'dice-sprite' ? 'sprite' : 'matter'}
+              onRoll={handleDiceRoll}
+              rolling={diceRolling}
+              lastResult={diceResult ?? undefined}
+            />
           )}
         </Space>
       </div>

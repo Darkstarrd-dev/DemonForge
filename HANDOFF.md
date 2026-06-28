@@ -29,18 +29,33 @@
 | 9 | 预设结果 | 必须支持手动指定落点（3D 下"物理滚动→静止→slerp 校准"双阶段） |
 | 10 | 打包 | 自建路线，无关 electron-builder 资源 |
 
-### 实施范围（11 步骤）
-1. `game/dice/` 模块目录 + `types.ts`
-2. `DiceRoller.ts` 核心类（Web Crypto 随机数、历史、预设校验）
-3. `geometry.ts`（五种正多面体几何 + CanvasTexture 面贴图）
-4. `faceDetection.ts`（3D 朝上面判定）
-5. `presets.ts`（预设朝向四元数 + slerp 校准）
-6. `index.ts` 导出门面
-7. `__tests__/` 4 个测试文件（≥15 测试）
-8. 下载 yahtzee 资源到 `public/dice-assets/yahtzee/`
-9. demo-2d 改造（`DiceSpriteScene.ts` + `DiceMatterScene.ts` + `Dice2DPanel.tsx`）
-10. demo-3d 改造（`Dice3DEngine.ts` + `Dice3DPanel.tsx`）
-11. 全链路验证（lint + build + test）
+### 实施范围（11 步骤，✅ 全部完成）
+1. ✅ `game/dice/` 模块目录 + `types.ts`
+2. ✅ `DiceRoller.ts` 核心类（Web Crypto 随机数、历史、预设校验）
+3. ✅ `geometry.ts`（五种正多面体几何 + CanvasTexture 面贴图 + DICE_FACE_DEFS 面定义表）
+4. ✅ `faceDetection.ts`（3D 朝上面判定）
+5. ✅ `presets.ts`（预设朝向四元数 + slerp 校准）
+6. ✅ `index.ts` 导出门面
+7. ✅ `__tests__/` 4 个测试文件（35 测试全绿）
+8. ✅ 下载 yahtzee 资源到 `public/dice-assets/yahtzee/`
+9. ✅ demo-2d 改造（`DiceSpriteScene.ts` + `DiceMatterScene.ts` + `Dice2DPanel.tsx`）
+10. ✅ demo-3d 改造（`Dice3DEngine.ts` + `Dice3DPanel.tsx`）
+11. ✅ 全链路验证（lint 无新增错误 + build 成功 + 372 测试全绿）
+
+### 实施细节
+- **核心模块**：`frontend/src/game/dice/` 下 6 个 TS 文件（types/DiceRoller/geometry/faceDetection/presets/index），零渲染依赖，与 monopoly 同风格
+- **d20 面定义**：按 y 分量降序排列，确保 faceValue 1 对应最高朝上面，对面之和=21
+- **d10 几何体**：手写五角双锥 BufferGeometry（12 顶点 + 20 三角形），倾斜角 arctan(1/2)
+- **Three.js 内置几何体**：`IcosahedronGeometry`/`DodecahedronGeometry` 在 0.184 版已是 non-indexed，`toNonIndexed()` 会清空 groups → 用 `ensureNonIndexed` 守卫 + `addFaceGroups` 手动建 groups
+- **2D demo**：帧动画模式（yahtzee atlas，800ms 动画）+ Matter 物理模式（方块掷出，2s 后显示结果）
+- **3D demo**：Rapier ball collider 近似骰子，每帧同步 mesh；`createDice3DEngine` 接受 `RAPIER` 模块级导入（非参数），复用 `ensureRapierReady` 单例
+- **测试**：jsdom 环境，crypto mock 兜底；faceDetection/presets 互相验证闭环
+
+### 验证状态
+- **tsc**：0 错误（dice/demo 文件）
+- **lint**：0 新增错误（7 个预存：PromptEditorButton/saveStorage/SaveLoadModal）
+- **vite build**：成功，dice chunk 5.33 kB
+- **vitest**：372/372 绿（35 个新增 dice 测试）
 
 计划文档：`docs/dice_implementation_plan.md`
 
@@ -434,7 +449,7 @@
 - [x] **前端主题系统 + 响应式布局**（浅/深双主题，13 页覆盖）
 - [x] **4K 基准缩放**（捕获基准 + 主进程计算，根除闪烁）
 - [x] **2D 环境 Demo**（Phaser + Matter.js 物理沙盒 + 人物状态占位）
-- [x] **骰子模块详细实施计划**（`docs/dice_implementation_plan.md`，10 项决策 11 步骤，覆盖核心模块 + 2D/3D 双 demo 改造）
+- [x] **骰子模块**（`game/dice/` 核心 + 2D/3D demo 集成，**2026-06-29 全部完成**，详见上方 §骰子模块实施完成）
 - [x] **data-slot 体系**（11 页，150+ 属性，规范文档齐全）
 - [x] **编译打包**（NSIS 安装包 + 便携版；file:// 协议修复）
 - [x] **M1 文本导入合并到书库概览**（新建/清理双模式）
@@ -482,7 +497,7 @@
 > 完整逐项验证清单见归档 §「下一步任务」。以下为优先级摘要：
 
 1. **🎮 端到端实测大富翁模块**：启动→选择地图→双地图渲染→掷骰/购买/升级/租金正常→卡片/道具/神明/事件生效→破产判定→胜负
-2. **🎲 实施骰子模块**：按 `docs/dice_implementation_plan.md` 11 步骤执行（先核心 `game/dice/` → 测试 → 资源 → demo 改造）
+2. **🎲 端到端实测骰子模块**：demo-2d 选「骰子·帧动画」/「骰子·物理刚体」确认投掷动画正常；demo-3d 选「骰子演示」确认 3D 物理滚动
 3. **📦 验证完整打包**：`npm run dist`（NSIS + 便携版，注意 app-builder 可能被 Defender 锁）
 4. **🔍 验证提示词归一化端到端**（各模块 PromptEditorButton 生效）
 5. **🎨 验证文生图三协议 + 节点测试各模块 + 全屏阅读**

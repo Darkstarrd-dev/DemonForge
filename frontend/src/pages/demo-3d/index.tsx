@@ -1,9 +1,11 @@
-import { useEffect, useRef } from 'react'
-import { Button, App } from 'antd'
+import { useEffect, useRef, useState, useCallback } from 'react'
+import { Button, Select, Space, App } from 'antd'
 import { ReloadOutlined } from '@ant-design/icons'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import RAPIER from '@dimforge/rapier3d-compat'
+import { createDice3DEngine } from './Dice3DEngine'
+import Dice3DPanel from './Dice3DPanel'
 
 function randomQuaternion() {
   const u1 = Math.random()
@@ -26,8 +28,10 @@ function ensureRapierReady(): Promise<typeof RAPIER> {
 export default function Demo3DPage() {
   const { message } = App.useApp()
   const containerRef = useRef<HTMLDivElement>(null)
-  // engineRef 持有当前运行中的引擎句柄；stop() 内部会把它置 null
   const engineRef = useRef<{ stop: () => void } | null>(null)
+  const [sceneType, setSceneType] = useState<'rigid' | 'dice'>('rigid')
+  const [diceResult, setDiceResult] = useState<{ values: number[]; total: number } | null>(null)
+  const [diceRolling, setDiceRolling] = useState(false)
 
   /**
    * 启动一次 Three.js + Rapier3D 引擎。
@@ -241,7 +245,7 @@ export default function Demo3DPage() {
       try {
         await ensureRapierReady()
         if (cancelled) return
-        startEngine()
+        if (sceneType === 'rigid') startEngine()
       } catch (err) {
         console.error('[Demo3D] Rapier 初始化失败:', err)
         if (!cancelled) message.error('3D 物理引擎初始化失败')
@@ -253,10 +257,9 @@ export default function Demo3DPage() {
       engineRef.current?.stop()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [sceneType])
 
   const handleReset = async () => {
-    // 先彻底停止旧引擎（含 world.free），再重启，避免新旧 world 并发访问 WASM
     engineRef.current?.stop()
     try {
       await ensureRapierReady()
@@ -265,8 +268,27 @@ export default function Demo3DPage() {
       message.error('3D 物理引擎初始化失败')
       return
     }
-    startEngine()
+    if (sceneType === 'rigid') {
+      startEngine()
+    } else {
+      const el = containerRef.current
+      if (!el) return
+      const engine = createDice3DEngine(el, { count: 2, sides: 6 })
+      engineRef.current = engine
+    }
   }
+
+  const handleDiceRoll = useCallback(async (presetValues?: number[]) => {
+    setDiceRolling(true)
+    setDiceResult(null)
+    const diceEngine = engineRef.current as unknown as { roll: (presetValues?: number[]) => Promise<number[]> } | null | undefined
+    if (diceEngine?.roll) {
+      const values = await diceEngine.roll(presetValues)
+      const total = values.reduce((a, b) => a + b, 0)
+      setDiceResult({ values, total })
+    }
+    setDiceRolling(false)
+  }, [])
 
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%' }}>
@@ -283,7 +305,28 @@ export default function Demo3DPage() {
           boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
         }}
       >
-        <Button icon={<ReloadOutlined />} onClick={handleReset}>复位</Button>
+        <Space direction="vertical" size={8}>
+          <Button icon={<ReloadOutlined />} onClick={handleReset}>复位</Button>
+          <Select
+            value={sceneType}
+            onChange={(v) => {
+              setSceneType(v)
+              setDiceResult(null)
+            }}
+            style={{ width: 140 }}
+            options={[
+              { value: 'rigid', label: '刚体碰撞演示' },
+              { value: 'dice', label: '骰子演示' },
+            ]}
+          />
+          {sceneType === 'dice' && (
+            <Dice3DPanel
+              onRoll={handleDiceRoll}
+              rolling={diceRolling}
+              lastResult={diceResult ?? undefined}
+            />
+          )}
+        </Space>
       </div>
     </div>
   )
