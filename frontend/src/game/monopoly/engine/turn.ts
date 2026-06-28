@@ -62,6 +62,14 @@ export function handleRoll(state: GameState, dice: number[]): GameState {
   if (tile.type === 'hospital') {
     player.inJailTurns = HOSPITAL_TURNS
     pushLog('hospital', `${player.name} 受伤住院，将休养 ${HOSPITAL_TURNS} 回合`)
+  } else if (tile.type === 'attack') {
+    const damage = tile.damage ?? 500
+    player.cash -= damage
+    pushLog('attack', `${player.name} 踩到攻击格「${tile.name}」，损失 ¥${damage}`)
+    if (player.cash <= 0 || player.bankrupt) {
+      pushLog('bankrupt', `${player.name} 被攻击格击败，宣告破产`)
+      liquidate(player, properties)
+    }
   } else if (tile.type === 'tax') {
     const tax = tile.taxAmount ?? 0
     player.cash -= tax

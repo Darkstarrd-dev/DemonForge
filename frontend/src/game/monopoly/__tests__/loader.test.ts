@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { getMapIds, getMapList, loadMapData, boardDataToBoardConfig } from '../engine/loader'
+import { getConfigPresets, getMapIds, getMapList, loadConfig, loadMapData, boardDataToBoardConfig } from '../engine/loader'
 
 describe('loader', () => {
   it('能获取地图 ID 列表', () => {
@@ -57,5 +57,35 @@ describe('loader', () => {
       expect(prop!.upgradeCost).toBe(530)
       expect(prop!.rentByLevel).toHaveLength(5)
     })
+  })
+})
+
+describe('M7 多版本变体', () => {
+  it('getConfigPresets 返回 3 个预设', () => {
+    const presets = getConfigPresets()
+    expect(presets).toHaveLength(3)
+    expect(presets[0].id).toBe('richman4-default')
+  })
+  it('loadConfig 加载 richman4 配置正确', () => {
+    const cfg = loadConfig('richman4-default')
+    expect(cfg).toBeDefined()
+    expect(cfg!.version).toBe('richman4')
+    expect(cfg!.startingCash).toBe(15000)
+    expect(cfg!.bankEnabled).toBe(true)
+    expect(cfg!.stockEnabled).toBe(true)
+  })
+  it('loadConfig 加载 richman10 配置正确', () => {
+    const cfg = loadConfig('richman10-online')
+    expect(cfg).toBeDefined()
+    expect(cfg!.version).toBe('richman10')
+    expect(cfg!.stockEnabled).toBe(false)
+    expect(cfg!.pointSystem).toBe('cash')
+  })
+  it('loadConfig 加载 richman11 热斗配置正确', () => {
+    const cfg = loadConfig('richman11-hotfight')
+    expect(cfg).toBeDefined()
+    expect(cfg!.version).toBe('richman11')
+    expect(cfg!.variant).toBe('hot_fight')
+    expect(cfg!.bankEnabled).toBe(false)
   })
 })

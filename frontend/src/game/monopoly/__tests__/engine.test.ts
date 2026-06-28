@@ -253,3 +253,31 @@ describe('reducer: 破产', () => {
     expect(next.winnerId).toBe(d2)
   })
 })
+
+describe('M7 多版本变体', () => {
+  it('createInitialState 含 config 字段', () => {
+    const state = createInitialState(makeConfig())
+    expect(state.config).toBeDefined()
+    expect(state.config!.version).toBe('richman4')
+  })
+  it('configPresetId 加载正确版本配置', () => {
+    const state = createInitialState(makeConfig({ configPresetId: 'richman10-online' }))
+    expect(state.config).toBeDefined()
+    expect(state.config!.version).toBe('richman10')
+    expect(state.config!.startingCash).toBe(10000)
+  })
+  it('热斗模式替换地产为攻击格', () => {
+    const state = createInitialState(makeConfig({ configPresetId: 'richman11-hotfight' }))
+    const attackTiles = state.board.tiles.filter((t) => t.type === 'attack')
+    expect(attackTiles.length).toBeGreaterThan(0)
+    expect(state.board.tiles.filter((t) => t.type === 'property')).toHaveLength(0)
+    expect(state.board.tiles.filter((t) => t.type === 'hospital')).toHaveLength(0)
+  })
+  it('热斗模式踩攻击格扣钱', () => {
+    const state = createInitialState(makeConfig({ configPresetId: 'richman11-hotfight' }))
+    const attackIdx = state.board.tiles.findIndex((t) => t.type === 'attack')
+    const cash = state.players[0].cash
+    const next = reducer(state, { type: 'ROLL_DICE', dice: [0, attackIdx] })
+    expect(next.players[0].cash).toBeLessThan(cash)
+  })
+})
