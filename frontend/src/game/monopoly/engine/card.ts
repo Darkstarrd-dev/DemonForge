@@ -1,6 +1,7 @@
 import type { GameState, Action, CardDefinition, CardDeckState, CardInstance, Player, DecisionRequest } from '../types'
 import { CardEffectType } from '../types'
 import cardsData from '../data/cards/richman4-cards.json'
+import { summonNearestGod, findGodDef } from './god'
 
 function shuffle<T>(arr: T[]): T[] {
   const a = [...arr]
@@ -336,14 +337,29 @@ function applyCardEffect(
       break
     }
     case CardEffectType.SUMMON_GOD: {
-      pushLog('useCard', `${player.name} 使用「${cardName}」（神明系统 M5 实现）`)
+      const godId = summonNearestGod({ ...state, players, properties, log })
+      if (godId) {
+        const godDef = findGodDef(godId)
+        if (godDef) {
+          player.godId = godId
+          player.godRemainingDays = godDef.durationDays
+          pushLog('useCard', `${player.name} 使用「${cardName}」，召唤「${godDef.name}」附身`)
+        }
+      } else {
+        pushLog('useCard', `${player.name} 使用「${cardName}」，但没有神明回应`)
+      }
       break
     }
     case CardEffectType.DISMISS_GOD: {
       if (player.godId) {
-        player.godId = undefined
-        player.godRemainingDays = 0
-        pushLog('useCard', `${player.name} 使用「${cardName}」，送走附身神明`)
+        const godDef = findGodDef(player.godId)
+        if (godDef && !godDef.canDismiss) {
+          pushLog('useCard', `${player.name} 使用「${cardName}」，但该神明不可送走`)
+        } else {
+          pushLog('useCard', `${player.name} 使用「${cardName}」，送走附身神明`)
+          player.godId = undefined
+          player.godRemainingDays = 0
+        }
       }
       break
     }

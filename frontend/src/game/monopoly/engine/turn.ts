@@ -18,6 +18,7 @@ function liquidate(player: Player, properties: Record<number, PropertyState>) {
 }
 
 import { resolveTraps } from './item'
+import { getGodMoveBoost, calcGodModifiedRent } from './god'
 
 export function handleRoll(state: GameState, dice: number[]): GameState {
   const players = state.players.map((p) => ({ ...p }))
@@ -38,7 +39,11 @@ export function handleRoll(state: GameState, dice: number[]): GameState {
     return { ...state, players, log, turn: { ...state.turn, phase: 'END_TURN' } }
   }
 
-  const sum = dice.reduce((s, v) => s + v, 0)
+  let sum = dice.reduce((s, v) => s + v, 0)
+  const godBoost = getGodMoveBoost(player)
+  if (godBoost !== 0) {
+    sum = Math.max(1, sum + godBoost)
+  }
   const size = state.board.size
   const from = player.position
   const to = (from + sum) % size
@@ -95,8 +100,9 @@ export function handleRoll(state: GameState, dice: number[]): GameState {
         }
       }
     } else if (!prop.mortgaged) {
-      const rent = (tile.rentByLevel ?? [0])[prop.level] ?? 0
+      const baseRent = (tile.rentByLevel ?? [0])[prop.level] ?? 0
       const owner = players.find((p) => p.id === prop.ownerId)
+      const rent = owner ? calcGodModifiedRent(baseRent, owner, player) : baseRent
       if (owner) {
         if (player.rentAbsorbing) {
           const absorbed = Math.min(rent, player.cash)

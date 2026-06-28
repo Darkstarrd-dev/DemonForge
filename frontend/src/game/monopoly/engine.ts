@@ -12,6 +12,7 @@ import { handleCardAction, createCardDeck, resolveCardReaction, resolveCardChoic
 import { handleItemAction, createItemDeck, resolveItemChoice, refreshItemShop, tickTimedBombs } from './engine/item'
 import { handleEventAction } from './engine/event'
 import { handleBankAction, handleStockAction, createInitialEconomy } from './engine/economy'
+import { applyAllGodDailyEffects, tickGodDurations } from './engine/god'
 import { getMapName } from './engine/loader'
 
 export function createInitialState(config: NewGameConfig): GameState {
@@ -71,8 +72,10 @@ export function reducer(state: GameState, action: Action): GameState {
   switch (action.type) {
     case 'NEW_GAME':
       return createInitialState(action.config)
-    case 'ROLL_DICE':
-      return handleRoll(state, action.dice)
+    case 'ROLL_DICE': {
+      const withGodEffects = applyAllGodDailyEffects(state)
+      return handleRoll(withGodEffects, action.dice)
+    }
     case 'RESOLVE_DECISION': {
       const ak = state.awaitingDecision?.kind
       if (ak === 'cardReaction') return resolveCardReaction(state, action.optionId)
@@ -108,6 +111,7 @@ export function reducer(state: GameState, action: Action): GameState {
       return handleEventAction(state, action)
     case 'END_TURN': {
       let s = handleEndTurn(state)
+      s = tickGodDurations(s)
       s = tickTimedBombs(s)
       if (s.itemDeck) s = { ...s, itemDeck: refreshItemShop(s.itemDeck, s.day ?? 1) }
       return s
@@ -124,5 +128,6 @@ export { aiDecide, aiNextAction } from './engine/ai'
 export { liquidate, calcTotalAssets } from './engine/player'
 export { calcPriceIndex, calcRent, updatePriceIndex, handleDividend, handleDeposit, handleWithdraw, handleLoan, handleRepay, handleBuyStock, handleSellStock, createInitialEconomy, fluctuateStockPrices } from './engine/economy'
 export { handleCompanyLand, getCompanyState } from './engine/company'
+export { applyAllGodDailyEffects, tickGodDurations, applyPlayerGodDailyEffect, findGodDef, loadGodDefinitions, summonNearestGod, getGodMoveBoost, handleGodPossession, handleGodDismiss, calcGodModifiedRent } from './engine/god'
 export { validateMapData, validateMapConnectivity } from './engine/validator'
 export { loadMapData, loadAllMaps, getMapIds, getMapName, getMapList, boardDataToBoardConfig } from './engine/loader'
