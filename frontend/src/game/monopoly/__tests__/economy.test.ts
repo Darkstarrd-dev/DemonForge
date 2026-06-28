@@ -20,7 +20,7 @@ function baseState(): GameState {
 }
 
 function setTurn(state: GameState, playerId: string): GameState {
-  return { ...state, turn: { ...state.turn, currentPlayerId: playerId } }
+  return { ...state, turnContext: { ...state.turnContext, currentPlayerId: playerId } }
 }
 
 describe('createInitialEconomy', () => {

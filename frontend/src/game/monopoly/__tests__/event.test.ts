@@ -1,11 +1,12 @@
 import { describe, it, expect } from 'vitest'
 import { createInitialState, reducer } from '../engine'
-import type { GameState, NewGameConfig, EconomyState } from '../types'
+import type { GameState, NewGameConfig } from '../types'
 import { SpaceType } from '../types'
 import { handleEventSpace, resolveLottery, resolveTeleport, resolveMiniGame } from '../engine/event'
 
 function makeConfig(overrides?: Partial<NewGameConfig>): NewGameConfig {
-  return {    players: [
+  return {
+    players: [
       { name: '玩家A', color: '#E74C3C', controller: 'human' },
       { name: '玩家B', color: '#3498DB', controller: 'ai' },
     ],
@@ -20,14 +21,13 @@ function baseState(): GameState {
 }
 
 function setTurn(state: GameState, playerId: string): GameState {
-  return { ...state, turn: { ...state.turn, currentPlayerId: playerId } }
+  return { ...state, turnContext: { ...state.turnContext, currentPlayerId: playerId } }
 }
 
 function mockEventTile(index: number, spaceType: SpaceType, name: string): GameState {
   const st = baseState()
-  const tile = { ...st.board.tiles[index], spaceType, name }
   const tiles = [...st.board.tiles]
-  tiles[index] = tile
+  tiles[index] = { ...tiles[index], type: spaceType, name }
   return { ...st, board: { ...st.board, tiles } }
 }
 
@@ -117,8 +117,7 @@ describe('News events', () => {
 
   it('STOCK_SURGE sets stockLimitUpDays on all companies', () => {
     const state = mockEventTile(2, SpaceType.NEWS, '新闻')
-    const economy: EconomyState = state.economy!
-    const withEconomy = { ...state, economy: { ...economy } }
+    const withEconomy = { ...state, economy: { ...state.economy } }
     const result = handleEventSpace(setTurn(withEconomy, withEconomy.players[0].id), withEconomy.players[0].id, 2)
     expect(result.state.log[result.state.log.length - 1].kind).toBe('news')
   })
@@ -193,7 +192,6 @@ describe('Lottery', () => {
     const cash = state.players[0].cash
     const result = resolveLottery(state, state.players[0].id, true)
     const diff = result.players[0].cash - cash
-    // 扣除 200 投注金；若中奖（30% 概率）则加 1000-3000 → 净增 800-2800
     expect(diff === -200 || (diff >= 800 && diff <= 2800)).toBe(true)
   })
 
@@ -204,7 +202,7 @@ describe('Lottery', () => {
     expect(result.players[0].cash).toBe(50)
   })
 
-  it('integration: LOTTERY tile → lotteryBet decision → resolve through reducer', () => {
+  it('integration: LOTTERY tile -> lotteryBet decision -> resolve through reducer', () => {
     const state = mockEventTile(2, SpaceType.LOTTERY, '乐透')
     const s = setTurn(state, state.players[0].id)
     const result = handleEventSpace(s, s.players[0].id, 2)
@@ -226,16 +224,19 @@ describe('Teleport', () => {
 
   it('resolveTeleport moves player to target tile', () => {
     const state = baseState()
-    const result = resolveTeleport(state, state.players[0].id, 10)
-    expect(result.players[0].position).toBe(10)
+    const targetTileId = state.board.tiles[10].id
+    const result = resolveTeleport(state, state.players[0].id, targetTileId)
+    expect(result.players[0].position).toBe(targetTileId)
   })
 
   it('resolveTeleport gives salary when passing start', () => {
     const state = baseState()
-    const moved = { ...state, players: state.players.map(p => ({ ...p, position: 30 })) }
+    const fromTileId = state.board.tiles[30].id
+    const targetTileId = state.board.tiles[5].id
+    const moved = { ...state, players: state.players.map(p => ({ ...p, position: fromTileId })) }
     const cash = moved.players[0].cash
-    const result = resolveTeleport(moved, moved.players[0].id, 5)
-    expect(result.players[0].position).toBe(5)
+    const result = resolveTeleport(moved, moved.players[0].id, targetTileId)
+    expect(result.players[0].position).toBe(targetTileId)
     expect(result.players[0].cash).toBe(cash + 2000)
   })
 
@@ -244,9 +245,10 @@ describe('Teleport', () => {
     const withTurn = setTurn(state, state.players[0].id)
     const result = handleEventSpace(withTurn, withTurn.players[0].id, 2)
     if (result.needsDecision && result.decision) {
+      const optionId = result.decision.options[0].id
       const withAwait = { ...result.state, awaitingDecision: result.decision }
-      const next = reducer(withAwait, { type: 'RESOLVE_DECISION', optionId: '10' })
-      expect(next.players[0].position).toBe(10)
+      const next = reducer(withAwait, { type: 'RESOLVE_DECISION', optionId })
+      expect(next.players[0].position).toBe(optionId)
       expect(next.awaitingDecision).toBeUndefined()
     }
   })
@@ -281,7 +283,7 @@ describe('Integration: event turns through reducer', () => {
     const state = mockEventTile(2, SpaceType.NEWS, '新闻')
     const s = setTurn(state, state.players[0].id)
     const result = reducer(s, { type: 'ROLL_DICE', dice: [1, 1] })
-    if (result.board.tiles[2]?.spaceType === SpaceType.NEWS) {
+    if (result.board.tiles[2]?.type === SpaceType.NEWS) {
       expect(result.log[result.log.length - 1].kind).toBe('news')
     }
   })
@@ -290,23 +292,23 @@ describe('Integration: event turns through reducer', () => {
     const state = mockEventTile(2, SpaceType.FATE, '命运')
     const s = setTurn(state, state.players[0].id)
     const result = reducer(s, { type: 'ROLL_DICE', dice: [1, 1] })
-    if (result.board.tiles[2]?.spaceType === SpaceType.FATE) {
+    if (result.board.tiles[2]?.type === SpaceType.FATE) {
       expect(result.log[result.log.length - 1].kind).toBe('fate')
     }
   })
 
-  it('handles CHANCE tile without spaceType gracefully (no event)', () => {
+  it('handles CHANCE tile without type gracefully (no event)', () => {
     const state = baseState()
     const s = setTurn(state, state.players[0].id)
     const result = reducer(s, { type: 'ROLL_DICE', dice: [1, 1] })
-    expect(result.players[0].position).toBe(2)
+    expect(result.players[0].position).toBe(state.board.tiles[2].id)
   })
 })
 
 describe('handleEventSpace with old TileType fallback', () => {
   it('news type (old) triggers news event', () => {
     const state = baseState()
-    const tile = { ...state.board.tiles[2], type: 'news' as const, spaceType: undefined }
+    const tile = { ...state.board.tiles[2], type: SpaceType.NEWS }
     const tiles = [...state.board.tiles]
     tiles[2] = tile
     const mod = { ...state, board: { ...state.board, tiles } }
@@ -319,7 +321,7 @@ describe('handleEventSpace with old TileType fallback', () => {
 
   it('fate type (old) triggers fate event', () => {
     const state = baseState()
-    const tile = { ...state.board.tiles[2], type: 'fate' as const, spaceType: undefined }
+    const tile = { ...state.board.tiles[2], type: SpaceType.FATE }
     const tiles = [...state.board.tiles]
     tiles[2] = tile
     const mod = { ...state, board: { ...state.board, tiles } }

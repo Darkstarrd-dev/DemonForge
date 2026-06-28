@@ -21,7 +21,7 @@ function baseState(): GameState {
 describe('handleMortgage', () => {
   it('抵押无主地产返回原状态', () => {
     const state = baseState()
-    const next = handleMortgage(state, 1)
+    const next = handleMortgage(state, 'c40_01')
     expect(next).toBe(state)
   })
 
@@ -30,10 +30,13 @@ describe('handleMortgage', () => {
     const d = state.players[0].id
     const owned: GameState = {
       ...state,
-      players: [{ ...state.players[0], ownedTileIds: [1] }],
-      properties: { ...state.properties, 1: { tileId: 1, ownerId: d, level: 0, mortgaged: true } },
+      players: [{ ...state.players[0], ownedTileIds: ['c40_01'] }],
+      board: {
+        ...state.board,
+        properties: { ...state.board.properties, 'c40_01': { tileId: 'c40_01', ownerId: d, level: 0, mortgaged: true } },
+      },
     }
-    const next = handleMortgage(owned, 1)
+    const next = handleMortgage(owned, 'c40_01')
     expect(next).toBe(owned)
   })
 
@@ -42,18 +45,21 @@ describe('handleMortgage', () => {
     const d = state.players[0].id
     const owned: GameState = {
       ...state,
-      players: [{ ...state.players[0], ownedTileIds: [1] }],
-      properties: { ...state.properties, 1: { tileId: 1, ownerId: d, level: 0, mortgaged: false } },
+      players: [{ ...state.players[0], ownedTileIds: ['c40_01'] }],
+      board: {
+        ...state.board,
+        properties: { ...state.board.properties, 'c40_01': { tileId: 'c40_01', ownerId: d, level: 0, mortgaged: false } },
+      },
     }
-    const next = handleMortgage(owned, 1)
+    const next = handleMortgage(owned, 'c40_01')
     expect(next.players[0].cash).toBeGreaterThan(15000)
-    expect(next.properties[1].mortgaged).toBe(true)
+    expect(next.board.properties['c40_01'].mortgaged).toBe(true)
     expect(next.log.some(l => l.kind === 'mortgage')).toBe(true)
   })
 
   it('不存在的 tileId 返回原状态', () => {
     const state = baseState()
-    const next = handleMortgage(state, 999)
+    const next = handleMortgage(state, 'c40_999')
     expect(next).toBe(state)
   })
 })
@@ -61,7 +67,7 @@ describe('handleMortgage', () => {
 describe('handleRedeem', () => {
   it('赎回无主地产返回原状态', () => {
     const state = baseState()
-    const next = handleRedeem(state, 1)
+    const next = handleRedeem(state, 'c40_01')
     expect(next).toBe(state)
   })
 
@@ -70,10 +76,13 @@ describe('handleRedeem', () => {
     const d = state.players[0].id
     const owned: GameState = {
       ...state,
-      players: [{ ...state.players[0], ownedTileIds: [1] }],
-      properties: { ...state.properties, 1: { tileId: 1, ownerId: d, level: 0, mortgaged: false } },
+      players: [{ ...state.players[0], ownedTileIds: ['c40_01'] }],
+      board: {
+        ...state.board,
+        properties: { ...state.board.properties, 'c40_01': { tileId: 'c40_01', ownerId: d, level: 0, mortgaged: false } },
+      },
     }
-    const next = handleRedeem(owned, 1)
+    const next = handleRedeem(owned, 'c40_01')
     expect(next).toBe(owned)
   })
 
@@ -82,11 +91,14 @@ describe('handleRedeem', () => {
     const d = state.players[0].id
     const owned: GameState = {
       ...state,
-      players: [{ ...state.players[0], cash: 10, ownedTileIds: [1] }],
-      properties: { ...state.properties, 1: { tileId: 1, ownerId: d, level: 0, mortgaged: true } },
+      players: [{ ...state.players[0], cash: 10, ownedTileIds: ['c40_01'] }],
+      board: {
+        ...state.board,
+        properties: { ...state.board.properties, 'c40_01': { tileId: 'c40_01', ownerId: d, level: 0, mortgaged: true } },
+      },
     }
-    const next = handleRedeem(owned, 1)
-    expect(next.properties[1].mortgaged).toBe(true)
+    const next = handleRedeem(owned, 'c40_01')
+    expect(next.board.properties['c40_01'].mortgaged).toBe(true)
     expect(next.players[0].cash).toBe(10)
   })
 
@@ -95,11 +107,14 @@ describe('handleRedeem', () => {
     const d = state.players[0].id
     const owned: GameState = {
       ...state,
-      players: [{ ...state.players[0], ownedTileIds: [1] }],
-      properties: { ...state.properties, 1: { tileId: 1, ownerId: d, level: 0, mortgaged: true } },
+      players: [{ ...state.players[0], ownedTileIds: ['c40_01'] }],
+      board: {
+        ...state.board,
+        properties: { ...state.board.properties, 'c40_01': { tileId: 'c40_01', ownerId: d, level: 0, mortgaged: true } },
+      },
     }
-    const next = handleRedeem(owned, 1)
-    expect(next.properties[1].mortgaged).toBe(false)
+    const next = handleRedeem(owned, 'c40_01')
+    expect(next.board.properties['c40_01'].mortgaged).toBe(false)
     expect(next.players[0].cash).toBeLessThan(15000)
     expect(next.log.some(l => l.kind === 'redeem')).toBe(true)
   })
@@ -111,11 +126,14 @@ describe('handleBoardAction', () => {
     const d = state.players[0].id
     const owned: GameState = {
       ...state,
-      players: [{ ...state.players[0], ownedTileIds: [1] }],
-      properties: { ...state.properties, 1: { tileId: 1, ownerId: d, level: 0, mortgaged: false } },
+      players: [{ ...state.players[0], ownedTileIds: ['c40_01'] }],
+      board: {
+        ...state.board,
+        properties: { ...state.board.properties, 'c40_01': { tileId: 'c40_01', ownerId: d, level: 0, mortgaged: false } },
+      },
     }
-    const next = handleBoardAction(owned, { type: 'MORTGAGE_PROPERTY', tileId: 1 })
-    expect(next.properties[1].mortgaged).toBe(true)
+    const next = handleBoardAction(owned, { type: 'MORTGAGE_PROPERTY', tileId: 'c40_01' })
+    expect(next.board.properties['c40_01'].mortgaged).toBe(true)
   })
 
   it('REDEEM_PROPERTY 路由到 handleRedeem', () => {
@@ -123,11 +141,14 @@ describe('handleBoardAction', () => {
     const d = state.players[0].id
     const owned: GameState = {
       ...state,
-      players: [{ ...state.players[0], ownedTileIds: [1] }],
-      properties: { ...state.properties, 1: { tileId: 1, ownerId: d, level: 0, mortgaged: true } },
+      players: [{ ...state.players[0], ownedTileIds: ['c40_01'] }],
+      board: {
+        ...state.board,
+        properties: { ...state.board.properties, 'c40_01': { tileId: 'c40_01', ownerId: d, level: 0, mortgaged: true } },
+      },
     }
-    const next = handleBoardAction(owned, { type: 'REDEEM_PROPERTY', tileId: 1 })
-    expect(next.properties[1].mortgaged).toBe(false)
+    const next = handleBoardAction(owned, { type: 'REDEEM_PROPERTY', tileId: 'c40_01' })
+    expect(next.board.properties['c40_01'].mortgaged).toBe(false)
   })
 
   it('未知 action 返回原状态', () => {

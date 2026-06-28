@@ -2,7 +2,7 @@
 
 **最后更新**：2026-06-28
 **当前位置**：办公场所 A（待提交）
-**本轮主题**：**大富翁审计整改实施**——按 `docs/quality/logs/2026-06-28-monopoly-implementation-audit.md` 的 5 Phase 整改清单逐步实施。**Phase 0–3 已完成（类型统一 + 引擎迁移 + 数据修正 + UI 迁移），app 层 tsc 0 + vite build ✓；测试 253/337 绿（84 个失败为测试文件待适配新类型）。**
+**本轮主题**：**大富翁审计整改实施**——按 `docs/quality/logs/2026-06-28-monopoly-implementation-audit.md` 的 5 Phase 整改清单逐步实施。**Phase 0–4 全部完成（类型统一 + 引擎迁移 + 数据修正 + UI 迁移 + 单测适配），337/337 绿 ✓，app 层 tsc 0 + vite build ✓。**
 
 > 📦 **历史明细已归档** → `docs/handoff_history.md`
 > 本文件只保留「恢复工作所需的活内容」：进行中任务、模块清单、下一步、交接参考。
@@ -57,11 +57,18 @@
 
 ### 验证状态
 
-- **app 层 tsc**：0 error（`npx tsc -p tsconfig.app.json --noEmit` 通过，仅测试文件报错）
+- **app 层 tsc**：0 error（`npx tsc -p tsconfig.app.json --noEmit` 通过）
 - **vite build**：成功（chunk 尺寸警告正常）
-- **vitest**：253/337 绿（84 失败，全部为测试文件未适配新类型——Engine 级 object literal 字段名 + number→string 类型冲突）
-- **10 个测试文件完全失败**（因 `board.preset.ts` 删除，其 import 已移除但测试 body 未适配）
-- **待端到端实测**：新游戏→地图选择→掷骰→购买→升级→卡片→道具→神明→事件→破产→胜负
+- **vitest**：**337/337 绿**（16 个 monopoly 测试文件全部适配新类型）
+
+### Phase 4：单测适配 ✅（2026-06-28）
+
+- **10 个测试文件完整重写**：engine、turn、event、card、item、board、ai、god、player、company —— 适配 `turn→turnContext` / `properties→board.properties` / `sealedGroups/priceUpGroups→board.*` / `position: number→string` / `tileId 数字→字符串` / `phase 枚举→TurnPhaseV2` / god 数据修正（god-04→god-05、god-10 值 0.25→0.5）
+- **1 个测试文件微调**：economy.test.ts（`turn→turnContext` 1 处）
+- **引擎小修复**：`aiNextAction` 补 `TurnPhaseV2.TURN_START` 到 ROLL_DICE 分支（等价旧 ROLL 阶段，漏迁移项）
+- 其余 6 个测试文件（ai-strategies / character-mapper / loader / serializer / validator + economy）此前已绿，本轮确认无退化
+
+### 待端到端实测：新游戏→地图选择→掷骰→购买→升级→卡片→道具→神明→事件→破产→胜负
 
 ---
 
@@ -363,7 +370,7 @@
 - [x] **大富翁 M8 AI 三档 + LLM 接口** — ✅ 类型适配（aiNextAction 随机源外置/LLM 决策走 aiDecideAsync 待引擎补全）
 - [x] **大富翁 M9 角色卡接入真实 M2** — ✅ 类型适配
 - [x] **大富翁 M10 存档/读档** — ✅ 类型适配（基于新 GameState）
-- [x] **大富翁 M11 回归与单测** — ⚠️ 253/337 绿（84 失败待适配）
+- [x] **大富翁 M11 回归与单测** — ✅ **测试适配完成**：337/337 绿，16 个测试文件全部适配新类型（engine/turn/event/card/item/board/ai/god/player/company/economy + 原先已绿的 6 个文件）；aiNextAction 补 TURN_START 阶段处理
 
 ### 🔧 近期修复（2026-06-27）
 
@@ -384,7 +391,6 @@
 
 ### 🚧 待完善
 
-- [ ] **测试文件适配**：84 个失败 + 10 个文件加载失败（需将测试 object literal 从旧字段名改为新类型 + 删除 `board.preset` 引用后补 inline fixture）；引擎层 `GameState` 构造适配 `board: BoardState` 而非 `properties: Record<number,...>`
 - [ ] **端到端实测**：新游戏→地图选择→掷骰→购买→升级→卡片→道具→神明→事件→破产→胜负
 - [ ] **M12 2D/3D 资产驱动**（Tiled Tilemap + glTF 模型替换 blockout，资产制作后置）
 - [ ] **打包后首次启动**：`~/.novelhelper/` 无 settings.json，需手动配置 Provider 节点。
@@ -395,11 +401,10 @@
 
 > 完整逐项验证清单见归档 §「下一步任务」。以下为优先级摘要：
 
-1. **📝 测试文件适配**：84 个失败需逐个改 object literal→新类型；10 个文件加载失败需补 inline fixture（参考已修复的 `loader.test.ts` 模式：`board = boardDataToBoardConfig(...)` 而非 `{ board }` 解构 + SpaceType 枚举比对）
-2. **🎮 端到端实测大富翁模块**：启动→选择地图→双地图渲染→掷骰/购买/升级/租金正常→卡片/道具/神明/事件生效→破产判定→胜负
-3. **📦 验证完整打包**：`npm run dist`（NSIS + 便携版，注意 app-builder 可能被 Defender 锁）
-4. **🔍 验证提示词归一化端到端**（各模块 PromptEditorButton 生效）
-5. **🎨 验证文生图三协议 + 节点测试各模块 + 全屏阅读**
+1. **🎮 端到端实测大富翁模块**：启动→选择地图→双地图渲染→掷骰/购买/升级/租金正常→卡片/道具/神明/事件生效→破产判定→胜负
+2. **📦 验证完整打包**：`npm run dist`（NSIS + 便携版，注意 app-builder 可能被 Defender 锁）
+3. **🔍 验证提示词归一化端到端**（各模块 PromptEditorButton 生效）
+4. **🎨 验证文生图三协议 + 节点测试各模块 + 全屏阅读**
 
 ---
 

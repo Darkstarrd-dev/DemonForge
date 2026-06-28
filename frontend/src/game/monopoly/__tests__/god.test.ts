@@ -57,7 +57,7 @@ describe('loadGodDefinitions', () => {
 
   it('小财神可变身大财神', () => {
     const smallGod = findGodDef('god-04')!
-    expect(smallGod.transformTo).toBe('god-00')
+    expect(smallGod.transformTo).toBe('god-05')
   })
 })
 
@@ -122,10 +122,10 @@ describe('tickGodDurations', () => {
     expect(getPlayerById(next, baseState().players[0].id).godId).toBeUndefined()
   })
 
-  it('小财神到期变身大财神（god-04→god-00）', () => {
+  it('小财神到期变身大财神（god-04→god-05）', () => {
     const state = setPlayerGod(baseState(), baseState().players[0].id, 'god-04', 1)
     const next = tickGodDurations(state)
-    expect(getPlayerById(next, baseState().players[0].id).godId).toBe('god-00')
+    expect(getPlayerById(next, baseState().players[0].id).godId).toBe('god-05')
     expect(getPlayerById(next, baseState().players[0].id).godRemainingDays).toBe(7)
   })
 })
@@ -222,10 +222,10 @@ describe('calcGodModifiedRent', () => {
     expect(calcGodModifiedRent(100, landlord, tenant)).toBe(50)
   })
 
-  it('霉神使房东租金 ×0.25', () => {
+  it('霉神使房东租金 ×0.5', () => {
     const landlord = { ...baseState().players[0], godId: 'god-10' }
     const tenant = baseState().players[1]
-    expect(calcGodModifiedRent(160, landlord, tenant)).toBe(40)
+    expect(calcGodModifiedRent(160, landlord, tenant)).toBe(80)
   })
 
   it('财神+爱神叠加租金 ×0.75', () => {

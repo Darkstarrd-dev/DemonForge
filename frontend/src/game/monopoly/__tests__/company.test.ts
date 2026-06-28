@@ -64,8 +64,8 @@ describe('handleCompanyLand', () => {
     let state = baseState()
     state = {
       ...state,
-      turn: { ...state.turn, currentPlayerId: state.players[1].id },
-      economy: state.economy ? {
+      turnContext: { ...state.turnContext, currentPlayerId: state.players[1].id },
+      economy: {
         ...state.economy,
         companies: {
           ...state.economy.companies,
@@ -74,10 +74,9 @@ describe('handleCompanyLand', () => {
             shareholders: { [state.players[0].id]: 60, [state.players[1].id]: 40 },
           },
         },
-      } : undefined,
+      },
     }
     const next = handleCompanyLand(state, 'company-00')
-    // 玩家A（董事长）应收到过路费
     expect(next.log.some(l => l.text.includes('董事长'))).toBe(true)
   })
 })

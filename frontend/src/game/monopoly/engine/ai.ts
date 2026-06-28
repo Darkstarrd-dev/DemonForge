@@ -69,6 +69,7 @@ export function aiNextAction(state: GameState): Action | null {
   if (!current || current.controller !== 'ai') return null
 
   switch (state.turnContext.phase) {
+    case TurnPhaseV2.TURN_START:
     case TurnPhaseV2.ROLL_DICE: {
       const count = getDiceCount(current.vehicle)
       const dice = Array.from({ length: count }, () => 1 + Math.floor(Math.random() * 6))

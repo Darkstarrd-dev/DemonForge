@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { createInitialState } from '../engine'
 import type { GameState, NewGameConfig } from '../types'
+import { TurnPhaseV2 } from '../types'
 import { aiNextAction, aiDecide, configureAIController, resetAIController } from '../engine/ai'
 
 function makeConfig(overrides?: Partial<NewGameConfig>): NewGameConfig {
@@ -29,9 +30,9 @@ describe('aiNextAction', () => {
     expect(aiNextAction(state)).toBeNull()
   })
 
-  it('ROLL 阶段返回 ROLL_DICE', () => {
+  it('TURN_START 阶段返回 ROLL_DICE', () => {
     let state = baseState()
-    state = { ...state, turn: { ...state.turn, currentPlayerId: state.players[1].id } }
+    state = { ...state, turnContext: { ...state.turnContext, currentPlayerId: state.players[1].id, phase: TurnPhaseV2.TURN_START } }
     const action = aiNextAction(state)
     expect(action?.type).toBe('ROLL_DICE')
     expect((action as { type: string; dice: number[] }).dice).toHaveLength(2)
@@ -41,12 +42,12 @@ describe('aiNextAction', () => {
     let state = baseState()
     state = {
       ...state,
-      turn: { ...state.turn, currentPlayerId: state.players[1].id, phase: 'DECIDE' },
+      turnContext: { ...state.turnContext, currentPlayerId: state.players[1].id, phase: TurnPhaseV2.PURCHASE_DECISION },
       awaitingDecision: {
         playerId: state.players[1].id,
         kind: 'buyProperty',
         options: [{ id: 'buy', label: '购买' }, { id: 'skip', label: '放弃' }],
-        context: { tileId: 1, tileName: '测试', price: 1000 },
+        context: { tileId: 'c40_01', tileName: '测试', price: 1000 },
       },
     }
     const action = aiNextAction(state)
@@ -57,7 +58,7 @@ describe('aiNextAction', () => {
     let state = baseState()
     state = {
       ...state,
-      turn: { ...state.turn, currentPlayerId: state.players[0].id, phase: 'DECIDE' },
+      turnContext: { ...state.turnContext, currentPlayerId: state.players[0].id, phase: TurnPhaseV2.PURCHASE_DECISION },
       awaitingDecision: {
         playerId: state.players[1].id,
         kind: 'buyProperty',
@@ -72,7 +73,7 @@ describe('aiNextAction', () => {
     let state = baseState()
     state = {
       ...state,
-      turn: { ...state.turn, currentPlayerId: state.players[1].id, phase: 'END_TURN' },
+      turnContext: { ...state.turnContext, currentPlayerId: state.players[1].id, phase: TurnPhaseV2.TURN_END },
     }
     const action = aiNextAction(state)
     expect(action?.type).toBe('END_TURN')
@@ -86,7 +87,7 @@ describe('aiDecide', () => {
       playerId: state.players[1].id,
       kind: 'buyProperty' as const,
       options: [{ id: 'buy', label: '购买' }, { id: 'skip', label: '放弃' }],
-      context: { tileId: 1, tileName: '测试', price: 2000 },
+      context: { tileId: 'c40_01', tileName: '测试', price: 2000 },
     }
     const result = aiDecide(state, decision)
     expect(['buy', 'skip']).toContain(result)
@@ -100,13 +101,12 @@ describe('configureAIController / resetAIController', () => {
       playerId: state.players[1].id,
       kind: 'buyProperty' as const,
       options: [{ id: 'buy', label: '购买' }, { id: 'skip', label: '放弃' }],
-      context: { tileId: 1, tileName: '测试', price: 2000 },
+      context: { tileId: 'c40_01', tileName: '测试', price: 2000 },
     }
     configureAIController({
       llmFn: async () => 'buy',
       getPersona: () => '测试角色',
     })
-    // Since player has no aiNodeId, it still uses strategy
     const playerWithNode = {
       ...state.players[1],
       aiNodeId: 'node-001',
@@ -115,7 +115,6 @@ describe('configureAIController / resetAIController', () => {
       ...state,
       players: [state.players[0], playerWithNode],
     }
-    // The aiDecide sync wrapper always uses strategy
     const result = aiDecide(stateWithNode, decision)
     expect(['buy', 'skip']).toContain(result)
     resetAIController()
@@ -124,7 +123,6 @@ describe('configureAIController / resetAIController', () => {
   it('重置后清除配置', () => {
     configureAIController({ llmFn: async () => 'buy' })
     resetAIController()
-    // Private module state — just verify no crash
     expect(true).toBe(true)
   })
 })

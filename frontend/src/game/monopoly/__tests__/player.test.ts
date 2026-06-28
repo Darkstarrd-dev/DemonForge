@@ -25,21 +25,24 @@ describe('handleBankrupt', () => {
     state = {
       ...state,
       players: [
-        { ...state.players[0], ownedTileIds: [1, 2] },
+        { ...state.players[0], ownedTileIds: ['c40_01', 'c40_02'] },
         state.players[1],
       ],
-      properties: {
-        ...state.properties,
-        1: { tileId: 1, ownerId: d, level: 1, mortgaged: false },
-        2: { tileId: 2, ownerId: d, level: 0, mortgaged: false },
+      board: {
+        ...state.board,
+        properties: {
+          ...state.board.properties,
+          'c40_01': { tileId: 'c40_01', ownerId: d, level: 1, mortgaged: false },
+          'c40_02': { tileId: 'c40_02', ownerId: d, level: 0, mortgaged: false },
+        },
       },
     }
     const next = handleBankrupt(state)
     expect(next.players[0].bankrupt).toBe(true)
     expect(next.players[0].ownedTileIds).toEqual([])
-    expect(next.properties[1].ownerId).toBeUndefined()
-    expect(next.properties[1].level).toBe(0)
-    expect(next.properties[2].ownerId).toBeUndefined()
+    expect(next.board.properties['c40_01'].ownerId).toBeUndefined()
+    expect(next.board.properties['c40_01'].level).toBe(0)
+    expect(next.board.properties['c40_02'].ownerId).toBeUndefined()
   })
 
   it('已经破产的玩家不能再次破产', () => {
@@ -54,10 +57,9 @@ describe('handleBankrupt', () => {
 
   it('破产后仅一人存活则游戏结束', () => {
     let state = baseState()
-    // 当前玩家（p2）破产，玩家A（p1）仍存活
     state = {
       ...state,
-      turn: { ...state.turn, currentPlayerId: state.players[1].id },
+      turnContext: { ...state.turnContext, currentPlayerId: state.players[1].id },
     }
     const next = handleBankrupt(state)
     expect(next.status).toBe('ended')
@@ -70,7 +72,7 @@ describe('calcTotalAssets', () => {
   it('计算纯现金资产', () => {
     const state = baseState()
     const player = state.players[0]
-    const result = calcTotalAssets(player, state.properties, {})
+    const result = calcTotalAssets(player, state.board.properties, {})
     expect(result).toBe(15000)
   })
 
@@ -79,15 +81,14 @@ describe('calcTotalAssets', () => {
     const player: Player = {
       ...state.players[0],
       cash: 10000,
-      ownedTileIds: [1, 2],
+      ownedTileIds: ['c40_01', 'c40_02'],
     }
-    const properties: Record<number, PropertyState> = {
-      1: { tileId: 1, ownerId: player.id, level: 1, mortgaged: false },
-      2: { tileId: 2, ownerId: player.id, level: 0, mortgaged: false },
+    const properties: Record<string, PropertyState> = {
+      'c40_01': { tileId: 'c40_01', ownerId: player.id, level: 1, mortgaged: false },
+      'c40_02': { tileId: 'c40_02', ownerId: player.id, level: 0, mortgaged: false },
     }
-    const tilePrices: Record<number, number> = { 1: 1000, 2: 800 }
+    const tilePrices: Record<string, number> = { 'c40_01': 1000, 'c40_02': 800 }
     const assets = calcTotalAssets(player, properties, tilePrices)
-    // 10000 + 1000 + 1*1000*0.3 + 800
     expect(assets).toBe(10000 + 1000 + 300 + 800)
   })
 
@@ -96,14 +97,13 @@ describe('calcTotalAssets', () => {
     const player: Player = {
       ...state.players[0],
       cash: 10000,
-      ownedTileIds: [1],
+      ownedTileIds: ['c40_01'],
     }
-    const properties: Record<number, PropertyState> = {
-      1: { tileId: 1, ownerId: player.id, level: 1, mortgaged: true },
+    const properties: Record<string, PropertyState> = {
+      'c40_01': { tileId: 'c40_01', ownerId: player.id, level: 1, mortgaged: true },
     }
-    const tilePrices: Record<number, number> = { 1: 1000 }
+    const tilePrices: Record<string, number> = { 'c40_01': 1000 }
     const assets = calcTotalAssets(player, properties, tilePrices)
-    // 10000 + 0 (mortgaged base) + 1*1000*0.3 (level bonus)
     expect(assets).toBe(10300)
   })
 
