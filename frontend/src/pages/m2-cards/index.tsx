@@ -220,7 +220,6 @@ export default function M2CardsPage() {
       const blob = await (await fetch(url)).blob()
       const a = document.createElement('a')
       a.href = URL.createObjectURL(blob)
-      // eslint-disable-next-line react-hooks/purity -- 下载处理器内生成文件名兜底，非渲染期
       a.download = decodeURIComponent(url.split('/').pop() || `image-${Date.now()}`)
       a.click()
       URL.revokeObjectURL(a.href)
@@ -230,8 +229,22 @@ export default function M2CardsPage() {
   }
 
   const cardsTab = (
-    <Space direction="vertical" size={16} style={{ width: '100%' }}>
-      <Space data-slot="filter-panel" wrap>
+    <Space direction="vertical" size={20} style={{ width: '100%' }}>
+      {/* 筛选面板 - 分组布局 */}
+      <div
+        data-slot="filter-panel"
+        style={{
+          display: 'flex',
+          flexWrap: 'wrap',
+          alignItems: 'center',
+          gap: 12,
+          padding: '12px 16px',
+          background: '#fafafa',
+          borderRadius: 8,
+          border: '1px solid #f0f0f0',
+        }}
+      >
+        {/* 范围与类型筛选 */}
         <Radio.Group
           data-slot="select-scope"
           value={scope}
@@ -241,47 +254,68 @@ export default function M2CardsPage() {
             { value: 'all', label: '含素材库（全部书）' },
           ]}
           optionType="button"
+          size="middle"
         />
         <Select
           data-slot="select-type"
-          style={{ minWidth: 120 }}
+          style={{ minWidth: 130 }}
           value={typeFilter}
           onChange={setTypeFilter}
+          size="middle"
           options={[
             { value: 'all', label: '全部类型' },
             ...Object.entries(TYPE_META).map(([v, m]) => ({ value: v, label: m.label })),
           ]}
         />
+
+        {/* 搜索框 */}
         <Input.Search
           data-slot="input-search"
-          placeholder="搜索名称/别名/描述（正式版为语义检索）"
-          style={{ width: 280 }}
+          placeholder="搜索名称/别名/描述"
+          style={{ width: 260 }}
           allowClear
+          size="middle"
           onSearch={setKeyword}
           onChange={(e) => !e.target.value && setKeyword('')}
         />
-        <Button data-slot="btn-extract" type="primary" icon={<ExperimentOutlined />} onClick={() => setExtractOpen(true)}>
-          从章节提取设定
-        </Button>
-        <PromptEditorButton promptKey="m2-extract" label="编辑提取提示词" />
-        <Button data-slot="btn-add-manual" icon={<PlusOutlined />} onClick={() => setCardEditor({ mode: 'manual' })}>
-          手动新增
-        </Button>
-        <Button data-slot="btn-add-ai" icon={<ThunderboltOutlined />} onClick={() => setCardEditor({ mode: 'ai' })}>
-          AI 生成
-        </Button>
-        <Button data-slot="btn-add-batch" icon={<ThunderboltOutlined />} onClick={() => setBatchOpen(true)}>
-          批量 AI 生成
-        </Button>
-      </Space>
+
+        {/* 分隔线 */}
+        <div style={{ width: 1, height: 24, background: '#e8e8e8' }} />
+
+        {/* 主要操作按钮 */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Button data-slot="btn-extract" type="primary" icon={<ExperimentOutlined />} onClick={() => setExtractOpen(true)}>
+            从章节提取设定
+          </Button>
+          <PromptEditorButton promptKey="m2-extract" label="编辑提取提示词" size="middle" />
+        </div>
+
+        {/* 分隔线 */}
+        <div style={{ width: 1, height: 24, background: '#e8e8e8' }} />
+
+        {/* 次要操作按钮 */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Button data-slot="btn-add-manual" icon={<PlusOutlined />} onClick={() => setCardEditor({ mode: 'manual' })}>
+            手动新增
+          </Button>
+          <Button data-slot="btn-add-ai" icon={<ThunderboltOutlined />} onClick={() => setCardEditor({ mode: 'ai' })}>
+            AI 生成
+          </Button>
+          <Button data-slot="btn-add-batch" icon={<ThunderboltOutlined />} onClick={() => setBatchOpen(true)}>
+            批量 AI 生成
+          </Button>
+        </div>
+      </div>
+
+      {/* 卡片列表 */}
       {filtered.length === 0 ? (
-        <Empty description="无匹配卡片" />
+        <Empty description="无匹配卡片" style={{ padding: '60px 0' }} />
       ) : (
-        <Row data-slot="list-panel" gutter={[12, 12]}>
+        <Row data-slot="list-panel" gutter={[16, 16]}>
           {filtered.map((c) => {
             const book = books.find((b) => b.id === c.bookId)
             return (
-              <Col key={c.id} xs={24} sm={12} lg={8} xl={6}>
+              <Col key={c.id} xs={24} sm={12} md={8} lg={6} xl={6}>
                 <Badge.Ribbon
                   text="新提取"
                   color="volcano"
@@ -295,25 +329,79 @@ export default function M2CardsPage() {
                       setDetailId(c.id)
                       setEditing(false)
                     }}
-                    title={
-                      <Space size={6}>
-                        <Tag color={TYPE_META[c.type].color} style={{ margin: 0 }}>
+                    style={{
+                      height: '100%',
+                      borderRadius: 8,
+                      transition: 'all 0.2s ease',
+                    }}
+                    styles={{
+                      body: {
+                        padding: '12px 16px',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: 8,
+                      },
+                    }}
+                  >
+                    {/* 卡片头部：类型标签 + 名称 */}
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                      <Space size={8} style={{ flex: 1, minWidth: 0 }}>
+                        <Tag
+                          color={TYPE_META[c.type].color}
+                          style={{
+                            margin: 0,
+                            flexShrink: 0,
+                            fontWeight: 500,
+                          }}
+                        >
                           {TYPE_META[c.type].label}
                         </Tag>
-                        {c.name}
+                        <Typography.Text
+                          strong
+                          ellipsis
+                          style={{
+                            fontSize: 14,
+                            lineHeight: '22px',
+                          }}
+                        >
+                          {c.name}
+                        </Typography.Text>
                       </Space>
-                    }
-                    extra={
-                      <Tag color={book ? (book.type === 'project' ? 'blue' : 'default') : 'gold'} style={{ margin: 0 }}>
+                      <Tag
+                        color={book ? (book.type === 'project' ? 'blue' : 'default') : 'gold'}
+                        style={{
+                          margin: 0,
+                          flexShrink: 0,
+                          fontSize: 12,
+                        }}
+                      >
                         {book?.title ?? '素材库'}
                       </Tag>
-                    }
-                  >
-                    <Typography.Paragraph type="secondary" ellipsis={{ rows: 2 }} style={{ marginBottom: 4 }}>
+                    </div>
+
+                    {/* 描述文本 */}
+                    <Typography.Paragraph
+                      type="secondary"
+                      ellipsis={{ rows: 2 }}
+                      style={{
+                        marginBottom: 0,
+                        fontSize: 13,
+                        lineHeight: '20px',
+                        color: '#666',
+                      }}
+                    >
                       {c.description}
                     </Typography.Paragraph>
+
+                    {/* 别名标签 */}
                     {c.aliases.length > 0 && (
-                      <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                      <Typography.Text
+                        type="secondary"
+                        style={{
+                          fontSize: 12,
+                          color: '#999',
+                        }}
+                      >
                         别名：{c.aliases.join(' / ')}
                       </Typography.Text>
                     )}
@@ -337,11 +425,31 @@ export default function M2CardsPage() {
         if (!a || !b) return null
         return (
           <List.Item>
-            <Card size="small" style={{ width: '100%' }}>
-              <Row gutter={16} align="middle">
+            <Card
+              size="small"
+              style={{
+                width: '100%',
+                borderRadius: 8,
+              }}
+              styles={{
+                body: { padding: 20 },
+              }}
+            >
+              <Row gutter={24} align="middle">
                 <Col span={9}>
-                  <Card size="small" title={a.name}>
-                    <Typography.Paragraph ellipsis={{ rows: 3 }} style={{ marginBottom: 0 }}>
+                  <Card
+                    size="small"
+                    title={a.name}
+                    style={{
+                      height: '100%',
+                      borderRadius: 6,
+                      border: '1px solid #f0f0f0',
+                    }}
+                    styles={{
+                      body: { padding: '12px 16px' },
+                    }}
+                  >
+                    <Typography.Paragraph ellipsis={{ rows: 3 }} style={{ marginBottom: 0, color: '#666' }}>
                       {a.description}
                     </Typography.Paragraph>
                   </Card>
@@ -349,16 +457,17 @@ export default function M2CardsPage() {
                 <Col span={6} style={{ textAlign: 'center' }}>
                   <Progress
                     type="circle"
-                    size={64}
+                    size={72}
                     percent={Math.round(m.similarity * 100)}
                     format={(p) => `${p}%`}
+                    strokeColor={m.similarity > 0.8 ? '#52c41a' : m.similarity > 0.6 ? '#faad14' : '#1677ff'}
                   />
-                  <div>
+                  <div style={{ marginTop: 8 }}>
                     <Typography.Text type="secondary" style={{ fontSize: 12 }}>
                       embedding 相似度
                     </Typography.Text>
                   </div>
-                  <Space style={{ marginTop: 8 }}>
+                  <Space style={{ marginTop: 12 }}>
                     <Button type="primary" size="small" onClick={() => doMerge(m.id, 'merged')}>
                       确认合并 →
                     </Button>
@@ -368,8 +477,19 @@ export default function M2CardsPage() {
                   </Space>
                 </Col>
                 <Col span={9}>
-                  <Card size="small" title={`${b.name}（并入左侧后删除）`}>
-                    <Typography.Paragraph ellipsis={{ rows: 3 }} style={{ marginBottom: 0 }}>
+                  <Card
+                    size="small"
+                    title={`${b.name}（并入左侧后删除）`}
+                    style={{
+                      height: '100%',
+                      borderRadius: 6,
+                      border: '1px solid #f0f0f0',
+                    }}
+                    styles={{
+                      body: { padding: '12px 16px' },
+                    }}
+                  >
+                    <Typography.Paragraph ellipsis={{ rows: 3 }} style={{ marginBottom: 0, color: '#666' }}>
                       {b.description}
                     </Typography.Paragraph>
                   </Card>
@@ -407,13 +527,24 @@ export default function M2CardsPage() {
       <Drawer
         title={
           detail && (
-            <Space>
-              <Tag color={TYPE_META[detail.type].color}>{TYPE_META[detail.type].label}</Tag>
-              {detail.name}
+            <Space size={12}>
+              <Tag
+                color={TYPE_META[detail.type].color}
+                style={{
+                  margin: 0,
+                  fontWeight: 500,
+                  fontSize: 13,
+                }}
+              >
+                {TYPE_META[detail.type].label}
+              </Tag>
+              <Typography.Text strong style={{ fontSize: 16 }}>
+                {detail.name}
+              </Typography.Text>
             </Space>
           )
         }
-        width={560}
+        width={580}
         open={!!detail}
         onClose={() => setDetailId(null)}
         extra={
@@ -442,36 +573,46 @@ export default function M2CardsPage() {
             </Space>
           ) : null
         }
+        styles={{
+          body: {
+            padding: '24px',
+          },
+        }}
       >
         {detail && !editing && (
-          <Space direction="vertical" size={16} style={{ width: '100%' }}>
-            <Descriptions
-              bordered
-              size="small"
-              column={1}
-              items={[
-                { key: 'aliases', label: '别名', children: detail.aliases.join(' / ') || '—' },
-                ...Object.entries(detail.fields).map(([k, v]) => ({ key: k, label: k, children: v })),
-              ]}
-            />
+          <Space direction="vertical" size={24} style={{ width: '100%' }}>
+            {/* 基本信息 */}
+            <div>
+              <Descriptions
+                bordered
+                size="small"
+                column={1}
+                items={[
+                  { key: 'aliases', label: '别名', children: detail.aliases.join(' / ') || '—' },
+                  ...Object.entries(detail.fields).map(([k, v]) => ({ key: k, label: k, children: v })),
+                ]}
+              />
+            </div>
+
+            {/* 封面与描述 */}
             <div>
               {(() => {
                 const imgs = detail.images ?? []
                 const cover = imgs.find((i) => i.id === detail.coverImageId) ?? imgs[0]
                 return (
-                  <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
+                  <div style={{ display: 'flex', gap: 20, alignItems: 'flex-start' }}>
                     <div
                       style={{
-                        width: 160,
+                        width: 180,
                         flexShrink: 0,
                         aspectRatio: '1 / 1',
-                        border: '1px solid var(--ant-color-border, #d9d9d9)',
+                        border: '1px solid #f0f0f0',
                         borderRadius: 8,
                         overflow: 'hidden',
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
-                        background: 'rgba(127,127,127,0.06)',
+                        background: '#fafafa',
                       }}
                     >
                       {cover ? (
@@ -481,38 +622,51 @@ export default function M2CardsPage() {
                       )}
                     </div>
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <Typography.Title level={5} style={{ marginTop: 0 }}>描述</Typography.Title>
-                      <Typography.Paragraph>{detail.description}</Typography.Paragraph>
+                      <Typography.Title level={5} style={{ marginTop: 0, marginBottom: 12 }}>
+                        描述
+                      </Typography.Title>
+                      <Typography.Paragraph style={{ color: '#666', lineHeight: 1.8 }}>
+                        {detail.description}
+                      </Typography.Paragraph>
                     </div>
                   </div>
                 )
               })()}
             </div>
+
+            {/* 语言风格 */}
             {detail.styleNote && (
               <div>
-                <Typography.Title level={5}>语言风格（M3 推演约束）</Typography.Title>
-                <Typography.Paragraph>{detail.styleNote}</Typography.Paragraph>
+                <Typography.Title level={5} style={{ marginBottom: 12 }}>
+                  语言风格（M3 推演约束）
+                </Typography.Title>
+                <Typography.Paragraph style={{ color: '#666', lineHeight: 1.8 }}>
+                  {detail.styleNote}
+                </Typography.Paragraph>
                 {detail.styleExamples?.map((ex, i) => (
-                  <Typography.Paragraph key={i} style={{ marginBottom: 4 }}>
-                    <Tag>例句</Tag> {ex}
+                  <Typography.Paragraph key={i} style={{ marginBottom: 8 }}>
+                    <Tag color="blue">例句</Tag>
+                    <span style={{ color: '#666' }}>{ex}</span>
                   </Typography.Paragraph>
                 ))}
               </div>
             )}
+
+            {/* 图片素材 */}
             <div>
-              <Space style={{ width: '100%', justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
                 <Typography.Title level={5} style={{ margin: 0 }}>
                   <PictureOutlined /> 图片素材
                 </Typography.Title>
                 <Button size="small" icon={<ThunderboltOutlined />} onClick={() => setBatchCardId(detail.id)}>
                   批量生成图片
                 </Button>
-              </Space>
+              </div>
               {(() => {
                 const imgs = detail.images ?? []
                 if (imgs.length === 0) {
                   return (
-                    <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 8 }}>
+                    <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block', padding: '20px 0', textAlign: 'center', background: '#fafafa', borderRadius: 6 }}>
                       暂无图片，点击「批量生成图片」准备表情差分 / 全身形象 / 场景背景等素材。
                     </Typography.Text>
                   )
@@ -525,16 +679,15 @@ export default function M2CardsPage() {
                 }
                 return (
                   <Image.PreviewGroup>
-                    <Space direction="vertical" size={12} style={{ width: '100%', marginTop: 8 }}>
+                    <Space direction="vertical" size={16} style={{ width: '100%' }}>
                       {[...groups.entries()].map(([g, list]) => (
                         <div key={g}>
-                          <Tag color="geekblue">{g}（{list.length}）</Tag>
+                          <Tag color="geekblue" style={{ marginBottom: 8 }}>{g}（{list.length}）</Tag>
                           <div
                             style={{
                               display: 'grid',
-                              gridTemplateColumns: 'repeat(auto-fill, minmax(110px, 1fr))',
-                              gap: 8,
-                              marginTop: 6,
+                              gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))',
+                              gap: 10,
                             }}
                           >
                             {list.map((im) => (
@@ -543,17 +696,25 @@ export default function M2CardsPage() {
                                   <Image
                                     src={im.url}
                                     width="100%"
-                                    height={110}
+                                    height={120}
                                     style={{
                                       objectFit: 'contain',
                                       borderRadius: 6,
+                                      border: '1px solid #f0f0f0',
                                       ...(im.id === detail.coverImageId ? { outline: '2px solid #faad14', outlineOffset: -2 } : {}),
                                     }}
                                   />
                                 </Tooltip>
                                 <Space
                                   size={2}
-                                  style={{ position: 'absolute', top: 2, right: 2, background: 'rgba(0,0,0,0.45)', borderRadius: 4 }}
+                                  style={{
+                                    position: 'absolute',
+                                    top: 4,
+                                    right: 4,
+                                    background: 'rgba(0,0,0,0.5)',
+                                    borderRadius: 4,
+                                    padding: '2px 4px',
+                                  }}
                                 >
                                   <Tooltip title={im.id === detail.coverImageId ? '当前主图' : '设为主图'}>
                                     <Button
@@ -588,22 +749,30 @@ export default function M2CardsPage() {
                 )
               })()}
             </div>
+
+            {/* 出处引用 */}
             <div>
-              <Typography.Title level={5}>出处引用（点击回溯原文）</Typography.Title>
+              <Typography.Title level={5} style={{ marginBottom: 12 }}>
+                出处引用（点击回溯原文）
+              </Typography.Title>
               <List
                 size="small"
                 bordered
                 dataSource={detail.refs}
                 locale={{ emptyText: '无出处记录' }}
+                style={{ borderRadius: 6 }}
                 renderItem={(r) => {
                   const ch = chapters.find((c) => c.id === r.chapterId)
                   return (
-                    <List.Item style={{ cursor: 'pointer' }} onClick={() => setRefModal(r)}>
-                      <Space direction="vertical" size={0}>
+                    <List.Item
+                      style={{ cursor: 'pointer', padding: '12px 16px' }}
+                      onClick={() => setRefModal(r)}
+                    >
+                      <Space direction="vertical" size={4}>
                         <Typography.Text type="secondary" style={{ fontSize: 12 }}>
                           {ch ? `${books.find((b) => b.id === ch.bookId)?.title ?? ''} · ${ch.title}` : '（章节不在库中）'}
                         </Typography.Text>
-                        <Typography.Text>「{r.excerpt}」</Typography.Text>
+                        <Typography.Text style={{ color: '#333' }}>「{r.excerpt}」</Typography.Text>
                       </Space>
                     </List.Item>
                   )
@@ -613,7 +782,7 @@ export default function M2CardsPage() {
           </Space>
         )}
         {detail && editing && (
-          <Form form={editForm} layout="vertical">
+          <Form form={editForm} layout="vertical" style={{ maxWidth: 480 }}>
             <Form.Item name="bookId" label="归属">
               <Select
                 options={[
