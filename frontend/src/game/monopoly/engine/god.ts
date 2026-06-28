@@ -23,7 +23,7 @@ export function applyPlayerGodDailyEffect(state: GameState, player: Player): Gam
   if (!godDef) return state
   const log = [...state.log]
   const pushLog = (text: string) => log.push({ seq: log.length, kind: 'godEffect', text })
-  let players = state.players.map(p => ({ ...p }))
+  const players = state.players.map(p => ({ ...p }))
   const current = players.find(p => p.id === player.id)
   if (!current) return state
   let deck = state.cardDeck ? { ...state.cardDeck } : undefined

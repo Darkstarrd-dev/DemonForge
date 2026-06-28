@@ -1,5 +1,6 @@
-// Item 子系统：13 种道具效果（M4 全量实现）
+// Item 子系统：13 种道具效果（M4 全量实现，P1-6 改为 effectType 数据驱动）
 import type { GameState, Action, ItemDefinition, ItemDeckState, ItemInstance, DecisionRequest, TrapState } from '../types'
+import { ItemEffectType } from '../types'
 import itemsData from '../data/items/richman4-items.json'
 
 const ITEM_HAND_LIMIT = 5
@@ -114,105 +115,106 @@ function applyItemEffect(
   const player = players[playerIdx]
   const traps: Record<string, TrapState> = state.board.boardTraps ? { ...state.board.boardTraps } : {}
 
-  switch (def.id) {
-    case 'item-00':
-      player.vehicle = 'MOTORCYCLE'
-      pushLog('useItem', `${player.name} 使用「${def.name}」，现可掷 2 颗骰子`)
-      break
-    case 'item-01':
-      player.vehicle = 'CAR'
-      pushLog('useItem', `${player.name} 使用「${def.name}」，现可掷 3 颗骰子`)
-      break
-    case 'item-02':
-      if (targetTileId !== undefined) {
-        const prop = properties[targetTileId]
-        if (prop && prop.level > 0) { prop.level -= 1; pushLog('useItem', `${player.name} 使用「${def.name}」，攻击地产`) }
-        else { pushLog('useItem', `${player.name} 使用「${def.name}」，但目标无建筑`) }
-      }
-      break
-    case 'item-03':
-      if (targetTileId !== undefined) {
-        const prop = properties[targetTileId]
-        if (prop) { const d = prop.level; prop.level = 0; pushLog('useItem', `${player.name} 使用「${def.name}」，炸毁 ${d} 级建筑`) }
-      }
-      break
-    case 'item-04':
-      if (targetTileId !== undefined) {
-        traps[targetTileId] = { itemDefId: def.id, instanceId: 'trap_' + Date.now(), ownerId: player.id, countdown: -1 }
-        const trapTile = state.board.tiles.find(t => t.id === targetTileId)
-        pushLog('useItem', `${player.name} 在格 ${trapTile?.name ?? targetTileId} 放置地雷`)
-      }
-      break
-    case 'item-05':
-      if (targetTileId !== undefined) {
-        traps[targetTileId] = { itemDefId: def.id, instanceId: 'bomb_' + Date.now(), ownerId: player.id, countdown: 3 }
-        pushLog('useItem', `${player.name} 放置定时炸弹（3 回合后爆炸）`)
-      }
-      break
-    case 'item-06': {
-      const playerTile = state.board.tiles.find(t => t.id === player.position)
-      const playerTileIdx = playerTile?.index ?? 0
-      let cleared = 0
-      for (let i = 0; i < state.board.tiles.length; i++) {
-        const ci = (playerTileIdx + i) % state.board.tiles.length
-        const tileId = state.board.tiles[ci]?.id
-        if (tileId && traps[tileId]) { delete traps[tileId]; cleared++ }
-      }
-      pushLog('useItem', `${player.name} 使用「${def.name}」，清除 ${cleared} 个障碍`)
-      break
-    }
-    case 'item-07':
-      if (targetTileId !== undefined) {
-        traps[targetTileId] = { itemDefId: def.id, instanceId: 'block_' + Date.now(), ownerId: player.id, countdown: -1 }
-        const trapTile = state.board.tiles.find(t => t.id === targetTileId)
-        pushLog('useItem', `${player.name} 在格 ${trapTile?.name ?? targetTileId} 放置路障`)
-      }
-      break
-    case 'item-08':
-      if (targetTileId !== undefined) {
-        const fromTile = state.board.tiles.find(t => t.id === player.position)
-        const targetTile = state.board.tiles.find(t => t.id === targetTileId)
-        if (fromTile && targetTile) {
-          if (targetTile.index < fromTile.index) { player.cash += 2000; pushLog('salary', `${player.name} 经过起点，领取 ¥2000`) }
-          player.position = targetTileId
-          pushLog('useItem', `${player.name} 使用「${def.name}」移动到目标格`)
-        }
-      }
-      break
-    case 'item-09':
-      if (targetTileId !== undefined) {
-        const prop = properties[targetTileId]
-        if (prop) { prop.level = 0; pushLog('useItem', `${player.name} 使用「${def.name}」，拆除建筑至平地`) }
-      }
-      break
-    case 'item-10':
-      player.isCollectingRent = false
-      player.rentAbsorbing = true
-      pushLog('useItem', `${player.name} 使用「${def.name}」，途经他人地产吸收过路费`)
-      break
-    case 'item-11':
-      if (targetTileId !== undefined) {
-        const targetTile = state.board.tiles.find(t => t.id === targetTileId)
-        const targetIdx = targetTile?.index ?? 0
-        const range = def.effectRange; let destroyed = 0
-        for (let i = Math.max(0, targetIdx - range); i <= Math.min(state.board.tiles.length - 1, targetIdx + range); i++) {
-          const tId = state.board.tiles[i]?.id
-          if (tId) {
-            const prop = properties[tId]
-            if (prop && prop.level > 0) { properties[tId] = { ...prop, level: 0 }; destroyed++ }
+  const effectType = def.effectType
+  const params = def.effectParams ?? {}
+
+  if (effectType === ItemEffectType.CHANGE_VEHICLE) {
+    player.vehicle = (params.vehicle as 'MOTORCYCLE' | 'CAR') ?? 'MOTORCYCLE'
+    const diceCount = player.vehicle === 'CAR' ? 3 : 2
+    pushLog('useItem', `${player.name} 使用「${def.name}」，现可掷 ${diceCount} 颗骰子`)
+  } else if (effectType === ItemEffectType.LAUNCH_MISSILE) {
+    if (targetTileId !== undefined) {
+      const prop = properties[targetTileId]
+      if (prop) {
+        if (params.demolish) {
+          const d = prop.level
+          prop.level = 0
+          properties[targetTileId] = { ...prop }
+          pushLog('useItem', `${player.name} 使用「${def.name}」，${d > 0 ? `拆除 ${d} 级建筑` : '目标无建筑'}`)
+        } else {
+          if (prop.level > 0) {
+            prop.level -= 1
+            properties[targetTileId] = { ...prop }
+            pushLog('useItem', `${player.name} 使用「${def.name}」，攻击地产`)
+          } else {
+            pushLog('useItem', `${player.name} 使用「${def.name}」，但目标无建筑`)
           }
         }
-        pushLog('useItem', `${player.name} 使用「${def.name}」，摧毁 ${destroyed} 座建筑`)
       }
-      break
-    case 'item-12':
-      if (targetId) {
-        const target = players.find(p => p.id === targetId)
-        if (target && !target.bankrupt) { player.position = target.position; pushLog('useItem', `${player.name} 使用「${def.name}」，传送到 ${target.name} 的位置`) }
+    }
+  } else if (effectType === ItemEffectType.SET_TRAP) {
+    if (targetTileId !== undefined) {
+      const trapType = (params.trapType as string) ?? 'mine'
+      const countdown = trapType === 'bomb' ? ((params.countdown as number) ?? 3) : -1
+      const instId = trapType === 'bomb' ? 'bomb_' + Date.now() : 'trap_' + Date.now()
+      traps[targetTileId] = {
+        itemDefId: def.id,
+        instanceId: instId,
+        ownerId: player.id,
+        countdown,
       }
-      break
-    default:
-      pushLog('useItem', `${player.name} 使用「${def.name}」（效果未实现）`)
+      const trapTile = state.board.tiles.find(t => t.id === targetTileId)
+      pushLog('useItem', `${player.name} 在格 ${trapTile?.name ?? targetTileId} 放置${def.name}`)
+    }
+  } else if (effectType === ItemEffectType.REMOVE_DEBRIS) {
+    const playerTile = state.board.tiles.find(t => t.id === player.position)
+    const playerTileIdx = playerTile?.index ?? 0
+    let cleared = 0
+    for (let i = 0; i < state.board.tiles.length; i++) {
+      const ci = (playerTileIdx + i) % state.board.tiles.length
+      const tileId = state.board.tiles[ci]?.id
+      if (tileId && traps[tileId]) { delete traps[tileId]; cleared++ }
+    }
+    pushLog('useItem', `${player.name} 使用「${def.name}」，清除 ${cleared} 个障碍`)
+  } else if (effectType === ItemEffectType.ROADBLOCK) {
+    if (targetTileId !== undefined) {
+      traps[targetTileId] = { itemDefId: def.id, instanceId: 'block_' + Date.now(), ownerId: player.id, countdown: -1 }
+      const trapTile = state.board.tiles.find(t => t.id === targetTileId)
+      pushLog('useItem', `${player.name} 在格 ${trapTile?.name ?? targetTileId} 放置路障`)
+    }
+  } else if (effectType === ItemEffectType.TELEPORT) {
+    if (targetTileId !== undefined) {
+      const fromTile = state.board.tiles.find(t => t.id === player.position)
+      const targetTile = state.board.tiles.find(t => t.id === targetTileId)
+      if (fromTile && targetTile) {
+        if (targetTile.index < fromTile.index) { player.cash += 2000; pushLog('salary', `${player.name} 经过起点，领取 ¥2000`) }
+        player.position = targetTileId
+        pushLog('useItem', `${player.name} 使用「${def.name}」移动到目标格`)
+      }
+    } else if (targetId) {
+      const target = players.find(p => p.id === targetId)
+      if (target && !target.bankrupt) {
+        player.position = target.position
+        pushLog('useItem', `${player.name} 使用「${def.name}」，传送到 ${target.name} 的位置`)
+      }
+    }
+  } else if (effectType === ItemEffectType.ABSORB_DAMAGE) {
+    player.isCollectingRent = false
+    player.rentAbsorbing = true
+    pushLog('useItem', `${player.name} 使用「${def.name}」，途经他人地产吸收过路费`)
+  } else if (effectType === ItemEffectType.NUCLEAR_BOMB) {
+    if (targetTileId !== undefined) {
+      const targetTile = state.board.tiles.find(t => t.id === targetTileId)
+      const range = (params.range as number) ?? def.effectRange
+      let destroyed = 0
+      for (let i = 0; i < state.board.tiles.length; i++) {
+        const tId = state.board.tiles[i]?.id
+        if (tId) {
+          const prop = properties[tId]
+          if (prop && prop.level > 0) {
+            const tile = state.board.tiles[i]
+            const targetIdx = targetTile?.index ?? 0
+            if (Math.abs((tile?.index ?? 0) - targetIdx) <= range || Math.abs((tile?.index ?? 0) - targetIdx) >= state.board.tiles.length - range) {
+              properties[tId] = { ...prop, level: 0 }
+              destroyed++
+            }
+          }
+        }
+      }
+      pushLog('useItem', `${player.name} 使用「${def.name}」，摧毁 ${destroyed} 座建筑`)
+    }
+  } else {
+    pushLog('useItem', `${player.name} 使用「${def.name}」（效果：${effectType ?? '未定义'}）`)
   }
 
   const itemsArr = player.items ?? []

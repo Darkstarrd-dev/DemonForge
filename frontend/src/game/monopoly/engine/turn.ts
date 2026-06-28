@@ -1,6 +1,6 @@
 // TurnFSM 子系统：回合状态机 + 骰子移动 + 落点结算 + 决策消解
 // Phase 0 统一后：TurnContext + string ID + BoardState
-import type { DecisionRequest, GameState, Player, Tile } from '../types'
+import type { DecisionRequest, GameState, Tile } from '../types'
 import { SpaceType, TurnPhaseV2 } from '../types'
 
 const GO_SALARY = 2000
@@ -9,15 +9,6 @@ const MAX_LEVEL = 4
 
 function currentIndex(state: GameState): number {
   return state.players.findIndex((p) => p.id === state.turnContext.currentPlayerId)
-}
-
-function liquidate(player: Player, state: GameState) {
-  const properties = state.board.properties
-  for (const tid of player.ownedTileIds) {
-    properties[tid] = { ...properties[tid], ownerId: undefined, level: 0, mortgaged: false }
-  }
-  player.ownedTileIds = []
-  player.bankrupt = true
 }
 
 /** 根据 tile ID 查找 tile */
@@ -30,18 +21,40 @@ function findTileByIndex(state: GameState, index: number): Tile | undefined {
   return state.board.tiles.find((t) => t.index === index)
 }
 
-/** 在环形棋盘上前进：从 currentId 走 steps 步，返回目标 tile ID */
-function advanceOnRing(state: GameState, currentId: string, steps: number): string {
-  const currentTile = findTile(state, currentId)
-  if (!currentTile) return currentId
-  const size = state.board.tiles.length
-  const newIndex = (currentTile.index + steps) % size
-  return findTileByIndex(state, newIndex)?.id ?? currentId
+/** 沿 neighborIds 前进指定步数，返回目标 tile ID 与路径 */
+function advanceOnRing(state: GameState, currentId: string, steps: number): { targetId: string; path: string[] } {
+  const path: string[] = []
+  let pos = currentId
+  let remaining = steps
+
+  while (remaining > 0) {
+    const tile = findTile(state, pos)
+    if (!tile) break
+
+    const neighbors = tile.neighborIds ?? []
+    if (neighbors.length === 0) {
+      // 无 neighborIds 时回退到 index 取模
+      const size = state.board.tiles.length
+      const nextIdx = (tile.index + 1) % size
+      const nextTile = findTileByIndex(state, nextIdx)
+      if (!nextTile) break
+      pos = nextTile.id
+    } else {
+      // 环形拓扑：neighborIds = [prev, next]，最后一个为前进方向
+      pos = neighbors[neighbors.length - 1]
+    }
+    path.push(pos)
+    remaining--
+  }
+
+  return { targetId: pos, path }
 }
 
 import { resolveTraps } from './item'
 import { getGodMoveBoost, calcGodModifiedRent } from './god'
 import { handleEventSpace, resolveLottery, resolveTeleport, resolveMiniGame } from './event'
+import { calculateRent } from './board'
+import { liquidate } from './player'
 
 export function handleRoll(state: GameState, dice: number[]): GameState {
   const players = state.players.map((p) => ({ ...p }))
@@ -82,7 +95,7 @@ export function handleRoll(state: GameState, dice: number[]): GameState {
   const currTile = findTile(state, player.position)
   const fromIdx = currTile?.index ?? 0
   const fromPos = player.position
-  const targetId = advanceOnRing(state, fromPos, sum)
+  const { targetId, path: movePath } = advanceOnRing(state, fromPos, sum)
 
   // 经过起点检测
   if (fromIdx + sum >= size) {
@@ -153,27 +166,29 @@ export function handleRoll(state: GameState, dice: number[]): GameState {
           pushLog('land', `${player.name} 回到自己的「${tile.name}」（${prop.level} 级）`)
         }
       }
-    } else if (!prop.mortgaged) {
-      const baseRent = (tile.rentByLevel ?? [0])[prop.level] ?? 0
-      const owner = players.find((p) => p.id === prop.ownerId)
-      const rent = owner ? calcGodModifiedRent(baseRent, owner, player) : baseRent
-      if (owner) {
-        if (player.rentAbsorbing) {
-          const absorbed = Math.min(rent, player.cash)
-          player.cash -= absorbed
-          player.cash += absorbed
-          player.rentAbsorbing = false
-          pushLog('rent', `${player.name} 使用吸尘器吸收过路费 ¥${absorbed}（免付 ${owner.name} 的租金）`)
-        } else if (player.cash >= rent) {
-          player.cash -= rent
-          owner.cash += rent
-          pushLog('rent', `${player.name} 向 ${owner.name} 支付过路费 ¥${rent}`)
-        } else {
-          owner.cash += player.cash
-          pushLog('bankrupt',
-            `${player.name} 无力支付过路费 ¥${rent}，宣告破产（剩余 ¥${player.cash} 归 ${owner.name}）`)
-          player.cash = 0
-          liquidate(player, state)
+    } else {
+      const { amount: rent, creditorId } = calculateRent(state, tile.id)
+      if (rent > 0 && creditorId) {
+        const owner = players.find((p) => p.id === creditorId)
+        const godRent = owner ? calcGodModifiedRent(rent, owner, player) : rent
+        if (owner) {
+          if (player.rentAbsorbing) {
+            const absorbed = Math.min(godRent, player.cash)
+            player.cash -= absorbed
+            player.cash += absorbed
+            player.rentAbsorbing = false
+            pushLog('rent', `${player.name} 使用吸尘器吸收过路费 ¥${absorbed}（免付 ${owner.name} 的租金）`)
+          } else if (player.cash >= godRent) {
+            player.cash -= godRent
+            owner.cash += godRent
+            pushLog('rent', `${player.name} 向 ${owner.name} 支付过路费 ¥${godRent}`)
+          } else {
+            owner.cash += player.cash
+            pushLog('bankrupt',
+              `${player.name} 无力支付过路费 ¥${godRent}，宣告破产（剩余 ¥${player.cash} 归 ${owner.name}）`)
+            player.cash = 0
+            liquidate(player, state, owner.id)
+          }
         }
       }
     }
@@ -208,6 +223,8 @@ export function handleRoll(state: GameState, dice: number[]): GameState {
     turnContext: {
       ...state.turnContext,
       diceResults: dice,
+      moveSteps: sum,
+      movePath,
       phase: decision ? TurnPhaseV2.PURCHASE_DECISION : TurnPhaseV2.TURN_END,
     },
     awaitingDecision: decision,
@@ -303,8 +320,13 @@ export function handleEndTurn(state: GameState): GameState {
     priceUpGroups = Object.keys(nextUp).length > 0 ? nextUp : undefined
   }
 
+  // Increment day when all players have taken a turn (wrap-around)
+  let day = state.day
+  if (next === 0) day += 1
+
   return {
     ...state,
+    day,
     turnContext: {
       currentPlayerId: players[next].id,
       phase: TurnPhaseV2.TURN_START,

@@ -167,7 +167,7 @@ export default function MonopolyPage() {
         </div>
       </div>
 
-      <PlayerHUD players={state.players} currentPlayerId={state.turnContext.currentPlayerId} />
+      <PlayerHUD players={state.players} currentPlayerId={state.turnContext.currentPlayerId} state={state} />
       <div style={{ flex: 1, minHeight: 0, display: 'flex', overflow: 'hidden' }}>
         <div style={{ flex: 1, minWidth: 0, position: 'relative', overflow: 'hidden' }}>
           {view === '2d' ? (

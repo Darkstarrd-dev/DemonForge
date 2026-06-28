@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Button, Modal, Segmented, Select, Space, Tag, theme, Typography } from 'antd'
+import { Button, Modal, Segmented, Select, Space, Tag, theme, Typography, Tooltip } from 'antd'
 import type { GameState, Player } from '../../game/monopoly/types'
 import { TurnPhaseV2 } from '../../game/monopoly/types'
 import { useAppStore } from '../../store/appStore'
@@ -47,9 +47,8 @@ export default function GamePanel({
   const deck = state.cardDeck
   const opponents = state.players.filter(p => p.id !== current?.id && !p.bankrupt)
   const opponentTiles = state.board.tiles
-    .map((t, i) => ({ ...t, index: i }))
     .filter(t => {
-      const prop = state.board.properties[t.index]
+      const prop = state.board.properties[t.id]
       return prop && prop.ownerId && prop.ownerId !== current?.id && prop.level > 0
     })
 
@@ -163,6 +162,49 @@ export default function GamePanel({
           </Button>
         )}
       </div>
+
+      {/* Economy Summary */}
+      {current && (
+        <div style={{ padding: '8px 12px', borderBottom: `1px solid ${token.colorBorderSecondary}`, fontSize: 12, lineHeight: 1.7 }}>
+          <div style={{ fontSize: 12, color: token.colorTextSecondary, marginBottom: 4 }}>经济概况</div>
+          <div style={{ color: token.colorText }}>
+            <span>总资产: </span>
+            <strong>
+              ¥{(current.cash + (current.bankDeposit ?? 0) + current.ownedTileIds.reduce((s, tid) => {
+                const tile = state.board.tiles.find(t => t.id === tid)
+                const prop = state.board.properties[tid]
+                return s + (prop && !prop.mortgaged ? (tile?.basePrice ?? 0) + prop.level * (tile?.basePrice ?? 0) * 0.3 : 0)
+              }, 0)).toLocaleString()}
+            </strong>
+          </div>
+          {(current.bankDeposit ?? 0) > 0 && (
+            <div style={{ color: token.colorTextSecondary }}>
+              银行: 存 ¥{(current.bankDeposit ?? 0).toLocaleString()}
+              {(current.bankLoan ?? 0) > 0 && <span style={{ color: '#e74c3c', marginLeft: 8 }}>贷 ¥{(current.bankLoan ?? 0).toLocaleString()}</span>}
+            </div>
+          )}
+          {Object.keys(current.stocks ?? {}).length > 0 && (
+            <div style={{ color: token.colorTextSecondary }}>
+              持股: {Object.entries(current.stocks ?? {}).map(([cid, qty]) => {
+                const company = state.economy?.companies[cid]
+                return <span key={cid} style={{ marginRight: 8 }}>{qty}股·¥{company?.stockPrice ?? '?'}</span>
+              })}
+            </div>
+          )}
+          {current.godId && (
+            <div style={{ color: token.colorTextSecondary }}>
+              神明: {current.godId}（剩{current.godRemainingDays}天）
+            </div>
+          )}
+          <Tooltip title={current.vehicle === 'CAR' ? '3颗骰子' : current.vehicle === 'MOTORCYCLE' ? '2颗骰子' : '1颗骰子'}>
+            <span style={{ color: token.colorTextTertiary, fontSize: 11 }}>
+              {current.vehicle === 'CAR' ? '汽车' : current.vehicle === 'MOTORCYCLE' ? '摩托车' : '步行'}
+              {current.isCollectingRent === false ? ' · 不收租' : ''}
+              {current.rentAbsorbing ? ' · 吸尘器生效' : ''}
+            </span>
+          </Tooltip>
+        </div>
+      )}
 
       {/* Card Hand */}
       {hand.length > 0 && (

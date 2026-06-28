@@ -302,7 +302,7 @@ describe('reducer: DISMISS_GOD card', () => {
 
 describe('reducer: GOD daily effects in ROLL_DICE', () => {
   it('掷骰时自动应用神明每日效果', () => {
-    let state = setPlayerGod(baseState(), baseState().players[0].id, 'god-06')
+    const state = setPlayerGod(baseState(), baseState().players[0].id, 'god-06')
     const cashBefore = getPlayerById(state, baseState().players[0].id).cash
     const next = reducer(state, { type: 'ROLL_DICE', dice: [1, 2] })
     expect(getPlayerById(next, baseState().players[0].id).cash).toBe(cashBefore - 500)
@@ -311,14 +311,14 @@ describe('reducer: GOD daily effects in ROLL_DICE', () => {
 
 describe('reducer: GOD duration tick in END_TURN', () => {
   it('回合结束时减少神明倒计时', () => {
-    let state = setPlayerGod(baseState(), baseState().players[0].id, 'god-00', 3)
+    const state = setPlayerGod(baseState(), baseState().players[0].id, 'god-00', 3)
     const next = reducer(state, { type: 'END_TURN' })
     const p1 = getPlayerById(next, baseState().players[0].id)
     expect(p1.godRemainingDays).toBe(2)
   })
 
   it('到期神明在 END_TURN 后离开', () => {
-    let state = setPlayerGod(baseState(), baseState().players[0].id, 'god-00', 1)
+    const state = setPlayerGod(baseState(), baseState().players[0].id, 'god-00', 1)
     const next = reducer(state, { type: 'END_TURN' })
     expect(getPlayerById(next, baseState().players[0].id).godId).toBeUndefined()
   })

@@ -183,7 +183,7 @@ export function handleDividend(state: GameState): GameState {
   if (day % economy.dividendDay !== 0) return state
   const players = state.players.map((p) => ({ ...p }))
   const log = [...state.log]
-  let updatedEconomy = { ...economy, companies: { ...economy.companies } }
+  const updatedEconomy = { ...economy, companies: { ...economy.companies } }
   for (const [companyId, company] of Object.entries(updatedEconomy.companies)) {
     const def = findCompanyDef(companyId)
     const companyName = def?.name ?? companyId

@@ -12,7 +12,7 @@ import { handleBankrupt } from './engine/player'
 import { handleCardAction, createCardDeck, resolveCardReaction, resolveCardChoice } from './engine/card'
 import { handleItemAction, createItemDeck, resolveItemChoice, refreshItemShop, tickTimedBombs } from './engine/item'
 import { handleEventAction } from './engine/event'
-import { handleBankAction, handleStockAction, createInitialEconomy } from './engine/economy'
+import { handleBankAction, handleStockAction, createInitialEconomy, updatePriceIndex, handleDividend } from './engine/economy'
 import { applyAllGodDailyEffects, tickGodDurations } from './engine/god'
 import { getMapName, loadConfig, createBoardState, loadMapData } from './engine/loader'
 
@@ -81,17 +81,6 @@ export function createInitialState(config: NewGameConfig): GameState {
   }
 }
 
-export function getDiceCount(vehicle?: string): number {
-  if (vehicle === 'CAR') return 3
-  if (vehicle === 'MOTORCYCLE') return 2
-  return 2
-}
-
-export function rollDice(vehicle?: string): number[] {
-  const count = getDiceCount(vehicle)
-  return Array.from({ length: count }, () => 1 + Math.floor(Math.random() * 6))
-}
-
 export function reducer(state: GameState, action: Action): GameState {
   switch (action.type) {
     case 'NEW_GAME':
@@ -139,6 +128,8 @@ export function reducer(state: GameState, action: Action): GameState {
       return handleEventAction(state, action)
     case 'END_TURN': {
       let s = handleEndTurn(state)
+      s = updatePriceIndex(s)
+      s = handleDividend(s)
       s = tickGodDurations(s)
       s = tickTimedBombs(s)
       s = { ...s, itemDeck: refreshItemShop(s.itemDeck, s.day) }
@@ -165,3 +156,4 @@ export { handleCompanyLand, getCompanyState } from './engine/company'
 export { applyAllGodDailyEffects, tickGodDurations, applyPlayerGodDailyEffect, findGodDef, loadGodDefinitions, summonNearestGod, getGodMoveBoost, handleGodPossession, handleGodDismiss, calcGodModifiedRent } from './engine/god'
 export { validateMapData, validateMapConnectivity } from './engine/validator'
 export { loadMapData, loadAllMaps, getMapIds, getMapName, getMapList, boardDataToBoardConfig, createBoardState } from './engine/loader'
+export { rollDice, getDiceCount } from './engine/dice'

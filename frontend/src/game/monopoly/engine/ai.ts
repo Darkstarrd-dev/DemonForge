@@ -3,12 +3,10 @@ import type { Action, DecisionRequest, GameState } from '../types'
 import { TurnPhaseV2 } from '../types'
 import { aiDecideWithStrategy } from './ai-strategies'
 import type { LLMDecisionFn } from './ai-llm'
+import { rollDice } from './dice'
 
-function getDiceCount(vehicle?: string): number {
-  if (vehicle === 'CAR') return 3
-  if (vehicle === 'MOTORCYCLE') return 2
-  return 2
-}
+// re-export for external use
+export { rollDice, getDiceCount } from './dice'
 
 type AIDecideMode = 'strategy' | 'llm'
 
@@ -71,8 +69,7 @@ export function aiNextAction(state: GameState): Action | null {
   switch (state.turnContext.phase) {
     case TurnPhaseV2.TURN_START:
     case TurnPhaseV2.ROLL_DICE: {
-      const count = getDiceCount(current.vehicle)
-      const dice = Array.from({ length: count }, () => 1 + Math.floor(Math.random() * 6))
+      const dice = rollDice(current.vehicle)
       return { type: 'ROLL_DICE', dice }
     }
     case TurnPhaseV2.TURN_END:
