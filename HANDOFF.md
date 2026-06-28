@@ -2,7 +2,7 @@
 
 **最后更新**：2026-06-28
 **当前位置**：办公场所 A
-**本轮主题**：**角色交流模块重构**（修复发消息 HTTP 500 + 移除 opencode + session 化交互 + 每参与者独立缓存；build 全绿，待提交）；上一轮第二轮质量审核 audit-02
+**本轮主题**：**质量审计 audit-02 修复**（按复审优先级修 C-1/C-2/B-3/B-4/B-6/B-9/B-10/B-11 共 8 项，回归全绿，待提交）；前序：角色交流模块重构 + 第二轮质量审核 audit-02
 
 > 📦 **历史明细已归档** → `docs/handoff_history.md`
 > 本文件只保留「恢复工作所需的活内容」：进行中任务、模块清单、下一步、交接参考。
@@ -95,11 +95,14 @@
 
 - `docs/quality/TEMPLATE.md`：审计报告模板。每次审核复制到 `logs/` 按 `YYYY-MM-DD-audit-NN.md` 命名。
 - `docs/quality/logs/2026-06-27-audit-01.md`：首次全量审计（A-1~A-14，**已全部收口**：A-1~A-10/A-13/A-14 完成，A-11 won't-fix，A-12 deferred）。
-- `docs/quality/logs/2026-06-28-audit-02.md`：**第二轮全量复审（本轮）**。结论：重构线四维全面向好（架构 6.5→7.5 / 拆分 4.5→6.5 / 质量 6.0→6.5 / 技术栈 7.0→7.5），重构产物经精读确认实现干净、无退化；前端 vitest **55 绿** + 后端 tsc **0**。**新发现 11 项（B-1~B-11），均落在「重构未覆盖的新功能」里**，两个 user-facing 高优先级：
-  - **B-1（P0-1，高）✅ 2026-06-28 已修复**：`server/src/routes/chat.ts:45` 用 `new URL('../data/settings.json')` 绕过 `getAppDataDir()` → role-chat 读不到 providers 必 500/404。本轮「角色交流模块重构」**直接废弃删除该端点**，前端改由 `roleChatEngine` 直传选定节点给通用 `/api/llm/chat`，后端不再读 settings 文件，根除该类路径 bug。
-  - **B-2（P0-2，高）✅ 2026-06-28 已修复**：role-chat 自动循环——① 每参与者独立 `AbortController`（流可中断）；② 移除参与者/切走即 `cancelParticipant`（停后台循环）；③ 闭包陷阱根治：改单一数据源 `roleChatMessages` + 纯函数 `buildParticipantMessages` 每轮重新派生 → 循环中各参与者实时互见新发言。详见上方「角色交流模块重构」。
-  - B-3~B-11：持久化脏检查声明式化（承接 audit-01 P0-1，A-7 只搬未消除）/ settings 组件手写 SSE 残留（audit-01 P0-2 漏查点）/ useInferenceSession 780 行胖 hook 消重 / creation 731 拆分 / 若干低优先级类型与一致性项。详见报告第 5 节追踪表。
-- **下一步建议**：先做 **B-1**（消除打包版 role-chat 失效，单文件低风险），再做 **B-2**（需配端到端实测：停止打断在途流 / 卸载停循环 / 循环中 Agent 互见新消息）。
+- `docs/quality/logs/2026-06-28-audit-02.md`：**第二轮全量复审** + **2026-06-28 第二次走查回填**（并行开发后重新审计，详见报告**第 6 节**）。初评：重构线四维全面向好（架构 6.5→7.5 / 拆分 4.5→6.5 / 质量 6.0→6.5 / 技术栈 7.0→7.5），重构产物经精读确认无退化；vitest **55 绿** + tsc **0**。**第二次走查结论**（独立验证 HANDOFF 修复声明，不轻信自述）：
+  - **B-1（P0-1）☑ 真修复**：role-chat 重构**废弃删除** `chat.ts`，前端 `roleChatEngine` 直传节点给 `/api/llm/chat`，后端零状态——路径 bug 从根消除（方案优于原计划的 readSettings）。
+  - **B-2（P0-2）◐ 仅 2/3 修复**：流可中断 ✅（AbortController + cancelParticipant）+ 闭包陈旧 ✅（单一数据源 + 纯函数派生，循环中实时互见新发言）；**但子问题2「卸载清理」未落地**——`index.tsx` 无 useEffect、仍用布尔 abortRef，切走 `/role-chat` 路由后自动循环后台续跑烧 token、用户失控（转 **C-2**）。HANDOFF 原称"切走即 cancelParticipant"仅对切换 session 成立、对切走路由不成立。
+  - **C-1（中高·新发现）确定性 bug**：`roleChatAutoConfig` 被 `bootstrap.ts:118` 读取却漏入 `settingsPayload`/订阅比较 → **用户改循环设置重启即丢失**。是 B-3「持久化脏检查未声明式化」的真实兑现。
+  - **monopoly 新模块 ☑ 审计优秀（无整改项）**：纯 reducer（随机源外置）/ effect-driven 自动循环（卸载有 cleanup、无闭包陈旧，B-2 三问题皆无）/ Three 资源完整 dispose / 零 any / 无胖文件——工程纪律正面样板，值得反哺 role-chat。
+  - B-3~B-11：除 **B-7（chat.ts 删除作废）** 外，并行开发期间均未触及。
+- **2026-06-28 第三次走查·修复（待提交）**：按上述优先级**已修复 8 项**——C-1（roleChatAutoConfig 入 settingsPayload，后端 merge 透传闭环已验）/ C-2（role-chat 卸载 useEffect，切路由停循环+中止在途流）/ B-3（持久化脏检查声明式化，payload 键集驱动，根治漏写）/ B-4（settings 手写 SSE→parseSSE，顺带理顺 done 重复显示）/ B-6（batchChars 注解）/ B-9（三弹窗卸载 abort）/ B-10（import 收口 api.ts）/ B-11（sseHelper ACAO 经 reply.request 回显白名单）。回归：后端 tsc 0 + 前端 build + vitest **55 绿** + 改动文件 eslint 0。详见 audit-02 **第 7 节**。
+- **仍遗留**：B-5（useInferenceSession 抽 useCompareSession）/ B-8（creation.ts 拆三文件）——第三梯队，需先出设计稿；新模块（monopoly / roleChatEngine 纯函数）单测缺口（复审 6.5）。
 - 第一梯队 A-1~A-4 已完成（删死文件 / 修 UTC 日期 bug / vitest 地基 / 首批单测）。详见归档。
 
 ---

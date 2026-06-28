@@ -152,9 +152,8 @@ export async function pushStoreNowChecked(): Promise<void> {
   }
 }
 
-// 设置回写：providers/moduleMapping/m1SystemPrompt/assetDir/currentBookId/nodeTestGlobalForm/nodeTestFormPerNode/
-// showMenuBar/splitPatterns/cleanNodeOverrides/m1AutoRetry/m1TitleTemplate 变化时 debounce POST
-/** 设置载荷构造（20 个键）。导出供 backup.ts 组装备份 bundle 复用。 */
+// 设置回写：settingsPayload 任一键引用变化时 debounce POST（registerPersisters 从该键集自动比较）
+/** 设置载荷构造（单一真相：脏检查键集与 backup.ts 备份均从此派生，加字段只改这里）。 */
 export const settingsPayload = (s: AppState) => ({
   providers: s.providers,
   moduleMapping: s.moduleMapping,
@@ -176,6 +175,7 @@ export const settingsPayload = (s: AppState) => ({
   systemPromptPresets: s.systemPromptPresets,
   systemPromptActiveId: s.systemPromptActiveId,
   imageArchiveDir: s.imageArchiveDir,
+  roleChatAutoConfig: s.roleChatAutoConfig,
 })
 
 let settingsTimer: ReturnType<typeof setTimeout> | null = null
@@ -273,25 +273,17 @@ export function registerPersisters(): void {
   if (registered) return
   registered = true
 
+  // 脏检查键集：以 payload 的键为单一真相——加字段只改 payload 一处，下面的比较自动跟随。
+  // 根治"新增设置字段漏写 === 比较 → 改了不落库"（roleChatAutoConfig 曾因此漏写、重启即丢）。
+  // 在函数内（非模块顶层）求值：registerPersisters 由 appStore 末尾在 useAppStore 定义后调用，
+  // 此刻 getState() 已就绪，不触发文件头所述循环依赖。
+  const BUSINESS_KEYS = Object.keys(businessPayload(useAppStore.getState())) as (keyof AppState)[]
+  const SETTINGS_KEYS = Object.keys(settingsPayload(useAppStore.getState())) as (keyof AppState)[]
+
   // 业务数据回写：仅在业务切片引用变化时 debounce POST（导入会话变动不触发）
   useAppStore.subscribe((s, prev) => {
     if (!storeReady) return
-    if (
-      s.books === prev.books &&
-      s.chapters === prev.chapters &&
-      s.cards === prev.cards &&
-      s.outline === prev.outline &&
-      s.scenes === prev.scenes &&
-      s.fragments === prev.fragments &&
-      s.stateEvents === prev.stateEvents &&
-      s.issues === prev.issues &&
-      s.architectures === prev.architectures &&
-      s.mergeCandidates === prev.mergeCandidates &&
-      s.testHistory === prev.testHistory &&
-      s.chatSessions === prev.chatSessions
-    ) {
-      return
-    }
+    if (BUSINESS_KEYS.every((k) => s[k] === prev[k])) return
     if (storeTimer) clearTimeout(storeTimer)
     storeTimer = setTimeout(() => {
       pushStore(businessPayload(useAppStore.getState())).catch(() => {})
@@ -301,30 +293,7 @@ export function registerPersisters(): void {
   // 设置回写
   useAppStore.subscribe((s, prev) => {
     if (!storeReady) return
-    if (
-      s.providers === prev.providers &&
-      s.moduleMapping === prev.moduleMapping &&
-      s.m1SystemPrompt === prev.m1SystemPrompt &&
-      s.assetDir === prev.assetDir &&
-      s.currentBookId === prev.currentBookId &&
-      s.nodeTestGlobalForm === prev.nodeTestGlobalForm &&
-      s.nodeTestFormPerNode === prev.nodeTestFormPerNode &&
-      s.showMenuBar === prev.showMenuBar &&
-      s.splitPatterns === prev.splitPatterns &&
-      s.cleanNodeOverrides === prev.cleanNodeOverrides &&
-      s.m1AutoRetry === prev.m1AutoRetry &&
-      s.m1TitleTemplate === prev.m1TitleTemplate &&
-      s.m1TestText === prev.m1TestText &&
-      s.theme === prev.theme &&
-      s.enable4KScale === prev.enable4KScale &&
-      s.scaleBaseWidth === prev.scaleBaseWidth &&
-      s.nodeGroupExpanded === prev.nodeGroupExpanded &&
-      s.systemPromptPresets === prev.systemPromptPresets &&
-      s.systemPromptActiveId === prev.systemPromptActiveId &&
-      s.imageArchiveDir === prev.imageArchiveDir
-    ) {
-      return
-    }
+    if (SETTINGS_KEYS.every((k) => s[k] === prev[k])) return
     if (settingsTimer) clearTimeout(settingsTimer)
     settingsTimer = setTimeout(() => {
       fetch('/api/settings', {

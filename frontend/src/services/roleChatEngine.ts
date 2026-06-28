@@ -12,8 +12,7 @@
 
 import { useAppStore, genId } from '../store/appStore'
 import type { EntityCard, RoleChatParticipant, RoleChatMessage, RoleChatRuntime } from './types'
-import type { ChatMessage } from './real/chat'
-import { streamChat } from './real/chat'
+import { streamChat, type ChatMessage } from './api'
 
 /** 每参与者的在途请求句柄（不可序列化，留模块级，不进 store）。 */
 const inflight = new Map<string, AbortController>()

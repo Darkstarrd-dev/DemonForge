@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { Modal, Input, Select, Button, Space, Typography, App } from 'antd'
 import { BulbOutlined, ClearOutlined } from '@ant-design/icons'
 import { useAppStore } from '../../../store/appStore'
-import { streamChat } from '../../../services/real/chat'
+import { streamChat } from '../../../services/api'
 
 interface Props {
   open: boolean
@@ -33,6 +33,9 @@ export default function SceneSettingModal({ open, value, participantNames, onClo
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- textNodes 每渲染重算，不入依赖；仅按 open/value 触发
   }, [open, value])
+
+  // 卸载清理：父组件非 onCancel 路径卸载时中止在途生成流（onCancel 已由 handleClose abort）。
+  useEffect(() => () => abortRef.current?.abort(), [])
 
   // AI 生成场景背景（流式追加到草稿；已有内容作为补充要求喂入）
   const handleGenerate = async () => {

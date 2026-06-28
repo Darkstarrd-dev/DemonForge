@@ -63,7 +63,7 @@ export async function bootstrapStore(): Promise<void> {
         nodeTestFormPerNode?: Record<string, Partial<NodeTestForm>>
         showMenuBar?: boolean
         splitPatterns?: SplitPattern[]
-        cleanNodeOverrides?: Record<string, Partial<{ participating: boolean; concurrency: number; batchSize: number; intervalSec: number }>>
+        cleanNodeOverrides?: Record<string, Partial<{ participating: boolean; concurrency: number; batchChars: number; intervalSec: number }>>
         m1AutoRetry?: boolean
         m1TitleTemplate?: string
         m1TestText?: string

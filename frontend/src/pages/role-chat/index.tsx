@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import {
   App,
   Button,
@@ -47,6 +47,15 @@ export default function RoleChatPage() {
   const [sceneModalOpen, setSceneModalOpen] = useState(false)
   const [loopPopoverOpen, setLoopPopoverOpen] = useState(false)
   const abortRef = useRef(false)
+
+  // 卸载清理：切走 /role-chat 路由（AppLayout 用 <Outlet/>，路由切换即卸载本组件）时，
+  // 置 abortRef 停掉自动循环 while，并中止所有参与者在途 SSE 流——否则循环会在后台续跑、
+  // 持续向上游发请求烧 token，且停止按钮已随组件卸载、用户无法干预。读 store 取最新参与者，
+  // 不依赖闭包快照（空依赖 effect 仅在卸载时执行一次）。
+  useEffect(() => () => {
+    abortRef.current = true
+    useAppStore.getState().roleChatParticipants.forEach((p) => cancelParticipant(p.id))
+  }, [])
 
   // 更新参与者循环 UI 状态（写 store，函数式避免并发覆盖）
   const updateParticipantStatus = (id: string, status: RoleChatParticipant['status']) =>

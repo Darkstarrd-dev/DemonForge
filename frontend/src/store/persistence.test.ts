@@ -54,7 +54,7 @@ afterEach(() => {
 })
 
 describe('持久化 · payload 纯函数', () => {
-  it('① businessPayload 含 12 键 / settingsPayload 含 20 键', async () => {
+  it('① businessPayload 含 12 键 / settingsPayload 含 21 键', async () => {
     const { businessPayload, settingsPayload, useAppStore } = await import('./appStore')
     const s = useAppStore.getState()
     expect(Object.keys(businessPayload(s)).sort()).toEqual([
@@ -65,7 +65,7 @@ describe('持久化 · payload 纯函数', () => {
       'assetDir', 'cleanNodeOverrides', 'currentBookId', 'enable4KScale', 'imageArchiveDir',
       'm1AutoRetry', 'm1SystemPrompt', 'm1TestText', 'm1TitleTemplate', 'moduleMapping',
       'nodeGroupExpanded', 'nodeTestFormPerNode', 'nodeTestGlobalForm', 'providers',
-      'scaleBaseWidth', 'showMenuBar', 'splitPatterns', 'systemPromptActiveId',
+      'roleChatAutoConfig', 'scaleBaseWidth', 'showMenuBar', 'splitPatterns', 'systemPromptActiveId',
       'systemPromptPresets', 'theme',
     ])
   })

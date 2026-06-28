@@ -1,7 +1,7 @@
 // M2 设定卡片 · 批量生图队列（暂存区模型）。
 // 步骤 1：文本节点出一组提示词（可编辑）→ 步骤 2：图片节点并发生图 → 队列里看大图/保存/删除/重试。
 // 「保存」=采纳进卡片相册（立即落库）；「删除」=从队列丢弃；关闭时未保存的图自动丢弃（归档文件留盘）。
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { App, Button, Image, Input, InputNumber, Modal, Select, Space, Spin, Tag, Tooltip, Typography, Upload } from 'antd'
 import {
   PlusOutlined,
@@ -67,6 +67,9 @@ export default function ImageBatchModal({
   const [promptLoading, setPromptLoading] = useState(false)
   const [batchRunning, setBatchRunning] = useState(false)
   const acRef = useRef<AbortController | null>(null)
+
+  // 卸载清理：父组件非 onCancel 路径卸载（如切走路由）时中止在途批量生图，避免向已卸载组件 setState。
+  useEffect(() => () => acRef.current?.abort(), [])
 
   // 参考图（角色一致化）：可从本卡相册勾选 + 本地上传，传给生图 imageInputs
   const albumImages = card.images ?? []

@@ -34,6 +34,7 @@ import {
   useAppStore,
 } from '../../store/appStore'
 import { testProvider, getDefaultPrompt } from '../../services/api'
+import { parseSSE } from '../../services/sse'
 import type { ModuleKey, ProviderNode, ProviderNodeType, SplitPattern } from '../../services/types'
 import {
   buildBundle,
@@ -271,30 +272,18 @@ export default function SettingsPage() {
         return
       }
 
-      const reader = res.body.getReader()
-      const decoder = new TextDecoder()
-      let buffer = ''
       let acc = ''
-
-      for (;;) {
-        const { done, value } = await reader.read()
-        const text = value ? decoder.decode(value, { stream: !done }) : ''
-        buffer += text
-        const events = buffer.split('\n\n')
-        buffer = events.pop() ?? ''
-
-        for (const evt of events) {
-          if (!evt.trim()) continue
-          let data = ''
-          for (const line of evt.split('\n')) {
-            if (line.startsWith('data:')) data += line.slice(5).trim()
-          }
-          if (!data) continue
-          const parsed = JSON.parse(data) as { delta?: string; text?: string }
-          acc += parsed.delta ?? parsed.text ?? ''
+      for await (const { event, data } of parseSSE(res.body)) {
+        const d = data as { delta?: string; text?: string }
+        if (event === 'delta' && typeof d.delta === 'string') {
+          acc += d.delta
+          setTestStreamRight(acc)
+        } else if (event === 'done' && typeof d.text === 'string') {
+          // done 携带完整文本（非增量），直接覆盖累积值；
+          // 原手写解析对 done 也执行 acc += text，会令测试结果显示两遍，此处一并理顺。
+          acc = d.text
           setTestStreamRight(acc)
         }
-        if (done) break
       }
 
       message.success('测试完成')

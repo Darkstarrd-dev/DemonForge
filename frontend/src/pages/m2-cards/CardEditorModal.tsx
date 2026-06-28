@@ -1,6 +1,6 @@
-// M2 设定卡片 · 新建/AI 生成共用编辑器（条件挂载，每次打开自然重置状态，无 useEffect）。
+// M2 设定卡片 · 新建/AI 生成共用编辑器（条件挂载，每次打开自然重置状态；仅一个卸载 useEffect 中止在途流）。
 // 手动新增：忽略 AI 区直接填字段保存；AI 生成：填指令 → 流式生成（左 Debug / 右流式输出）→ 字段回填可编辑 → 重新生成/增加生成 → 保存。
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { App, Button, Divider, Form, Input, Modal, Select, Space, Spin, Typography, theme } from 'antd'
 import { PlusOutlined, DeleteOutlined, ThunderboltOutlined, ReloadOutlined, StopOutlined } from '@ant-design/icons'
 import type { Book, DebugInfoData, EntityCard, EntityType, ProviderNode } from '../../services/types'
@@ -62,6 +62,9 @@ export default function CardEditorModal({
   const [streamText, setStreamText] = useState('')
   const [debug, setDebug] = useState<DebugInfoData>(EMPTY_DEBUG)
   const acRef = useRef<AbortController | null>(null)
+
+  // 卸载清理：父组件非 onCancel 路径卸载（如切走路由）时中止在途 AI 生成流，避免向已卸载组件 setState。
+  useEffect(() => () => acRef.current?.abort(), [])
 
   const setFieldVal = (idx: number, patch: Partial<FieldRow>) =>
     setFields((rows) => rows.map((r, i) => (i === idx ? { ...r, ...patch } : r)))
