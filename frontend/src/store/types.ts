@@ -4,6 +4,7 @@ import type {
   Book,
   Chapter,
   EntityCard,
+  EntityType,
   OutlineNode,
   SimScene,
   SimFragment,
@@ -194,6 +195,8 @@ export interface AppState {
   nodeTestSidebarMode: 'app' | 'sessions'
   /** 图片归档保存目录（持久化到 settings.json）。空串=后端用默认 <dataDir>/images */
   imageArchiveDir: string
+  /** M2 卡片 AI 生成系统提示词覆盖，按实体类型分别存（持久化到 settings.json）。缺该 type=用后端默认 */
+  m2CardGenPromptByType: Partial<Record<EntityType, string>>
   /** 角色交流参与者列表（内存态，不持久化） */
   roleChatParticipants: RoleChatParticipant[]
   /** 角色交流群聊消息流（内存态，不持久化；各参与者从此单一数据源派生各自缓存前缀） */

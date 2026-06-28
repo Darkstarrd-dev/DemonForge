@@ -6,6 +6,7 @@ import type {
   Book,
   Chapter,
   EntityCard,
+  EntityType,
   OutlineNode,
   SimScene,
   SimFragment,
@@ -74,6 +75,7 @@ export async function bootstrapStore(): Promise<void> {
         systemPromptPresets?: SystemPromptPreset[]
         systemPromptActiveId?: string | null
         imageArchiveDir?: string
+        m2CardGenPromptByType?: Partial<Record<EntityType, string>>
       }
       storeInitialized = d.storeInitialized === true
       const patch: Partial<AppState> = {}
@@ -132,6 +134,8 @@ export async function bootstrapStore(): Promise<void> {
       }
       // 图片归档目录（旧 settings.json 无此键则沿用空串，后端用默认 <dataDir>/images）
       if (typeof d.imageArchiveDir === 'string') patch.imageArchiveDir = d.imageArchiveDir
+      // M2 卡片生成提示词覆盖（按类型，旧 settings.json 无此键则沿用空对象=全用后端默认）
+      if (d.m2CardGenPromptByType && typeof d.m2CardGenPromptByType === 'object') patch.m2CardGenPromptByType = d.m2CardGenPromptByType
       if (Object.keys(patch).length) useAppStore.setState(patch)
     }
   } catch {

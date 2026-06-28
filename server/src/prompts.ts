@@ -522,3 +522,56 @@ export const CARD_IMAGE_PROMPTS_SYSTEM_PROMPT = `你是 AI 绘画提示词工程
 - 输出必须是合法 JSON，不附加任何解释文字、不加 markdown 围栏。
 - prompts 数组长度必须等于 count。
 - 不要输出反向提示词（negative prompt），只输出正向画面描述。`
+
+// ===== M2 设定卡片 · 批量生成（侧写 + 批量扩写）prompt =====
+
+export const GENERATE_CARD_PROFILES_SYSTEM_PROMPT = `你是小说设定策划。根据用户给定的实体类型、数量与（可选）整体要求，构思一组**彼此区分、互不雷同**的简短侧写，供后续逐一扩写为完整设定卡片。
+
+## 输出格式（严格遵守）
+
+只输出**一个 JSON 对象**（不要 \`\`\`json\`\`\` 标记，直接输出 JSON）：
+
+{
+  "profiles": [
+    { "name": "名称", "brief": "一句话侧写（30-60字，点出定位/性格/核心特征）" }
+  ]
+}
+
+## 要求
+
+- profiles 数组长度必须等于用户指定的数量 count。
+- 每条侧写聚焦一个鲜明的核心设定，彼此**差异化**：避免重名、避免设定/定位重复。
+- 若用户提供了整体要求/主题，所有侧写都要贴合它；若未提供，自由发挥、追求新颖多样。
+- name 简洁；brief 用一句话概括，不展开。
+- 输出必须是合法 JSON，不附加任何解释文字、不加 markdown 围栏。`
+
+export const GENERATE_CARDS_BATCH_SYSTEM_PROMPT = `你是专业的小说设定设计师。你会收到同一实体类型下的**一组侧写**，请把每条侧写各自扩写为一张结构完整、内容丰富的设定卡片（不依赖任何原文）。
+
+## 实体类型与字段
+
+卡片属于以下五类之一：character（人物）/ location（地点）/ item（物品）/ skill（技能·能力）/ faction（势力·组织）。
+- 用 fields 键值对（中文键名）整理关键属性。
+- 仅当 type=character 时额外输出 styleNote（语言风格）与 styleExamples（2-4 句台词例句），其它类型省略。
+- description 用一段连贯文字概括该实体（80-200 字）。
+
+## 输出格式（严格遵守）
+
+只输出**一个 JSON 数组**（不要 \`\`\`json\`\`\` 标记，直接输出 JSON），每个元素对应输入的一条侧写、**顺序一一对应**：
+
+[
+  {
+    "name": "实体名称",
+    "aliases": ["别名1"],
+    "description": "一段连贯的概括描述",
+    "fields": { "外貌": "...", "性格": "..." },
+    "styleNote": "（仅 character）语言风格描述",
+    "styleExamples": ["（仅 character）台词例句1", "台词例句2"]
+  }
+]
+
+## 要求
+
+- 数组长度必须等于输入侧写条数，顺序与输入一致。
+- 每张卡片自洽完整、彼此差异化；紧扣对应侧写的核心设定与用户的整体要求。
+- aliases 没有就给空数组 []；非人物类的 styleNote/styleExamples 省略。
+- 输出必须是合法 JSON，不附加任何解释文字、不加 markdown 围栏。`

@@ -73,6 +73,14 @@ export default function AppLayout() {
     window.electronAPI?.setMenuBarVisibility(showMenuBar)
   }, [showMenuBar])
 
+  // 进入节点测试 / 角色交流路由时，左侧栏自动回到 session 列表（免手动点 logo 切换）。
+  // 仅随路由切换触发：页面内点 logo 切到 app 导航不会被复位（pathname 未变，effect 不重跑）。
+  useEffect(() => {
+    if (location.pathname === '/node-test') setState({ nodeTestSidebarMode: 'sessions' })
+    else if (location.pathname === '/role-chat') setState({ roleChatSidebarMode: 'sessions' })
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 仅依赖路由变化，setState 引用稳定
+  }, [location.pathname])
+
   const handleExit = async () => {
     // 先冲刷未提交的 debounce 写入（删除/编辑等），再触发后端 shutdown，
     // 否则后端被杀掉，最后一次状态丢失，重启后数据回归。

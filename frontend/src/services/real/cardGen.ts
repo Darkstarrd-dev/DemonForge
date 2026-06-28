@@ -9,12 +9,14 @@ type NodeLike = Pick<ProviderNode, 'baseURL' | 'apiKey' | 'model'>
 
 export interface GenerateCardArgs {
   type: EntityType
-  /** 用户描述指令 */
+  /** 用户描述指令（可空=按类型随机生成） */
   instruction: string
   /** 模式：新建 / 在已有卡片基础上丰富 */
   mode: 'create' | 'enrich'
   /** enrich 模式下的已有卡片内容（序列化文本） */
   existingCard?: string
+  /** 系统提示词覆盖（按类型，空=用后端默认） */
+  systemPrompt?: string
 }
 
 /** AI 生成的卡片字段（对齐 EntityCard 的可编辑子集）。 */
@@ -46,6 +48,7 @@ export async function generateCard(node: NodeLike, args: GenerateCardArgs): Prom
       instruction: args.instruction,
       mode: args.mode,
       ...(args.existingCard ? { existingCard: args.existingCard } : {}),
+      ...(args.systemPrompt ? { systemPrompt: args.systemPrompt } : {}),
     }),
   })
   if (!res.ok) {
@@ -73,6 +76,8 @@ export interface StreamGenerateCardHandlers {
   onDelta?: (delta: string) => void
   /** 解析成功的卡片字段 */
   onDone?: (card: GeneratedCard) => void
+  /** 后端回传的真实请求体（system+user 完整 messages），供 Debug actualBody 展示 */
+  onMeta?: (actualBody: object) => void
 }
 
 export async function streamGenerateCard(
@@ -89,6 +94,7 @@ export async function streamGenerateCard(
     instruction: args.instruction,
     mode: args.mode,
     ...(args.existingCard ? { existingCard: args.existingCard } : {}),
+    ...(args.systemPrompt ? { systemPrompt: args.systemPrompt } : {}),
   }
   const res = await fetch('/api/llm/generate-card-stream', {
     method: 'POST',
@@ -105,6 +111,7 @@ export async function streamGenerateCard(
   for await (const { event, data } of parseSSE(res.body)) {
     const parsed = data as Record<string, unknown>
     if (event === 'delta') handlers.onDelta?.(String(parsed.delta ?? ''))
+    else if (event === 'meta') handlers.onMeta?.((parsed.actualBody ?? {}) as object)
     else if (event === 'done') {
       const c = (parsed.card ?? {}) as Partial<GeneratedCard>
       handlers.onDone?.({
@@ -161,4 +168,79 @@ export async function generateCardImagePrompts(node: NodeLike, args: CardImagePr
   }
   const data = (await res.json()) as { prompts: ImagePromptItem[] }
   return Array.isArray(data.prompts) ? data.prompts : []
+}
+
+/** 把 LLM 返回的卡片对象规整为 GeneratedCard（容错缺字段）。 */
+function normalizeGenerated(c: Partial<GeneratedCard>): GeneratedCard {
+  return {
+    name: typeof c.name === 'string' ? c.name : '',
+    aliases: Array.isArray(c.aliases) ? c.aliases.filter((a): a is string => typeof a === 'string') : [],
+    description: typeof c.description === 'string' ? c.description : '',
+    fields: c.fields && typeof c.fields === 'object' ? (c.fields as Record<string, string>) : {},
+    styleNote: typeof c.styleNote === 'string' ? c.styleNote : undefined,
+    styleExamples: Array.isArray(c.styleExamples)
+      ? c.styleExamples.filter((s): s is string => typeof s === 'string')
+      : undefined,
+  }
+}
+
+/** 批量生成 · 单条侧写。 */
+export interface CardProfile {
+  name: string
+  brief: string
+}
+
+/** 批量生成第一步：根据数量+要求生成一组简短侧写（/api/llm/card-profiles）。 */
+export async function generateCardProfiles(
+  node: NodeLike,
+  args: { type: EntityType; count: number; instruction: string },
+): Promise<CardProfile[]> {
+  const res = await fetch('/api/llm/card-profiles', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      baseURL: node.baseURL,
+      apiKey: node.apiKey,
+      model: node.model,
+      type: args.type,
+      count: args.count,
+      instruction: args.instruction,
+    }),
+  })
+  if (!res.ok) {
+    const data = await res.json().catch(() => null)
+    throw new Error(data?.error ?? `侧写生成失败 HTTP ${res.status}`)
+  }
+  const data = (await res.json()) as { profiles?: CardProfile[] }
+  return Array.isArray(data.profiles) ? data.profiles : []
+}
+
+/** 批量生成第二步：一次请求把一批侧写扩写为完整卡片（/api/llm/generate-cards-batch）。 */
+export async function generateCardsBatch(
+  node: NodeLike,
+  args: { type: EntityType; profiles: CardProfile[]; instruction: string },
+  signal?: AbortSignal,
+): Promise<{ cards: GeneratedCard[]; actualBody: object | null }> {
+  const res = await fetch('/api/llm/generate-cards-batch', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      baseURL: node.baseURL,
+      apiKey: node.apiKey,
+      model: node.model,
+      type: args.type,
+      profiles: args.profiles,
+      instruction: args.instruction,
+    }),
+    signal,
+  })
+  if (!res.ok) {
+    const data = await res.json().catch(() => null)
+    throw new Error(data?.error ?? `批量生成失败 HTTP ${res.status}`)
+  }
+  const data = (await res.json()) as { cards?: Partial<GeneratedCard>[]; actualBody?: object }
+  return {
+    cards: Array.isArray(data.cards) ? data.cards.map(normalizeGenerated) : [],
+    actualBody: data.actualBody ?? null,
+  }
 }

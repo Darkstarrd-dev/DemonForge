@@ -2,11 +2,39 @@
 
 **最后更新**：2026-06-28
 **当前位置**：办公场所 A
-**本轮主题**：**质量审计 audit-02 第三梯队收尾**（B-5 抽 useCompareSession + B-8 creation.ts 拆三文件，回归全绿，待提交）；前序：audit-02 修复 8 项（C-1/C-2/B-3/B-4/B-6/B-9/B-10/B-11）+ 角色交流模块重构 + 第二轮质量审核 audit-02
+**本轮主题**：**四模块需求落地（12 项）**——设定卡片(5)+角色交流(4)+系统设置(1)+节点测试(1)，回归全绿，待提交；前序：质量审计 audit-02 第三梯队收尾（B-5/B-8）+ audit-02 修复 8 项 + 角色交流模块重构
 
 > 📦 **历史明细已归档** → `docs/handoff_history.md`
 > 本文件只保留「恢复工作所需的活内容」：进行中任务、模块清单、下一步、交接参考。
 > 各轮工作的逐项实现细节、技术决策记录、详尽验证清单全部移入归档文件，按需查阅。
+
+---
+
+## 🆕 四模块需求落地 12 项（2026-06-28，已完成，回归全绿，待提交）
+
+基于审计提交（`6b1ce9d` creation 拆分 / `ad229f6` audit-02）后的现状实施。**先核对了审计提交无功能冲突**：M2 卡片路由已迁 `creation.m2.ts`（落点据此 retarget）；persistence 已「声明式脏检查」（新增设置只改 `settingsPayload` 一处）。
+
+**设定卡片（M2）**
+- **#1 归属书默认素材库**：`CardEditorModal` AI 模式 `bookId` 初值改空串（手动模式不变）。
+- **#2 按类型可编辑提示词**：新增持久化 `m2CardGenPromptByType: Partial<Record<EntityType,string>>`（uiPrefsSlice 默认 + types + bootstrap 读取 + settingsPayload 1 键）；服务端 `GenerateCardBody` 加 `systemPrompt` 覆盖（空=默认）+ `GET /api/llm/card-gen-prompt` 返回默认；`CardEditorModal` 加「编辑提示词」按钮 + 子 Modal（按当前 type，保存/重置）。
+- **#3 批量生成**：新增 `BatchCardModal.tsx`（配置→侧写可编辑→分块生成→复核批量保存）+ `index.tsx`「批量 AI 生成」按钮；服务端 `POST /api/llm/card-profiles`（侧写）+ `POST /api/llm/generate-cards-batch`（一次出 K 张 JSON 数组）+ 两个新 prompt；前端编排**串行/并发(C)** × **单次请求批次 K**（`cardsPerRequest`）切块；新增 `utils/buildEntityCard.ts`。
+- **#4 留空按类型随机**：前端去掉空指令拦截、按钮文案空时显「随机生成」；服务端放开 instruction 必填，空指令走「按类型随机自由创作」（侧写端点同）。
+- **#5 Debug 补全**：`generate-card-stream` 先发 `meta` 事件带真实 `actualBody`（system+user 完整 messages）；`cardGen.streamGenerateCard` 加 `onMeta`；`CardEditorModal` 写入 `debug.actualBody`、`previewBody` 改完整客户端 body。
+
+**角色交流**
+- **#1 进入自动切 session**：`AppLayout` 加 `location.pathname` effect（进 `/role-chat`/`/node-test` 即置 sessions 模式；页面内 logo 切 app 导航不受影响）。**同时覆盖节点测试 #1**。
+- **#2 添加参与者下拉裁切**：`AddParticipantModal` 去掉 `getPopupContainer`（改挂 body）+ `popupMatchSelectWidth={false}`。
+- **#3 循环说明信息图**：`AutoLoopPanel` 加「说明」按钮 + 自管 Modal（单次循环流程图 反应延迟→发言→冷却→判断收敛 + 各项参数影响表 + 各角色并行说明）。
+- **#4 消息复制**：`MessageList` 每条加复制按钮（群聊与参与者视图共用一改两生效）；`role-chat/index` 导出 Dropdown 加「复制到剪贴板」（抽 `buildTxt()` 复用）。
+
+**系统设置**
+- **#2 真实绝对路径 + 打开目录 + 资产选择**：后端 `GET /api/settings/resolved-paths`（assetDir/imageDir/dataDir 解析后绝对路径）；Electron `main.ts` 加 `shell:open-path` IPC + `preload.cjs`/`preload.ts` 暴露 `openPath` + `vite-env.d.ts` 类型；`AdvancedTabContent` 显示实际绝对目录 +「打开目录」按钮（资产/图片）+ 资产目录补「选择目录」。
+
+**决策点采纳**：①提示词按类型 ②批量串行/并发均支持单次请求批次 K ③侧写可编辑 ④资产目录加选择按钮。
+**边界说明**：批量生成用独立的数组格式 prompt，**不走** #2 的按类型单卡提示词覆盖（输出格式不同）。
+
+**新增文件**：`frontend/src/pages/m2-cards/BatchCardModal.tsx`、`frontend/src/utils/buildEntityCard.ts`、`server/src/routes/creation.m2.ts`(+3 端点)。
+**验收**：前端 `tsc` 0 / 后端 `tsc` 0 / electron `tsc` 0 / `vite build` ✓ / `vitest` 55 绿（同步更新 `persistence.test` 键集断言）/ 改动文件 `eslint` 0 error。**待端到端实测**（批量串/并发分块、按类型提示词生效、留空随机、Debug actualBody、目录打开、进入模块自动切 session）。
 
 ---
 

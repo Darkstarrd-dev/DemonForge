@@ -176,6 +176,7 @@ export const settingsPayload = (s: AppState) => ({
   systemPromptActiveId: s.systemPromptActiveId,
   imageArchiveDir: s.imageArchiveDir,
   roleChatAutoConfig: s.roleChatAutoConfig,
+  m2CardGenPromptByType: s.m2CardGenPromptByType,
 })
 
 let settingsTimer: ReturnType<typeof setTimeout> | null = null

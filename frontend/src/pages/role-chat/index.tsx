@@ -125,10 +125,20 @@ export default function RoleChatPage() {
   }
   const handleExportTxt = () => {
     if (messages.length === 0) { message.warning('暂无对话内容'); return }
+    downloadFile(buildTxt(), 'txt', 'text/plain;charset=utf-8')
+    message.success('已导出对话记录（TXT）')
+  }
+  // 组装 TXT 文本（导出文件与复制到剪贴板共用）
+  const buildTxt = () => {
     const body = messages.map((m) => `[${new Date(m.timestamp).toLocaleString('zh-CN')}] ${m.participantName}:\n${m.content}\n`).join('\n')
     const header = `角色交流记录\n参与者: ${participants.map((p) => p.name).join(', ')}\n导出时间: ${new Date().toLocaleString('zh-CN')}\n${'='.repeat(60)}\n\n`
-    downloadFile(header + body, 'txt', 'text/plain;charset=utf-8')
-    message.success('已导出对话记录（TXT）')
+    return header + body
+  }
+  const handleCopyClipboard = () => {
+    if (messages.length === 0) { message.warning('暂无对话内容'); return }
+    navigator.clipboard.writeText(buildTxt())
+      .then(() => message.success('已复制对话记录到剪贴板'))
+      .catch(() => message.error('复制失败'))
   }
 
   // 自动循环
@@ -232,6 +242,7 @@ export default function RoleChatPage() {
           menu={{ items: [
             { key: 'json', label: '导出为 JSON', onClick: handleExport },
             { key: 'txt', label: '导出为 TXT', onClick: handleExportTxt },
+            { key: 'clipboard', label: '复制到剪贴板', onClick: handleCopyClipboard },
           ] }}
           disabled={messages.length === 0}
         >

@@ -168,7 +168,7 @@ export default function AddParticipantModal({ open, onClose, onAddMany }: Props)
                         onClick={(e) => e.stopPropagation()}
                         options={textNodes.map((n) => ({ label: n.name, value: n.id }))}
                         placeholder="选择节点"
-                        getPopupContainer={(t) => t.parentElement || document.body}
+                        popupMatchSelectWidth={false}
                       />
                     </div>
                   </List.Item>

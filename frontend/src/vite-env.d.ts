@@ -8,6 +8,8 @@ interface ElectronAPI {
   captureScaleBase: () => Promise<number>
   /** 打开原生目录选择对话框；取消返回 null */
   pickDirectory?: () => Promise<string | null>
+  /** 用系统文件管理器打开指定目录；返回 '' 成功，否则为错误串 */
+  openPath?: (dir: string) => Promise<string>
 }
 
 interface Window {

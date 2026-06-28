@@ -63,8 +63,8 @@ describe('持久化 · payload 纯函数', () => {
     ])
     expect(Object.keys(settingsPayload(s)).sort()).toEqual([
       'assetDir', 'cleanNodeOverrides', 'currentBookId', 'enable4KScale', 'imageArchiveDir',
-      'm1AutoRetry', 'm1SystemPrompt', 'm1TestText', 'm1TitleTemplate', 'moduleMapping',
-      'nodeGroupExpanded', 'nodeTestFormPerNode', 'nodeTestGlobalForm', 'providers',
+      'm1AutoRetry', 'm1SystemPrompt', 'm1TestText', 'm1TitleTemplate', 'm2CardGenPromptByType',
+      'moduleMapping', 'nodeGroupExpanded', 'nodeTestFormPerNode', 'nodeTestGlobalForm', 'providers',
       'roleChatAutoConfig', 'scaleBaseWidth', 'showMenuBar', 'splitPatterns', 'systemPromptActiveId',
       'systemPromptPresets', 'theme',
     ])

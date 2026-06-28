@@ -103,4 +103,13 @@ export async function settingsRoutes(app: FastifyInstance) {
     }
     return reply.send({ ok: true })
   })
+
+  // 返回当前生效的实际绝对目录（资产 / 图片 / 数据），供设置页展示与「打开目录」。
+  // 解析规则与 db.ts/imageArchive.ts 一致：设置项优先，留空回退默认 <dataDir>/assets 或 /images。
+  app.get('/api/settings/resolved-paths', async (_req, reply) => {
+    const s = readSettings()
+    const asset = typeof s.assetDir === 'string' && s.assetDir.trim() ? s.assetDir.trim() : join(DATA_DIR, 'assets')
+    const image = typeof s.imageArchiveDir === 'string' && s.imageArchiveDir.trim() ? s.imageArchiveDir.trim() : join(DATA_DIR, 'images')
+    return reply.send({ assetDir: asset, imageDir: image, dataDir: DATA_DIR })
+  })
 }

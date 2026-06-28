@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, screen } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog, screen, shell } from 'electron'
 import { spawn, execSync, ChildProcess } from 'node:child_process'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -552,6 +552,12 @@ app.whenReady().then(async () => {
       const r = await dialog.showOpenDialog(mainWindow, { properties: ['openDirectory'] })
       if (r.canceled || !r.filePaths.length) return null
       return r.filePaths[0]
+    })
+
+    // 注册 IPC：用系统文件管理器打开指定目录（资产/图片目录的「打开目录」）。返回 '' 表示成功，否则错误串。
+    ipcMain.handle('shell:open-path', async (_event, dir: string) => {
+      if (!dir || typeof dir !== 'string') return '路径为空'
+      return shell.openPath(dir)
     })
 
     console.log('[App] Creating main window...')

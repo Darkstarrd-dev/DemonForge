@@ -41,6 +41,7 @@ import type { CardImage, EntityCard, EntityType } from '../../services/types'
 import type { ExtractProgress } from '../../services/api'
 import CardEditorModal from './CardEditorModal'
 import ImageBatchModal from './ImageBatchModal'
+import BatchCardModal from './BatchCardModal'
 
 const TYPE_META: Record<EntityType, { label: string; color: string }> = {
   character: { label: '人物', color: 'blue' },
@@ -75,6 +76,7 @@ export default function M2CardsPage() {
   const [newIds, setNewIds] = useState<string[]>([])
   const [cardEditor, setCardEditor] = useState<{ mode: 'manual' | 'ai' } | null>(null)
   const [batchCardId, setBatchCardId] = useState<string | null>(null)
+  const [batchOpen, setBatchOpen] = useState(false)
   const [extractForm] = Form.useForm<{ bookId: string }>()
   const [editForm] = Form.useForm()
 
@@ -187,6 +189,14 @@ export default function M2CardsPage() {
     message.success(`已新增卡片「${card.name}」`)
   }
 
+  const handleSavedMany = (newCards: EntityCard[]) => {
+    setState({ cards: [...useAppStore.getState().cards, ...newCards] })
+    pushStoreNow()
+    setBatchOpen(false)
+    setNewIds(newCards.map((c) => c.id))
+    message.success(`已批量新增 ${newCards.length} 张卡片`)
+  }
+
   const handleSaveImage = (cardId: string, img: CardImage) => {
     const c = useAppStore.getState().cards.find((x) => x.id === cardId)
     if (!c) return
@@ -255,6 +265,9 @@ export default function M2CardsPage() {
         </Button>
         <Button data-slot="btn-add-ai" icon={<ThunderboltOutlined />} onClick={() => setCardEditor({ mode: 'ai' })}>
           AI 生成
+        </Button>
+        <Button data-slot="btn-add-batch" icon={<ThunderboltOutlined />} onClick={() => setBatchOpen(true)}>
+          批量 AI 生成
         </Button>
       </Space>
       {filtered.length === 0 ? (
@@ -701,6 +714,17 @@ export default function M2CardsPage() {
           defaultBookId={currentBookId || books[0]?.id}
           onClose={() => setCardEditor(null)}
           onSaved={handleCardSaved}
+        />
+      )}
+
+      {batchOpen && (
+        <BatchCardModal
+          books={books}
+          providers={providers}
+          defaultTextNodeId={defaultTextNodeId}
+          defaultBookId=""
+          onClose={() => setBatchOpen(false)}
+          onSavedMany={handleSavedMany}
         />
       )}
 

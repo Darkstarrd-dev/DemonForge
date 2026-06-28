@@ -1,5 +1,6 @@
 import { useRef, useEffect } from 'react'
-import { Avatar, Space, Typography } from 'antd'
+import { App, Avatar, Button, Space, Typography } from 'antd'
+import { CopyOutlined } from '@ant-design/icons'
 import type { RoleChatMessage, RoleChatParticipant } from '../../../services/types'
 
 interface Props {
@@ -19,6 +20,10 @@ function colorFromName(name: string): string {
 
 export default function MessageList({ messages, participants }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null)
+  const { message } = App.useApp()
+
+  const copyContent = (text: string) =>
+    navigator.clipboard.writeText(text).then(() => message.success('已复制')).catch(() => message.error('复制失败'))
 
   // 新消息自动滚动到底部
   useEffect(() => {
@@ -82,6 +87,14 @@ export default function MessageList({ messages, participants }: Props) {
                       second: '2-digit',
                     })}
                   </Typography.Text>
+                  <Button
+                    type="text"
+                    size="small"
+                    icon={<CopyOutlined />}
+                    title="复制本条消息"
+                    onClick={() => copyContent(msg.content)}
+                    style={{ height: 18, width: 18, minWidth: 18, padding: 0, color: '#999' }}
+                  />
                 </Space>
                 <div
                   style={{
