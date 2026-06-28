@@ -1,9 +1,18 @@
 import { theme } from 'antd'
 import type { Player } from '../../game/monopoly/types'
+import { useAppStore } from '../../store/appStore'
 
 interface Props {
   players: Player[]
   currentPlayerId: string
+}
+
+function getAvatarUrl(characterCardId: string | undefined): string | undefined {
+  if (!characterCardId) return
+  const card = useAppStore.getState().cards.find((c) => c.id === characterCardId)
+  if (!card) return
+  const img = card.coverImageId ? card.images?.find((i) => i.id === card.coverImageId) : card.images?.[0]
+  return img?.url
 }
 
 export default function PlayerHUD({ players, currentPlayerId }: Props) {
@@ -22,6 +31,7 @@ export default function PlayerHUD({ players, currentPlayerId }: Props) {
     >
       {players.map((p) => {
         const active = p.id === currentPlayerId
+        const avatarUrl = getAvatarUrl(p.characterCardId)
         return (
           <div
             key={p.id}
@@ -36,24 +46,37 @@ export default function PlayerHUD({ players, currentPlayerId }: Props) {
               opacity: p.bankrupt ? 0.45 : 1,
             }}
           >
-            {/* 角色头像（首字母色块；接真实角色卡后可换为图片） */}
-            <span
-              style={{
-                width: 28,
-                height: 28,
-                borderRadius: '50%',
-                background: p.color,
-                color: '#fff',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontSize: 13,
-                fontWeight: 600,
-                flexShrink: 0,
-              }}
-            >
-              {p.name.slice(0, 1)}
-            </span>
+            {avatarUrl ? (
+              <img
+                src={avatarUrl}
+                alt={p.name}
+                style={{
+                  width: 28,
+                  height: 28,
+                  borderRadius: '50%',
+                  objectFit: 'cover',
+                  flexShrink: 0,
+                }}
+              />
+            ) : (
+              <span
+                style={{
+                  width: 28,
+                  height: 28,
+                  borderRadius: '50%',
+                  background: p.color,
+                  color: '#fff',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: 13,
+                  fontWeight: 600,
+                  flexShrink: 0,
+                }}
+              >
+                {p.name.slice(0, 1)}
+              </span>
+            )}
             <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.2 }}>
               <span style={{ fontWeight: 600, fontSize: 13, color: token.colorText }}>
                 {p.name}

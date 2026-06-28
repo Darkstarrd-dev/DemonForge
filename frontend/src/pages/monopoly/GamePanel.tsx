@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Button, Modal, Segmented, Select, Space, Tag, theme, Typography } from 'antd'
 import type { GameState, Player } from '../../game/monopoly/types'
+import { useAppStore } from '../../store/appStore'
 
 interface Props {
   state: GameState
@@ -31,6 +32,14 @@ export default function GamePanel({
   const [shopTab, setShopTab] = useState<string>('cards')
   const [useCardModal, setUseCardModal] = useState<{ instanceId: string; defName: string } | null>(null)
   const [useItemModal, setUseItemModal] = useState<{ instanceId: string; defName: string; defId: string } | null>(null)
+
+  const getAvatarUrl = (characterCardId: string | undefined) => {
+    if (!characterCardId) return
+    const card = useAppStore.getState().cards.find((c) => c.id === characterCardId)
+    if (!card) return
+    const img = card.coverImageId ? card.images?.find((i) => i.id === card.coverImageId) : card.images?.[0]
+    return img?.url
+  }
 
   const hand = current?.hand ?? []
   const points = current?.points ?? 0
@@ -84,7 +93,14 @@ export default function GamePanel({
             </span>
           ) : (
             <>
-              {current && <span style={{ width: 14, height: 14, borderRadius: '50%', background: current.color }} />}
+              {current && (() => {
+                const avatarUrl = getAvatarUrl(current.characterCardId)
+                return avatarUrl ? (
+                  <img src={avatarUrl} alt="" style={{ width: 18, height: 18, borderRadius: '50%', objectFit: 'cover' }} />
+                ) : (
+                  <span style={{ width: 14, height: 14, borderRadius: '50%', background: current.color }} />
+                )
+              })()}
               <span style={{ fontWeight: 600, fontSize: 16, color: token.colorText }}>{current?.name ?? '-'}</span>
               <span style={{ fontSize: 11, color: token.colorTextSecondary }}>
                 {current?.controller === 'human' ? '玩家' : 'AI'}

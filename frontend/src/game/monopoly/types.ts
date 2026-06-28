@@ -661,6 +661,7 @@ export interface NewGamePlayerSpec {
   controller: ControllerKind
   characterCardId?: string
   aiNodeId?: string
+  aiDifficulty?: 'easy' | 'normal' | 'hard'
 }
 
 export interface NewGameConfig {

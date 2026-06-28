@@ -1,9 +1,12 @@
-import { useEffect, useReducer, useState } from 'react'
-import { Button, Segmented, Typography, theme } from 'antd'
+import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
+import { Button, Segmented, Switch, Tooltip, Typography, theme } from 'antd'
 import { createInitialState, reducer, rollDice, loadMapData, boardDataToBoardConfig } from '../../game/monopoly/engine'
-import { aiNextAction } from '../../game/monopoly/ai'
-import { PRESET_CHARACTERS } from '../../game/monopoly/characters.preset'
-import type { GameState, NewGamePlayerSpec } from '../../game/monopoly/types'
+import { aiNextAction, configureAIController, resetAIController } from '../../game/monopoly/engine/ai'
+import type { NewGamePlayerSpec, GameState } from '../../game/monopoly/types'
+import { mapEntityCardToCharacter } from '../../game/monopoly/engine/character-mapper'
+import { useAppStore } from '../../store/appStore'
+import { streamChat } from '../../services/api'
+import type { ChatMessage } from '../../services/api'
 import Board from './Board'
 import Board3D from './Board3D'
 import PlayerHUD from './PlayerHUD'
@@ -11,23 +14,27 @@ import GamePanel from './GamePanel'
 import DecisionModal from './DecisionModal'
 import NewGameModal from './NewGameModal'
 
-// 默认用前 3 个示例角色（玩家 1 为人类，其余 AI）
-const DEFAULT_PLAYERS: NewGamePlayerSpec[] = PRESET_CHARACTERS.slice(0, 3).map(
-  (c, i): NewGamePlayerSpec => ({
-    name: c.name,
-    color: c.color,
-    controller: i === 0 ? 'human' : 'ai',
-    characterCardId: c.id,
-  }),
-)
+function buildDefaultPlayersFromCards(cards: ReturnType<typeof useAppStore.getState>['cards']): NewGamePlayerSpec[] {
+  const chars = cards.filter((c) => c.type === 'character').map(mapEntityCardToCharacter)
+  return chars.slice(0, 3).map(
+    (c, i): NewGamePlayerSpec => ({
+      name: c.name,
+      color: c.color,
+      controller: i === 0 ? 'human' : 'ai',
+      characterCardId: c.id,
+      aiDifficulty: 'normal',
+    }),
+  )
+}
 
-const AI_DELAY = 800 // AI 每步延迟（ms），便于观察
+const AI_DELAY = 800
 
 function initGame(): GameState {
+  const defaultPlayers = buildDefaultPlayersFromCards(useAppStore.getState().cards)
   const { board } = boardDataToBoardConfig(loadMapData('classic-40').boardData)
   return createInitialState({
     board,
-    players: DEFAULT_PLAYERS,
+    players: defaultPlayers,
     startingCash: 15000,
     mapId: 'classic-40',
   })
@@ -38,8 +45,44 @@ export default function MonopolyPage() {
   const [state, dispatch] = useReducer(reducer, undefined, initGame)
   const [newGameOpen, setNewGameOpen] = useState(false)
   const [view, setView] = useState<'2d' | '3d'>('2d')
+  const [llmEnabled, setLlmEnabled] = useState(false)
+  const lastStateRef = useRef(state)
+  lastStateRef.current = state
 
-  // AI 自动驾驶：当前为 AI 回合时延迟自动执行下一步；轮到 human 则停下等操作。
+  const handleLLMDecide = useCallback(async (messages: ChatMessage[]): Promise<string> => {
+    const providers = useAppStore.getState().providers.filter((n) => n.nodeType === 'text' && n.enabled)
+    if (providers.length === 0) throw new Error('无可用文本节点')
+    const provider = providers[0]
+    return new Promise((resolve, reject) => {
+      let result = ''
+      streamChat(
+        { baseURL: provider.baseURL, apiKey: provider.apiKey, model: provider.model, messages },
+        {
+          delta: (d) => { result += d },
+          done: () => resolve(result),
+          error: (e) => reject(new Error(e)),
+        },
+      )
+    })
+  }, [])
+
+  const getPersona = useCallback((playerId: string): string => {
+    const s = lastStateRef.current
+    const player = s.players.find((p) => p.id === playerId)
+    if (!player?.characterCardId) return '普通玩家'
+    const allCards = useAppStore.getState().cards
+    const card = allCards.find((c) => c.id === player.characterCardId)
+    return card ? `${card.description}${card.styleNote ? `\n语言风格：${card.styleNote}` : ''}` : '普通玩家'
+  }, [])
+
+  useEffect(() => {
+    if (llmEnabled) {
+      configureAIController({ llmFn: handleLLMDecide, getPersona })
+    } else {
+      resetAIController()
+    }
+  }, [llmEnabled, handleLLMDecide, getPersona])
+
   useEffect(() => {
     const action = aiNextAction(state)
     if (!action) return
@@ -77,7 +120,6 @@ export default function MonopolyPage() {
         background: token.colorBgLayout,
       }}
     >
-      {/* 工具栏 */}
       <div
         style={{
           display: 'flex',
@@ -93,6 +135,12 @@ export default function MonopolyPage() {
           🎲 大富翁
         </Typography.Text>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <Tooltip title="AI 玩家使用 LLM 决策（需配置至少一个文本节点）">
+            <label style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer', fontSize: 13, color: token.colorTextSecondary }}>
+              <Switch size="small" checked={llmEnabled} onChange={setLlmEnabled} />
+              LLM 决策
+            </label>
+          </Tooltip>
           <Segmented
             value={view}
             onChange={(v) => setView(v as '2d' | '3d')}
