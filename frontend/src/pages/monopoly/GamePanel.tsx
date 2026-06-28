@@ -27,7 +27,8 @@ export default function GamePanel({
   const { phase, diceResults: dice } = state.turnContext
   const ended = state.status === 'ended'
   const winner = ended ? state.players.find((p) => p.id === state.winnerId) : undefined
-  const inHospital = current ? (current.jailTurns ?? 0) > 0 : false
+  // jailTurns/hospitalTurns 表示住院/监狱剩余回合（共用字段）
+  const isConfined = current ? ((current.jailTurns ?? current.hospitalTurns ?? 0) > 0) : false
   const myTiles = current ? current.ownedTileIds : []
   const [cardShopOpen, setCardShopOpen] = useState(false)
   const [shopTab, setShopTab] = useState<string>('cards')
@@ -127,7 +128,7 @@ export default function GamePanel({
         ) : phase === TurnPhaseV2.ROLL_DICE ? (
           <Space style={{ width: '100%' }}>
             <Button type="primary" block onClick={onRoll}>
-              {inHospital ? '跳过回合' : '掷骰子'}
+              {isConfined ? '跳过回合' : '掷骰子'}
             </Button>
             {hand.length > 0 && (
               <Select

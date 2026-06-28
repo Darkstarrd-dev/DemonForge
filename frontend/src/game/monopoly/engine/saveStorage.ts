@@ -11,28 +11,40 @@ export interface SaveStorage {
   remove(id: string): Promise<void>
 }
 
+type MonopolyElectronAPI = {
+  monopolyListSaves: () => Promise<SaveMeta[]>
+  monopolyGetSave: (id: string) => Promise<SaveGame | null>
+  monopolyPutSave: (save: SaveGame) => Promise<void>
+  monopolyDeleteSave: (id: string) => Promise<void>
+}
+
+function getElectronAPI(): MonopolyElectronAPI | undefined {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- dynamic Electron bridge
+  return (window as any).electronAPI as MonopolyElectronAPI | undefined
+}
+
 class ElectronSaveStorage implements SaveStorage {
   async list(): Promise<SaveMeta[]> {
-    const api = (window as any).electronAPI
-    if (!api?.monopolyListSaves) throw new Error('Electron API 不可用')
+    const api = getElectronAPI()
+    if (!api) throw new Error('Electron API 不可用')
     return api.monopolyListSaves()
   }
 
   async get(id: string): Promise<SaveGame | null> {
-    const api = (window as any).electronAPI
-    if (!api?.monopolyGetSave) throw new Error('Electron API 不可用')
+    const api = getElectronAPI()
+    if (!api) throw new Error('Electron API 不可用')
     return api.monopolyGetSave(id)
   }
 
   async put(save: SaveGame): Promise<void> {
-    const api = (window as any).electronAPI
-    if (!api?.monopolyPutSave) throw new Error('Electron API 不可用')
+    const api = getElectronAPI()
+    if (!api) throw new Error('Electron API 不可用')
     await api.monopolyPutSave(save)
   }
 
   async remove(id: string): Promise<void> {
-    const api = (window as any).electronAPI
-    if (!api?.monopolyDeleteSave) throw new Error('Electron API 不可用')
+    const api = getElectronAPI()
+    if (!api) throw new Error('Electron API 不可用')
     await api.monopolyDeleteSave(id)
   }
 }
@@ -91,7 +103,7 @@ let _instance: SaveStorage | null = null
 
 export function createSaveStorage(): SaveStorage {
   if (_instance) return _instance
-  if (typeof window !== 'undefined' && (window as any).electronAPI?.monopolyListSaves) {
+  if (typeof window !== 'undefined' && getElectronAPI()) {
     _instance = new ElectronSaveStorage()
   } else {
     _instance = new LocalStorageSaveStorage()

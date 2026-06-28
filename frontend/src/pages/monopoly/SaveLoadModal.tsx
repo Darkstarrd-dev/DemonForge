@@ -31,7 +31,8 @@ export default function SaveLoadModal({ open, mode, onClose, state, config, onLo
   }, [])
 
   useEffect(() => {
-    if (open) { refresh(); setSaveName(''); setSelectedId(null) }
+    if (open) { refresh(); // eslint-disable-next-line react-hooks/set-state-in-effect -- reset state on modal open is standard pattern
+      setSaveName(''); setSelectedId(null) }
   }, [open, refresh])
 
   const handleSave = async () => {

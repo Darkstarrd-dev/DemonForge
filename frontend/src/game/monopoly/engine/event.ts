@@ -76,6 +76,8 @@ function applyEventEffectToPlayers(
       case 'ALL_LOSE_CASH': cash = Math.max(0, cash - value); break
       case 'ALL_GAIN_PERCENT': cash = Math.floor(cash * (1 + value)); break
       case 'ALL_LOSE_PERCENT': cash = Math.floor(cash * (1 - value)); break
+      case 'ALL_GAIN_POINTS': return { ...p, points: (p.points ?? 0) + value }
+      case 'SEND_TO_HOSPITAL': return { ...p, jailTurns: value, hospitalTurns: value }
     }
     return { ...p, cash }
   })
@@ -111,15 +113,46 @@ export function handleNewsEvent(state: GameState): GameState {
     return { ...state, players, log }
   }
 
-  if (event.effect.type === 'PROPERTY_PRICE_UP' || event.effect.type === 'PROPERTY_PRICE_DOWN') {
-    if (event.effect.type === 'PROPERTY_PRICE_UP') {
+  if (event.effect.type === 'PROPERTY_PRICE_UP' || event.effect.type === 'PROPERTY_PRICE_DOWN' || event.effect.type === 'PRICE_INDEX_UP' || event.effect.type === 'PRICE_INDEX_DOWN') {
+    if (event.effect.type === 'PROPERTY_PRICE_UP' || event.effect.type === 'PRICE_INDEX_UP') {
       const priceUpGroups: Record<string, number> = {}
+      const duration = (event.effect as { duration?: number }).duration ?? 3
       for (const t of state.board.tiles) {
-        if (t.zoneId) priceUpGroups[t.zoneId] = 3
+        if (t.zoneId) priceUpGroups[t.zoneId] = duration
       }
       return { ...state, board: { ...state.board, priceUpGroups }, players, log }
     }
+    if (event.effect.type === 'PRICE_INDEX_DOWN') {
+      const economy = state.economy ? { ...state.economy, priceIndex: Math.max(1, state.economy.priceIndex - 0.1) } : state.economy
+      return { ...state, board: { ...state.board, priceUpGroups: {} }, players, log, economy }
+    }
     return { ...state, board: { ...state.board, priceUpGroups: {} }, players, log }
+  }
+
+  if (event.effect.type === 'DEPOSIT_RATE_ADJUST') {
+    if (state.economy) {
+      const economy = { ...state.economy, depositInterestRate: state.economy.depositInterestRate + (event.effect.value ?? 0.02) }
+      log.push({ seq: log.length, kind: 'news', text: `存款利率调整为 ${(economy.depositInterestRate * 100).toFixed(1)}%` })
+      return { ...state, players, log, economy }
+    }
+    return { ...state, players, log }
+  }
+
+  if (event.effect.type === 'SHOP_DISCOUNT') {
+    log.push({ seq: log.length, kind: 'news', text: `商店卡片半价活动开始` })
+    return { ...state, players, log }
+  }
+
+  if (event.effect.type === 'SET_VEHICLE') {
+    const duration = event.effect.value ?? 1
+    for (const p of players) {
+      if (!p.bankrupt) {
+        p.skipTurns = (p.skipTurns ?? 0) + duration
+        p.vehicle = 'PEDESTRIAN'
+      }
+    }
+    log.push({ seq: log.length, kind: 'news', text: `交通大罢工，所有玩家步行 ${duration} 天` })
+    return { ...state, players, log }
   }
 
   const targetIds = resolveTarget(event.effect.target, '', state)
@@ -190,6 +223,7 @@ export function handleMagicHouseEvent(state: GameState, playerId: string): GameS
   const log = [...state.log]
   const player = players.find(p => p.id === playerId)
   if (!player) return state
+  const properties = { ...state.board.properties }
   log.push({ seq: log.length, kind: 'magicHouse', text: `🏠 魔法屋：${effect.description}` })
 
   switch (effect.type) {
@@ -236,6 +270,67 @@ export function handleMagicHouseEvent(state: GameState, playerId: string): GameS
     case 'ALL_LOSE_PERCENT': {
       const pct = (effect.params?.value as number) ?? 0.5
       player.cash = Math.floor(player.cash * (1 - pct))
+      return { ...state, players, log, awaitingDecision: undefined }
+    }
+    case 'ALL_GAIN_POINTS': {
+      const pts = (effect.params?.value as number) ?? 50
+      player.points = (player.points ?? 0) + pts
+      log.push({ seq: log.length, kind: 'magicHouse', text: `${player.name} 获得 ${pts} 点数` })
+      return { ...state, players, log, awaitingDecision: undefined }
+    }
+    case 'GOD_POSSESSION': {
+      const random = effect.params?.random as boolean ?? true
+      if (random) {
+        log.push({ seq: log.length, kind: 'magicHouse', text: `${player.name} 被随机神明附身` })
+      }
+      return { ...state, players, log, awaitingDecision: undefined }
+    }
+    case 'RENT_MULTIPLIER': {
+      const mult = (effect.params?.value as number) ?? 2.0
+      player.isCollectingRent = false
+      log.push({ seq: log.length, kind: 'magicHouse', text: `${player.name} 受租金倍增影响（×${mult}）` })
+      return { ...state, players, log, awaitingDecision: undefined }
+    }
+    case 'FREE_UPGRADE': {
+      const ownedProps = Object.entries(state.board.properties)
+        .filter(([, p]) => p.ownerId === player.id && p.level < 4 && !p.mortgaged)
+      if (ownedProps.length > 0) {
+        const [tid, prop] = ownedProps[Math.floor(Math.random() * ownedProps.length)]
+        properties[tid] = { ...prop, level: prop.level + 1 }
+        log.push({ seq: log.length, kind: 'magicHouse', text: `${player.name} 的地产「${state.board.tiles.find(t => t.id === tid)?.name ?? tid}」免费升级` })
+      } else {
+        log.push({ seq: log.length, kind: 'magicHouse', text: `${player.name} 无可升级的地产` })
+      }
+      return { ...state, board: { ...state.board, properties }, players, log, awaitingDecision: undefined }
+    }
+    case 'SEND_TO_HOSPITAL': {
+      const days = (effect.params?.days as number) ?? 2
+      player.jailTurns = days
+      player.hospitalTurns = days
+      log.push({ seq: log.length, kind: 'magicHouse', text: `${player.name} 住院 ${days} 天` })
+      return { ...state, players, log, awaitingDecision: undefined }
+    }
+    case 'CASH_MULTIPLY': {
+      const mult = (effect.params?.value as number) ?? 2.0
+      player.cash = Math.floor(player.cash * mult)
+      log.push({ seq: log.length, kind: 'magicHouse', text: `${player.name} 现金翻倍至 ¥${player.cash}` })
+      return { ...state, players, log, awaitingDecision: undefined }
+    }
+    case 'DOWNGRADE_ALL': {
+      const props = { ...state.board.properties }
+      for (const tid of Object.keys(props)) {
+        const prop = props[tid]
+        if (prop && prop.level > 0) {
+          props[tid] = { ...prop, level: prop.level - 1 }
+        }
+      }
+      log.push({ seq: log.length, kind: 'magicHouse', text: `所有地产降一级` })
+      return { ...state, board: { ...state.board, properties: props }, players, log, awaitingDecision: undefined }
+    }
+    case 'TOLL_FREE': {
+      player.rentAbsorbing = true
+      player.isCollectingRent = false
+      log.push({ seq: log.length, kind: 'magicHouse', text: `${player.name} 下次过路费免单` })
       return { ...state, players, log, awaitingDecision: undefined }
     }
     case 'PROPERTY_PRICE_DOWN': {

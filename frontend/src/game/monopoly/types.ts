@@ -423,9 +423,21 @@ export interface CompanyState {
 export const EventEffectType = {
   ALL_GAIN_CASH: 'ALL_GAIN_CASH', ALL_LOSE_CASH: 'ALL_LOSE_CASH',
   ALL_GAIN_PERCENT: 'ALL_GAIN_PERCENT', ALL_LOSE_PERCENT: 'ALL_LOSE_PERCENT',
+  ALL_GAIN_POINTS: 'ALL_GAIN_POINTS',
   PROPERTY_PRICE_UP: 'PROPERTY_PRICE_UP', PROPERTY_PRICE_DOWN: 'PROPERTY_PRICE_DOWN',
+  PRICE_INDEX_UP: 'PRICE_INDEX_UP', PRICE_INDEX_DOWN: 'PRICE_INDEX_DOWN',
+  DEPOSIT_RATE_ADJUST: 'DEPOSIT_RATE_ADJUST',
+  SHOP_DISCOUNT: 'SHOP_DISCOUNT',
+  SET_VEHICLE: 'SET_VEHICLE',
   RANDOM_PLAYER_GAIN: 'RANDOM_PLAYER_GAIN', RANDOM_PLAYER_LOSE: 'RANDOM_PLAYER_LOSE',
   STOCK_SURGE: 'STOCK_SURGE', STOCK_CRASH: 'STOCK_CRASH',
+  RENT_MULTIPLIER: 'RENT_MULTIPLIER',
+  FREE_UPGRADE: 'FREE_UPGRADE',
+  SEND_TO_HOSPITAL: 'SEND_TO_HOSPITAL',
+  CASH_MULTIPLY: 'CASH_MULTIPLY',
+  DOWNGRADE_ALL: 'DOWNGRADE_ALL',
+  TOLL_FREE: 'TOLL_FREE',
+  GOD_POSSESSION: 'GOD_POSSESSION',
 } as const
 export type EventEffectType = (typeof EventEffectType)[keyof typeof EventEffectType]
 
@@ -439,7 +451,7 @@ export interface NewsEvent {
   id: string
   title: string
   description: string
-  effect: EventEffect
+  effect: EventEffect & { companyFilter?: string; duration?: number }
 }
 
 export interface MagicHouseEffect {
@@ -454,7 +466,7 @@ export interface FateEvent {
   id: string
   title: string
   description: string
-  effect: EventEffect | 'TELEPORT' | 'GIVE_CARD' | 'SEND_TO_JAIL' | 'GOD_POSSESSION'
+  effect: EventEffect | 'TELEPORT' | 'GIVE_CARD' | 'SEND_TO_JAIL' | 'GOD_POSSESSION' | 'SEND_TO_HOSPITAL'
   params: Record<string, unknown>
 }
 

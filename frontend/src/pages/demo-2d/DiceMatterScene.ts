@@ -1,5 +1,6 @@
 import Phaser from 'phaser'
 import { DiceRoller } from '../../game/dice'
+import type { DiceSideValue } from '../../game/dice'
 
 const FRAME_PREFIX = 'dieWhite'
 const FRAME_COUNT = 6
@@ -10,6 +11,7 @@ export default class DiceMatterScene extends Phaser.Scene {
   private roller = new DiceRoller()
   private rolling = false
   private rollResult: { values: number[]; total: number } | null = null
+  private rollHandler?: (presetValues?: number[]) => void
 
   constructor() {
     super({ key: 'DiceMatterScene' })
@@ -27,20 +29,26 @@ export default class DiceMatterScene extends Phaser.Scene {
     this.cameras.main.setBackgroundColor('#1a1a2e')
     const { width, height } = this.scale
 
-    // 地面
     this.matter.add.rectangle(width / 2, height - 20, width - 40, 20, {
       isStatic: true,
       friction: 0.8,
       restitution: 0.3,
     })
 
-    // 左右墙壁
     this.matter.add.rectangle(20, height / 2, 20, height - 40, { isStatic: true, restitution: 0.5 })
     this.matter.add.rectangle(width - 20, height / 2, 20, height - 40, { isStatic: true, restitution: 0.5 })
 
-    this.game.events.on('dice-roll', (presetValues?: number[]) => {
+    this.rollHandler = (presetValues?: number[]) => {
       this.rollDice(presetValues)
-    })
+    }
+    this.game.events.on('dice-roll', this.rollHandler)
+  }
+
+  shutdown() {
+    if (this.rollHandler) {
+      this.game.events.off('dice-roll', this.rollHandler)
+      this.rollHandler = undefined
+    }
   }
 
   private rollDice(presetValues?: number[]) {
@@ -49,7 +57,8 @@ export default class DiceMatterScene extends Phaser.Scene {
     this.rollResult = null
 
     const count = (this.registry.get('diceCount') as number) ?? 2
-    const result = this.roller.roll({ count, sides: 6, presetValues })
+    const sides = (this.registry.get('diceSides') as DiceSideValue) ?? 6
+    const result = this.roller.roll({ count, sides, presetValues })
 
     this.diceBodies.forEach((b) => this.matter.world.remove(b))
     this.diceSprites.forEach((s) => s.destroy())

@@ -2,7 +2,7 @@
 
 **最后更新**：2026-06-29
 **当前位置**：办公场所 A（已提交）
-**本轮主题**：**骰子模块完成 + 大富翁修复结果复核**——独立验证 P0-1~P1-6 全部落地，P2/P3 遗留项转整改清单供低阶模型实施。
+**本轮主题**：**骰子模块 audit-03 整改完成**——D-1~D-9 全部落地，4 个 P0 级缺陷修复 + 参数透传 + 预设输入改造 + Scene 事件清理 + 共享 Rapier 单例 + convexHull 碰撞体 + 静止检测 slerp 校准。
 
 > 📦 **历史明细已归档** → `docs/handoff_history.md`
 > 本文件只保留「恢复工作所需的活内容」：进行中任务、模块清单、下一步、交接参考。
@@ -10,60 +10,46 @@
 
 ---
 
-## 🆕 骰子模块实施完成（2026-06-29，11 步骤全完成）
+## 🆕 骰子模块 audit-03 整改完成（2026-06-29，D-1~D-9 全部落地）
 
-基于 `ref/gamedesign/dice_implementation.md` 的技术调研，结合项目现有技术栈（Phaser 4 + Three.js 0.184 + Rapier3D + Web Crypto），与用户拍板 10 项关键决策后输出 `docs/dice_implementation_plan.md`。
+按 `docs/quality/logs/2026-06-29-audit-03.md` 整改追踪表逐项实施，9 项高/中优级缺陷全部修复。
 
-### 关键决策
-
-| # | 决策项 | 结论 |
+| 编号 | 行动项 | 改动 |
 |---|---|---|
-| 1 | 3D 骰子路线 | 自建（复用 Three.js + Rapier），零新依赖 |
-| 2 | 2D 骰子模式 | Sprite 帧动画 + Matter 刚体双模式可切换 |
-| 3 | 2D 骰子贴图 | 允许下载 yahtzee 资源 + 也支持用户自定义 atlas |
-| 4 | 随机数来源 | 前端 Web Crypto API（不走 Electron IPC / 后端） |
-| 5 | 支持面数 | d6 / d8 / d10 / d12 / d20 五种 |
-| 6 | 模块化位置 | `frontend/src/game/dice/`，纯 TS 类 DiceRoller（零渲染依赖） |
-| 7 | UI 选项 | 骰子数/面数/力度/颜色/物理参数/预设结果/历史记录/动画时长/音效 全量 |
-| 8 | demo-3d 改造 | 下拉菜单含「刚体碰撞演示」+「骰子演示」两项 |
-| 9 | 预设结果 | 必须支持手动指定落点（3D 下"物理滚动→静止→slerp 校准"双阶段） |
-| 10 | 打包 | 自建路线，无关 electron-builder 资源 |
-
-### 实施范围（11 步骤，✅ 全部完成）
-1. ✅ `game/dice/` 模块目录 + `types.ts`
-2. ✅ `DiceRoller.ts` 核心类（Web Crypto 随机数、历史、预设校验）
-3. ✅ `geometry.ts`（五种正多面体几何 + CanvasTexture 面贴图 + DICE_FACE_DEFS 面定义表）
-4. ✅ `faceDetection.ts`（3D 朝上面判定）
-5. ✅ `presets.ts`（预设朝向四元数 + slerp 校准）
-6. ✅ `index.ts` 导出门面
-7. ✅ `__tests__/` 4 个测试文件（35 测试全绿）
-8. ✅ 下载 yahtzee 资源到 `public/dice-assets/yahtzee/`
-9. ✅ demo-2d 改造（`DiceSpriteScene.ts` + `DiceMatterScene.ts` + `Dice2DPanel.tsx`）
-10. ✅ demo-3d 改造（`Dice3DEngine.ts` + `Dice3DPanel.tsx`）
-11. ✅ 全链路验证（lint 无新增错误 + build 成功 + 372 测试全绿）
-
-### 实施细节
-- **核心模块**：`frontend/src/game/dice/` 下 6 个 TS 文件（types/DiceRoller/geometry/faceDetection/presets/index），零渲染依赖，与 monopoly 同风格
-- **d20 面定义**：按 y 分量降序排列，确保 faceValue 1 对应最高朝上面，对面之和=21
-- **d10 几何体**：手写五角双锥 BufferGeometry（12 顶点 + 20 三角形），倾斜角 arctan(1/2)
-- **Three.js 内置几何体**：`IcosahedronGeometry`/`DodecahedronGeometry` 在 0.184 版已是 non-indexed，`toNonIndexed()` 会清空 groups → 用 `ensureNonIndexed` 守卫 + `addFaceGroups` 手动建 groups
-- **2D demo**：帧动画模式（yahtzee atlas，800ms 动画）+ Matter 物理模式（方块掷出，2s 后显示结果）
-- **3D demo**：Rapier ball collider 近似骰子，每帧同步 mesh；`createDice3DEngine` 接受 `RAPIER` 模块级导入（非参数），复用 `ensureRapierReady` 单例
-- **测试**：jsdom 环境，crypto mock 兜底；faceDetection/presets 互相验证闭环
+| D-1 | 删除 d12 贴图特殊分支 | `geometry.ts` 移除 `if (sides===12)` 合并逻辑，d12 走 d8/d10/d20 公共 group 逐面匹配分支；+3 单测（d8/d12 group 数 + materialIndex 顺序） |
+| D-2 | 3D 引擎静止检测 + slerp 校准 | `Dice3DEngine.ts` 重写 `roll()` 为 async：创建刚体后 Promise 等待静止（30 帧 linvel/angvel < 0.1）；静止后 `getUpFace` 读实际朝上面；与 targetValues 不符则逐骰 `correctDiceOrientation` slerp 300ms 校准；校准全部完成后 resolve |
+| D-3 | 3D 引擎 convexHull 碰撞体 | `ColliderDesc.ball(0.5)` → `ColliderDesc.convexHull(positions)`（从 `geo.attributes.position.array` 取 Float32Array）；失败抛错停止上报 |
+| D-4 | 共享 ensureRapierReady 单例 | 新增 `frontend/src/game/physics/rapierInit.ts`；`demo-3d/index.tsx` 与 `Dice3DEngine.ts` 共用同一 init 单例；`createDice3DEngine` 改 async 并开头 `await ensureRapierReady()` |
+| D-5 | dice 场景自动创建引擎 | `demo-3d/index.tsx` useEffect 统一 init：`sceneType==='dice'` 时调 `startDiceEngine()`（从页面 state 读 count/sides/theme/physics 创建引擎）；不再空白 |
+| D-6 | 2D/3D 面板参数透传 | 状态提升到页面级：demo-3d 拥有 `diceCount/diceSides/diceTheme/dicePhysics` state → 传给 Dice3DPanel（受控）→ 传给 createDice3DEngine；demo-2d 拥有 `diceCount/diceSides` → 传给 Dice2DPanel + 写入 Phaser registry；2D Scene 读 `registry.get('diceSides')` 替代硬编码 `sides:6`；2D 面板 sides Select 对非 d6 显示「暂不支持 2D」并 disable |
+| D-7 | 预设输入框改为 Input | Dice2DPanel/Dice3DPanel `InputNumber` → `Input`；校验 `preset.split(',')` 解析逗号分隔值，count 与 sides 范围检查 |
+| D-8 | Dice3DParams 使用 DiceSideValue | `Dice3DEngine.ts` interface `sides: number` → `sides: DiceSideValue`；去掉 `as never` |
+| D-9 | 2D Scene shutdown 事件清理 | DiceSpriteScene/DiceMatterScene 新增 `rollHandler` 引用 + `shutdown()` 方法注销 `game.events.off('dice-roll', handler)` |
 
 ### 验证状态
-- **tsc**：0 错误（dice/demo 文件）
-- **lint**：0 新增错误（7 个预存：PromptEditorButton/saveStorage/SaveLoadModal）
-- **vite build**：成功，dice chunk 5.33 kB
-- **vitest**：372/372 绿（35 个新增 dice 测试）
 
-### 实施后审计（2026-06-29）
-已按 `docs/dice_implementation_plan.md` 逐项审计并产出报告：
-→ `docs/quality/logs/2026-06-29-audit-03.md`
+- **tsc**：0 error
+- **vite build**：成功，dice chunk 5.76 kB
+- **vitest**：**375/375 绿**（+3 新增 d8/d12/materialIndex 测试）
+- **eslint**：1 预存错误（PromptEditorButton set-state-in-effect，非本轮引入，非 dice 相关）
 
-**结论**：核心模块（`game/dice/`）符合设计，但 demo 集成层存在 **4 个 P0 级缺陷**：3D 引擎未做静止检测/slerp 校准、3D 使用 ball 碰撞体（设计为 convexHull）、d12 面贴图映射错误、2D/3D 面板参数未透传到 Scene/Engine。报告含逐条文件:行号、Before/After 代码、整改追踪表，可直接交给低阶模型实施。
+### Dice3DPanel 新增 UI 控件
 
-计划文档：`docs/dice_implementation_plan.md`
+- 骰子数量 Slider（1-6）
+- 面数 Select（d6/d8/d10/d12/d20）
+- 预设结果 Input（逗号分隔）
+- 外观 Collapse 面板（底色/点色/边色 Input）
+- 物理参数 Collapse 面板（摩擦力/弹性/投掷力/旋转力 Slider）
+
+### 待端到端实测
+
+1. demo-3d 选「骰子演示」→ 自动渲染 3D 场景（不再空白）
+2. 切换面数（d6→d20）→ 点复位 → 3D 骰子几何体变化
+3. 预设输入「3,5」→ 投掷 → 骰子滚动→静止→slerp 校准后朝上面为 3 和 5
+4. demo-2d 骰子数量 Slider 改变 → registry 写入 → Scene 读 diceCount 生效
+5. convexHull 碰撞体物理行为真实性（非球体滚动）
+
+计划文档：`docs/dice_implementation_plan.md`；审计报告：`docs/quality/logs/2026-06-29-audit-03.md`
 
 ---
 

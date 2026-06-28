@@ -4,8 +4,10 @@ import { ReloadOutlined } from '@ant-design/icons'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import RAPIER from '@dimforge/rapier3d-compat'
+import { ensureRapierReady } from '../../game/physics/rapierInit'
 import { createDice3DEngine } from './Dice3DEngine'
 import Dice3DPanel from './Dice3DPanel'
+import type { DiceSideValue, DiceThemeColors, DicePhysicsParams } from '../../game/dice'
 
 function randomQuaternion() {
   const u1 = Math.random()
@@ -18,32 +20,32 @@ function randomQuaternion() {
 
 const COLORS = [0xe94560, 0x533483, 0x4ac0c0, 0xf5a623, 0x7bed9f, 0xff6b81, 0x70a1ff]
 
-// 全局 init 单例：RAPIER.init() 只允许调用一次，多处复用同一个 promise
-let initPromise: Promise<typeof RAPIER> | null = null
-function ensureRapierReady(): Promise<typeof RAPIER> {
-  if (!initPromise) initPromise = RAPIER.init().then(() => RAPIER)
-  return initPromise
-}
+type DiceEngineHandle = { stop: () => void; roll: (presetValues?: number[]) => Promise<number[]> }
 
 export default function Demo3DPage() {
   const { message } = App.useApp()
   const containerRef = useRef<HTMLDivElement>(null)
-  const engineRef = useRef<{ stop: () => void } | null>(null)
+  const engineRef = useRef<DiceEngineHandle | { stop: () => void } | null>(null)
   const [sceneType, setSceneType] = useState<'rigid' | 'dice'>('rigid')
   const [diceResult, setDiceResult] = useState<{ values: number[]; total: number } | null>(null)
   const [diceRolling, setDiceRolling] = useState(false)
 
-  /**
-   * 启动一次 Three.js + Rapier3D 引擎。
-   * 前置条件：调用方需保证 Rapier 已 init（见 ensureRapierReady）。
-   * 任何 WASM 异常都会在 animate 循环内被捕获并立即 stop，避免循环在损坏的堆上继续运行。
-   */
+  const [diceCount, setDiceCount] = useState(2)
+  const [diceSides, setDiceSides] = useState<DiceSideValue>(6)
+  const [diceTheme, setDiceTheme] = useState<DiceThemeColors>({ face: '#FFFFFF', pip: '#000000', edge: '#333333' })
+  const [dicePhysics, setDicePhysics] = useState<DicePhysicsParams>({
+    friction: 0.6,
+    restitution: 0.5,
+    gravity: 9.81,
+    throwForce: 15,
+    spinForce: 10,
+  })
+
   const startEngine = () => {
     const el = containerRef.current
     if (!el) return
     el.innerHTML = ''
 
-    // stopped 标志：一旦为 true，animate 不再排下一帧、stop 也变幂等
     let stopped = false
     let animId = 0
 
@@ -142,11 +144,6 @@ export default function Demo3DPage() {
     }
 
     let frameCount = 0
-    /**
-     * 单帧主循环。
-     * 关键：先 step + 同步 mesh（包在 try/catch 内），全部成功后再排下一帧。
-     * 这样任一帧 WASM 异常 → 立即 stop → 不会预先排入下一帧 → 不再产生异常循环。
-     */
     const animate = () => {
       if (stopped) return
 
@@ -173,21 +170,14 @@ export default function Demo3DPage() {
         controls.update()
         renderer.render(scene, camera)
       } catch (err) {
-        // WASM 堆一旦损坏（aliasing / memory access out of bounds），
-        // 后续任何 step 都会持续 panic。立即停止循环，绝不在损坏的堆上继续。
         console.error('[Demo3D] 物理引擎帧异常，已停止循环:', err)
         stopInternal(true)
         return
       }
 
-      // 本帧全部成功后才排下一帧
       if (!stopped) animId = requestAnimationFrame(animate)
     }
 
-    /**
-     * 内部停止实现。fromError=true 表示由异常触发，需额外提示用户。
-     * stop() 与 animate 的 catch 都走这里，幂等。
-     */
     const stopInternal = (fromError: boolean) => {
       if (stopped) return
       stopped = true
@@ -201,12 +191,7 @@ export default function Demo3DPage() {
         c.mesh.geometry.dispose()
         ;(c.mesh.material as THREE.MeshStandardMaterial).dispose()
       }
-      // world.free() 在堆损坏时自身也可能抛，吞掉避免污染调用方
-      try {
-        world.free()
-      } catch {
-        /* 堆已损坏，free 失败忽略 */
-      }
+      try { world.free() } catch { /* 堆损坏忽略 */ }
       if (renderer.domElement.parentNode === el) {
         el.removeChild(renderer.domElement)
       }
@@ -218,9 +203,7 @@ export default function Demo3DPage() {
       }
     }
 
-    // stop 是 stopInternal 的对外稳定句柄
     const stop = () => stopInternal(false)
-    // 让 animate 的 catch 能引用到 stop（函数提升顺序问题，提前赋值）
     void stop
 
     const onResize = () => {
@@ -239,13 +222,34 @@ export default function Demo3DPage() {
     animate()
   }
 
+  const startDiceEngine = async () => {
+    const el = containerRef.current
+    if (!el) return
+    try {
+      const engine = await createDice3DEngine(el, {
+        count: diceCount,
+        sides: diceSides,
+        theme: diceTheme,
+        physics: dicePhysics,
+      })
+      engineRef.current = engine
+    } catch (err) {
+      console.error('[Demo3D] 骰子引擎创建失败:', err)
+      message.error('骰子引擎创建失败')
+    }
+  }
+
   useEffect(() => {
     let cancelled = false
     const init = async () => {
       try {
         await ensureRapierReady()
         if (cancelled) return
-        if (sceneType === 'rigid') startEngine()
+        if (sceneType === 'rigid') {
+          startEngine()
+        } else {
+          startDiceEngine()
+        }
       } catch (err) {
         console.error('[Demo3D] Rapier 初始化失败:', err)
         if (!cancelled) message.error('3D 物理引擎初始化失败')
@@ -271,21 +275,21 @@ export default function Demo3DPage() {
     if (sceneType === 'rigid') {
       startEngine()
     } else {
-      const el = containerRef.current
-      if (!el) return
-      const engine = createDice3DEngine(el, { count: 2, sides: 6 })
-      engineRef.current = engine
+      startDiceEngine()
     }
   }
 
   const handleDiceRoll = useCallback(async (presetValues?: number[]) => {
+    const diceEngine = engineRef.current as DiceEngineHandle | null
+    if (!diceEngine?.roll) return
     setDiceRolling(true)
     setDiceResult(null)
-    const diceEngine = engineRef.current as unknown as { roll: (presetValues?: number[]) => Promise<number[]> } | null | undefined
-    if (diceEngine?.roll) {
+    try {
       const values = await diceEngine.roll(presetValues)
       const total = values.reduce((a, b) => a + b, 0)
       setDiceResult({ values, total })
+    } catch (err) {
+      console.error('[Demo3D] 骰子投掷失败:', err)
     }
     setDiceRolling(false)
   }, [])
@@ -321,6 +325,14 @@ export default function Demo3DPage() {
           />
           {sceneType === 'dice' && (
             <Dice3DPanel
+              count={diceCount}
+              sides={diceSides}
+              theme={diceTheme}
+              physics={dicePhysics}
+              onCountChange={setDiceCount}
+              onSidesChange={(v) => setDiceSides(v as DiceSideValue)}
+              onThemeChange={setDiceTheme}
+              onPhysicsChange={setDicePhysics}
               onRoll={handleDiceRoll}
               rolling={diceRolling}
               lastResult={diceResult ?? undefined}

@@ -5,7 +5,8 @@ import { SpaceType, TurnPhaseV2 } from '../types'
 
 const GO_SALARY = 2000
 const HOSPITAL_TURNS = 2
-const MAX_LEVEL = 4
+const MAX_NORMAL_LEVEL = 4
+const MAX_SKYSCRAPER_LEVEL = 5
 
 function currentIndex(state: GameState): number {
   return state.players.findIndex((p) => p.id === state.turnContext.currentPlayerId)
@@ -62,12 +63,13 @@ export function handleRoll(state: GameState, dice: number[]): GameState {
   const pushLog = (kind: string, text: string) => log.push({ seq: log.length, kind, text })
   const player = players[currentIndex(state)]
 
-  // 住院跳过
-  if ((player.jailTurns ?? player.jailTurns ?? 0) > 0) {
-    const remainingJT = (player.jailTurns ?? player.jailTurns ?? 0) - 1
-    player.jailTurns = remainingJT
+  // 住院跳过（jailTurns 表示住院/监狱剩余回合）
+  const jailRemaining = player.jailTurns ?? player.hospitalTurns ?? 0
+  if (jailRemaining > 0) {
+    player.jailTurns = jailRemaining - 1
+    player.hospitalTurns = jailRemaining - 1
     
-    pushLog('jailSkip', `${player.name} 住院休养，跳过本回合（剩 ${remainingJT} 回合）`)
+    pushLog('jailSkip', `${player.name} 住院休养，跳过本回合（剩 ${jailRemaining - 1} 回合）`)
     return {
       ...state, players, log,
       turnContext: { ...state.turnContext, phase: TurnPhaseV2.TURN_END },
@@ -118,7 +120,7 @@ export function handleRoll(state: GameState, dice: number[]): GameState {
 
   if (tile.type === SpaceType.HOSPITAL) {
     player.jailTurns = HOSPITAL_TURNS
-    player.jailTurns = HOSPITAL_TURNS
+    player.hospitalTurns = HOSPITAL_TURNS
     pushLog('hospital', `${player.name} 受伤住院，将休养 ${HOSPITAL_TURNS} 回合`)
   } else if (tile.type === SpaceType.ATTACK_SPACE) {
     const damage = tile.damage ?? 500
@@ -151,7 +153,7 @@ export function handleRoll(state: GameState, dice: number[]): GameState {
         pushLog('land', `${player.name} 停在「${tile.name}」，资金不足无法购买`)
       }
     } else if (prop.ownerId === player.id) {
-      if (prop.level < MAX_LEVEL) {
+      if (prop.level < MAX_NORMAL_LEVEL) {
         const cost = tile.upgradeCost ?? 0
         if (player.cash >= cost) {
           decision = {
@@ -263,7 +265,7 @@ export function handleResolveDecision(state: GameState, optionId: string): GameS
     if (player && optionId === 'upgrade') {
       player.cash -= cost
       state.board.properties[tileId] = { ...state.board.properties[tileId], level: nextLevel }
-      const label = nextLevel >= MAX_LEVEL ? '地标' : `${nextLevel} 级`
+        const label = nextLevel >= MAX_SKYSCRAPER_LEVEL ? '地标' : `${nextLevel} 级`
       log.push({ seq: log.length, kind: 'upgrade', text: `${player.name} 将「${tileName}」升级为 ${label}` })
     } else if (player) {
       log.push({ seq: log.length, kind: 'skip', text: `${player.name} 暂不升级「${tileName}」` })

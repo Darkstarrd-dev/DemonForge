@@ -307,27 +307,7 @@ export function applyFaceTextures(
     return materials
   }
 
-  if (sides === 12) {
-    // d12: 每个五边形面拆为 3 个三角形（3 个 group），合并为 1 个 group 后匹配
-    const mergedGroups: { start: number; count: number; faceValue: number }[] = []
-    for (let gi = 0; gi < groups.length; gi += 3) {
-      const start = groups[gi].start!
-      const count = groups[gi].count! + groups[gi + 1].count! + groups[gi + 2].count!
-      // 用第一个三角形的法向量匹配
-      const faceValue = matchFaceNormal(posAttr, start, faceDefMap)
-      mergedGroups.push({ start, count, faceValue })
-    }
-    // 重写 geometry groups
-    geometry.clearGroups()
-    const materials: THREE.Material[] = []
-    for (let i = 0; i < mergedGroups.length; i++) {
-      const g = mergedGroups[i]
-      geometry.addGroup(g.start, g.count, i)
-      const tex = textures.get(g.faceValue)
-      materials.push(new THREE.MeshStandardMaterial({ map: tex }))
-    }
-    return materials
-  }
+
 
   // d8/d10/d20: 每个 group 对应一个面，直接匹配
   const materials: THREE.Material[] = []

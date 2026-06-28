@@ -99,4 +99,23 @@ describe('createDiceGeometry', () => {
   it('不支持的面数抛错', () => {
     expect(() => createDiceGeometry(4, 1)).toThrow(/不支持/)
   })
+
+  it('d8 → 8 个 group', () => {
+    const geo = createDiceGeometry(8, 1)
+    expect(geo.groups).toHaveLength(8)
+  })
+
+  it('d12 → 12 个 group', () => {
+    const geo = createDiceGeometry(12, 1)
+    expect(geo.groups).toHaveLength(12)
+  })
+
+  it('d8 d10 d12 d20 各 group materialIndex 顺序排列', () => {
+    for (const sides of [8, 10, 12, 20] as const) {
+      const geo = createDiceGeometry(sides, 1)
+      for (let i = 0; i < geo.groups.length; i++) {
+        expect(geo.groups[i].materialIndex).toBe(i)
+      }
+    }
+  })
 })

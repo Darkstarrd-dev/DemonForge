@@ -1,31 +1,57 @@
 import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import RAPIER from '@dimforge/rapier3d-compat'
+import { ensureRapierReady } from '../../game/physics/rapierInit'
 import {
   DiceRoller,
   createDiceGeometry,
   createDiceFaceTextures,
   applyFaceTextures,
   DICE_FACE_DEFS,
+  getUpFace,
+  getTargetQuaternion,
+  correctDiceOrientation,
 } from '../../game/dice'
-import type { DiceThemeColors } from '../../game/dice'
+import type { DiceSideValue, DiceThemeColors, DicePhysicsParams } from '../../game/dice'
 
 const DEFAULT_THEME: DiceThemeColors = { face: '#FFFFFF', pip: '#000000', edge: '#333333' }
+const DEFAULT_PHYSICS: DicePhysicsParams = {
+  friction: 0.6,
+  restitution: 0.5,
+  gravity: 9.81,
+  throwForce: 15,
+  spinForce: 10,
+}
 
 interface Dice3DParams {
   count: number
-  sides: number
+  sides: DiceSideValue
+  theme?: DiceThemeColors
+  physics?: DicePhysicsParams
 }
 
-export function createDice3DEngine(
+export async function createDice3DEngine(
   container: HTMLElement,
   params: Dice3DParams,
 ) {
+  await ensureRapierReady()
+
   let stopped = false
   let animId = 0
   const roller = new DiceRoller()
   const meshes: THREE.Mesh[] = []
   const bodies: RAPIER.RigidBody[] = []
+  const colliders: RAPIER.Collider[] = []
+  let pendingRoll: {
+    targetValues: number[]
+    resolve: (values: number[]) => void
+  } | null = null
+  let settlingFrames = 0
+  const SETTLING_THRESHOLD = 30
+  const SETTLE_VELOCITY = 0.1
+
+  const theme = params.theme ?? DEFAULT_THEME
+  const physics = params.physics ?? DEFAULT_PHYSICS
 
   const width = container.clientWidth
   const height = container.clientHeight
@@ -56,7 +82,6 @@ export function createDice3DEngine(
   dirLight.shadow.mapSize.set(1024, 1024)
   scene.add(dirLight)
 
-  // 地面
   const floorGeo = new THREE.PlaneGeometry(20, 20)
   const floorMat = new THREE.MeshStandardMaterial({ color: 0x2a2a4e, roughness: 0.8 })
   const floor = new THREE.Mesh(floorGeo, floorMat)
@@ -64,13 +89,16 @@ export function createDice3DEngine(
   floor.receiveShadow = true
   scene.add(floor)
 
-  // Rapier 世界
-  const world = new RAPIER.World({ x: 0, y: -9.81, z: 0 })
+  const world = new RAPIER.World({ x: 0, y: -physics.gravity, z: 0 })
   const floorBody = world.createRigidBody(RAPIER.RigidBodyDesc.fixed())
-  world.createCollider(RAPIER.ColliderDesc.cuboid(10, 0.1, 10), floorBody)
+  world.createCollider(
+    RAPIER.ColliderDesc.cuboid(10, 0.1, 10)
+      .setRestitution(physics.restitution)
+      .setFriction(physics.friction),
+    floorBody,
+  )
 
-  // 纹理缓存
-  const textures = createDiceFaceTextures(params.sides, DEFAULT_THEME)
+  const textures = createDiceFaceTextures(params.sides, theme)
 
   const animate = () => {
     if (stopped) return
@@ -84,6 +112,23 @@ export function createDice3DEngine(
       }
       controls.update()
       renderer.render(scene, camera)
+
+      if (pendingRoll) {
+        const allSettled = bodies.every((b) => {
+          const lv = b.linvel()
+          const av = b.angvel()
+          return Math.hypot(lv.x, lv.y, lv.z) < SETTLE_VELOCITY
+            && Math.hypot(av.x, av.y, av.z) < SETTLE_VELOCITY
+        })
+        if (allSettled) {
+          settlingFrames++
+        } else {
+          settlingFrames = 0
+        }
+        if (settlingFrames >= SETTLING_THRESHOLD) {
+          finishRoll()
+        }
+      }
     } catch {
       stopped = true
       return
@@ -92,10 +137,35 @@ export function createDice3DEngine(
   }
   animId = requestAnimationFrame(animate)
 
-  const roll = async (presetValues?: number[]): Promise<number[]> => {
-    const result = roller.roll({ count: params.count, sides: params.sides as never, presetValues })
+  const finishRoll = () => {
+    if (!pendingRoll) return
+    const { targetValues, resolve } = pendingRoll
 
-    // 清理旧骰子
+    const actualValues = meshes.map((mesh) => getUpFace(mesh.quaternion, params.sides))
+    const needsCorrection = targetValues.some((tv, i) => tv !== actualValues[i])
+
+    if (needsCorrection) {
+      let correctionsRemaining = 0
+      for (let i = 0; i < meshes.length; i++) {
+        if (targetValues[i] !== actualValues[i]) {
+          correctionsRemaining++
+          const targetQ = getTargetQuaternion(params.sides, targetValues[i])
+          correctDiceOrientation(meshes[i], targetQ, 300, () => {
+            correctionsRemaining--
+            if (correctionsRemaining === 0) {
+              resolve(targetValues)
+            }
+          })
+        }
+      }
+    } else {
+      resolve(actualValues)
+    }
+    pendingRoll = null
+    settlingFrames = 0
+  }
+
+  const clearDice = () => {
     for (const mesh of meshes) {
       scene.remove(mesh)
       mesh.geometry.dispose()
@@ -105,13 +175,20 @@ export function createDice3DEngine(
         ;(mesh.material as THREE.Material).dispose()
       }
     }
-    for (const body of bodies) {
-      world.removeRigidBody(body)
-    }
+    for (const collider of colliders) world.removeCollider(collider, true)
+    for (const body of bodies) world.removeRigidBody(body)
     meshes.length = 0
     bodies.length = 0
+    colliders.length = 0
+  }
 
-    // 创建新骰子
+  const roll = async (presetValues?: number[]): Promise<number[]> => {
+    clearDice()
+
+    const targetValues = presetValues
+      ? presetValues.slice()
+      : roller.roll({ count: params.count, sides: params.sides }).values
+
     const spacing = Math.min(2, 8 / Math.max(params.count, 1))
     const startX = -(params.count - 1) * spacing / 2
 
@@ -136,27 +213,42 @@ export function createDice3DEngine(
       const bodyDesc = RAPIER.RigidBodyDesc.dynamic()
         .setTranslation(mesh.position.x, mesh.position.y, mesh.position.z)
       const body = world.createRigidBody(bodyDesc)
-      const collider = RAPIER.ColliderDesc.ball(0.5)
-        .setRestitution(0.5)
-        .setFriction(0.6)
-      world.createCollider(collider, body)
+
+      const positions = geo.attributes.position.array as Float32Array
+      const colliderDesc = RAPIER.ColliderDesc.convexHull(positions)
+      if (!colliderDesc) {
+        clearDice()
+        stopped = true
+        throw new Error(`无法为 d${params.sides} 构造凸包碰撞体`)
+      }
+      colliderDesc.setRestitution(physics.restitution)
+      colliderDesc.setFriction(physics.friction)
+      const collider = world.createCollider(colliderDesc, body)
+      colliders.push(collider)
+
+      const throwF = physics.throwForce
+      const spinF = physics.spinForce
       body.applyImpulse(
-        { x: (Math.random() - 0.5) * 3, y: -2 - Math.random() * 3, z: (Math.random() - 0.5) * 3 },
+        { x: (Math.random() - 0.5) * throwF * 0.2, y: -throwF * 0.13, z: (Math.random() - 0.5) * throwF * 0.2 },
         true,
       )
       body.applyTorqueImpulse(
-        { x: (Math.random() - 0.5) * 10, y: (Math.random() - 0.5) * 10, z: (Math.random() - 0.5) * 10 },
+        { x: (Math.random() - 0.5) * spinF, y: (Math.random() - 0.5) * spinF, z: (Math.random() - 0.5) * spinF },
         true,
       )
       bodies.push(body)
     }
 
-    return result.values
+    return new Promise<number[]>((resolve) => {
+      pendingRoll = { targetValues, resolve }
+      settlingFrames = 0
+    })
   }
 
   const stop = () => {
     stopped = true
     cancelAnimationFrame(animId)
+    pendingRoll = null
     for (const mesh of meshes) {
       mesh.geometry.dispose()
       if (Array.isArray(mesh.material)) {
@@ -165,8 +257,9 @@ export function createDice3DEngine(
         ;(mesh.material as THREE.Material).dispose()
       }
     }
+    for (const collider of colliders) world.removeCollider(collider, true)
     for (const body of bodies) world.removeRigidBody(body)
-    world.free()
+    try { world.free() } catch { /* WASM 堆损坏忽略 */ }
     renderer.dispose()
     controls.dispose()
     if (renderer.domElement.parentNode) {

@@ -1,14 +1,16 @@
 import Phaser from 'phaser'
 import { DiceRoller } from '../../game/dice'
+import type { DiceSideValue } from '../../game/dice'
 
 const FRAME_PREFIX = 'dieWhite'
 const FRAME_COUNT = 6
-const ANIM_DURATION = 800 // ms
+const ANIM_DURATION = 800
 
 export default class DiceSpriteScene extends Phaser.Scene {
   private sprites: Phaser.GameObjects.Sprite[] = []
   private roller = new DiceRoller()
   private rolling = false
+  private rollHandler?: (presetValues?: number[]) => void
 
   constructor() {
     super({ key: 'DiceSpriteScene' })
@@ -25,9 +27,17 @@ export default class DiceSpriteScene extends Phaser.Scene {
   create() {
     this.cameras.main.setBackgroundColor('#1a1a2e')
 
-    this.game.events.on('dice-roll', (presetValues?: number[]) => {
+    this.rollHandler = (presetValues?: number[]) => {
       this.rollDice(presetValues)
-    })
+    }
+    this.game.events.on('dice-roll', this.rollHandler)
+  }
+
+  shutdown() {
+    if (this.rollHandler) {
+      this.game.events.off('dice-roll', this.rollHandler)
+      this.rollHandler = undefined
+    }
   }
 
   private rollDice(presetValues?: number[]) {
@@ -35,7 +45,8 @@ export default class DiceSpriteScene extends Phaser.Scene {
     this.rolling = true
 
     const count = (this.registry.get('diceCount') as number) ?? 2
-    const result = this.roller.roll({ count, sides: 6, presetValues })
+    const sides = (this.registry.get('diceSides') as DiceSideValue) ?? 6
+    const result = this.roller.roll({ count, sides, presetValues })
 
     this.sprites.forEach((s) => s.destroy())
     this.sprites = []

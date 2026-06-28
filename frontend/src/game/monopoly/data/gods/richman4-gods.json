@@ -6,7 +6,7 @@
   { "id": "god-04", "name": "小财神", "alignment": "GOOD", "durationDays": 7, "canDismiss": true, "transformTo": "god-05", "effects": [{"type":"CASH_GAIN","value":200,"target":"SELF"}] },
   { "id": "god-05", "name": "大财神", "alignment": "GOOD", "durationDays": 7, "canDismiss": true, "effects": [{"type":"RENT_BOOST","value":2.0,"target":"SELF"},{"type":"CASH_GAIN","value":1000,"target":"SELF"}] },
   { "id": "god-06", "name": "穷神", "alignment": "BAD", "durationDays": 7, "canDismiss": true, "effects": [{"type":"CASH_LOSE","value":500,"target":"SELF"}] },
-  { "id": "god-07", "name": "衰神", "alignment": "BAD", "durationDays": 7, "canDismiss": true, "effects": [{"type":"RENT_BOOST","value":2.0,"target":"SELF"}] },
+  { "id": "god-07", "name": "衰神", "alignment": "BAD", "durationDays": 7, "canDismiss": true, "effects": [{"type":"RENT_REDUCE","value":0.5,"target":"SELF","note":"收取的租金减少至50%"}] },
   { "id": "god-08", "name": "捣蛋鬼", "alignment": "BAD", "durationDays": 7, "canDismiss": true, "effects": [{"type":"CARD_DRAW","value":-1,"target":"SELF"}] },
   { "id": "god-09", "name": "瞌睡虫", "alignment": "BAD", "durationDays": 7, "canDismiss": true, "effects": [{"type":"MOVE_BOOST","value":-2,"target":"SELF"}] },
   { "id": "god-10", "name": "霉神", "alignment": "BAD", "durationDays": 7, "canDismiss": true, "effects": [{"type":"RENT_REDUCE","value":0.5,"target":"SELF","note":"收取的租金减少至50%"}] },

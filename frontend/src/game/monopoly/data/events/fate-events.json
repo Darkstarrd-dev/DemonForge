@@ -2,13 +2,13 @@
   { "id": "fate-00", "title": "意外之财", "description": "获得 ¥500", "effect": { "type": "ALL_GAIN_CASH", "value": 500, "target": "ALL" }, "params": {} },
   { "id": "fate-01", "title": "交通罚单", "description": "罚款 ¥300", "effect": { "type": "ALL_LOSE_CASH", "value": 300, "target": "ALL" }, "params": {} },
   { "id": "fate-02", "title": "地皮升值", "description": "你的一处地产升值", "effect": { "type": "PROPERTY_PRICE_UP", "value": 0.2, "target": "ALL" }, "params": {} },
-  { "id": "fate-03", "title": "免费机票", "description": "传送到任意位置", "effect": "TELEPORT", "params": {} },
-  { "id": "fate-04", "title": "赠送卡片", "description": "获得一张免费卡", "effect": "GIVE_CARD", "params": {} },
+  { "id": "fate-03", "title": "免费机票", "description": "传送到任意位置", "effect": "TELEPORT", "params": { "mode": "select" } },
+  { "id": "fate-04", "title": "赠送卡片", "description": "获得一张免费卡", "effect": "GIVE_CARD", "params": { "random": true } },
   { "id": "fate-05", "title": "法院传票", "description": "入狱 3 天", "effect": "SEND_TO_JAIL", "params": { "days": 3 } },
-  { "id": "fate-06", "title": "神明显灵", "description": "一位神明附身", "effect": "GOD_POSSESSION", "params": {} },
+  { "id": "fate-06", "title": "神明显灵", "description": "一位神明附身", "effect": "GOD_POSSESSION", "params": { "random": true } },
   { "id": "fate-07", "title": "奖金", "description": "获得 ¥800", "effect": { "type": "ALL_GAIN_CASH", "value": 800, "target": "ALL" }, "params": {} },
   { "id": "fate-08", "title": "滞纳金", "description": "罚款 ¥500", "effect": { "type": "ALL_LOSE_CASH", "value": 500, "target": "ALL" }, "params": {} },
   { "id": "fate-09", "title": "点石成金", "description": "现金变成 1.5 倍", "effect": { "type": "ALL_GAIN_PERCENT", "value": 0.5, "target": "ALL" }, "params": {} },
   { "id": "fate-10", "title": "小偷光顾", "description": "损失 20% 现金", "effect": { "type": "ALL_LOSE_PERCENT", "value": 0.2, "target": "ALL" }, "params": {} },
-  { "id": "fate-11", "title": "礼物", "description": "获得一张卡片", "effect": "GIVE_CARD", "params": {} }
+  { "id": "fate-11", "title": "礼物", "description": "获得一张卡片", "effect": "GIVE_CARD", "params": { "random": true } }
 ]

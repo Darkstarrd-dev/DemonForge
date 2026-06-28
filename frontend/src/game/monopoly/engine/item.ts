@@ -4,8 +4,14 @@ import { ItemEffectType } from '../types'
 import itemsData from '../data/items/richman4-items.json'
 
 const ITEM_HAND_LIMIT = 5
-const TARGET_TILE_ITEMS = ['item-02', 'item-03', 'item-04', 'item-05', 'item-07', 'item-08', 'item-09', 'item-11']
-const TARGET_PLAYER_ITEMS = ['item-12']
+const TILE_TARGET_EFFECTS: ItemEffectType[] = [
+  ItemEffectType.LAUNCH_MISSILE, ItemEffectType.SET_TRAP,
+  ItemEffectType.ROADBLOCK, ItemEffectType.NUCLEAR_BOMB,
+  ItemEffectType.REMOVE_DEBRIS, ItemEffectType.TELEPORT,
+]
+const PLAYER_TARGET_EFFECTS: ItemEffectType[] = [
+  ItemEffectType.STEAL_CARD, ItemEffectType.STEAL,
+]
 
 function shuffle<T>(arr: T[]): T[] {
   const a = [...arr]
@@ -247,7 +253,7 @@ export function handleUseItem(state: GameState, action: Action & { type: 'USE_IT
   if (!def) return state
 
   // If target already provided (or self-use item), apply directly
-  const isSelfUse = !TARGET_TILE_ITEMS.includes(def.id) && !TARGET_PLAYER_ITEMS.includes(def.id)
+  const isSelfUse = !TILE_TARGET_EFFECTS.includes(def.effectType ?? ItemEffectType.SET_TRAP) && !PLAYER_TARGET_EFFECTS.includes(def.effectType ?? ItemEffectType.STEAL)
   if (isSelfUse || action.targetTileId !== undefined || action.targetId !== undefined) {
     return applyItemEffect(state, def, playerIdx, itemIdx, action.targetTileId, action.targetId)
   }
@@ -279,7 +285,7 @@ export function handleUseItem(state: GameState, action: Action & { type: 'USE_IT
 // ─── Build Item Choice Decision ───
 
 export function buildItemChoiceDecision(def: ItemDefinition, playerId: string, state: GameState): DecisionRequest | undefined {
-  if (TARGET_PLAYER_ITEMS.includes(def.id)) {
+  if (PLAYER_TARGET_EFFECTS.includes(def.effectType ?? ItemEffectType.STEAL)) {
     const opponents = state.players.filter(p => p.id !== playerId && !p.bankrupt)
     if (opponents.length === 0) return undefined
     return {
@@ -288,7 +294,7 @@ export function buildItemChoiceDecision(def: ItemDefinition, playerId: string, s
       context: { cardEffect: 'ITEM_TARGET_PLAYER', cardName: def.name, itemDefId: def.id },
     }
   }
-  if (def.id === 'item-08') {
+  if (def.effectType === ItemEffectType.TELEPORT) {
     const playerPos = state.players.find(p => p.id === playerId)?.position
     return {
       playerId, kind: 'useCardChoice',
