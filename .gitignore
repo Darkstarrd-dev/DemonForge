@@ -14,3 +14,7 @@ release/
 server/dist/
 frontend/dist/
 server/src/data/
+
+# 本地 / 工具配置，不纳入版本管理
+.claude/settings.local.json
+/AGENTS.md
