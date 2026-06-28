@@ -8,7 +8,7 @@ import type { Action, GameState, NewGameConfig, Player, PropertyState } from './
 import { handleRoll, handleResolveDecision, handleEndTurn } from './engine/turn'
 import { handleBoardAction } from './engine/board'
 import { handleBankrupt } from './engine/player'
-import { handleCardAction } from './engine/card'
+import { handleCardAction, createCardDeck, resolveCardReaction, resolveCardChoice } from './engine/card'
 import { handleItemAction } from './engine/item'
 import { handleEventAction } from './engine/event'
 import { handleBankAction, handleStockAction, createInitialEconomy } from './engine/economy'
@@ -28,6 +28,9 @@ export function createInitialState(config: NewGameConfig): GameState {
     characterCardId: spec.characterCardId,
     controller: spec.controller,
     aiNodeId: spec.aiNodeId,
+    hand: [],
+    points: 0,
+    items: [],
   }))
 
   const properties: Record<number, PropertyState> = {}
@@ -48,6 +51,7 @@ export function createInitialState(config: NewGameConfig): GameState {
     status: 'playing',
     day: 1,
     economy: createInitialEconomy(players.length, config.startingCash),
+    cardDeck: createCardDeck(),
   }
 }
 
@@ -62,6 +66,10 @@ export function reducer(state: GameState, action: Action): GameState {
     case 'ROLL_DICE':
       return handleRoll(state, action.dice)
     case 'RESOLVE_DECISION':
+      if (state.awaitingDecision?.kind === 'cardReaction')
+        return resolveCardReaction(state, action.optionId)
+      if (state.awaitingDecision?.kind === 'useCardChoice')
+        return resolveCardChoice(state, action.optionId)
       return handleResolveDecision(state, action.optionId)
     case 'MORTGAGE_PROPERTY':
     case 'REDEEM_PROPERTY':
@@ -69,6 +77,7 @@ export function reducer(state: GameState, action: Action): GameState {
     case 'DECLARE_BANKRUPT':
       return handleBankrupt(state)
     case 'USE_CARD':
+      return handleCardAction(state, action)
     case 'BUY_CARD':
       return handleCardAction(state, action)
     case 'USE_ITEM':
@@ -82,6 +91,8 @@ export function reducer(state: GameState, action: Action): GameState {
     case 'BUY_STOCK':
     case 'SELL_STOCK':
       return handleStockAction(state, action)
+    case 'BUY_CARD':
+      return handleCardAction(state, action)
     case 'TRIGGER_EVENT':
     case 'MINI_GAME_RESULT':
       return handleEventAction(state, action)
@@ -93,6 +104,7 @@ export function reducer(state: GameState, action: Action): GameState {
 }
 
 export { handleMortgage, handleRedeem } from './engine/board'
+export { createCardDeck, findCardDef, giveCardToPlayer, refreshShop, resolveCardReaction, resolveCardChoice } from './engine/card'
 export { aiDecide, aiNextAction } from './engine/ai'
 export { liquidate, calcTotalAssets } from './engine/player'
 export { calcPriceIndex, calcRent, updatePriceIndex, handleDividend, handleDeposit, handleWithdraw, handleLoan, handleRepay, handleBuyStock, handleSellStock, createInitialEconomy, fluctuateStockPrices } from './engine/economy'

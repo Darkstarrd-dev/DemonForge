@@ -54,6 +54,9 @@ export default function MonopolyPage() {
   const onDecide = (optionId: string) => dispatch({ type: 'RESOLVE_DECISION', optionId })
   const onMortgage = (tileId: number) => dispatch({ type: 'MORTGAGE_PROPERTY', tileId })
   const onRedeem = (tileId: number) => dispatch({ type: 'REDEEM_PROPERTY', tileId })
+  const onUseCard = (cardInstanceId: string, targetId?: string, targetTileId?: number) =>
+    dispatch({ type: 'USE_CARD', cardInstanceId, targetId, targetTileId } as const)
+  const onBuyCard = (cardDefId: string) => dispatch({ type: 'BUY_CARD', cardDefId })
   const onStartNewGame = (players: NewGamePlayerSpec[], mapId: string) => {
     const { board } = boardDataToBoardConfig(loadMapData(mapId).boardData)
     dispatch({
@@ -130,6 +133,8 @@ export default function MonopolyPage() {
           onEndTurn={onEndTurn}
           onMortgage={onMortgage}
           onRedeem={onRedeem}
+          onUseCard={onUseCard}
+          onBuyCard={onBuyCard}
         />
       </div>
 

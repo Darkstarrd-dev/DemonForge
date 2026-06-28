@@ -535,7 +535,7 @@ export interface SaveGame {
 
 export type DecisionKind =
   | 'buyProperty' | 'upgradeProperty' | 'payOrMortgage' | 'jailChoice' | 'trade'
-  | 'useCard' | 'useItem' | 'bankOperation' | 'stockTrade' | 'choosePath'
+  | 'useCard' | 'useCardChoice' | 'useItem' | 'bankOperation' | 'stockTrade' | 'choosePath'
   | 'cardReaction'
   | 'lotteryBet' | 'teleportTarget' | 'magicHouseEffect'
 
@@ -570,8 +570,8 @@ export type Action =
   | { type: 'DECLINE_BUILD' }
   | { type: 'MORTGAGE_PROPERTY'; tileId: number }
   | { type: 'REDEEM_PROPERTY'; tileId: number }
-  | { type: 'USE_CARD'; cardInstanceId: string; targetId?: string; targetTileId?: string }
-  | { type: 'USE_ITEM'; itemInstanceId: string; targetTileId?: string }
+  | { type: 'USE_CARD'; cardInstanceId: string; targetId?: string; targetTileId?: number }
+  | { type: 'USE_ITEM'; itemInstanceId: string; targetTileId?: number }
   | { type: 'BUY_CARD'; cardDefId: string }
   | { type: 'BUY_ITEM'; itemDefId: string }
   | { type: 'BANK_DEPOSIT'; amount: number }
@@ -608,7 +608,7 @@ export interface GameEvent {
   data?: Record<string, unknown>
 }
 
-/** P0-P6 blockout 游戏状态（旧系统），M2 起扩展 economy/day 字段 */
+/** P0-P6 blockout 游戏状态（旧系统），M2 起扩展 economy/day 字段，M3 起扩展 cardDeck */
 export interface GameState {
   board: BoardConfig
   mapId: string
@@ -622,6 +622,9 @@ export interface GameState {
   winnerId?: string
   day?: number
   economy?: EconomyState
+  cardDeck?: CardDeckState
+  priceUpGroups?: Record<string, number>
+  sealedGroups?: Record<string, number>
 }
 
 export interface NewGamePlayerSpec {

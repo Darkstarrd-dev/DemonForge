@@ -30,6 +30,12 @@ export function handleRoll(state: GameState, dice: [number, number]): GameState 
     return { ...state, players, log, turn: { ...state.turn, phase: 'END_TURN' } }
   }
 
+  if ((player.skipTurns ?? 0) > 0) {
+    player.skipTurns = (player.skipTurns ?? 0) - 1
+    pushLog('skipTurn', `${player.name} 被停赛，跳过本回合（剩 ${player.skipTurns} 回合）`)
+    return { ...state, players, log, turn: { ...state.turn, phase: 'END_TURN' } }
+  }
+
   const sum = dice[0] + dice[1]
   const size = state.board.size
   const from = player.position
@@ -175,8 +181,29 @@ export function handleEndTurn(state: GameState): GameState {
     next = (next + 1) % n
     guard += 1
   }
+
+  // Decrement sealed/priceUp group durations
+  let sealedGroups = state.sealedGroups
+  if (sealedGroups) {
+    const nextSealed: Record<string, number> = {}
+    for (const [gid, days] of Object.entries(sealedGroups)) {
+      if (days > 1) nextSealed[gid] = days - 1
+    }
+    sealedGroups = Object.keys(nextSealed).length > 0 ? nextSealed : undefined
+  }
+  let priceUpGroups = state.priceUpGroups
+  if (priceUpGroups) {
+    const nextUp: Record<string, number> = {}
+    for (const [gid, days] of Object.entries(priceUpGroups)) {
+      if (days > 1) nextUp[gid] = days - 1
+    }
+    priceUpGroups = Object.keys(nextUp).length > 0 ? nextUp : undefined
+  }
+
   return {
     ...state,
     turn: { currentPlayerId: players[next].id, phase: 'ROLL', doublesCount: 0, dice: undefined },
+    sealedGroups,
+    priceUpGroups,
   }
 }
