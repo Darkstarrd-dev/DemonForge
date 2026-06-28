@@ -57,11 +57,17 @@
 - **vite build**：成功，dice chunk 5.33 kB
 - **vitest**：372/372 绿（35 个新增 dice 测试）
 
+### 实施后审计（2026-06-29）
+已按 `docs/dice_implementation_plan.md` 逐项审计并产出报告：
+→ `docs/quality/logs/2026-06-29-audit-03.md`
+
+**结论**：核心模块（`game/dice/`）符合设计，但 demo 集成层存在 **4 个 P0 级缺陷**：3D 引擎未做静止检测/slerp 校准、3D 使用 ball 碰撞体（设计为 convexHull）、d12 面贴图映射错误、2D/3D 面板参数未透传到 Scene/Engine。报告含逐条文件:行号、Before/After 代码、整改追踪表，可直接交给低阶模型实施。
+
 计划文档：`docs/dice_implementation_plan.md`
 
 ---
 
-## 🆕 大富翁整改结果复审（2026-06-29，已完成 P0-1~P1-6，待提交）
+## 🆕 大富翁 P0/P1 修复结果复核（2026-06-29，待提交）
 
 对声称已完成的 Phase 0–4 整改进行独立复核后，**按复审报告 §5 P0 阻塞级 + P1 高优级全量修复**。
 
@@ -92,15 +98,15 @@
 - **vitest**：**372/372 绿**（monopoly 282 + dice 35 + 其他 55）
 - **eslint**：monopoly 文件仅存 6 预存错误（saveStorage.ts `any`×5 + SaveLoadModal.tsx `set-state-in-effect`×1，非本轮引入）
 
-### 复审报告（含逐项证据 + 任务清单）：
-→ `docs/quality/logs/2026-06-29-monopoly-implementation-reaudit.md`
+### 审核文档（含逐项符合性矩阵 + 整改任务清单 + 新发现质量问题）：
+→ `docs/quality/logs/2026-06-29-monopoly-implementation-verification.md`
 
-### 待后续（P2 中优级 + P3 低优级，本轮未动）
-- P2-2 数据文件语义修正（新闻/命运/魔法屋 type 与枚举同步）
-- P2-4 清理 Tile 兼容字段
-- P2-5 收敛 engine.ts 导出
-- P2-7 补充 monopoly 单测到 337 条
-- P3-* 等低优项
+### 待后续（参见审核文档 §5 执行 P2/P3 修复 + Q-* 新发现项）
+共 17 项待修复，低阶模型按审核文档逐项实施：
+- P2-2 数据文件语义修正 & P2-4 Tile 兼容字段清理 & P2-5 engine.ts 导出收敛
+- P2-6 lint 清零 & P2-7 单测 ≥337 & P2-8 存档迁移增强
+- P3-1～P3-3 热斗模式/DecisionModal preview/变量名语义
+- Q-1～Q-6 turn.ts 重复逻辑 / 建筑等级上限 / 道具硬编码 ID / 经济系统估值 / 董事长特权 / 反制链耦合
 
 ---
 
