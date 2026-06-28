@@ -611,6 +611,8 @@ export interface GameEvent {
 /** P0-P6 blockout 游戏状态（旧系统） */
 export interface GameState {
   board: BoardConfig
+  mapId: string
+  mapName: string
   players: Player[]
   properties: Record<number, PropertyState>
   turn: TurnState
@@ -632,6 +634,7 @@ export interface NewGameConfig {
   board: BoardConfig
   players: NewGamePlayerSpec[]
   startingCash: number
+  mapId?: string
 }
 
 // ════════════════════════════════════════════

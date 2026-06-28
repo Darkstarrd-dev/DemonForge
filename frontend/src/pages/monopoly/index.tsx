@@ -1,8 +1,7 @@
 import { useEffect, useReducer, useState } from 'react'
 import { Button, Segmented, Typography, theme } from 'antd'
-import { createInitialState, reducer, rollDice } from '../../game/monopoly/engine'
+import { createInitialState, reducer, rollDice, loadMapData, boardDataToBoardConfig } from '../../game/monopoly/engine'
 import { aiNextAction } from '../../game/monopoly/ai'
-import { createDefaultBoard } from '../../game/monopoly/board.preset'
 import { PRESET_CHARACTERS } from '../../game/monopoly/characters.preset'
 import type { GameState, NewGamePlayerSpec } from '../../game/monopoly/types'
 import Board from './Board'
@@ -25,10 +24,12 @@ const DEFAULT_PLAYERS: NewGamePlayerSpec[] = PRESET_CHARACTERS.slice(0, 3).map(
 const AI_DELAY = 800 // AI 每步延迟（ms），便于观察
 
 function initGame(): GameState {
+  const { board } = boardDataToBoardConfig(loadMapData('classic-40').boardData)
   return createInitialState({
-    board: createDefaultBoard(),
+    board,
     players: DEFAULT_PLAYERS,
     startingCash: 15000,
+    mapId: 'classic-40',
   })
 }
 
@@ -53,10 +54,11 @@ export default function MonopolyPage() {
   const onDecide = (optionId: string) => dispatch({ type: 'RESOLVE_DECISION', optionId })
   const onMortgage = (tileId: number) => dispatch({ type: 'MORTGAGE_PROPERTY', tileId })
   const onRedeem = (tileId: number) => dispatch({ type: 'REDEEM_PROPERTY', tileId })
-  const onStartNewGame = (players: NewGamePlayerSpec[]) => {
+  const onStartNewGame = (players: NewGamePlayerSpec[], mapId: string) => {
+    const { board } = boardDataToBoardConfig(loadMapData(mapId).boardData)
     dispatch({
       type: 'NEW_GAME',
-      config: { board: createDefaultBoard(), players, startingCash: 15000 },
+      config: { board, players, startingCash: 15000, mapId },
     })
   }
 

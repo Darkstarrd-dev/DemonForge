@@ -11,6 +11,7 @@ function makeConfig(overrides?: Partial<NewGameConfig>): NewGameConfig {
       { name: '玩家B', color: '#3498DB', controller: 'ai' },
     ],
     startingCash: 15000,
+    mapId: 'classic-40',
     ...overrides,
   }
 }
@@ -44,6 +45,12 @@ describe('createInitialState', () => {
     const state = createInitialState(makeConfig())
     expect(state.turn.currentPlayerId).toBe(state.players[0].id)
     expect(state.turn.phase).toBe('ROLL')
+  })
+
+  it('游戏状态含 mapId 和 mapName', () => {
+    const state = createInitialState(makeConfig())
+    expect(state.mapId).toBe('classic-40')
+    expect(state.mapName).toBe('经典 40 格')
   })
 
   it('JSON 序列化不丢失数据', () => {

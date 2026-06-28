@@ -1,15 +1,18 @@
 import { useState } from 'react'
-import { Modal, Segmented, Select, Space, Typography } from 'antd'
+import { Modal, Segmented, Select, Space, Typography, Radio } from 'antd'
 import type { NewGamePlayerSpec } from '../../game/monopoly/types'
 import { PRESET_CHARACTERS } from '../../game/monopoly/characters.preset'
+import { getMapList } from '../../game/monopoly/engine/loader'
 
 type Slot = { charId: string; controller: 'human' | 'ai' }
 
 interface Props {
   open: boolean
   onClose: () => void
-  onStart: (specs: NewGamePlayerSpec[]) => void
+  onStart: (specs: NewGamePlayerSpec[], mapId: string) => void
 }
+
+const MAPS = getMapList()
 
 function defaultSlots(): Slot[] {
   return PRESET_CHARACTERS.slice(0, 4).map((c, i) => ({
@@ -21,6 +24,7 @@ function defaultSlots(): Slot[] {
 export default function NewGameModal({ open, onClose, onStart }: Props) {
   const [count, setCount] = useState(3)
   const [slots, setSlots] = useState<Slot[]>(defaultSlots)
+  const [mapId, setMapId] = useState('classic-40')
 
   const setSlot = (i: number, patch: Partial<Slot>) =>
     setSlots((prev) => prev.map((s, idx) => (idx === i ? { ...s, ...patch } : s)))
@@ -30,7 +34,7 @@ export default function NewGameModal({ open, onClose, onStart }: Props) {
       const c = PRESET_CHARACTERS.find((ch) => ch.id === s.charId) ?? PRESET_CHARACTERS[0]
       return { name: c.name, color: c.color, controller: s.controller, characterCardId: c.id }
     })
-    onStart(specs)
+    onStart(specs, mapId)
     onClose()
   }
 
@@ -45,6 +49,17 @@ export default function NewGameModal({ open, onClose, onStart }: Props) {
             options={[2, 3, 4].map((n) => ({ label: `${n} 人`, value: n }))}
           />
         </Space>
+
+        <div>
+          <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 6 }}>选择地图</Typography.Text>
+          <Radio.Group value={mapId} onChange={(e) => setMapId(e.target.value)}>
+            {MAPS.map((m) => (
+              <Radio key={m.id} value={m.id} style={{ display: 'block', marginBottom: 4 }}>
+                {m.name}
+              </Radio>
+            ))}
+          </Radio.Group>
+        </div>
 
         {slots.slice(0, count).map((s, i) => (
           <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>

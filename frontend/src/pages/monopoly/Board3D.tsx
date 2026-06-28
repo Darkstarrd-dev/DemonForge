@@ -7,11 +7,10 @@ import type { GameState } from '../../game/monopoly/types'
 // 棋盘格沿 tile.coord 环形铺开；棋子随 player.position 平滑移动；地产升起业主色柱（高随等级）。
 
 const CELL = 2 // 单格世界尺寸
-const SIDE = 11
-const CENTER = (SIDE + 1) / 2
 
-function tileToWorld(coord: { row: number; col: number }): [number, number] {
-  return [(coord.col - CENTER) * CELL, (coord.row - CENTER) * CELL]
+function tileToWorld(coord: { row: number; col: number }, side: number): [number, number] {
+  const center = (side + 1) / 2
+  return [(coord.col - center) * CELL, (coord.row - center) * CELL]
 }
 
 function hexToInt(hex: string): number {
@@ -61,10 +60,17 @@ export default function Board3D({ state }: { state: GameState }) {
 
     const board = stateRef.current.board
 
+    // 计算 grid 边长（从 tile coord 取最大值）
+    let side = 11
+    for (const t of board.tiles) {
+      if (t.coord.row > side) side = t.coord.row
+      if (t.coord.col > side) side = t.coord.col
+    }
+
     // 棋盘格（静态）+ 地产柱（动态，存 ref）
     const propPillars = new Map<number, THREE.Mesh>()
     for (const tile of board.tiles) {
-      const [x, z] = tileToWorld(tile.coord)
+      const [x, z] = tileToWorld(tile.coord, side)
       const isProp = tile.type === 'property'
       const baseColor = isProp && tile.color ? hexToInt(tile.color) : 0x3a3a55
       const plate = new THREE.Mesh(
@@ -106,7 +112,7 @@ export default function Board3D({ state }: { state: GameState }) {
       st.players.forEach((p, i) => {
         const pawn = pawns.get(p.id)
         if (!pawn) return
-        const [tx, tz] = tileToWorld(st.board.tiles[p.position].coord)
+        const [tx, tz] = tileToWorld(st.board.tiles[p.position].coord, side)
         const ox = (i % 2) * 0.6 - 0.3
         const oz = Math.floor(i / 2) * 0.6 - 0.3
         pawn.position.x += (tx + ox - pawn.position.x) * 0.15

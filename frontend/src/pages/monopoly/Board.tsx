@@ -2,10 +2,18 @@ import { theme } from 'antd'
 import type { GameState, Player } from '../../game/monopoly/types'
 import TileCell from './Tile'
 
-const SIDE = 11 // 与 board.preset 的 grid 边长一致
+function gridSide(tiles: GameState['board']['tiles']): number {
+  let max = 0
+  for (const t of tiles) {
+    if (t.coord.row > max) max = t.coord.row
+    if (t.coord.col > max) max = t.coord.col
+  }
+  return max
+}
 
 export default function Board({ state }: { state: GameState }) {
   const { token } = theme.useToken()
+  const side = gridSide(state.board.tiles)
 
   // index -> 停在此格的玩家
   const occupantsByTile = new Map<number, Player[]>()
@@ -21,8 +29,8 @@ export default function Board({ state }: { state: GameState }) {
     <div
       style={{
         display: 'grid',
-        gridTemplateColumns: `repeat(${SIDE}, 1fr)`,
-        gridTemplateRows: `repeat(${SIDE}, 1fr)`,
+        gridTemplateColumns: `repeat(${side}, 1fr)`,
+        gridTemplateRows: `repeat(${side}, 1fr)`,
         gap: 4,
         width: 'min(82vh, 100%)',
         maxWidth: '100%',
@@ -43,11 +51,11 @@ export default function Board({ state }: { state: GameState }) {
         )
       })}
 
-      {/* 中间信息区（跨内圈 2..SIDE-1） */}
+      {/* 中间信息区（跨内圈 2..side） */}
       <div
         style={{
-          gridColumn: `2 / ${SIDE}`,
-          gridRow: `2 / ${SIDE}`,
+          gridColumn: `2 / ${side}`,
+          gridRow: `2 / ${side}`,
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'center',
@@ -58,7 +66,7 @@ export default function Board({ state }: { state: GameState }) {
         <div style={{ fontSize: 28, fontWeight: 700, letterSpacing: 4, color: token.colorText }}>
           大富翁
         </div>
-        <div style={{ fontSize: 13, color: token.colorTextSecondary }}>2D Blockout · P0 地基</div>
+        <div style={{ fontSize: 13, color: token.colorTextSecondary }}>{state.mapName}</div>
       </div>
     </div>
   )

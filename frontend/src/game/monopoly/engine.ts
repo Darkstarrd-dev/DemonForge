@@ -11,8 +11,10 @@ import { handleBankrupt } from './engine/player'
 import { handleCardAction } from './engine/card'
 import { handleItemAction } from './engine/item'
 import { handleEventAction } from './engine/event'
+import { getMapName } from './engine/loader'
 
 export function createInitialState(config: NewGameConfig): GameState {
+  const mapId = config.mapId ?? 'classic-40'
   const players: Player[] = config.players.map((spec, i) => ({
     id: `p${i + 1}`,
     name: spec.name,
@@ -36,6 +38,8 @@ export function createInitialState(config: NewGameConfig): GameState {
 
   return {
     board: config.board,
+    mapId,
+    mapName: getMapName(mapId),
     players,
     properties,
     turn: { currentPlayerId: players[0].id, phase: 'ROLL', doublesCount: 0 },
@@ -82,4 +86,4 @@ export { aiDecide, aiNextAction } from './engine/ai'
 export { liquidate, calcTotalAssets } from './engine/player'
 export { calcPriceIndex, calcRent } from './engine/economy'
 export { validateMapData, validateMapConnectivity } from './engine/validator'
-export { loadMapData, loadAllMaps, getMapIds } from './engine/loader'
+export { loadMapData, loadAllMaps, getMapIds, getMapName, getMapList, boardDataToBoardConfig } from './engine/loader'
