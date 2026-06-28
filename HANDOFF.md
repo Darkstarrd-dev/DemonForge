@@ -2,7 +2,7 @@
 
 **最后更新**：2026-06-28
 **当前位置**：办公场所 A
-**本轮主题**：**大富翁 M0 重构地基**——按 `docs/monopoly_full_plan.md` §7 M0 里程碑实施。types.ts 全量扩展（§3 全部 40+ 接口/枚举）+ engine.ts 拆 14 子系统（board/player/turn/economy/card/item/god/event/company/ai/ai-strategies/ai-llm/validator/loader/serializer）+ 内容数据目录 12 JSON 文件（双地图/30 卡片/13 道具/13 神明/12 角色/7 公司/20 新闻/15 魔法屋/命运/小游戏/三版本配置）+ 29 新增单测。前序：大富翁模块全量规划文档（docs/monopoly_full_plan.md + docs/monopoly_module_guide.md，已由上一轮完成但尚未提交）
+**本轮主题**：**大富翁 M2 经济系统**——按 `docs/monopoly_full_plan.md` §7 M2 里程碑实施。物价指数双模式 + 银行存贷 + 股票 + 分红 + 董事长 + 7 公司企业。types.ts 全量扩展（§3 全部 40+ 接口/枚举）+ engine.ts 拆 14 子系统（board/player/turn/economy/card/item/god/event/company/ai/ai-strategies/ai-llm/validator/loader/serializer）+ 内容数据目录 12 JSON 文件（双地图/30 卡片/13 道具/13 神明/12 角色/7 公司/20 新闻/15 魔法屋/命运/小游戏/三版本配置）+ 29 新增单测。前序：大富翁模块全量规划文档（docs/monopoly_full_plan.md + docs/monopoly_module_guide.md，已由上一轮完成但尚未提交）
 
 > 📦 **历史明细已归档** → `docs/handoff_history.md`
 > 本文件只保留「恢复工作所需的活内容」：进行中任务、模块清单、下一步、交接参考。
@@ -267,6 +267,8 @@
 - [x] **M1 文本导入合并到书库概览**（新建/清理双模式）
 - [x] **大富翁模块全量规划文档**（`docs/monopoly_full_plan.md` + `docs/monopoly_module_guide.md`，数据驱动层全量落地计划）
 - [x] **大富翁 M0 重构地基**（types.ts 全量扩展 + engine.ts 拆 14 子系统 + 双地图 JSON + 数据目录 12 JSON 文件 + 29 单测）
+- [x] **大富翁 M1 地图数据双地图**（双地图 JSON + 桥接函数 + 地图选择器 UI + 渲染层自适应 + 5 单测，89 绿）
+- [x] **大富翁 M2 经济系统**（物价指数双模式 + 银行存贷 + 股票交易 + 第 15 日分红 + 董事长机制 + 7 公司企业落点/持股红利 + reducer 路由 + 33 单测，122 绿）
 
 ### 🔧 近期修复（2026-06-27）
 
@@ -296,8 +298,8 @@
 
 > 完整逐项验证清单见归档 §「下一步任务」。以下为优先级摘要：
 
-1. **大富翁 M1 端到端实测**：新游戏选「台湾地图」→ 36 格/10×10 → 掷骰/购买/升级/抵押/破产 → 切经典回归 40 格。
-2. **大富翁 M2 经济系统**：物价指数双模式 + 银行存贷 + 股票 + 公司企业（按 `docs/monopoly_full_plan.md` §7）。
+1. **大富翁端到端实测 M0→M2**：开新局 → 掷骰买地 → 存取款 → 买卖股票 → 第 15 日分红 → 落地公司格获持股红利 → 切换台湾地图回归 40 格。
+2. **大富翁 M3 卡片系统**：30 种卡片定义 + 效果执行 + 反制链 + 商店库存 + 点数系统 + 手牌上限 15（按 `docs/monopoly_full_plan.md` §7）。
 3. **验证提示词归一化端到端**（各模块 PromptEditorButton 打开→加载默认→编辑→保存→实际生效；M1 优先级链本次>持久化>设置页>后端；M2 按类型分支 `m2-card-single:character` 等正确区分）。
 4. **验证文生图三协议**（设置页协议选择器三选项；节点测试右侧面板按协议切换字段；文生图 + 图生图 + Debug Info b64 剥离）。
 5. **验证节点测试各模块**（气泡功能 / 对话记录 / Debug Info / System Instructions / 对比模式 / GPT 10 项增强）。

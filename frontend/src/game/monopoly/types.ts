@@ -608,7 +608,7 @@ export interface GameEvent {
   data?: Record<string, unknown>
 }
 
-/** P0-P6 blockout 游戏状态（旧系统） */
+/** P0-P6 blockout 游戏状态（旧系统），M2 起扩展 economy/day 字段 */
 export interface GameState {
   board: BoardConfig
   mapId: string
@@ -620,6 +620,8 @@ export interface GameState {
   log: GameEvent[]
   status: GameStatusStr
   winnerId?: string
+  day?: number
+  economy?: EconomyState
 }
 
 export interface NewGamePlayerSpec {

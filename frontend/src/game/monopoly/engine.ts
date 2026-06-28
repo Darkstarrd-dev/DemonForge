@@ -11,6 +11,7 @@ import { handleBankrupt } from './engine/player'
 import { handleCardAction } from './engine/card'
 import { handleItemAction } from './engine/item'
 import { handleEventAction } from './engine/event'
+import { handleBankAction, handleStockAction, createInitialEconomy } from './engine/economy'
 import { getMapName } from './engine/loader'
 
 export function createInitialState(config: NewGameConfig): GameState {
@@ -45,6 +46,8 @@ export function createInitialState(config: NewGameConfig): GameState {
     turn: { currentPlayerId: players[0].id, phase: 'ROLL', doublesCount: 0 },
     log: [{ seq: 0, kind: 'gameStart', text: '游戏开始' }],
     status: 'playing',
+    day: 1,
+    economy: createInitialEconomy(players.length, config.startingCash),
   }
 }
 
@@ -71,6 +74,14 @@ export function reducer(state: GameState, action: Action): GameState {
     case 'USE_ITEM':
     case 'BUY_ITEM':
       return handleItemAction(state, action)
+    case 'BANK_DEPOSIT':
+    case 'BANK_WITHDRAW':
+    case 'BANK_LOAN':
+    case 'BANK_REPAY':
+      return handleBankAction(state, action)
+    case 'BUY_STOCK':
+    case 'SELL_STOCK':
+      return handleStockAction(state, action)
     case 'TRIGGER_EVENT':
     case 'MINI_GAME_RESULT':
       return handleEventAction(state, action)
@@ -84,6 +95,7 @@ export function reducer(state: GameState, action: Action): GameState {
 export { handleMortgage, handleRedeem } from './engine/board'
 export { aiDecide, aiNextAction } from './engine/ai'
 export { liquidate, calcTotalAssets } from './engine/player'
-export { calcPriceIndex, calcRent } from './engine/economy'
+export { calcPriceIndex, calcRent, updatePriceIndex, handleDividend, handleDeposit, handleWithdraw, handleLoan, handleRepay, handleBuyStock, handleSellStock, createInitialEconomy, fluctuateStockPrices } from './engine/economy'
+export { handleCompanyLand, getCompanyState } from './engine/company'
 export { validateMapData, validateMapConnectivity } from './engine/validator'
 export { loadMapData, loadAllMaps, getMapIds, getMapName, getMapList, boardDataToBoardConfig } from './engine/loader'
