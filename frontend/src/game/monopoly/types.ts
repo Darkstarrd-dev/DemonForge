@@ -12,7 +12,7 @@
 export type TileType =
   | 'go' | 'property' | 'station' | 'utility' | 'chance'
   | 'fate' | 'news' | 'jail' | 'hospital' | 'tax'
-  | 'bank' | 'shop' | 'parking'
+  | 'bank' | 'shop' | 'parking' | 'attack'
 
 // ------ 新的全量格子类型（§3.2） ------
 export const SpaceType = {
@@ -134,6 +134,7 @@ export interface Tile {
   upgradeCost?: number
   rentByLevel?: number[]
   taxAmount?: number
+  damage?: number              // 热斗模式攻击格伤害值
   /** 原始 SpaceType（boardDataToBoardConfig 桥接时保留，用于事件格识别） */
   spaceType?: SpaceType
 }
@@ -653,6 +654,7 @@ export interface GameState {
   boardTraps?: Record<number, TrapState>
   priceUpGroups?: Record<string, number>
   sealedGroups?: Record<string, number>
+  config?: GameConfig              // M7: 当前对局的版本配置
 }
 
 export interface NewGamePlayerSpec {
@@ -669,6 +671,9 @@ export interface NewGameConfig {
   players: NewGamePlayerSpec[]
   startingCash: number
   mapId?: string
+  configPresetId?: string        // M7: 加载哪个配置预设（如 "richman4-default"）
+  variant?: 'classic' | 'hot_fight' | 'richman_spinoff'  // M7: 版本变体模式
+  version?: 'richman4' | 'richman8' | 'richman10' | 'richman11' // M7: 版本标识
 }
 
 // ════════════════════════════════════════════

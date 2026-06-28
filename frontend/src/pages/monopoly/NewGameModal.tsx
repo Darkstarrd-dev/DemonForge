@@ -1,16 +1,17 @@
 import { useState } from 'react'
 import { Modal, Segmented, Select, Space, Typography, Radio } from 'antd'
-import type { NewGamePlayerSpec } from '../../game/monopoly/types'
+import type { ControllerKind, NewGamePlayerSpec } from '../../game/monopoly/types'
 import { mapEntityCardToCharacter } from '../../game/monopoly/engine/character-mapper'
-import { getMapList } from '../../game/monopoly/engine/loader'
+import { getConfigPresets, getMapList } from '../../game/monopoly/engine/loader'
 import { useAppStore } from '../../store/appStore'
 
 const MAPS = getMapList()
+const PRESETS = getConfigPresets()
 
 interface Props {
   open: boolean
   onClose: () => void
-  onStart: (specs: NewGamePlayerSpec[], mapId: string) => void
+  onStart: (specs: NewGamePlayerSpec[], mapId: string, configPresetId: string) => void
 }
 
 export default function NewGameModal({ open, onClose, onStart }: Props) {
@@ -18,11 +19,12 @@ export default function NewGameModal({ open, onClose, onStart }: Props) {
   const characters = allCards.filter((c) => c.type === 'character').map(mapEntityCardToCharacter)
 
   const [mapId, setMapId] = useState('classic-40')
+  const [presetId, setPresetId] = useState(PRESETS[0]?.id ?? 'richman4-default')
   const [count, setCount] = useState(Math.min(3, characters.length || 2))
   const [slots, setSlots] = useState(() =>
     characters.slice(0, count).map((c, i) => ({
       charId: c.id,
-      controller: i === 0 ? ('human' as const) : ('ai' as const),
+      controller: (i === 0 ? 'human' : 'ai') as ControllerKind,
       difficulty: 'normal' as 'easy' | 'normal' | 'hard',
     })),
   )
@@ -33,9 +35,9 @@ export default function NewGameModal({ open, onClose, onStart }: Props) {
   const handleCountChange = (n: number) => {
     setCount(n)
     setSlots((prev) => {
-      const cur = prev.slice(0, n)
+      const cur: { charId: string; controller: 'human' | 'ai'; difficulty: 'easy' | 'normal' | 'hard' }[] = prev.slice(0, n)
       while (cur.length < n && characters.length > 0) {
-        cur.push({ charId: characters[cur.length % characters.length].id, controller: 'ai', difficulty: 'normal' })
+        cur.push({ charId: characters[cur.length % characters.length].id, controller: 'ai' as ControllerKind, difficulty: 'normal' })
       }
       return cur
     })
@@ -52,7 +54,7 @@ export default function NewGameModal({ open, onClose, onStart }: Props) {
         aiDifficulty: s.controller === 'ai' ? s.difficulty : undefined,
       }
     })
-    onStart(specs, mapId)
+    onStart(specs, mapId, presetId)
     onClose()
   }
 
@@ -67,6 +69,17 @@ export default function NewGameModal({ open, onClose, onStart }: Props) {
             options={[2, 3, 4].filter((n) => n <= characters.length).map((n) => ({ label: `${n} 人`, value: n }))}
           />
         </Space>
+
+        <div>
+          <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 6 }}>游戏版本</Typography.Text>
+          <Radio.Group value={presetId} onChange={(e) => setPresetId(e.target.value)}>
+            {PRESETS.map((p) => (
+              <Radio key={p.id} value={p.id} style={{ display: 'block', marginBottom: 4 }}>
+                {p.name}
+              </Radio>
+            ))}
+          </Radio.Group>
+        </div>
 
         <div>
           <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 6 }}>选择地图</Typography.Text>

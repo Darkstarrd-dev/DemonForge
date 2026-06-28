@@ -2,7 +2,7 @@
 
 **最后更新**：2026-06-28
 **当前位置**：办公场所 A
-**本轮主题**：**大富翁 M9 角色卡接入真实 M2**——按 `docs/monopoly_full_plan.md` §7 M9 里程碑实施。`engine/character-mapper.ts`（`mapEntityCardToCharacter`：EntityCard→MonopolyCharacter 映射）；NewGameModal 改读 `useAppStore(s => s.cards)`（filter `type === 'character'`）；PlayerHUD 解析 `p.characterCardId` 查 coverImageId 显示头像 `<img>`；GamePanel 头像同步；`characters.preset.ts` 已删除。build 全绿 + vitest 247 绿。
+**本轮主题**：**大富翁 M8 AI 三档 + LLM 接口**——按 `docs/monopoly_full_plan.md` §7 M8 里程碑实施。`ai-strategies.ts` 三档全决策种类（14 种 DecisionKind）；`ai-llm.ts` prompt 构建 + `LLMDecisionFn`；`engine/ai.ts` 统一 AIController + `configureAIController`/LLM 兜底降级；NewGameModal AI 行难度选择器；index.tsx LLM 开关 + `streamChat` 集成。build 全绿 + vitest 247 绿。
 
 > 📦 **历史明细已归档** → `docs/handoff_history.md`
 > 本文件只保留「恢复工作所需的活内容」：进行中任务、模块清单、下一步、交接参考。
@@ -273,6 +273,7 @@
 - [x] **大富翁 M4 道具系统**（13 种道具全量实现 + 道具店/研究所双购买通道 + 持有上限 5 + 耐久系统 + 地雷/路障/定时炸弹棋盘陷阱 + 交通工具切换 + 飞弹/核子飞弹范围攻击 + 吸尘器/机器娃娃/传送器/工程车等工具 + 陷阱触发 resolveTraps + 定时炸弹倒计时 *tickTimedBombs + 27 单测，174 绿）
 - [x] **大富翁 M5 神明系统**（13 种神明定义 + `engine/god.ts` 全量实现：`applyPlayerGodDailyEffect` 每日现金/卡片效果、`tickGodDurations` 过期离开/变身、`handleGodPossession` 附身、`handleGodDismiss` 送神含死神不可送、`calcGodModifiedRent` 租金修正、`getGodMoveBoost` 步数加成/减成；`engine.ts` ROLL_DICE 前应用每日效果、END_TURN 后 tick 倒计时；`turn.ts` 租金整合 `calcGodModifiedRent`、骰子步数整合 `getGodMoveBoost`；`card.ts` SUMMON_GOD 召来最近神明、DISMISS_GOD 走送神/不可送分支；35 单测，**209 绿**）
 - [x] **大富翁 M6 事件系统**（2026-06-28 完成）：新闻(20) + 魔法屋(15) + 命运(12) + 小游戏(3) + 乐透 + 宝箱 + 传送 + 银行/商店事件格全量实现；`engine/event.ts` 完整实现：`handleNewsEvent`/`handleFateEvent`/`handleMagicHouseEvent`/`handleTreasureBoxEvent`/`handleLotteryEvent`/`handleTeleportEvent`/`handleMiniGameEvent` + 对应 resolve 函数；`Tile` 接口加 `spaceType` 字段（loader 桥接保留原始 SpaceType）；`turn.ts` handleRoll `else` 分支接入事件格路由 + handleResolveDecision 处理 lotteryBet/teleportTarget/magicHouseEffect/bankOperation 决策；38 单测覆盖全部 7 类事件格路由、效果应用、决策流、旧 TileType 回退、边界情况，**247 绿**
+- [x] **大富翁 M8 AI 三档 + LLM 接口**（2026-06-28 完成）：`ai-strategies.ts` 三档全决策种类实现（buyProperty/upgradeProperty/jailChoice/payOrMortgage/useCard/useItem/bankOperation/stockTrade/cardReaction/lotteryBet/teleportTarget/magicHouseEffect/trade/choosePath）；`ai-llm.ts` LLM prompt 构建 + `LLMDecisionFn` 回调类型；`engine/ai.ts` 统一 AIController（`configureAIController`/`aiDecideAsync`/兜底降级 easy 档）；NewGameModal AI 玩家行加 Select 难度选择器；index.tsx LLM 决策开关（Switch）+ `streamChat` 集成；`NewGamePlayerSpec.aiDifficulty` 类型；build 全绿 + vitest **247 绿**
 - [x] **大富翁 M9 角色卡接入真实 M2**（2026-06-28 完成）：`engine/character-mapper.ts`（`mapEntityCardToCharacter`：EntityCard→MonopolyCharacter 映射）；NewGameModal 改读 `useAppStore(s => s.cards)`（filter `type === 'character'`）；PlayerHUD 解析 `p.characterCardId` 查 coverImageId 显示头像 `<img>`；GamePanel 头像同步；`characters.preset.ts` 已删除；build 全绿 + vitest **247 绿**
 
 ### 🔧 近期修复（2026-06-27）
@@ -295,7 +296,9 @@
 ### 🚧 待完善
 
 - [ ] **M2/M3 实际测试**：配置模块节点映射 → 提取 3-5 章验证 EntityCard/合并候选 → 创建场景推演 → 端到端 M0→M5。
-- [ ] **M7 多版本变体**（大富翁4/8/10/11 配置切换 + 热斗模式，按 `docs/monopoly_full_plan.md` §7）
+- [ ] **大富翁 M7 多版本变体**（`GameConfig.version` 切换 + 热斗模式 + 大富翁10 联网配置，按 `docs/monopoly_full_plan.md` §7）
+- [ ] **大富翁 M10 存档/读档**（`serializer.ts` + SaveGame 文件 IO）
+- [ ] **大富翁 M11 回归与单测**（全子系统单测覆盖 + 端到端玩通一局）
 - [ ] **打包后首次启动**：`~/.novelhelper/` 无 settings.json，需手动配置 Provider 节点。
 
 ---
@@ -304,8 +307,8 @@
 
 > 完整逐项验证清单见归档 §「下一步任务」。以下为优先级摘要：
 
-1. **大富翁 M9 端到端实测**：先创建几张 character 类型 EntityCard（含封面图）→ 进入大富翁 → 新游戏 → 确认角色列表来自真实角色卡 → 开始游戏 → 确认 HUD/侧栏显示头像。
-2. **大富翁后续里程碑**：M7 多版本变体 + M8 AI 三档 + M10 存档/读档（按 `docs/monopoly_full_plan.md` §7）。
+1. **大富翁端到端实测 M0→M9**：开新局 → 选难度（AI 行切换 easy/normal/hard）→ 切换 LLM 决策开关 → 掷骰买地 → 存取款 → 买股票 → 点数购买卡片/道具 → 使用神明卡 → 反制链窗口 → 使用飞弹/地雷/交通工具 → 踩事件格 → 切换台湾地图 → 观察 AI 三档行为差异。
+2. **大富翁 M7 多版本变体**：`GameConfig.version` 切换 + 热斗模式 + 大富翁10 联网配置（按 `docs/monopoly_full_plan.md` §7）。
 3. **验证提示词归一化端到端**（各模块 PromptEditorButton 打开→加载默认→编辑→保存→实际生效；M1 优先级链本次>持久化>设置页>后端；M2 按类型分支 `m2-card-single:character` 等正确区分）。
 4. **验证文生图三协议**（设置页协议选择器三选项；节点测试右侧面板按协议切换字段；文生图 + 图生图 + Debug Info b64 剥离）。
 5. **验证节点测试各模块**（气泡功能 / 对话记录 / Debug Info / System Instructions / 对比模式 / GPT 10 项增强）。

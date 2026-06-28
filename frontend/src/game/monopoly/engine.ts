@@ -13,10 +13,27 @@ import { handleItemAction, createItemDeck, resolveItemChoice, refreshItemShop, t
 import { handleEventAction } from './engine/event'
 import { handleBankAction, handleStockAction, createInitialEconomy } from './engine/economy'
 import { applyAllGodDailyEffects, tickGodDurations } from './engine/god'
-import { getMapName } from './engine/loader'
+import { getMapName, loadConfig } from './engine/loader'
 
 export function createInitialState(config: NewGameConfig): GameState {
   const mapId = config.mapId ?? 'classic-40'
+  const presetId = config.configPresetId ?? 'richman4-default'
+  const preset = loadConfig(presetId)
+  const variant = config.variant ?? preset?.variant ?? 'classic'
+
+  // 热斗模式：将传入的 board 就地转换（PROPERTY→ATTACK_SPACE, HOSPITAL→PARK）
+  let finalBoard = config.board
+  if (variant === 'hot_fight') {
+    finalBoard = {
+      ...config.board,
+      tiles: config.board.tiles.map((t) => {
+        if (t.type === 'property') return { ...t, type: 'attack' as const, name: `攻击·${t.name}`, damage: 500 }
+        if (t.type === 'hospital') return { ...t, type: 'parking' as const, name: '公园' }
+        return t
+      }),
+    }
+  }
+
   const players: Player[] = config.players.map((spec, i) => ({
     id: `p${i + 1}`,
     name: spec.name,
@@ -29,20 +46,21 @@ export function createInitialState(config: NewGameConfig): GameState {
     characterCardId: spec.characterCardId,
     controller: spec.controller,
     aiNodeId: spec.aiNodeId,
+    aiDifficulty: spec.aiDifficulty,
     hand: [],
     points: 0,
     items: [],
   }))
 
   const properties: Record<number, PropertyState> = {}
-  for (const tile of config.board.tiles) {
+  for (const tile of finalBoard.tiles) {
     if (tile.type === 'property') {
       properties[tile.index] = { tileId: tile.index, level: 0, mortgaged: false }
     }
   }
 
   return {
-    board: config.board,
+    board: finalBoard,
     mapId,
     mapName: getMapName(mapId),
     players,
@@ -54,6 +72,7 @@ export function createInitialState(config: NewGameConfig): GameState {
     economy: createInitialEconomy(players.length, config.startingCash),
     cardDeck: createCardDeck(),
     itemDeck: createItemDeck(),
+    config: preset,
   }
 }
 
@@ -124,7 +143,10 @@ export function reducer(state: GameState, action: Action): GameState {
 export { handleMortgage, handleRedeem } from './engine/board'
 export { createCardDeck, findCardDef, giveCardToPlayer, refreshShop, resolveCardReaction, resolveCardChoice } from './engine/card'
 export { createItemDeck, findItemDef, handleBuyItem, handleUseItem, resolveItemChoice, buildItemChoiceDecision, resolveTraps, tickTimedBombs, refreshItemShop, ITEM_HAND_LIMIT } from './engine/item'
-export { aiDecide, aiNextAction } from './engine/ai'
+export { aiDecide, aiNextAction, aiDecideAsync, configureAIController, resetAIController } from './engine/ai'
+export { aiDecideWithStrategy, AI_CONFIGS } from './engine/ai-strategies'
+export { buildLLMMessages } from './engine/ai-llm'
+export type { LLMDecisionFn } from './engine/ai-llm'
 export { liquidate, calcTotalAssets } from './engine/player'
 export { calcPriceIndex, calcRent, updatePriceIndex, handleDividend, handleDeposit, handleWithdraw, handleLoan, handleRepay, handleBuyStock, handleSellStock, createInitialEconomy, fluctuateStockPrices } from './engine/economy'
 export { handleCompanyLand, getCompanyState } from './engine/company'

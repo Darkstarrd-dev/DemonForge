@@ -47,7 +47,7 @@ export default function MonopolyPage() {
   const [view, setView] = useState<'2d' | '3d'>('2d')
   const [llmEnabled, setLlmEnabled] = useState(false)
   const lastStateRef = useRef(state)
-  lastStateRef.current = state
+  useEffect(() => { lastStateRef.current = state }, [state])
 
   const handleLLMDecide = useCallback(async (messages: ChatMessage[]): Promise<string> => {
     const providers = useAppStore.getState().providers.filter((n) => n.nodeType === 'text' && n.enabled)
@@ -103,11 +103,11 @@ export default function MonopolyPage() {
   const onUseItem = (itemInstanceId: string, targetId?: string, targetTileId?: number) =>
     dispatch({ type: 'USE_ITEM', itemInstanceId, targetId, targetTileId } as const)
   const onBuyItem = (itemDefId: string) => dispatch({ type: 'BUY_ITEM', itemDefId })
-  const onStartNewGame = (players: NewGamePlayerSpec[], mapId: string) => {
+  const onStartNewGame = (players: NewGamePlayerSpec[], mapId: string, configPresetId?: string) => {
     const { board } = boardDataToBoardConfig(loadMapData(mapId).boardData)
     dispatch({
       type: 'NEW_GAME',
-      config: { board, players, startingCash: 15000, mapId },
+      config: { board, players, startingCash: 15000, mapId, configPresetId },
     })
   }
 
