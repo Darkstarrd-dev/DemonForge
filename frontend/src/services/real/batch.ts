@@ -72,12 +72,12 @@ export function startBatchGenerate(
   tasks: BatchGenTask[],
   nodes: BatchGenNode[],
   cb: BatchGenCallbacks,
-  opts: { isNodeAvailable?: (nodeId: string) => boolean } = {},
+  opts: { isNodeAvailable?: (nodeId: string) => boolean; draftSystemPrompt?: string; finalizeSystemPrompt?: string } = {},
 ): BatchGenHandle {
   if (!nodes.length) throw new Error('无可用节点')
   if (!tasks.length) throw new Error('无任务')
 
-  const { isNodeAvailable } = opts
+  const { isNodeAvailable, draftSystemPrompt, finalizeSystemPrompt } = opts
 
   let paused = false
   let stopped = false
@@ -143,6 +143,7 @@ export function startBatchGenerate(
           apiKey: node.apiKey,
           model: node.model,
           context: task.draftContext,
+          ...(draftSystemPrompt ? { systemPrompt: draftSystemPrompt } : {}),
         },
         (acc) => cb.onDraftChunk(task.chapterId, acc),
         ac.signal,
@@ -163,6 +164,7 @@ export function startBatchGenerate(
           chapterText: draftText,
           existingGlobalSummary: task.existingGlobalSummary,
           existingStates: task.existingStates,
+          ...(finalizeSystemPrompt ? { systemPrompt: finalizeSystemPrompt } : {}),
         },
         (acc) => cb.onFinalizeChunk(task.chapterId, acc),
         ac.signal,

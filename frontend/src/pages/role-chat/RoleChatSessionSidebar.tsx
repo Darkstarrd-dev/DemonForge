@@ -11,10 +11,12 @@ import {
   DeleteOutlined,
   StopOutlined,
   TeamOutlined,
+  ApiOutlined,
 } from '@ant-design/icons'
 import { useAppStore } from '../../store/appStore'
 import { cancelParticipant } from '../../services/roleChatEngine'
 import type { RoleChatParticipant } from '../../services/types'
+import { NodePickerModal } from '../../components/node-picker/NodePickerModal'
 import AddParticipantModal from './components/AddParticipantModal'
 
 export default function RoleChatSessionSidebar() {
@@ -26,12 +28,22 @@ export default function RoleChatSessionSidebar() {
   const setState = useAppStore((s) => s.setState)
 
   const [addOpen, setAddOpen] = useState(false)
+  // 需求5：节点切换浮窗（当前切换的参与者 id）
+  const [pickerForId, setPickerForId] = useState<string | null>(null)
+  const pickerParticipant = participants.find((p) => p.id === pickerForId)
 
   const setActive = (id: string) => setState({ roleChatActiveSessionId: id })
 
   const addMany = (added: RoleChatParticipant[]) => {
     useAppStore.setState((s) => ({ roleChatParticipants: [...s.roleChatParticipants, ...added] }))
     setAddOpen(false)
+  }
+
+  // 需求5：切换参与者绑定的节点
+  const setParticipantNode = (id: string, nodeId: string) => {
+    useAppStore.setState((s) => ({
+      roleChatParticipants: s.roleChatParticipants.map((p) => (p.id === id ? { ...p, nodeId } : p)),
+    }))
   }
 
   const removeParticipant = (id: string) => {
@@ -100,6 +112,13 @@ export default function RoleChatSessionSidebar() {
                     {p.name}
                   </Typography.Text>
                   <span style={{ width: 16, flexShrink: 0, textAlign: 'center', fontSize: 13 }}>{statusIcon(p.id)}</span>
+                  {/* 需求5：节点切换按钮（删除按钮左侧） */}
+                  <Tooltip title={`切换节点${p.nodeId ? `：${p.nodeId}` : ''}`}>
+                    <ApiOutlined
+                      onClick={(e) => { e.stopPropagation(); setPickerForId(p.id) }}
+                      style={{ color: token.colorTextTertiary, flexShrink: 0 }}
+                    />
+                  </Tooltip>
                   {running ? (
                     <Tooltip title="停止该参与者推理">
                       <StopOutlined
@@ -131,6 +150,16 @@ export default function RoleChatSessionSidebar() {
       </div>
 
       <AddParticipantModal open={addOpen} onClose={() => setAddOpen(false)} onAddMany={addMany} />
+
+      {/* 需求5：节点切换浮窗 */}
+      <NodePickerModal
+        open={!!pickerForId}
+        kind="text"
+        selectedId={pickerParticipant?.nodeId}
+        onSelect={(v) => { if (pickerForId) setParticipantNode(pickerForId, v) }}
+        onClose={() => setPickerForId(null)}
+        title="切换角色节点"
+      />
     </div>
   )
 }

@@ -1,12 +1,15 @@
 // M2 设定卡片 · 新建/AI 生成共用编辑器（条件挂载，每次打开自然重置状态；仅一个卸载 useEffect 中止在途流）。
 // 手动新增：忽略 AI 区直接填字段保存；AI 生成：填指令 → 流式生成（左 Debug / 右流式输出）→ 字段回填可编辑 → 重新生成/增加生成 → 保存。
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { App, Button, Divider, Form, Input, Modal, Select, Space, Spin, Typography, theme } from 'antd'
-import { PlusOutlined, DeleteOutlined, ThunderboltOutlined, ReloadOutlined, StopOutlined, EditOutlined } from '@ant-design/icons'
+import { PlusOutlined, DeleteOutlined, ThunderboltOutlined, ReloadOutlined, StopOutlined } from '@ant-design/icons'
 import type { Book, DebugInfoData, EntityCard, EntityType, ProviderNode } from '../../services/types'
 import { streamGenerateCard, serializeCardForEnrich } from '../../services/api'
-import { genId, useAppStore, pushSettingsNow } from '../../store/appStore'
+import { genId, useAppStore } from '../../store/appStore'
 import DebugInfoPanel from '../node-test/DebugInfoPanel'
+import { NodePickerButton } from '../../components/node-picker/NodePickerButton'
+import { PromptEditorButton } from '../../components/PromptEditorButton'
+import { useModuleNode } from '../../hooks/useModuleNode'
 
 const EMPTY_DEBUG: DebugInfoData = { previewBody: null, actualBody: null, sseChunks: [] }
 
@@ -37,14 +40,12 @@ export default function CardEditorModal({
   initialMode,
   books,
   providers,
-  defaultTextNodeId,
   defaultBookId,
   onClose,
   onSaved,
 }: Props) {
   const { message } = App.useApp()
   const { token } = theme.useToken()
-  const textNodes = useMemo(() => providers.filter((p) => p.nodeType !== 'image'), [providers])
 
   const [type, setType] = useState<EntityType>('character')
   // AI 生成默认归属「素材库（不归属任何书）」；手动新增沿用当前作品。
@@ -57,7 +58,9 @@ export default function CardEditorModal({
   const [fields, setFields] = useState<FieldRow[]>([])
 
   // AI 区
-  const [textNodeId, setTextNodeId] = useState<string>(defaultTextNodeId || textNodes[0]?.id || '')
+  const [textNodeId, setTextNodeId] = useState<string>('')
+  // 实际生效节点：未手动选则走 moduleMapping.m2Extract 默认（需求6：默认显示默认）
+  const { nodeId: resolvedNodeId } = useModuleNode('m2Extract', 'text', textNodeId || undefined)
   const [instruction, setInstruction] = useState('')
   const [generating, setGenerating] = useState(false)
   const [streamText, setStreamText] = useState('')
@@ -67,55 +70,11 @@ export default function CardEditorModal({
   // 卸载清理：父组件非 onCancel 路径卸载（如切走路由）时中止在途 AI 生成流，避免向已卸载组件 setState。
   useEffect(() => () => acRef.current?.abort(), [])
 
-  // 按类型的提示词覆盖（持久化到 settings.json）
-  const promptByType = useAppStore((s) => s.m2CardGenPromptByType)
-  const setStoreState = useAppStore((s) => s.setState)
-  const [promptEditorOpen, setPromptEditorOpen] = useState(false)
-  const [promptDraft, setPromptDraft] = useState('')
-  const [promptLoading, setPromptLoading] = useState(false)
-
-  const fetchDefaultPrompt = async (): Promise<string> => {
-    try {
-      const res = await fetch('/api/llm/card-gen-prompt')
-      const data = res.ok ? ((await res.json()) as { prompt?: string }) : null
-      return data?.prompt ?? ''
-    } catch {
-      return ''
-    }
-  }
-  const openPromptEditor = async () => {
-    setPromptEditorOpen(true)
-    const override = promptByType[type]
-    if (override) {
-      setPromptDraft(override)
-      return
-    }
-    setPromptLoading(true)
-    setPromptDraft(await fetchDefaultPrompt())
-    setPromptLoading(false)
-  }
-  const savePrompt = () => {
-    setStoreState({ m2CardGenPromptByType: { ...promptByType, [type]: promptDraft } })
-    pushSettingsNow()
-    setPromptEditorOpen(false)
-    message.success(`已保存「${TYPE_OPTIONS.find((t) => t.value === type)?.label}」类型的提示词`)
-  }
-  const resetPrompt = async () => {
-    const next = { ...promptByType }
-    delete next[type]
-    setStoreState({ m2CardGenPromptByType: next })
-    pushSettingsNow()
-    setPromptLoading(true)
-    setPromptDraft(await fetchDefaultPrompt())
-    setPromptLoading(false)
-    message.success('已重置为默认提示词')
-  }
-
   const setFieldVal = (idx: number, patch: Partial<FieldRow>) =>
     setFields((rows) => rows.map((r, i) => (i === idx ? { ...r, ...patch } : r)))
 
   const runGenerate = async (mode: 'create' | 'enrich') => {
-    const node = providers.find((p) => p.id === textNodeId)
+    const node = providers.find((p) => p.id === resolvedNodeId)
     if (!node) {
       message.warning('请选择文本节点')
       return
@@ -132,7 +91,8 @@ export default function CardEditorModal({
           })
         : undefined
     const finalInstruction = instruction.trim() || (mode === 'enrich' ? '在已有内容基础上丰富补全' : '')
-    const args = { type, instruction: finalInstruction, mode, existingCard, systemPrompt: promptByType[type] }
+    const sysOverride = useAppStore.getState().promptOverrides[`m2-card-single:${type}`]
+    const args = { type, instruction: finalInstruction, mode, existingCard, systemPrompt: sysOverride }
 
     setGenerating(true)
     setStreamText('')
@@ -143,7 +103,7 @@ export default function CardEditorModal({
         type,
         mode,
         instruction: finalInstruction || '(留空→按类型随机生成)',
-        promptOverridden: !!promptByType[type],
+        promptOverridden: !!useAppStore.getState().promptOverrides[`m2-card-single:${type}`],
       },
       actualBody: null,
       sseChunks: [],
@@ -249,17 +209,15 @@ export default function CardEditorModal({
           <Space wrap>
             <ThunderboltOutlined style={{ color: '#C4612F' }} />
             <Typography.Text strong>AI 生成（可选）</Typography.Text>
-            <Select
-              size="small"
-              style={{ width: 220 }}
-              placeholder="选择文本节点"
+            {/* 需求6：节点选择下拉→按钮，默认显示默认 */}
+            <NodePickerButton
+              moduleKey="m2Extract"
+              kind="text"
               value={textNodeId || undefined}
               onChange={setTextNodeId}
-              options={textNodes.map((n) => ({ value: n.id, label: `${n.name} · ${n.model}` }))}
+              style={{ width: 220 }}
             />
-            <Button size="small" icon={<EditOutlined />} onClick={openPromptEditor}>
-              编辑提示词{promptByType[type] ? '（已自定义）' : ''}
-            </Button>
+            <PromptEditorButton promptKey="m2-card-single" type={type} />
           </Space>
           <Input.TextArea
             placeholder="描述你想要的设定（留空则仅按所选类型随机生成）。例如：一个冷酷的女剑客反派，仇视主角，使用幻影流剑法"
@@ -406,30 +364,6 @@ export default function CardEditorModal({
           {centerContent}
         </Spin>
       )}
-    </Modal>
-
-    <Modal
-      title={`编辑「${TYPE_OPTIONS.find((t) => t.value === type)?.label}」类型的 AI 生成提示词`}
-      open={promptEditorOpen}
-      width={760}
-      onCancel={() => setPromptEditorOpen(false)}
-      footer={[
-        <Button key="reset" danger onClick={resetPrompt}>重置为默认</Button>,
-        <Button key="cancel" onClick={() => setPromptEditorOpen(false)}>取消</Button>,
-        <Button key="save" type="primary" onClick={savePrompt}>保存</Button>,
-      ]}
-    >
-      <Typography.Paragraph type="secondary" style={{ fontSize: 12 }}>
-        该提示词用于「{TYPE_OPTIONS.find((t) => t.value === type)?.label}」类型的单卡 AI 生成（含留空随机），不同类型互相独立；批量生成使用各自独立的提示词。
-      </Typography.Paragraph>
-      <Spin spinning={promptLoading}>
-        <Input.TextArea
-          value={promptDraft}
-          onChange={(e) => setPromptDraft(e.target.value)}
-          autoSize={{ minRows: 12, maxRows: 24 }}
-          style={{ fontFamily: 'monospace', fontSize: 12 }}
-        />
-      </Spin>
     </Modal>
     </>
   )

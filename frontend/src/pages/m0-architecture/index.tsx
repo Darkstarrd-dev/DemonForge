@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import {
   Alert,
   App,
@@ -9,7 +9,6 @@ import {
   Input,
   InputNumber,
   Row,
-  Select,
   Space,
   Steps,
   Table,
@@ -27,6 +26,9 @@ import { useAppStore, genId } from '../../store/appStore'
 import { generateArch, generateBlueprint, generateArchInput } from '../../services/api'
 import type { OutlineNode } from '../../services/types'
 import { parseArchitecture, parseBlueprint, type ParsedBlueprintChapter } from './parse'
+import { NodePickerButton } from '../../components/node-picker/NodePickerButton'
+import { PromptEditorButton } from '../../components/PromptEditorButton'
+import { useModuleNode } from '../../hooks/useModuleNode'
 
 const ARCH_FIELDS: {
   key: 'seed' | 'characterDynamics' | 'worldBuilding' | 'plotStructure'
@@ -64,7 +66,6 @@ export default function M0ArchitecturePage() {
   const screens = Grid.useBreakpoint()
   const { message, modal } = App.useApp()
   const providers = useAppStore((s) => s.providers)
-  const moduleMapping = useAppStore((s) => s.moduleMapping)
   const architectures = useAppStore((s) => s.architectures)
   const outline = useAppStore((s) => s.outline)
   const setState = useAppStore((s) => s.setState)
@@ -95,21 +96,11 @@ export default function M0ArchitecturePage() {
   const [createdBookId, setCreatedBookId] = useState<string | null>(null)
   const createdArch = createdBookId ? architectures.find((a) => a.bookId === createdBookId) : null
 
-  // ── 节点选项（仅 enabled）──
-  const enabledNodes = useMemo(() => providers.filter((p) => p.enabled), [providers])
-  const nodeOptions = enabledNodes.map((p) => ({ value: p.id, label: `${p.name} · ${p.model}` }))
+  // ── 节点：默认节点归一化到 useModuleNode（需求8）──
 
-  // 默认节点：m0Arch 映射 → 首个 enabled
-  const resolveArchNode = () => {
-    const mapped = moduleMapping.m0Arch.nodeId
-    if (mapped && enabledNodes.some((p) => p.id === mapped)) return mapped
-    return enabledNodes[0]?.id ?? null
-  }
-  const resolveBpNode = () => {
-    const mapped = moduleMapping.m0Blueprint.nodeId
-    if (mapped && enabledNodes.some((p) => p.id === mapped)) return mapped
-    return enabledNodes[0]?.id ?? null
-  }
+  // 默认节点归一化：未手动选则走 moduleMapping.m0Arch/m0Blueprint 默认（需求8：默认显示默认）
+  const { nodeId: resolvedArchNodeId } = useModuleNode('m0Arch', 'text', archNodeId ?? undefined)
+  const { nodeId: resolvedBpNodeId } = useModuleNode('m0Blueprint', 'text', blueprintNodeId ?? undefined)
 
   const getProvider = (nodeId: string | null) => {
     if (!nodeId) return null
@@ -125,7 +116,7 @@ export default function M0ArchitecturePage() {
     let currentGuidance = guidance.trim()
 
     if (!currentTopic) {
-      const inputProv = getProvider(archNodeId ?? resolveArchNode())
+      const inputProv = getProvider(resolvedArchNodeId)
       if (!inputProv) {
         message.warning('请选择生成节点（设置页配置）')
         return
@@ -139,6 +130,9 @@ export default function M0ArchitecturePage() {
           genre: currentGenre,
           chapters,
           guidance: currentGuidance,
+          ...(useAppStore.getState().promptOverrides['m0-arch-input']
+            ? { systemPrompt: useAppStore.getState().promptOverrides['m0-arch-input'] }
+            : {}),
         })
         hideLoading()
         setTopic(result.topic)
@@ -156,7 +150,7 @@ export default function M0ArchitecturePage() {
       }
     }
 
-    const prov = getProvider(archNodeId ?? resolveArchNode())
+    const prov = getProvider(resolvedArchNodeId)
     if (!prov) {
       message.warning('请选择生成节点（设置页配置）')
       setGenArching(false)
@@ -166,7 +160,11 @@ export default function M0ArchitecturePage() {
     if (!genArchText) setGenArchText('')
     try {
       const full = await generateArch(
-        { ...prov, topic: currentTopic, genre: currentGenre, chapters, guidance: currentGuidance },
+        { ...prov, topic: currentTopic, genre: currentGenre, chapters, guidance: currentGuidance,
+          ...(useAppStore.getState().promptOverrides['m0-arch']
+            ? { systemPrompt: useAppStore.getState().promptOverrides['m0-arch'] }
+            : {}),
+        },
         (acc) => setGenArchText(acc),
       )
       const parsed = parseArchitecture(full)
@@ -202,7 +200,7 @@ export default function M0ArchitecturePage() {
     })
     setCreatedBookId(bookId)
     // 蓝图区节点默认对齐 m0Blueprint 映射
-    setBlueprintNodeId(resolveBpNode())
+    setBlueprintNodeId(useAppStore.getState().moduleMapping.m0Blueprint?.nodeId ?? null)
     message.success(`已采纳架构并新建作品《${title}》，可继续生成章节蓝图`)
   }
 
@@ -212,7 +210,7 @@ export default function M0ArchitecturePage() {
       message.warning('请先采纳架构')
       return
     }
-    const prov = getProvider(blueprintNodeId ?? resolveBpNode())
+    const prov = getProvider(resolvedBpNodeId)
     if (!prov) {
       message.warning('请选择生成节点')
       return
@@ -239,7 +237,11 @@ export default function M0ArchitecturePage() {
     setGenBpText('')
     try {
       const full = await generateBlueprint(
-        { ...prov, architecture: architectureText, existingDirectory, totalChapters: chapters, startChapter },
+        { ...prov, architecture: architectureText, existingDirectory, totalChapters: chapters, startChapter,
+          ...(useAppStore.getState().promptOverrides['m0-blueprint']
+            ? { systemPrompt: useAppStore.getState().promptOverrides['m0-blueprint'] }
+            : {}),
+        },
         (acc) => setGenBpText(acc),
       )
       const parsed = parseBlueprint(full)
@@ -346,15 +348,18 @@ export default function M0ArchitecturePage() {
                   onChange={(e) => setGuidance(e.target.value)}
                   autoSize={{ minRows: 2 }}
                 />
-                <Select
-                  data-slot="select-node"
+                {/* 需求8：节点选择下拉→按钮，默认显示默认 */}
+                <NodePickerButton
+                  moduleKey="m0Arch"
+                  kind="text"
+                  value={archNodeId ?? undefined}
+                  onChange={setArchNodeId}
                   style={{ width: '100%' }}
-                  placeholder="生成节点（默认取设置页 M0 架构设计映射）"
-                  value={archNodeId ?? resolveArchNode()}
-                  onChange={(v) => setArchNodeId(v)}
-                  options={nodeOptions}
-                  notFoundContent="无可用节点，请到设置页启用"
                 />
+                <Space style={{ width: '100%', justifyContent: 'space-between' }}>
+                  <PromptEditorButton promptKey="m0-arch-input" label="编辑方向提示词" />
+                  <PromptEditorButton promptKey="m0-arch" label="编辑架构提示词" />
+                </Space>
                 <Button
                   data-slot="btn-generate"
                   type="primary"
@@ -450,14 +455,15 @@ export default function M0ArchitecturePage() {
                 <Space direction="vertical" size={8} style={{ width: '100%' }}>
                   <Space wrap>
                     <span style={{ color: '#888' }}>蓝图生成节点</span>
-                    <Select
-                      data-slot="select-node"
+                    {/* 需求8：节点选择下拉→按钮 */}
+                    <NodePickerButton
+                      moduleKey="m0Blueprint"
+                      kind="text"
+                      value={blueprintNodeId ?? undefined}
+                      onChange={setBlueprintNodeId}
                       style={{ minWidth: 240 }}
-                      value={blueprintNodeId ?? resolveBpNode()}
-                      onChange={(v) => setBlueprintNodeId(v)}
-                      options={nodeOptions}
-                      notFoundContent="无可用节点"
                     />
+                    <PromptEditorButton promptKey="m0-blueprint" label="编辑蓝图提示词" />
                     <Button data-slot="btn-generate" type="primary" icon={<ThunderboltOutlined />} loading={genBping} onClick={runBlueprint}>
                       {genBping ? '生成中…' : '生成蓝图'}
                     </Button>

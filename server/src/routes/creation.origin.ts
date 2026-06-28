@@ -5,19 +5,20 @@ import type { ProviderConfig } from '../llmClient'
 import { ARCH_SYSTEM_PROMPT, ARCH_INPUT_PROMPT, BLUEPRINT_SYSTEM_PROMPT } from '../prompts'
 import { streamChat } from './creation.shared'
 
-type ArchBody = ProviderConfig & { topic?: string; genre?: string; chapters?: number; guidance?: string }
-type ArchInputBody = ProviderConfig & { genre?: string; chapters?: number; guidance?: string }
+type ArchBody = ProviderConfig & { topic?: string; genre?: string; chapters?: number; guidance?: string; systemPrompt?: string }
+type ArchInputBody = ProviderConfig & { genre?: string; chapters?: number; guidance?: string; systemPrompt?: string }
 type BlueprintBody = ProviderConfig & {
   architecture?: string
   existingDirectory?: string
   totalChapters?: number
   startChapter?: number
+  systemPrompt?: string
 }
 
 export async function originRoutes(app: FastifyInstance) {
   // 生成小说架构（雪花法四步）——SSE 流式
   app.post('/api/llm/arch', async (req, reply) => {
-    const { baseURL, apiKey, model, topic, genre, chapters, guidance } = (req.body ?? {}) as ArchBody
+    const { baseURL, apiKey, model, topic, genre, chapters, guidance, systemPrompt } = (req.body ?? {}) as ArchBody
     if (!baseURL || !model || !topic?.trim()) {
       reply.status(400).send({ error: '缺少 baseURL / model / topic' })
       return
@@ -34,14 +35,14 @@ export async function originRoutes(app: FastifyInstance) {
       .join('\n')
 
     await streamChat(reply, { baseURL, apiKey, model }, [
-      { role: 'system', content: ARCH_SYSTEM_PROMPT },
+      { role: 'system', content: systemPrompt?.trim() || ARCH_SYSTEM_PROMPT },
       { role: 'user', content: userPrompt },
     ])
   })
 
   // 生成创作方向输入（topic/genre/guidance）——SSE 流式，输出 JSON
   app.post('/api/llm/arch-input', async (req, reply) => {
-    const { baseURL, apiKey, model, genre, chapters, guidance } = (req.body ?? {}) as ArchInputBody
+    const { baseURL, apiKey, model, genre, chapters, guidance, systemPrompt } = (req.body ?? {}) as ArchInputBody
     if (!baseURL || !model) {
       reply.status(400).send({ error: '缺少 baseURL / model' })
       return
@@ -57,14 +58,14 @@ export async function originRoutes(app: FastifyInstance) {
       .join('\n')
 
     await streamChat(reply, { baseURL, apiKey, model }, [
-      { role: 'system', content: ARCH_INPUT_PROMPT },
+      { role: 'system', content: systemPrompt?.trim() || ARCH_INPUT_PROMPT },
       { role: 'user', content: userPrompt || '请自由发挥创意，生成一个有趣的小说创作方向。' },
     ])
   })
 
   // 生成章节蓝图（节奏化目录）——SSE 流式
   app.post('/api/llm/blueprint', async (req, reply) => {
-    const { baseURL, apiKey, model, architecture, existingDirectory, totalChapters, startChapter } =
+    const { baseURL, apiKey, model, architecture, existingDirectory, totalChapters, startChapter, systemPrompt } =
       (req.body ?? {}) as BlueprintBody
     if (!baseURL || !model || !architecture?.trim()) {
       reply.status(400).send({ error: '缺少 baseURL / model / architecture' })
@@ -89,7 +90,7 @@ export async function originRoutes(app: FastifyInstance) {
       .join('\n')
 
     await streamChat(reply, { baseURL, apiKey, model }, [
-      { role: 'system', content: BLUEPRINT_SYSTEM_PROMPT },
+      { role: 'system', content: systemPrompt?.trim() || BLUEPRINT_SYSTEM_PROMPT },
       { role: 'user', content: userPrompt },
     ])
   })

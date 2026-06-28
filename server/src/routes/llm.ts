@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 import { listModels, chatStream, embed, buildRequestBody, type ProviderConfig } from '../llmClient'
-import { M1_CLEAN_SYSTEM_PROMPT } from '../prompts'
+import { M1_CLEAN_SYSTEM_PROMPT, PROMPT_REGISTRY, type PromptKey } from '../prompts'
 import { hijackSSE } from '../utils/sseHelper'
 
 type TestBody = ProviderConfig
@@ -26,8 +26,16 @@ export async function llmRoutes(app: FastifyInstance) {
     return listModels({ baseURL, apiKey })
   })
 
-  // 返回内置默认清理提示词（供前端「载入默认 / 显示默认」）
+  // 返回内置默认清理提示词（供前端「载入默认 / 显示默认」）—— 旧端点，保留兼容
   app.get('/api/llm/prompt', async (_req, reply) => reply.send({ prompt: M1_CLEAN_SYSTEM_PROMPT }))
+
+  // 统一提示词端点（P3 归一化）：按 key 返回注册表中的默认提示词
+  app.get('/api/llm/prompt/:key', async (req, reply) => {
+    const { key } = req.params as { key: string }
+    const prompt = PROMPT_REGISTRY[key as PromptKey]
+    if (!prompt) return reply.code(404).send({ error: `未知提示词键: ${key}` })
+    reply.send({ prompt, key })
+  })
 
   // M1 清理：单章单请求，SSE 把上游流式增量转发给前端
   // 注意客户端断连检测：必须监听 **响应**（reply.raw）的 close，而非 req.raw——

@@ -146,6 +146,7 @@ export interface CardImagePromptsArgs {
   cardDescription: string
   intent: string
   count: number
+  systemPrompt?: string
 }
 
 /** 调 /api/llm/card-image-prompts，返回一组生图提示词。 */
@@ -160,6 +161,7 @@ export async function generateCardImagePrompts(node: NodeLike, args: CardImagePr
       cardDescription: args.cardDescription,
       intent: args.intent,
       count: args.count,
+      ...(args.systemPrompt ? { systemPrompt: args.systemPrompt } : {}),
     }),
   })
   if (!res.ok) {
@@ -193,7 +195,7 @@ export interface CardProfile {
 /** 批量生成第一步：根据数量+要求生成一组简短侧写（/api/llm/card-profiles）。 */
 export async function generateCardProfiles(
   node: NodeLike,
-  args: { type: EntityType; count: number; instruction: string },
+  args: { type: EntityType; count: number; instruction: string; systemPrompt?: string },
 ): Promise<CardProfile[]> {
   const res = await fetch('/api/llm/card-profiles', {
     method: 'POST',
@@ -205,6 +207,7 @@ export async function generateCardProfiles(
       type: args.type,
       count: args.count,
       instruction: args.instruction,
+      ...(args.systemPrompt ? { systemPrompt: args.systemPrompt } : {}),
     }),
   })
   if (!res.ok) {
@@ -218,7 +221,7 @@ export async function generateCardProfiles(
 /** 批量生成第二步：一次请求把一批侧写扩写为完整卡片（/api/llm/generate-cards-batch）。 */
 export async function generateCardsBatch(
   node: NodeLike,
-  args: { type: EntityType; profiles: CardProfile[]; instruction: string },
+  args: { type: EntityType; profiles: CardProfile[]; instruction: string; systemPrompt?: string },
   signal?: AbortSignal,
 ): Promise<{ cards: GeneratedCard[]; actualBody: object | null }> {
   const res = await fetch('/api/llm/generate-cards-batch', {
@@ -231,6 +234,7 @@ export async function generateCardsBatch(
       type: args.type,
       profiles: args.profiles,
       instruction: args.instruction,
+      ...(args.systemPrompt ? { systemPrompt: args.systemPrompt } : {}),
     }),
     signal,
   })

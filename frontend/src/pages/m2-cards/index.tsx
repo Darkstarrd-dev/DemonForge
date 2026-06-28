@@ -42,6 +42,7 @@ import type { ExtractProgress } from '../../services/api'
 import CardEditorModal from './CardEditorModal'
 import ImageBatchModal from './ImageBatchModal'
 import BatchCardModal from './BatchCardModal'
+import { PromptEditorButton } from '../../components/PromptEditorButton'
 
 const TYPE_META: Record<EntityType, { label: string; color: string }> = {
   character: { label: '人物', color: 'blue' },
@@ -113,6 +114,8 @@ export default function M2CardsPage() {
         bookChapters,
         existing,
         (progress) => setExtractProgress(progress),
+        undefined,
+        useAppStore.getState().promptOverrides['m2-extract'] || undefined,
       )
       if (result.cards.length === 0) {
         message.info('未提取到新实体（已有卡片覆盖，或章节中无可识别实体）')
@@ -260,6 +263,7 @@ export default function M2CardsPage() {
         <Button data-slot="btn-extract" type="primary" icon={<ExperimentOutlined />} onClick={() => setExtractOpen(true)}>
           从章节提取设定
         </Button>
+        <PromptEditorButton promptKey="m2-extract" label="编辑提取提示词" />
         <Button data-slot="btn-add-manual" icon={<PlusOutlined />} onClick={() => setCardEditor({ mode: 'manual' })}>
           手动新增
         </Button>

@@ -2,6 +2,7 @@ import { useState, useMemo } from 'react'
 import { Alert, App, Button, Card, Checkbox, List, Progress, Space, Tag, Typography } from 'antd'
 import { ThunderboltOutlined, PauseOutlined, PlayCircleOutlined, StopOutlined } from '@ant-design/icons'
 import { useAppStore } from '../../store/appStore'
+import { PromptEditorButton } from '../../components/PromptEditorButton'
 import { startBatchGenerate, type BatchGenTask, type BatchGenNode, type BatchGenCallbacks, type BatchGenHandle } from '../../services/api'
 
 type TaskState = {
@@ -176,6 +177,8 @@ export default function BatchGeneratePage() {
     }
     const h = startBatchGenerate(tasks, batchNodes, callbacks, {
       isNodeAvailable: (id: string) => useAppStore.getState().consumeProviderUsage(id),
+      draftSystemPrompt: useAppStore.getState().promptOverrides['m4-draft'] || undefined,
+      finalizeSystemPrompt: useAppStore.getState().promptOverrides['m5-finalize'] || undefined,
     })
 
     setHandle(h)
@@ -262,12 +265,18 @@ export default function BatchGeneratePage() {
       </Card>
 
       <Card data-slot="node-config-panel" title="节点配置">
-        <Typography.Text type="secondary" data-slot="node-summary">
-          {enabledNodes.length} 个节点已启用，总并发：{batchNodes.reduce((sum, n) => sum + n.maxConcurrency, 0)}
-        </Typography.Text>
-        {enabledNodes.length === 0 && (
-          <Typography.Text type="warning"> （无可用节点，请到设置页启用）</Typography.Text>
-        )}
+        <Space direction="vertical" size={8} style={{ width: '100%' }}>
+          <Typography.Text type="secondary" data-slot="node-summary">
+            {enabledNodes.length} 个节点已启用，总并发：{batchNodes.reduce((sum, n) => sum + n.maxConcurrency, 0)}
+          </Typography.Text>
+          {enabledNodes.length === 0 && (
+            <Typography.Text type="warning"> （无可用节点，请到设置页启用）</Typography.Text>
+          )}
+          <Space>
+            <PromptEditorButton promptKey="m4-draft" label="编辑草稿提示词" />
+            <PromptEditorButton promptKey="m5-finalize" label="编辑定稿提示词" />
+          </Space>
+        </Space>
       </Card>
 
       <Card data-slot="control-panel" title="控制">

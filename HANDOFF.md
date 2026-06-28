@@ -2,11 +2,44 @@
 
 **最后更新**：2026-06-28
 **当前位置**：办公场所 A
-**本轮主题**：**四模块需求落地（12 项）**——设定卡片(5)+角色交流(4)+系统设置(1)+节点测试(1)，回归全绿，待提交；前序：质量审计 audit-02 第三梯队收尾（B-5/B-8）+ audit-02 修复 8 项 + 角色交流模块重构
+**本轮主题**：**提示词归一化全模块迁移**——PromptEditorButton+usePromptOverride+promptOverrides 注册表覆盖 M0/M1/M2/M3/M4/M5/批量共 13 个 promptKey，后端 6 个端点加 systemPrompt 参数，前端 5 个服务层加 systemPrompt 传参；顺修 5 个 build 错误（遗留变量/类型不全/属性不存在）。前序：四模块需求落地 12 项
 
 > 📦 **历史明细已归档** → `docs/handoff_history.md`
 > 本文件只保留「恢复工作所需的活内容」：进行中任务、模块清单、下一步、交接参考。
 > 各轮工作的逐项实现细节、技术决策记录、详尽验证清单全部移入归档文件，按需查阅。
+
+---
+
+## 🆕 提示词归一化全模块迁移（2026-06-28，已完成，build 全绿 + vitest 55 绿）
+
+将 `PromptEditorButton` + `usePromptOverride` + `promptOverrides` 注册表从 M0 扩展到全部创作模块，统一"编辑提示词→持久化→注入请求"链路。
+
+**覆盖 13 个 promptKey**（PROMPT_REGISTRY 已登记）：
+- M0: m0-arch-input / m0-arch / m0-blueprint（已有）
+- M1: m1-clean（已有，本轮补 PromptEditorButton 到 Step3Clean 提示词区）
+- M2: m2-extract / m2-card-single / m2-card-image-prompts / m2-card-profiles / m2-cards-batch
+- M3: m3-simulate
+- M4: m4-draft（批量页面注入）
+- M5: m5-finalize / m5-consistency（批量页面注入 finalize，consistency 待 M5 页面接真实后端）
+
+**后端 6 个端点加 systemPrompt 支持**（creation.m2.ts: extract-entities; creation.generate.ts: draft/finalize/consistency/simulate；llm.ts: clean 已有）。前端 5 个服务层加 systemPrompt 传参（extract.ts/simulate.ts/generation.ts DraftParams+FinalizeParams+ConsistencyParams/batch.ts opts）。
+
+**前端页面新增 PromptEditorButton**：
+- `m2-cards/index.tsx`：extract 按钮旁加 `PromptEditorButton promptKey="m2-extract"`，runExtract 注入 promptOverrides
+- `m2-cards/CardEditorModal.tsx`：删旧 inline prompt-editor Modal，改用 PromptEditorButton（按 type 分支 `m2-card-single:${type}`）
+- `m2-cards/BatchCardModal.tsx`：configView 加 2 个 PromptEditorButton（侧写 m2-card-profiles / 扩写 m2-cards-batch），调用注入
+- `m3-simulate/index.tsx`：simulate 按钮旁加 PromptEditorButton（m3-simulate），run 注入
+- `batch-generate/index.tsx`：节点配置卡加 2 个 PromptEditorButton（m4-draft / m5-finalize），startBatchGenerate opts 注入
+- `m1-import/Step3Clean.tsx`：提示词区加 PromptEditorButton（m1-clean），优先级链改为 本次覆盖 > 持久化覆盖 > 设置页默认 > 后端内置
+
+**顺修 5 个 build 错误**：
+- `m0-architecture/index.tsx:203` — `resolveBpNode()` 不存在 → 改为 `moduleMapping.m0Blueprint?.nodeId ?? null`
+- `BatchCardModal.tsx:324` — `textNodes` 不存在 → 改为 `providers.filter(...).length === 0`
+- `CardEditorModal.tsx:106` — `promptByType[type]` 不存在 → 改为 `promptOverrides[`m2-card-single:${type}`]`
+- `m3-simulate/index.tsx:245` — PromptEditorButton 不接受 `style` prop → 去掉 style
+- `settings/index.tsx:55` — MODULE_LABELS 缺 3 个 ModuleKey → 补 m2CardImage/batchGenerate/roleChat
+
+**验证**：前端 tsc 0 + vite build ✓ + vitest 55 绿；后端 tsc 0。**待端到端实测**（各模块 PromptEditorButton 打开→编辑→保存→实际生效）。
 
 ---
 
@@ -191,7 +224,8 @@
 
 > 完整逐项验证清单见归档 §「下一步任务」。以下为优先级摘要：
 
-1. **验证文生图三协议**（设置页协议选择器三选项；节点测试右侧面板按协议切换字段；文生图 + 图生图 + Debug Info b64 剥离）。
+1. **验证提示词归一化端到端**（各模块 PromptEditorButton 打开→加载默认→编辑→保存→实际生效；M1 优先级链本次>持久化>设置页>后端；M2 按类型分支 `m2-card-single:character` 等正确区分）。
+2. **验证文生图三协议**（设置页协议选择器三选项；节点测试右侧面板按协议切换字段；文生图 + 图生图 + Debug Info b64 剥离）。
    - xAI 测试端点 `https://maoyulin.xyz/`，模型 `grok-imagine-image-lite`。
    - GPT 测试端点 `https://jiuuij.de5.net/`，模型 `gpt-image-2`。
 2. **验证节点测试各模块**（气泡功能 / 对话记录 / Debug Info / System Instructions / 对比模式 / GPT 10 项增强）。

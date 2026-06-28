@@ -5,9 +5,10 @@
 //   右侧 = 当前对话情况（群聊 transcript + 本参与者在途流式预览）
 //   下方 = 推理过程（复刻 node-test ChatBubble：推理中流式卡片 / 完成后折叠「思考过程」）
 import { useState } from 'react'
-import { App, Avatar, Button, Collapse, Select, Space, Splitter, Tag, Typography, theme } from 'antd'
+import { App, Avatar, Button, Collapse, Space, Splitter, Tag, Typography, theme } from 'antd'
 import { BulbOutlined, BugOutlined, CopyOutlined, SettingOutlined } from '@ant-design/icons'
 import { useAppStore } from '../../store/appStore'
+import { NodePickerButton } from '../../components/node-picker/NodePickerButton'
 import DebugInfoPanel from '../node-test/DebugInfoPanel'
 import MessageList from './components/MessageList'
 import { buildRoleSystemPrompt } from '../../services/roleChatEngine'
@@ -20,7 +21,6 @@ export default function ParticipantSessionView() {
   const messages = useAppStore((s) => s.roleChatMessages)
   const sceneSetting = useAppStore((s) => s.roleChatSceneSetting)
   const cards = useAppStore((s) => s.cards)
-  const providers = useAppStore((s) => s.providers)
   const runtimes = useAppStore((s) => s.roleChatRuntimes)
 
   const [showDebug, setShowDebug] = useState(true)
@@ -39,7 +39,6 @@ export default function ParticipantSessionView() {
 
   const card = cards.find((c) => c.id === participant.cardId)
   const runtime = runtimes[participant.id]
-  const textNodes = providers.filter((p) => p.nodeType === 'text' && p.enabled)
   const systemPrompt = card ? buildRoleSystemPrompt(card, sceneSetting) : '（未找到角色卡）'
 
   const copyText = (text: string) =>
@@ -67,15 +66,14 @@ export default function ParticipantSessionView() {
         {runtime?.status === 'done' && <Tag color="green">完成</Tag>}
         {runtime?.status === 'error' && <Tag color="red">失败</Tag>}
         <div style={{ flex: 1 }} />
+        {/* 推理节点选择按钮（归一化：下拉→按钮） */}
         <Space size={6}>
-          <Typography.Text type="secondary" style={{ fontSize: 12 }}>推理节点</Typography.Text>
-          <Select
-            size="small"
-            style={{ width: 180 }}
-            value={participant.nodeId}
+          <NodePickerButton
+            moduleKey="roleChat"
+            kind="text"
+            value={participant.nodeId || undefined}
             onChange={setNode}
-            options={textNodes.map((n) => ({ label: n.name, value: n.id }))}
-            placeholder="选择节点"
+            style={{ width: 180 }}
           />
           <Button
             size="small"

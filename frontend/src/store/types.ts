@@ -197,6 +197,8 @@ export interface AppState {
   imageArchiveDir: string
   /** M2 卡片 AI 生成系统提示词覆盖，按实体类型分别存（持久化到 settings.json）。缺该 type=用后端默认 */
   m2CardGenPromptByType: Partial<Record<EntityType, string>>
+  /** 统一提示词覆盖（P3 归一化）：key→自定义提示词。key 形如 'm0-arch' 或 'm2-card-single:character'（按类型分支）。持久化到 settings.json */
+  promptOverrides: Record<string, string>
   /** 角色交流参与者列表（内存态，不持久化） */
   roleChatParticipants: RoleChatParticipant[]
   /** 角色交流群聊消息流（内存态，不持久化；各参与者从此单一数据源派生各自缓存前缀） */

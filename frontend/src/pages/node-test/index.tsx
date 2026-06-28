@@ -177,16 +177,7 @@ export default function NodeTestPage() {
     setSelectedImages((prev) => prev.filter((_, i) => i !== index))
   }
 
-  // 节点池按 baseURL + 节点组名分组
-  const groupedProviders = availableNodes.reduce((acc, node) => {
-    const groupName = node.name.replace(/\s*\([^)]*\)\s*$/, '').trim() || node.baseURL
-    const key = `${node.baseURL}|||${groupName}` // 组合键：URL + 组名
-    if (!acc[key]) {
-      acc[key] = { groupName, baseURL: node.baseURL, nodes: [] }
-    }
-    acc[key].nodes.push(node)
-    return acc
-  }, {} as Record<string, { groupName: string; baseURL: string; nodes: ProviderNode[] }>)
+  // 节点池分组已归一化到 utils/nodePicker.groupProviders（ChatComposer 内部 NodeList 调用）
 
   // 切换分组展开/折叠，并持久化
   const toggleGroup = (groupKey: string) => {
@@ -373,8 +364,7 @@ export default function NodeTestPage() {
               setActiveSide={setActiveSide}
               testMode={testMode}
               onChangeTestMode={onChangeTestMode}
-              groupedProviders={groupedProviders}
-              availableNodesCount={availableNodes.length}
+              availableNodes={availableNodes}
               nodeGroupExpanded={nodeGroupExpanded}
               toggleGroup={toggleGroup}
               effectiveNodeId={effectiveNodeId}

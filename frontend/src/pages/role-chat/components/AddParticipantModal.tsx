@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react'
-import { Modal, Space, Typography, List, Input, Select, Avatar, App, Checkbox } from 'antd'
+import { Modal, Space, Typography, List, Input, Avatar, App, Checkbox } from 'antd'
 import { SearchOutlined } from '@ant-design/icons'
 import { useAppStore, genId } from '../../../store/appStore'
-import type { RoleChatParticipant } from '../../../services/types'
+import type { RoleChatParticipant, EntityCard } from '../../../services/types'
+import { NodePickerButton } from '../../../components/node-picker/NodePickerButton'
+import { useModuleNode } from '../../../hooks/useModuleNode'
 
 interface Props {
   open: boolean
@@ -31,6 +33,11 @@ export default function AddParticipantModal({ open, onClose, onAddMany }: Props)
   const [selectedCardIds, setSelectedCardIds] = useState<string[]>([])
   const [cardNodeMap, setCardNodeMap] = useState<Record<string, string>>({})
   const [searchText, setSearchText] = useState('')
+  // 人物卡详情浮窗（需求4：点击简介打开）
+  const [detailCard, setDetailCard] = useState<EntityCard | null>(null)
+
+  // 默认节点走 moduleMapping.roleChat（需求3：未选则显示默认）
+  const { nodeId: defaultNodeId } = useModuleNode('roleChat', 'text')
 
   // 当前作品的角色卡片
   const characterCards = cards.filter((c) => c.bookId === currentBookId && c.type === 'character')
@@ -38,7 +45,7 @@ export default function AddParticipantModal({ open, onClose, onAddMany }: Props)
     ? characterCards.filter((c) => c.name.toLowerCase().includes(searchText.toLowerCase()))
     : characterCards
 
-  // 文本节点池
+  // 文本节点池（仅用于空提示）
   const textNodes = providers.filter((p) => p.nodeType === 'text' && p.enabled)
 
   // 重置状态
@@ -51,12 +58,12 @@ export default function AddParticipantModal({ open, onClose, onAddMany }: Props)
     }
   }, [open])
 
-  // 切换角色勾选（首次勾选时给默认节点）
+  // 切换角色勾选（首次勾选标记为走默认节点，空串=默认）
   const toggleCard = (cardId: string) => {
     setSelectedCardIds((prev) =>
       prev.includes(cardId) ? prev.filter((id) => id !== cardId) : [...prev, cardId],
     )
-    setCardNodeMap((prev) => (prev[cardId] ? prev : { ...prev, [cardId]: textNodes[0]?.id ?? '' }))
+    setCardNodeMap((prev) => (cardId in prev ? prev : { ...prev, [cardId]: '' }))
   }
 
   // 为某角色设定节点（同时自动勾选该角色）
@@ -75,7 +82,8 @@ export default function AddParticipantModal({ open, onClose, onAddMany }: Props)
     for (const cardId of selectedCardIds) {
       const card = cards.find((c) => c.id === cardId)
       if (!card) continue
-      const nodeId = cardNodeMap[cardId] || textNodes[0]?.id
+      // 未手动选 → 走 moduleMapping.roleChat 默认（defaultNodeId）
+      const nodeId = cardNodeMap[cardId] || defaultNodeId
       if (!nodeId) {
         message.warning(`角色「${card.name}」未选择节点`)
         return
@@ -135,20 +143,25 @@ export default function AddParticipantModal({ open, onClose, onAddMany }: Props)
                     }}
                     onClick={() => toggleCard(card.id)}
                   >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%' }}>
+                    <div style={{ display: 'flex', alignItems: 'stretch', gap: 10, width: '100%' }}>
                       <Checkbox
                         checked={checked}
                         onChange={() => toggleCard(card.id)}
                         onClick={(e) => e.stopPropagation()}
+                        style={{ alignSelf: 'center' }}
                       />
                       {card.fields.avatar ? (
-                        <Avatar src={card.fields.avatar} />
+                        <Avatar src={card.fields.avatar} style={{ alignSelf: 'center' }} />
                       ) : (
-                        <Avatar style={{ backgroundColor: colorFromName(card.name), flexShrink: 0 }}>
+                        <Avatar style={{ backgroundColor: colorFromName(card.name), flexShrink: 0, alignSelf: 'center' }}>
                           {card.name[0].toUpperCase()}
                         </Avatar>
                       )}
-                      <div style={{ flex: 1, minWidth: 0 }}>
+                      <div
+                        style={{ flex: 1, minWidth: 0, cursor: 'pointer', alignSelf: 'center' }}
+                        onClick={(e) => { e.stopPropagation(); setDetailCard(card) }}
+                        title="点击查看人物卡详情"
+                      >
                         <Typography.Text strong style={{ fontSize: 13, display: 'block' }}>
                           {card.name}
                         </Typography.Text>
@@ -160,16 +173,17 @@ export default function AddParticipantModal({ open, onClose, onAddMany }: Props)
                           {card.description || '（无描述）'}
                         </Typography.Text>
                       </div>
-                      <Select
-                        size="small"
-                        style={{ width: 160, flexShrink: 0 }}
-                        value={cardNodeMap[card.id] || undefined}
-                        onChange={(v) => setCardNode(card.id, v)}
-                        onClick={(e) => e.stopPropagation()}
-                        options={textNodes.map((n) => ({ label: n.name, value: n.id }))}
-                        placeholder="选择节点"
-                        popupMatchSelectWidth={false}
-                      />
+                      {/* 需求3：节点选择按钮，上下端对齐左侧人物名称与简介 */}
+                      <div onClick={(e) => e.stopPropagation()} style={{ flexShrink: 0, alignSelf: 'stretch' }}>
+                        <NodePickerButton
+                          moduleKey="roleChat"
+                          kind="text"
+                          value={cardNodeMap[card.id] || undefined}
+                          onChange={(v) => setCardNode(card.id, v)}
+                          stretch
+                          style={{ width: 160 }}
+                        />
+                      </div>
                     </div>
                   </List.Item>
                 )
@@ -183,6 +197,50 @@ export default function AddParticipantModal({ open, onClose, onAddMany }: Props)
           )}
         </div>
       </Space>
+
+      {/* 需求4：人物卡详情浮窗（点击简介打开） */}
+      <Modal
+        title={detailCard?.name ?? '人物卡详情'}
+        open={!!detailCard}
+        onCancel={() => setDetailCard(null)}
+        footer={null}
+        width={480}
+      >
+        {detailCard && (
+          <Space direction="vertical" size={12} style={{ width: '100%' }}>
+            <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+              {detailCard.fields.avatar && <Avatar src={detailCard.fields.avatar} size={64} />}
+              <div style={{ flex: 1 }}>
+                <Typography.Text strong style={{ fontSize: 16 }}>{detailCard.name}</Typography.Text>
+                <Typography.Text type="secondary" style={{ display: 'block', fontSize: 12 }}>
+                  类型：{detailCard.type}
+                </Typography.Text>
+              </div>
+            </div>
+            {detailCard.description && (
+              <div>
+                <Typography.Text type="secondary" style={{ fontSize: 12 }}>简介</Typography.Text>
+                <Typography.Paragraph style={{ marginTop: 4 }}>{detailCard.description}</Typography.Paragraph>
+              </div>
+            )}
+            {Object.entries(detailCard.fields).filter(([k, v]) => k !== 'avatar' && v).length > 0 && (
+              <div>
+                <Typography.Text type="secondary" style={{ fontSize: 12 }}>字段详情</Typography.Text>
+                <div style={{ marginTop: 4 }}>
+                  {Object.entries(detailCard.fields)
+                    .filter(([k, v]) => k !== 'avatar' && v)
+                    .map(([k, v]) => (
+                      <div key={k} style={{ marginBottom: 4 }}>
+                        <Typography.Text type="secondary" style={{ fontSize: 12 }}>{k}：</Typography.Text>
+                        <Typography.Text style={{ fontSize: 13 }}>{String(v)}</Typography.Text>
+                      </div>
+                    ))}
+                </div>
+              </div>
+            )}
+          </Space>
+        )}
+      </Modal>
     </Modal>
   )
 }

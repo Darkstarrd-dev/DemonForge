@@ -20,6 +20,8 @@ type DraftBody = ProviderConfig & {
   userGuidance?: string
   /** 目标字数（默认 3000） */
   targetWordCount?: number
+  /** 系统提示词覆盖（空=用默认） */
+  systemPrompt?: string
 }
 type FinalizeBody = ProviderConfig & {
   /** 章节完整正文 */
@@ -28,6 +30,8 @@ type FinalizeBody = ProviderConfig & {
   existingGlobalSummary?: string
   /** 现有角色状态列表（JSON 字符串） */
   existingStates?: string
+  /** 系统提示词覆盖（空=用默认） */
+  systemPrompt?: string
 }
 type ConsistencyBody = ProviderConfig & {
   /** 待审校章节正文 */
@@ -38,18 +42,22 @@ type ConsistencyBody = ProviderConfig & {
   characterStates?: string
   /** 前文摘要 */
   previousSummary?: string
+  /** 系统提示词覆盖（空=用默认） */
+  systemPrompt?: string
 }
 type SimulateBody = ProviderConfig & {
   /** Context Assembler 输入参数 */
   context: AssembleInput
   /** 生成候选数（默认 2） */
   candidateCount?: number
+  /** 系统提示词覆盖（空=用默认） */
+  systemPrompt?: string
 }
 
 export async function generateRoutes(app: FastifyInstance) {
   // 生成章节草稿（M4）——SSE 流式
   app.post('/api/llm/draft', async (req, reply) => {
-    const { baseURL, apiKey, model, context, userGuidance, targetWordCount } = (req.body ?? {}) as DraftBody
+    const { baseURL, apiKey, model, context, userGuidance, targetWordCount, systemPrompt } = (req.body ?? {}) as DraftBody
     if (!baseURL || !model || !context?.bookId) {
       reply.status(400).send({ error: '缺少 baseURL / model / context.bookId' })
       return
@@ -116,14 +124,14 @@ export async function generateRoutes(app: FastifyInstance) {
     const userPrompt = sections.filter(Boolean).join('\n')
 
     await streamChat(reply, { baseURL, apiKey, model }, [
-      { role: 'system', content: DRAFT_SYSTEM_PROMPT },
+      { role: 'system', content: systemPrompt?.trim() || DRAFT_SYSTEM_PROMPT },
       { role: 'user', content: userPrompt },
     ])
   })
 
   // 定稿章节（M5 finalize）——SSE 流式，输出 JSON
   app.post('/api/llm/finalize', async (req, reply) => {
-    const { baseURL, apiKey, model, chapterText, existingGlobalSummary, existingStates } = (req.body ??
+    const { baseURL, apiKey, model, chapterText, existingGlobalSummary, existingStates, systemPrompt } = (req.body ??
       {}) as FinalizeBody
     if (!baseURL || !model || !chapterText?.trim()) {
       reply.status(400).send({ error: '缺少 baseURL / model / chapterText' })
@@ -144,14 +152,14 @@ export async function generateRoutes(app: FastifyInstance) {
     ].join('\n')
 
     await streamChat(reply, { baseURL, apiKey, model }, [
-      { role: 'system', content: FINALIZE_SYSTEM_PROMPT },
+      { role: 'system', content: systemPrompt?.trim() || FINALIZE_SYSTEM_PROMPT },
       { role: 'user', content: userPrompt },
     ])
   })
 
   // 一致性审校（M5 consistency）——SSE 流式，输出 JSON
   app.post('/api/llm/consistency', async (req, reply) => {
-    const { baseURL, apiKey, model, chapterText, architecture, characterStates, previousSummary } = (req.body ??
+    const { baseURL, apiKey, model, chapterText, architecture, characterStates, previousSummary, systemPrompt } = (req.body ??
       {}) as ConsistencyBody
     if (!baseURL || !model || !chapterText?.trim()) {
       reply.status(400).send({ error: '缺少 baseURL / model / chapterText' })
@@ -175,14 +183,14 @@ export async function generateRoutes(app: FastifyInstance) {
     ].join('\n')
 
     await streamChat(reply, { baseURL, apiKey, model }, [
-      { role: 'system', content: CONSISTENCY_SYSTEM_PROMPT },
+      { role: 'system', content: systemPrompt?.trim() || CONSISTENCY_SYSTEM_PROMPT },
       { role: 'user', content: userPrompt },
     ])
   })
 
   // M3 角色推演（simulate）——SSE 流式，串行生成多个候选
   app.post('/api/llm/simulate', async (req, reply) => {
-    const { baseURL, apiKey, model, context, candidateCount } = (req.body ?? {}) as SimulateBody
+    const { baseURL, apiKey, model, context, candidateCount, systemPrompt } = (req.body ?? {}) as SimulateBody
     if (!baseURL || !model || !context?.bookId || !context?.sceneId || !context?.targetCharacterId) {
       reply.status(400).send({ error: '缺少 baseURL / model / context.bookId / sceneId / targetCharacterId' })
       return
@@ -250,7 +258,7 @@ export async function generateRoutes(app: FastifyInstance) {
             apiKey,
             model,
             messages: [
-              { role: 'system', content: SIMULATE_CHARACTER_SYSTEM_PROMPT },
+              { role: 'system', content: systemPrompt?.trim() || SIMULATE_CHARACTER_SYSTEM_PROMPT },
               { role: 'user', content: userPrompt },
             ],
             signal: ac.signal,

@@ -1,7 +1,7 @@
 // M2 设定卡片 · 批量 AI 生成（条件挂载，每次打开自然重置）。
 // 流程：① 配置类型/归属/节点/数量/要求/串并发/单次批次 → ② 生成侧写（可编辑）→
 //      ③ 按「单次请求批次 K」切块，串行或并发(C)逐块扩写为完整卡片 → ④ 复核勾选，批量入库。
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   App, Button, Checkbox, Divider, Empty, Input, InputNumber, List, Modal,
   Progress, Radio, Select, Space, Spin, Tag, Typography,
@@ -9,7 +9,11 @@ import {
 import { DeleteOutlined, PlusOutlined, ThunderboltOutlined, StopOutlined, ReloadOutlined } from '@ant-design/icons'
 import type { Book, EntityCard, EntityType, ProviderNode } from '../../services/types'
 import { generateCardProfiles, generateCardsBatch, type CardProfile, type GeneratedCard } from '../../services/api'
+import { NodePickerButton } from '../../components/node-picker/NodePickerButton'
+import { PromptEditorButton } from '../../components/PromptEditorButton'
+import { useModuleNode } from '../../hooks/useModuleNode'
 import { buildEntityCard } from '../../utils/buildEntityCard'
+import { useAppStore } from '../../store/appStore'
 
 const TYPE_OPTIONS: { value: EntityType; label: string }[] = [
   { value: 'character', label: '人物' },
@@ -29,13 +33,14 @@ interface Props {
   onSavedMany: (cards: EntityCard[]) => void
 }
 
-export default function BatchCardModal({ books, providers, defaultTextNodeId, defaultBookId, onClose, onSavedMany }: Props) {
+export default function BatchCardModal({ books, providers, defaultBookId, onClose, onSavedMany }: Props) {
   const { message } = App.useApp()
-  const textNodes = useMemo(() => providers.filter((p) => p.nodeType !== 'image'), [providers])
 
   const [type, setType] = useState<EntityType>('character')
   const [bookId, setBookId] = useState<string>(defaultBookId ?? '')
-  const [textNodeId, setTextNodeId] = useState<string>(defaultTextNodeId || textNodes[0]?.id || '')
+  const [textNodeId, setTextNodeId] = useState<string>('')
+  // 实际生效节点：未手动选则走 moduleMapping.m2Extract 默认（需求6追加：默认显示默认）
+  const { nodeId: resolvedNodeId } = useModuleNode('m2Extract', 'text', textNodeId || undefined)
   const [instruction, setInstruction] = useState('')
   const [count, setCount] = useState(5)
   const [batchMode, setBatchMode] = useState<'serial' | 'concurrent'>('serial')
@@ -52,7 +57,7 @@ export default function BatchCardModal({ books, providers, defaultTextNodeId, de
   // 卸载即停止在途批量（防止后台续跑烧 token）
   useEffect(() => () => { abortRef.current = true }, [])
 
-  const node = providers.find((p) => p.id === textNodeId)
+  const node = providers.find((p) => p.id === resolvedNodeId)
   const bookOptions = [
     { value: '', label: '素材库（不归属任何书）' },
     ...books.map((b) => ({ value: b.id, label: `${b.title}（${b.type === 'project' ? '作品' : '素材'}）` })),
@@ -64,7 +69,12 @@ export default function BatchCardModal({ books, providers, defaultTextNodeId, de
     if (!node) { message.warning('请选择文本节点'); return }
     setBusy(true)
     try {
-      const ps = await generateCardProfiles(node, { type, count, instruction: instruction.trim() })
+      const ps = await generateCardProfiles(node, {
+        type, count, instruction: instruction.trim(),
+        ...(useAppStore.getState().promptOverrides['m2-card-profiles']
+          ? { systemPrompt: useAppStore.getState().promptOverrides['m2-card-profiles'] }
+          : {}),
+      })
       if (ps.length === 0) { message.error('未生成侧写，请重试或调整要求'); return }
       setProfiles(ps)
       setPhase('profiles')
@@ -101,7 +111,12 @@ export default function BatchCardModal({ books, providers, defaultTextNodeId, de
     const runChunk = async (chunk: CardProfile[]) => {
       if (abortRef.current) return
       try {
-        const { cards } = await generateCardsBatch(node, { type, profiles: chunk, instruction: instruction.trim() })
+        const { cards } = await generateCardsBatch(node, {
+          type, profiles: chunk, instruction: instruction.trim(),
+          ...(useAppStore.getState().promptOverrides['m2-cards-batch']
+            ? { systemPrompt: useAppStore.getState().promptOverrides['m2-cards-batch'] }
+            : {}),
+        })
         setResults((rs) => [...rs, ...cards.filter((c) => c.name.trim()).map((card) => ({ card, checked: true }))])
       } catch {
         failed++
@@ -156,14 +171,16 @@ export default function BatchCardModal({ books, providers, defaultTextNodeId, de
         <span>类型：<Select style={{ width: 110, marginLeft: 4 }} value={type} onChange={setType} options={TYPE_OPTIONS} /></span>
         <span>归属书：<Select style={{ width: 230, marginLeft: 4 }} value={bookId} onChange={setBookId} options={bookOptions} /></span>
         <span>文本节点：
-          <Select
-            style={{ width: 220, marginLeft: 4 }}
-            placeholder="选择文本节点"
+          <NodePickerButton
+            moduleKey="m2Extract"
+            kind="text"
             value={textNodeId || undefined}
             onChange={setTextNodeId}
-            options={textNodes.map((n) => ({ value: n.id, label: `${n.name} · ${n.model}` }))}
+            style={{ width: 220, marginLeft: 4, verticalAlign: 'middle' }}
           />
         </span>
+        <PromptEditorButton promptKey="m2-card-profiles" label="编辑侧写提示词" />
+        <PromptEditorButton promptKey="m2-cards-batch" label="编辑扩写提示词" />
       </Space>
       <Input.TextArea
         placeholder="整体要求/主题（可留空：留空则仅按所选类型自由随机生成一批彼此差异化的设定）"
@@ -304,7 +321,7 @@ export default function BatchCardModal({ books, providers, defaultTextNodeId, de
         {phase === 'generating' && generatingView}
         {phase === 'review' && reviewView}
       </Spin>
-      {textNodes.length === 0 && (
+      {providers.filter((p) => p.nodeType === 'text' && p.enabled).length === 0 && (
         <Typography.Text type="danger" style={{ fontSize: 12, display: 'block', marginTop: 12 }}>
           暂无可用文本节点，请先在「系统设置」启用文本节点
         </Typography.Text>

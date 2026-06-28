@@ -10,6 +10,7 @@ export interface SimulateParams {
   scene: SimScene
   targetCharacterId: string
   candidateCount: number
+  systemPrompt?: string
 }
 
 /**
@@ -27,6 +28,7 @@ export async function simulateCharacter(
   card: EntityCard,
   onChunk: (candidateIdx: number, accText: string) => void,
   signal?: AbortSignal,
+  systemPrompt?: string,
 ): Promise<{ id: string; text: string }[]> {
   // 从 settings.json 读取 Provider 配置（M3 模块）
   const settingsRes = await fetch('/api/settings')
@@ -48,6 +50,7 @@ export async function simulateCharacter(
     scene,
     targetCharacterId: card.id,
     candidateCount: 2,
+    ...(systemPrompt ? { systemPrompt } : {}),
   }
 
   const res = await fetch('/api/llm/simulate', {

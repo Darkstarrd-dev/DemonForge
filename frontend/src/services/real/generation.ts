@@ -28,6 +28,7 @@ export interface DraftParams {
   context: DraftContext
   userGuidance?: string
   targetWordCount?: number
+  systemPrompt?: string
 }
 
 /** 生成章节草稿（M4）——流式 */
@@ -59,6 +60,7 @@ export interface FinalizeParams {
   chapterText: string
   existingGlobalSummary?: string
   existingStates?: string
+  systemPrompt?: string
 }
 
 /** 定稿章节（M5）——流式返回 JSON */
@@ -95,6 +97,7 @@ export interface ConsistencyParams {
   architecture?: string
   characterStates?: string
   previousSummary?: string
+  systemPrompt?: string
 }
 
 /** 一致性审校（M5）——流式返回 JSON */

@@ -12,6 +12,7 @@ export interface ArchInputParams extends CreationProvider {
   genre?: string
   chapters?: number
   guidance?: string
+  systemPrompt?: string
 }
 
 export interface ArchInputResult {
@@ -25,6 +26,7 @@ export interface ArchParams extends CreationProvider {
   genre?: string
   chapters?: number
   guidance?: string
+  systemPrompt?: string
 }
 
 export interface BlueprintParams extends CreationProvider {
@@ -36,6 +38,7 @@ export interface BlueprintParams extends CreationProvider {
   totalChapters?: number
   /** 起始章号（续写时传入） */
   startChapter?: number
+  systemPrompt?: string
 }
 
 /**

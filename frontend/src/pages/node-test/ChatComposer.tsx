@@ -1,18 +1,13 @@
 // 节点测试 · 底部输入区（A-8 从 index.tsx 抽出，render-only）。
 // 含：图片预览条 + 底部展开菜单（对比侧选择 / 测试模式 / 分组节点列表）+ 文本输入框 + 发送/取消按钮。
-// 所有状态与回调由父级注入；分组数据 groupedProviders 由父级算好传入。
+// 所有状态与回调由父级注入；节点列表渲染归一化到 components/node-picker/NodeList（两行版）。
 import { Button, Space, Typography, Upload, Segmented, theme } from 'antd'
 import { CloseOutlined, MessageOutlined, PictureOutlined, FileImageOutlined, SendOutlined } from '@ant-design/icons'
 import type { RefObject } from 'react'
 import type { ProviderNode } from '../../services/types'
 import type { NodeTestForm } from '../../store/appStore'
 import type { TestMode } from './types'
-
-interface ProviderGroup {
-  groupName: string
-  baseURL: string
-  nodes: ProviderNode[]
-}
+import { NodeList } from '../../components/node-picker/NodeList'
 
 export default function ChatComposer(props: {
   // 图片预览
@@ -28,8 +23,7 @@ export default function ChatComposer(props: {
   testMode: TestMode
   onChangeTestMode: (v: TestMode) => void
   // 节点列表
-  groupedProviders: Record<string, ProviderGroup>
-  availableNodesCount: number
+  availableNodes: ProviderNode[]
   nodeGroupExpanded: Record<string, boolean>
   toggleGroup: (groupKey: string) => void
   effectiveNodeId: string | undefined
@@ -54,7 +48,7 @@ export default function ChatComposer(props: {
   const {
     showImageInput, selectedImages, removeImage,
     bottomMenuOpen, setBottomMenuOpen, compareMode, activeSide, setActiveSide, testMode, onChangeTestMode,
-    groupedProviders, availableNodesCount, nodeGroupExpanded, toggleGroup,
+    availableNodes, nodeGroupExpanded, toggleGroup,
     effectiveNodeId, selectedNodeIdLeft, selectedNodeIdRight, onPickNode,
     isImageMode, isMultimodal, supportsEdit, selectedNode,
     nodeTestForm, setForm, handleKeyDown, promptRef, handleFileSelect, busy, handleCancel, handleGenerate,
@@ -144,66 +138,15 @@ export default function ChatComposer(props: {
 
           {/* 节点列表 */}
           <div style={{ padding: '8px 0', maxHeight: 300, overflowY: 'auto' }}>
-            {Object.entries(groupedProviders).map(([groupKey, { groupName, baseURL, nodes }]) => {
-              const isExpanded = nodeGroupExpanded[groupKey] ?? true
-              return (
-                <div key={groupKey} style={{ marginBottom: 4 }}>
-                  {/* 分组标题 */}
-                  <div
-                    style={{
-                      padding: '8px 16px',
-                      cursor: 'pointer',
-                      background: isExpanded ? token.colorFillQuaternary : 'transparent',
-                      transition: 'background 0.2s',
-                    }}
-                    onClick={() => toggleGroup(groupKey)}
-                  >
-                    <Space size={4}>
-                      <Typography.Text style={{ fontSize: 11, color: token.colorTextSecondary }}>
-                        {isExpanded ? '▼' : '▶'}
-                      </Typography.Text>
-                      <Typography.Text strong style={{ fontSize: 13 }}>{groupName}</Typography.Text>
-                      <Typography.Text type="secondary" style={{ fontSize: 11 }}>({nodes.length})</Typography.Text>
-                    </Space>
-                    <Typography.Text type="secondary" style={{ fontSize: 11, display: 'block', marginTop: 2, marginLeft: 12 }}>
-                      {baseURL}
-                    </Typography.Text>
-                  </div>
-
-                  {/* 节点列表 */}
-                  {isExpanded && nodes.map((node) => {
-                    // 对比模式下根据 activeSide 判断高亮
-                    const isSelected = compareMode
-                      ? (activeSide === 'left' ? selectedNodeIdLeft === node.id : selectedNodeIdRight === node.id)
-                      : effectiveNodeId === node.id
-                    return (
-                      <div
-                        key={node.id}
-                        style={{
-                          padding: '8px 16px 8px 28px',
-                          cursor: 'pointer',
-                          background: isSelected ? token.colorPrimaryBg : 'transparent',
-                          borderLeft: isSelected ? `3px solid ${token.colorPrimary}` : '3px solid transparent',
-                          transition: 'all 0.2s',
-                        }}
-                        onClick={() => onPickNode(node.id)}
-                      >
-                        <Typography.Text style={{ fontSize: 13, display: 'block', fontWeight: isSelected ? 500 : 400, color: isSelected ? token.colorPrimary : token.colorText }}>
-                          {groupName} · {node.model}
-                        </Typography.Text>
-                        {node.supportsImageEdit && <Typography.Text type="secondary" style={{ fontSize: 11, marginRight: 4 }}>🖼️ 图生图</Typography.Text>}
-                        {node.isMultimodal && <Typography.Text type="secondary" style={{ fontSize: 11 }}>👁️ 多模态</Typography.Text>}
-                      </div>
-                    )
-                  })}
-                </div>
-              )
-            })}
-            {availableNodesCount === 0 && (
-              <div style={{ padding: 24, textAlign: 'center' }}>
-                <Typography.Text type="secondary">无可用节点</Typography.Text>
-              </div>
-            )}
+            <NodeList
+              nodes={availableNodes}
+              selectedId={compareMode
+                ? (activeSide === 'left' ? selectedNodeIdLeft : selectedNodeIdRight)
+                : effectiveNodeId}
+              onSelect={onPickNode}
+              expandedMap={nodeGroupExpanded}
+              onToggleExpand={toggleGroup}
+            />
           </div>
         </div>
       )}

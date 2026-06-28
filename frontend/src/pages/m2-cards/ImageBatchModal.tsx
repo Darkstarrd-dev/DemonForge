@@ -1,7 +1,7 @@
 // M2 设定卡片 · 批量生图队列（暂存区模型）。
 // 步骤 1：文本节点出一组提示词（可编辑）→ 步骤 2：图片节点并发生图 → 队列里看大图/保存/删除/重试。
 // 「保存」=采纳进卡片相册（立即落库）；「删除」=从队列丢弃；关闭时未保存的图自动丢弃（归档文件留盘）。
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { App, Button, Image, Input, InputNumber, Modal, Select, Space, Spin, Tag, Tooltip, Typography, Upload } from 'antd'
 import {
   PlusOutlined,
@@ -13,8 +13,11 @@ import {
 } from '@ant-design/icons'
 import type { CardImage, EntityCard, ProviderNode } from '../../services/types'
 import { generateCardImagePrompts, generateOneCardImage, runImageBatch } from '../../services/api'
+import { NodePickerButton } from '../../components/node-picker/NodePickerButton'
+import { PromptEditorButton } from '../../components/PromptEditorButton'
+import { useModuleNode } from '../../hooks/useModuleNode'
 import type { CardImageParams, BatchItemStatus } from '../../services/api'
-import { genId } from '../../store/appStore'
+import { genId, useAppStore } from '../../store/appStore'
 
 interface QItem {
   id: string
@@ -41,17 +44,16 @@ const GROUP_PRESETS = ['表情差分', '全身形象', '场景背景', '服饰�
 export default function ImageBatchModal({
   card,
   providers,
-  defaultTextNodeId,
-  defaultImageNodeId,
   onClose,
   onSaveImage,
 }: Props) {
   const { message } = App.useApp()
-  const textNodes = useMemo(() => providers.filter((p) => p.nodeType !== 'image'), [providers])
-  const imageNodes = useMemo(() => providers.filter((p) => p.nodeType === 'image'), [providers])
 
-  const [textNodeId, setTextNodeId] = useState(defaultTextNodeId || textNodes[0]?.id || '')
-  const [imageNodeId, setImageNodeId] = useState(defaultImageNodeId || imageNodes[0]?.id || '')
+  const [textNodeId, setTextNodeId] = useState('')
+  const [imageNodeId, setImageNodeId] = useState('')
+  // 实际生效节点：未手动选则走 moduleMapping 默认（需求7：默认显示默认）
+  const { nodeId: resolvedTextNodeId } = useModuleNode('m2Extract', 'text', textNodeId || undefined)
+  const { nodeId: resolvedImageNodeId } = useModuleNode('m2CardImage', 'image', imageNodeId || undefined)
   const [intent, setIntent] = useState('')
   const [group, setGroup] = useState<string>('表情差分')
   const [count, setCount] = useState(6)
@@ -85,7 +87,7 @@ export default function ImageBatchModal({
     return false // 阻止 antd 自动上传
   }
 
-  const imageNode = providers.find((p) => p.id === imageNodeId)
+  const imageNode = providers.find((p) => p.id === resolvedImageNodeId)
   const protocol = imageNode?.protocol ?? 'modelscope'
 
   const buildParams = (): CardImageParams => ({
@@ -104,7 +106,7 @@ export default function ImageBatchModal({
       message.warning('请填写用途/意图，例如「6 个表情差分」')
       return
     }
-    const node = providers.find((p) => p.id === textNodeId)
+    const node = providers.find((p) => p.id === resolvedTextNodeId)
     if (!node) {
       message.warning('请选择文本节点')
       return
@@ -114,7 +116,14 @@ export default function ImageBatchModal({
       const cardDesc = `${card.name}（${card.type}）：${card.description}\n${Object.entries(card.fields)
         .map(([k, v]) => `${k}：${v}`)
         .join('；')}`
-      const prompts = await generateCardImagePrompts(node, { cardDescription: cardDesc, intent: intent.trim(), count })
+      const prompts = await generateCardImagePrompts(node, {
+        cardDescription: cardDesc,
+        intent: intent.trim(),
+        count,
+        ...(useAppStore.getState().promptOverrides['m2-card-image-prompts']
+          ? { systemPrompt: useAppStore.getState().promptOverrides['m2-card-image-prompts'] }
+          : {}),
+      })
       if (prompts.length === 0) {
         message.warning('未生成到提示词，请调整意图后重试')
         return
@@ -217,26 +226,25 @@ export default function ImageBatchModal({
         <Space wrap>
           <span>
             文本节点：
-            <Select
-              size="small"
-              style={{ width: 200, marginLeft: 4 }}
-              placeholder="文本节点"
+            <NodePickerButton
+              moduleKey="m2Extract"
+              kind="text"
               value={textNodeId || undefined}
               onChange={setTextNodeId}
-              options={textNodes.map((n) => ({ value: n.id, label: `${n.name} · ${n.model}` }))}
+              style={{ width: 200, marginLeft: 4, verticalAlign: 'middle' }}
             />
           </span>
           <span>
             图片节点：
-            <Select
-              size="small"
-              style={{ width: 220, marginLeft: 4 }}
-              placeholder="图片节点"
+            <NodePickerButton
+              moduleKey="m2CardImage"
+              kind="image"
               value={imageNodeId || undefined}
               onChange={setImageNodeId}
-              options={imageNodes.map((n) => ({ value: n.id, label: `${n.name} · ${n.model}（${n.protocol ?? 'modelscope'}）` }))}
+              style={{ width: 220, marginLeft: 4, verticalAlign: 'middle' }}
             />
           </span>
+          <PromptEditorButton promptKey="m2-card-image-prompts" label="编辑提示词提示词" />
         </Space>
 
         <Space wrap>

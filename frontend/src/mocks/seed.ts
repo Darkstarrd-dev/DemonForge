@@ -59,10 +59,13 @@ export const seedModuleMapping: Record<ModuleKey, ModuleModelMapping> = {
   m0Blueprint: { nodeId: null },
   m1Clean: { nodeId: 'prov-2', model: 'demo-large-v2' },
   m2Extract: { nodeId: 'prov-2', model: 'demo-large-v2' },
+  m2CardImage: { nodeId: null },
   m3Simulate: { nodeId: 'prov-2', model: 'demo-large-v2' },
   m4Generate: { nodeId: 'prov-2', model: 'demo-large-v2' },
   m5Check: { nodeId: 'prov-1', model: 'qwen3-32b-q4' },
   m5Finalize: { nodeId: null },
+  batchGenerate: { nodeId: null },
+  roleChat: { nodeId: null },
   embedding: { nodeId: 'prov-1', model: 'bge-m3' },
 }
 

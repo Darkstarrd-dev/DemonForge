@@ -31,6 +31,7 @@ import {
 } from '@ant-design/icons'
 import { useAppStore, pushImportSessionNow, type CleanRunNodeSession } from '../../store/appStore'
 import { startCleanQueue, getDefaultPrompt, type CleanNode, type CleanQueueHandle, type CleanQueueDebugEvent } from '../../services/api'
+import { PromptEditorButton } from '../../components/PromptEditorButton'
 import { useNavigate } from 'react-router-dom'
 
 interface DebugEntry {
@@ -112,6 +113,12 @@ export default function Step3Clean() {
   const paused = cleanRun?.paused ?? false
   const active = useMemo(() => cleanRun?.active ?? [], [cleanRun?.active])
   const nodeSessions = useMemo(() => cleanRun?.nodeSessions ?? [], [cleanRun?.nodeSessions])
+  // 节点池折叠态：默认展开；开始清理时自动折叠（保留原行为），但允许用户手动切换（修需求9 bug）
+  const [nodePoolOpen, setNodePoolOpen] = useState(true)
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 响应 store 运行态变化折叠节点池（需求9：保留"开始后自动折叠"行为）
+    if (running) setNodePoolOpen(false)
+  }, [running])
   const [selectedTask, setSelectedTask] = useState<string | null>(null)
   const [debugEntries, setDebugEntries] = useState<DebugEntry[]>([])
   const [logFilter, setLogFilter] = useState<'all' | 'request' | 'response' | 'error'>('all')
@@ -430,7 +437,7 @@ export default function Step3Clean() {
           })
         },
       },
-      { systemPrompt: overridePrompt.trim() || m1SystemPrompt || undefined, isNodeAvailable: (id) => useAppStore.getState().consumeProviderUsage(id), autoRetry: m1AutoRetry },
+      { systemPrompt: overridePrompt.trim() || useAppStore.getState().promptOverrides['m1-clean'] || m1SystemPrompt || undefined, isNodeAvailable: (id) => useAppStore.getState().consumeProviderUsage(id), autoRetry: m1AutoRetry },
     )
     handleRef.current = handle
     // 同步 handle 到 store（跨页面访问）
@@ -553,9 +560,10 @@ export default function Step3Clean() {
 
   return (
     <Space direction="vertical" size={16} style={{ width: '100%' }}>
-      {/* 节点池（可折叠）：开始清理后自动折叠 */}
+      {/* 节点池（可手动折叠；开始清理后自动折叠） */}
       <Collapse
-        activeKey={running ? [] : ['nodes']}
+        activeKey={nodePoolOpen ? ['nodes'] : []}
+        onChange={(keys) => setNodePoolOpen(keys.includes('nodes'))}
         items={[
           {
             key: 'nodes',
@@ -918,8 +926,9 @@ export default function Step3Clean() {
                   <Button size="small" disabled={running || !overridePrompt} onClick={() => setOverridePrompt('')}>
                     清空本次覆盖
                   </Button>
+                  <PromptEditorButton promptKey="m1-clean" label="编辑持久化提示词" />
                   <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                    生效优先级：本次覆盖 &gt; 设置页默认 &gt; 后端内置 · 首次自动填入内置默认
+                    生效优先级：本次覆盖 &gt; 持久化覆盖 &gt; 设置页默认 &gt; 后端内置
                   </Typography.Text>
                 </Space>
               </>

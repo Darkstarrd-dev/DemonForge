@@ -28,6 +28,7 @@ import {
 } from '@ant-design/icons'
 import { useAppStore, genId } from '../../store/appStore'
 import { simulateCharacter } from '../../services/api'
+import { PromptEditorButton } from '../../components/PromptEditorButton'
 import type { SimScene } from '../../services/types'
 
 export default function M3SimulatePage() {
@@ -81,8 +82,12 @@ export default function M3SimulatePage() {
     setGenerating(true)
     setCandidates(['', ''])
     try {
-      const results = await simulateCharacter(scene, target, (idx, acc) =>
-        setCandidates((prev) => prev.map((c, i) => (i === idx ? acc : c))),
+      const results = await simulateCharacter(
+        scene,
+        target,
+        (idx, acc) => setCandidates((prev) => prev.map((c, i) => (i === idx ? acc : c))),
+        undefined,
+        useAppStore.getState().promptOverrides['m3-simulate'] || undefined,
       )
       setCandidates(results.map((r) => r.text))
     } catch (err) {
@@ -237,6 +242,7 @@ export default function M3SimulatePage() {
             >
               {generating ? '推演生成中…' : '生成推演候选'}
             </Button>
+            <PromptEditorButton promptKey="m3-simulate" label="编辑推演提示词" />
           </Card>
         )}
       </Col>

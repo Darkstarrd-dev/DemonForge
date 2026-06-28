@@ -20,6 +20,8 @@ type ExtractEntitiesBody = ProviderConfig & {
   chapterIds: string[]
   /** 已存在的卡片名称（用于去重） */
   existingCardNames?: string[]
+  /** 系统提示词覆盖（空=用默认） */
+  systemPrompt?: string
 }
 type GenerateCardBody = ProviderConfig & {
   /** 实体类型 character/location/item/skill/faction */
@@ -40,6 +42,8 @@ type CardImagePromptsBody = ProviderConfig & {
   intent: string
   /** 需要的提示词数量 */
   count?: number
+  /** 系统提示词覆盖（空=用默认） */
+  systemPrompt?: string
 }
 type CardProfilesBody = ProviderConfig & {
   /** 实体类型 */
@@ -48,6 +52,8 @@ type CardProfilesBody = ProviderConfig & {
   count?: number
   /** 整体要求/主题（可空） */
   instruction?: string
+  /** 系统提示词覆盖（空=用默认） */
+  systemPrompt?: string
 }
 type GenerateCardsBatchBody = ProviderConfig & {
   /** 实体类型 */
@@ -56,6 +62,8 @@ type GenerateCardsBatchBody = ProviderConfig & {
   profiles: { name: string; brief: string }[]
   /** 整体要求/主题（可空） */
   instruction?: string
+  /** 系统提示词覆盖（空=用默认） */
+  systemPrompt?: string
 }
 
 /** 构造卡片生成的 user prompt；instruction 为空时走「按类型随机自由创作」。 */
@@ -77,7 +85,7 @@ function buildCardUserPrompt(type: string, isEnrich: boolean, existingCard: stri
 export async function m2Routes(app: FastifyInstance) {
   // M2 设定提取（批量章节并行）——SSE 流式，输出 progress/entity/merge/done/error 事件
   app.post('/api/llm/extract-entities', async (req, reply) => {
-    const { baseURL, apiKey, model, bookId, chapterIds, existingCardNames } = (req.body ?? {}) as ExtractEntitiesBody
+    const { baseURL, apiKey, model, bookId, chapterIds, existingCardNames, systemPrompt } = (req.body ?? {}) as ExtractEntitiesBody
     if (!baseURL || !model || !bookId || !Array.isArray(chapterIds) || chapterIds.length === 0) {
       reply.status(400).send({ error: '缺少 baseURL / model / bookId / chapterIds' })
       return
@@ -134,7 +142,7 @@ export async function m2Routes(app: FastifyInstance) {
               apiKey,
               model,
               messages: [
-                { role: 'system', content: EXTRACT_ENTITIES_SYSTEM_PROMPT },
+                { role: 'system', content: systemPrompt?.trim() || EXTRACT_ENTITIES_SYSTEM_PROMPT },
                 { role: 'user', content: userPrompt },
               ],
               signal: ac.signal,
@@ -323,7 +331,7 @@ export async function m2Routes(app: FastifyInstance) {
 
   // M2 设定卡片 · 批量生图提示词生成——非流式 JSON 响应
   app.post('/api/llm/card-image-prompts', async (req, reply) => {
-    const { baseURL, apiKey, model, cardDescription, intent, count } = (req.body ?? {}) as CardImagePromptsBody
+    const { baseURL, apiKey, model, cardDescription, intent, count, systemPrompt } = (req.body ?? {}) as CardImagePromptsBody
     if (!baseURL || !model || !cardDescription?.trim() || !intent?.trim()) {
       reply.status(400).send({ error: '缺少 baseURL / model / cardDescription / intent' })
       return
@@ -337,7 +345,7 @@ export async function m2Routes(app: FastifyInstance) {
     ].join('\n')
 
     try {
-      const full = await collectText({ baseURL, apiKey, model }, CARD_IMAGE_PROMPTS_SYSTEM_PROMPT, userPrompt)
+      const full = await collectText({ baseURL, apiKey, model }, systemPrompt?.trim() || CARD_IMAGE_PROMPTS_SYSTEM_PROMPT, userPrompt)
       let parsed: { prompts?: Array<{ label?: string; prompt?: string }> }
       try {
         parsed = JSON.parse(stripJsonFence(full)) as { prompts?: Array<{ label?: string; prompt?: string }> }
@@ -361,7 +369,7 @@ export async function m2Routes(app: FastifyInstance) {
 
   // M2 设定卡片 · 批量生成第一步：根据数量+要求生成一组简短侧写——非流式 JSON 响应
   app.post('/api/llm/card-profiles', async (req, reply) => {
-    const { baseURL, apiKey, model, type, count, instruction } = (req.body ?? {}) as CardProfilesBody
+    const { baseURL, apiKey, model, type, count, instruction, systemPrompt } = (req.body ?? {}) as CardProfilesBody
     if (!baseURL || !model || !type?.trim()) {
       reply.status(400).send({ error: '缺少 baseURL / model / type' })
       return
@@ -377,7 +385,7 @@ export async function m2Routes(app: FastifyInstance) {
     ].join('\n')
 
     try {
-      const full = await collectText({ baseURL, apiKey, model }, GENERATE_CARD_PROFILES_SYSTEM_PROMPT, userPrompt)
+      const full = await collectText({ baseURL, apiKey, model }, systemPrompt?.trim() || GENERATE_CARD_PROFILES_SYSTEM_PROMPT, userPrompt)
       let parsed: { profiles?: Array<{ name?: string; brief?: string }> }
       try {
         parsed = JSON.parse(stripJsonFence(full)) as { profiles?: Array<{ name?: string; brief?: string }> }
@@ -396,7 +404,7 @@ export async function m2Routes(app: FastifyInstance) {
 
   // M2 设定卡片 · 批量生成第二步：一次请求把一批侧写各自扩写为完整卡片——非流式 JSON 数组响应
   app.post('/api/llm/generate-cards-batch', async (req, reply) => {
-    const { baseURL, apiKey, model, type, profiles, instruction } = (req.body ?? {}) as GenerateCardsBatchBody
+    const { baseURL, apiKey, model, type, profiles, instruction, systemPrompt } = (req.body ?? {}) as GenerateCardsBatchBody
     if (!baseURL || !model || !type?.trim() || !Array.isArray(profiles) || profiles.length === 0) {
       reply.status(400).send({ error: '缺少 baseURL / model / type / profiles' })
       return
@@ -410,13 +418,14 @@ export async function m2Routes(app: FastifyInstance) {
     ]
       .filter(Boolean)
       .join('\n')
+    const sysContent = systemPrompt?.trim() || GENERATE_CARDS_BATCH_SYSTEM_PROMPT
     const messages = [
-      { role: 'system' as const, content: GENERATE_CARDS_BATCH_SYSTEM_PROMPT },
+      { role: 'system' as const, content: sysContent },
       { role: 'user' as const, content: userPrompt },
     ]
 
     try {
-      const full = await collectText({ baseURL, apiKey, model }, GENERATE_CARDS_BATCH_SYSTEM_PROMPT, userPrompt)
+      const full = await collectText({ baseURL, apiKey, model }, sysContent, userPrompt)
       let cards: unknown
       try {
         cards = JSON.parse(stripJsonFence(full))

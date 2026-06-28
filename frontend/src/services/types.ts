@@ -379,10 +379,13 @@ export type ModuleKey =
   | 'm0Blueprint'
   | 'm1Clean'
   | 'm2Extract'
+  | 'm2CardImage'
   | 'm3Simulate'
   | 'm4Generate'
   | 'm5Check'
   | 'm5Finalize'
+  | 'batchGenerate'
+  | 'roleChat'
   | 'embedding'
 
 export interface ModuleModelMapping {

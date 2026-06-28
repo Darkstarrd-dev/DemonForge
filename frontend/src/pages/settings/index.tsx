@@ -57,10 +57,13 @@ const MODULE_LABELS: Record<ModuleKey, string> = {
   m0Blueprint: 'M0 章节蓝图',
   m1Clean: 'M1 文本清理',
   m2Extract: 'M2 设定提取',
+  m2CardImage: 'M2 卡片生图',
   m3Simulate: 'M3 角色推演',
   m4Generate: 'M4 章节生成',
   m5Check: 'M5 一致性检查',
   m5Finalize: 'M5 定稿归档',
+  batchGenerate: '批量生产',
+  roleChat: '角色交流',
   embedding: 'Embedding 向量',
 }
 

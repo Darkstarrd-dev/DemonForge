@@ -31,6 +31,7 @@ export async function extractEntities(
   existingNames: string[],
   onProgress?: (progress: ExtractProgress) => void,
   signal?: AbortSignal,
+  systemPrompt?: string,
 ): Promise<ExtractResult> {
   // 从 settings.json 读取 m2Extract 节点配置
   const settingsRes = await fetch('/api/settings')
@@ -63,6 +64,7 @@ export async function extractEntities(
       bookId,
       chapterIds: chapters.map((ch) => ch.id),
       existingCardNames: existingNames,
+      ...(systemPrompt ? { systemPrompt } : {}),
     }),
     signal,
   })
