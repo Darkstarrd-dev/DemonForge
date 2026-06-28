@@ -58,6 +58,10 @@ export function boardDataToBoardConfig(boardData: BoardData): { board: BoardConf
   const tiles: Tile[] = boardData.tiles.map((tv2) => {
     const oldType = SPACE_TO_TILE[tv2.type] ?? 'parking'
     const tile: Tile = { index: tv2.index, coord: tv2.coord, type: oldType, name: tv2.name }
+    // 保留原始 SpaceType 供事件格识别（M6+）
+    if (tv2.type !== 'PROPERTY' && tv2.type !== 'START') {
+      tile.spaceType = tv2.type
+    }
     if (tv2.type === 'PROPERTY') {
       tile.zoneId = tv2.groupId
       tile.color = groupColor(tv2.groupId)

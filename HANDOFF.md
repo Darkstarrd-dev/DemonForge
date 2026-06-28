@@ -272,6 +272,7 @@
 - [x] **大富翁 M3 卡片系统**（30 种卡片效果执行 + 反制链 REACTION 窗口 + 商店库存 + 点数系统 + 手牌上限 15 + 25 单测，147 绿）
 - [x] **大富翁 M4 道具系统**（13 种道具全量实现 + 道具店/研究所双购买通道 + 持有上限 5 + 耐久系统 + 地雷/路障/定时炸弹棋盘陷阱 + 交通工具切换 + 飞弹/核子飞弹范围攻击 + 吸尘器/机器娃娃/传送器/工程车等工具 + 陷阱触发 resolveTraps + 定时炸弹倒计时 *tickTimedBombs + 27 单测，174 绿）
 - [x] **大富翁 M5 神明系统**（13 种神明定义 + `engine/god.ts` 全量实现：`applyPlayerGodDailyEffect` 每日现金/卡片效果、`tickGodDurations` 过期离开/变身、`handleGodPossession` 附身、`handleGodDismiss` 送神含死神不可送、`calcGodModifiedRent` 租金修正、`getGodMoveBoost` 步数加成/减成；`engine.ts` ROLL_DICE 前应用每日效果、END_TURN 后 tick 倒计时；`turn.ts` 租金整合 `calcGodModifiedRent`、骰子步数整合 `getGodMoveBoost`；`card.ts` SUMMON_GOD 召来最近神明、DISMISS_GOD 走送神/不可送分支；35 单测，**209 绿**）
+- [x] **大富翁 M6 事件系统**（2026-06-28 完成）：新闻(20) + 魔法屋(15) + 命运(12) + 小游戏(3) + 乐透 + 宝箱 + 传送 + 银行/商店事件格全量实现；`engine/event.ts` 完整实现：`handleNewsEvent`/`handleFateEvent`/`handleMagicHouseEvent`/`handleTreasureBoxEvent`/`handleLotteryEvent`/`handleTeleportEvent`/`handleMiniGameEvent` + 对应 resolve 函数；`Tile` 接口加 `spaceType` 字段（loader 桥接保留原始 SpaceType）；`turn.ts` handleRoll `else` 分支接入事件格路由 + handleResolveDecision 处理 lotteryBet/teleportTarget/magicHouseEffect/bankOperation 决策；38 单测覆盖全部 7 类事件格路由、效果应用、决策流、旧 TileType 回退、边界情况，**247 绿**
 
 ### 🔧 近期修复（2026-06-27）
 
@@ -292,8 +293,8 @@
 
 ### 🚧 待完善
 
-- [ ] **M6 事件系统**（新闻/魔法屋/命运/小游戏/乐透/宝箱/传送，依赖 M0）
 - [ ] **M2/M3 实际测试**：配置模块节点映射 → 提取 3-5 章验证 EntityCard/合并候选 → 创建场景推演 → 端到端 M0→M5。
+- [ ] **M7 多版本变体**（大富翁4/8/10/11 配置切换 + 热斗模式，按 `docs/monopoly_full_plan.md` §7）
 - [ ] **打包后首次启动**：`~/.novelhelper/` 无 settings.json，需手动配置 Provider 节点。
 
 ---
@@ -302,8 +303,8 @@
 
 > 完整逐项验证清单见归档 §「下一步任务」。以下为优先级摘要：
 
-1. **大富翁端到端实测 M0→M5**：开新局 → 掷骰买地 → 存取款 → 买股票 → 点数购买卡片/道具 → 使用神明卡（请神符/送神符）→ 反制链窗口 → 研究研发道具 → 使用飞弹/地雷/交通工具 → 切换台湾地图。
-2. **大富翁 M6 事件系统**：新闻(20) + 魔法屋(15) + 命运 + 小游戏定义 + 乐透 + 宝箱 + 传送（按 `docs/monopoly_full_plan.md` §7，依赖 M0）。
+1. **大富翁端到端实测 M0→M6**：开新局 → 掷骰买地 → 存取款 → 买股票 → 点数购买卡片/道具 → 使用神明卡（请神符/送神符）→ 反制链窗口 → 研究研发道具 → 使用飞弹/地雷/交通工具 → 踩新闻/命运/魔法屋/宝箱/乐透/传送/小游戏/银行/商店格 → 切换台湾地图。
+2. **大富翁 M7 多版本变体**：`GameConfig.version` 切换 + 热斗模式 + 大富翁10 联网配置（按 `docs/monopoly_full_plan.md` §7）。
 3. **验证提示词归一化端到端**（各模块 PromptEditorButton 打开→加载默认→编辑→保存→实际生效；M1 优先级链本次>持久化>设置页>后端；M2 按类型分支 `m2-card-single:character` 等正确区分）。
 4. **验证文生图三协议**（设置页协议选择器三选项；节点测试右侧面板按协议切换字段；文生图 + 图生图 + Debug Info b64 剥离）。
 5. **验证节点测试各模块**（气泡功能 / 对话记录 / Debug Info / System Instructions / 对比模式 / GPT 10 项增强）。

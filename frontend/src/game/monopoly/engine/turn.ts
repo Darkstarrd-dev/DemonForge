@@ -19,6 +19,7 @@ function liquidate(player: Player, properties: Record<number, PropertyState>) {
 
 import { resolveTraps } from './item'
 import { getGodMoveBoost, calcGodModifiedRent } from './god'
+import { handleEventSpace, resolveLottery, resolveTeleport, resolveMiniGame } from './event'
 
 export function handleRoll(state: GameState, dice: number[]): GameState {
   const players = state.players.map((p) => ({ ...p }))
@@ -123,6 +124,18 @@ export function handleRoll(state: GameState, dice: number[]): GameState {
         }
       }
     }
+  } else {
+    // 事件格落点（新闻/命运/魔法屋/宝箱/乐透/传送/小游戏/银行/商店）
+    const tempState = { ...state, players, properties, log, status: state.status, winnerId: state.winnerId }
+    const result = handleEventSpace(tempState, player.id, to)
+    const s = result.state
+    // Merge back from event result
+    players.splice(0, players.length, ...s.players)
+    Object.assign(properties, s.properties)
+    log.splice(0, log.length, ...s.log)
+    if (result.needsDecision && result.decision) {
+      decision = result.decision
+    }
   }
 
   let status: GameState['status'] = state.status
@@ -184,6 +197,25 @@ export function handleResolveDecision(state: GameState, optionId: string): GameS
       log.push({ seq: log.length, kind: 'skip', text: `${player.name} 暂不升级「${tileName}」` })
     }
     return { ...state, players, properties, log, awaitingDecision: undefined, turn: endTurn }
+  }
+
+  // ─── Event decisions ───
+  if (d.kind === 'lotteryBet') {
+    return { ...resolveLottery(state, d.playerId, optionId === 'bet'), turn: endTurn }
+  }
+  if (d.kind === 'teleportTarget') {
+    return { ...resolveTeleport(state, d.playerId, parseInt(optionId, 10)), turn: endTurn }
+  }
+  if (d.kind === 'magicHouseEffect') {
+    return { ...resolveMiniGame(state, d.playerId, optionId === 'play'), turn: endTurn }
+  }
+  if (d.kind === 'bankOperation') {
+    log.push({ seq: log.length, kind: 'bank', text: `${player?.name ?? '玩家'} 选择「${optionId === 'skip' ? '离开' : optionId}」` })
+    return { ...state, players, log, awaitingDecision: undefined, turn: endTurn }
+  }
+  if (d.kind === 'useCardChoice' && d.context.eventShop) {
+    log.push({ seq: log.length, kind: 'shop', text: `${player?.name ?? '玩家'} 进入商店` })
+    return { ...state, players, log, awaitingDecision: undefined, turn: endTurn }
   }
 
   return state

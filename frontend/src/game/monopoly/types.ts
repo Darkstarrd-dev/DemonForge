@@ -134,6 +134,8 @@ export interface Tile {
   upgradeCost?: number
   rentByLevel?: number[]
   taxAmount?: number
+  /** 原始 SpaceType（boardDataToBoardConfig 桥接时保留，用于事件格识别） */
+  spaceType?: SpaceType
 }
 
 // ------ 新 Tile（§3.2 全量字段） ------
