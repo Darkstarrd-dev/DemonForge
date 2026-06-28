@@ -1,5 +1,6 @@
 // AI 控制器：统一 AIController + 兜底降级（M8 全量实现）
 import type { Action, DecisionRequest, GameState } from '../types'
+import { TurnPhaseV2 } from '../types'
 import { aiDecideWithStrategy } from './ai-strategies'
 import type { LLMDecisionFn } from './ai-llm'
 
@@ -64,23 +65,21 @@ export function aiDecide(state: GameState, request: DecisionRequest): string {
 
 export function aiNextAction(state: GameState): Action | null {
   if (state.status === 'ended') return null
-  const current = state.players.find((p) => p.id === state.turn.currentPlayerId)
+  const current = state.players.find((p) => p.id === state.turnContext.currentPlayerId)
   if (!current || current.controller !== 'ai') return null
 
-  switch (state.turn.phase) {
-    case 'ROLL': {
+  switch (state.turnContext.phase) {
+    case TurnPhaseV2.ROLL_DICE: {
       const count = getDiceCount(current.vehicle)
       const dice = Array.from({ length: count }, () => 1 + Math.floor(Math.random() * 6))
       return { type: 'ROLL_DICE', dice }
     }
-    case 'DECIDE':
+    case TurnPhaseV2.TURN_END:
+      return { type: 'END_TURN' }
+    default:
       if (state.awaitingDecision?.playerId === current.id) {
         return { type: 'RESOLVE_DECISION', optionId: aiDecide(state, state.awaitingDecision) }
       }
-      return null
-    case 'END_TURN':
-      return { type: 'END_TURN' }
-    default:
       return null
   }
 }

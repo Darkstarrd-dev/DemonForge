@@ -1,5 +1,6 @@
 import { Button, Modal, Space, Typography } from 'antd'
 import type { DecisionRequest, GameState } from '../../game/monopoly/types'
+import { TurnPhaseV2 } from '../../game/monopoly/types'
 
 function decisionText(d: DecisionRequest): string {
   if (d.kind === 'buyProperty') {
@@ -19,7 +20,7 @@ interface Props {
 
 export default function DecisionModal({ state, interactive, onDecide }: Props) {
   const d = state.awaitingDecision
-  const open = state.turn.phase === 'DECIDE' && !!d && interactive
+  const open = state.turnContext.phase === TurnPhaseV2.PURCHASE_DECISION && !!d && interactive
 
   return (
     <Modal

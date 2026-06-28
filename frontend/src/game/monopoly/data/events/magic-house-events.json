@@ -1,17 +1,17 @@
 [
   { "id": "mh-00", "description": "传送到地图随机位置", "type": "TELEPORT", "params": {}, "isPositive": true },
-  { "id": "mh-01", "description": "获得一张免费卡片", "type": "GIVE_CARD", "params": {}, "isPositive": true },
+  { "id": "mh-01", "description": "获得一张免费卡片", "type": "GIVE_CARD", "params": { "random": true }, "isPositive": true },
   { "id": "mh-02", "description": "损失一半现金", "type": "ALL_LOSE_PERCENT", "params": { "value": 0.5 }, "isPositive": false },
   { "id": "mh-03", "description": "获得 ¥1000 现金", "type": "ALL_GAIN_CASH", "params": { "value": 1000 }, "isPositive": true },
   { "id": "mh-04", "description": "失去所有道具", "type": "STEAL_ALL_ITEMS", "params": {}, "isPositive": false },
-  { "id": "mh-05", "description": "获得点数 50 点", "type": "ALL_GAIN_CASH", "params": { "value": 50 }, "isPositive": true },
+  { "id": "mh-05", "description": "获得点数 50 点", "type": "ALL_GAIN_POINTS", "params": { "value": 50 }, "isPositive": true },
   { "id": "mh-06", "description": "交通工具升级（步行→摩托→汽车）", "type": "CHANGE_VEHICLE", "params": { "mode": "upgrade" }, "isPositive": true },
-  { "id": "mh-07", "description": "随机三位神明之一附身", "type": "GIVE_CARD", "params": {}, "isPositive": false },
-  { "id": "mh-08", "description": "所有地主缴过路费时双倍", "type": "ALL_LOSE_CASH", "params": { "value": 500 }, "isPositive": false },
-  { "id": "mh-09", "description": "免费升级一处地产", "type": "GIVE_CARD", "params": {}, "isPositive": true },
-  { "id": "mh-10", "description": "住院 3 天", "type": "ALL_LOSE_CASH", "params": { "value": 200 }, "isPositive": false },
-  { "id": "mh-11", "description": "获得一张陷害卡", "type": "GIVE_CARD", "params": {}, "isPositive": false },
-  { "id": "mh-12", "description": "现金翻倍", "type": "ALL_GAIN_CASH", "params": { "value": 0 }, "isPositive": true },
-  { "id": "mh-13", "description": "所有地产降一级", "type": "PROPERTY_PRICE_DOWN", "params": { "value": 0.5 }, "isPositive": false },
-  { "id": "mh-14", "description": "下次过路费免单", "type": "GIVE_CARD", "params": {}, "isPositive": true }
+  { "id": "mh-07", "description": "随机三位神明之一附身", "type": "GOD_POSSESSION", "params": { "random": true }, "isPositive": false },
+  { "id": "mh-08", "description": "所有地主缴过路费时双倍", "type": "RENT_MULTIPLIER", "params": { "value": 2.0 }, "isPositive": false },
+  { "id": "mh-09", "description": "免费升级一处地产", "type": "FREE_UPGRADE", "params": {}, "isPositive": true },
+  { "id": "mh-10", "description": "住院 3 天", "type": "SEND_TO_HOSPITAL", "params": { "days": 3 }, "isPositive": false },
+  { "id": "mh-11", "description": "获得一张陷害卡", "type": "GIVE_CARD", "params": { "cardId": "card-17" }, "isPositive": false },
+  { "id": "mh-12", "description": "现金翻倍", "type": "CASH_MULTIPLY", "params": { "value": 2.0 }, "isPositive": true },
+  { "id": "mh-13", "description": "所有地产降一级", "type": "DOWNGRADE_ALL", "params": {}, "isPositive": false },
+  { "id": "mh-14", "description": "下次过路费免单", "type": "TOLL_FREE", "params": {}, "isPositive": true }
 ]

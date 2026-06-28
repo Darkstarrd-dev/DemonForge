@@ -15,8 +15,8 @@ export default function Board({ state }: { state: GameState }) {
   const { token } = theme.useToken()
   const side = gridSide(state.board.tiles)
 
-  // index -> 停在此格的玩家
-  const occupantsByTile = new Map<number, Player[]>()
+  // tileId -> 停在此格的玩家
+  const occupantsByTile = new Map<string, Player[]>()
   for (const p of state.players) {
     const list = occupantsByTile.get(p.position) ?? []
     list.push(p)
@@ -38,7 +38,7 @@ export default function Board({ state }: { state: GameState }) {
       }}
     >
       {state.board.tiles.map((tile) => {
-        const property = state.properties[tile.index]
+        const property = state.board.properties[tile.id]
         const owner = property?.ownerId ? playerById.get(property.ownerId) : undefined
         return (
           <TileCell
@@ -46,7 +46,7 @@ export default function Board({ state }: { state: GameState }) {
             tile={tile}
             property={property}
             owner={owner}
-            occupants={occupantsByTile.get(tile.index) ?? []}
+             occupants={occupantsByTile.get(tile.id) ?? []}
           />
         )
       })}

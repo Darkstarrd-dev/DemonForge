@@ -117,9 +117,9 @@ export function handleNewsEvent(state: GameState): GameState {
       for (const t of state.board.tiles) {
         if (t.zoneId) priceUpGroups[t.zoneId] = 3
       }
-      return { ...state, players, log, priceUpGroups }
+      return { ...state, board: { ...state.board, priceUpGroups }, players, log }
     }
-    return { ...state, players, log, priceUpGroups: undefined }
+    return { ...state, board: { ...state.board, priceUpGroups: {} }, players, log }
   }
 
   const targetIds = resolveTarget(event.effect.target, '', state)
@@ -161,7 +161,7 @@ export function handleFateEvent(state: GameState, playerId: string): GameState {
   if (event.effect === 'SEND_TO_JAIL') {
     const days = (event.params?.days as number) ?? 3
     const player = players.find(p => p.id === playerId)
-    if (player) player.inJailTurns = days
+    if (player) { player.jailTurns = days }
     return { ...state, players, log, awaitingDecision: undefined }
   }
   if (event.effect === 'GOD_POSSESSION') {
@@ -239,16 +239,15 @@ export function handleMagicHouseEvent(state: GameState, playerId: string): GameS
       return { ...state, players, log, awaitingDecision: undefined }
     }
     case 'PROPERTY_PRICE_DOWN': {
-      const props = { ...state.properties }
+      const props = { ...state.board.properties }
       for (const tid of Object.keys(props)) {
-        const t = Number(tid)
-        const prop = props[t]
+        const prop = props[tid]
         if (prop && prop.level > 0) {
-          props[t] = { ...prop, level: prop.level - 1 }
+          props[tid] = { ...prop, level: prop.level - 1 }
         }
       }
       log.push({ seq: log.length, kind: 'magicHouse', text: `所有地产降一级` })
-      return { ...state, players, log, properties: props, awaitingDecision: undefined }
+      return { ...state, board: { ...state.board, properties: props }, players, log, awaitingDecision: undefined }
     }
     default: {
       if (effect.type.startsWith('ALL_GAIN') || effect.type.startsWith('ALL_LOSE')) {
@@ -379,15 +378,18 @@ function buildTeleportDecision(playerId: string, state: GameState): DecisionRequ
 /**
  * 执行传送：将玩家移到目标格。
  */
-export function resolveTeleport(state: GameState, playerId: string, targetTileId: number): GameState {
+export function resolveTeleport(state: GameState, playerId: string, targetTileId: string): GameState {
   const players = state.players.map(p => ({ ...p }))
   const log = [...state.log]
   const player = players.find(p => p.id === playerId)
   if (!player) return state
-  const from = player.position
+  const fromTile = state.board.tiles.find(t => t.id === player.position)
+  const fromIdx = fromTile?.index ?? 0
   player.position = targetTileId
-  const tileName = state.board.tiles[targetTileId]?.name ?? `格 ${targetTileId}`
-  if (targetTileId < from) {
+  const targetTile = state.board.tiles.find(t => t.id === targetTileId)
+  const tileName = targetTile?.name ?? `格 ${targetTileId}`
+  const targetIdx = targetTile?.index ?? 0
+  if (targetIdx < fromIdx) {
     player.cash += 2000
     log.push({ seq: log.length, kind: 'salary', text: `${player.name} 经过起点，领取 ¥2000` })
   }
@@ -464,7 +466,7 @@ export function handleEventSpace(state: GameState, playerId: string, tileIndex: 
   if (!tile) return { state, needsDecision: false }
 
   // 优先按保留的原始 SpaceType 识别
-  const st = tile.spaceType
+  const st = tile.type
   if (st) {
     switch (st) {
       case SpaceType.NEWS: {
@@ -522,8 +524,8 @@ export function handleEventSpace(state: GameState, playerId: string, tileIndex: 
   }
 
   // 退化：按旧 TileType + chance 细分（部分地图像经典 40 格无 spaceType）
-  if (!st && tile.type === 'news') return { state: handleNewsEvent(state), needsDecision: false }
-  if (!st && tile.type === 'fate') return { state: handleFateEvent(state, playerId), needsDecision: false }
+  if (!st && tile.type === SpaceType.NEWS) return { state: handleNewsEvent(state), needsDecision: false }
+  if (!st && tile.type === SpaceType.FATE) return { state: handleFateEvent(state, playerId), needsDecision: false }
 
   return { state, needsDecision: false }
 }
@@ -531,7 +533,7 @@ export function handleEventSpace(state: GameState, playerId: string, tileIndex: 
 // ─── Route (engine.ts entry points) ───
 
 export function handleTriggerEvent(state: GameState, action: { type: 'TRIGGER_EVENT'; eventId: string }): GameState {
-  const playerId = state.turn.currentPlayerId
+  const playerId = state.turnContext.currentPlayerId
   if (action.eventId.startsWith('news-')) return handleNewsEvent(state)
   if (action.eventId.startsWith('fate-')) return handleFateEvent(state, playerId)
   if (action.eventId.startsWith('mh-')) return handleMagicHouseEvent(state, playerId)

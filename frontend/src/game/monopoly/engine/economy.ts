@@ -50,9 +50,9 @@ function saveBankAccount(economy: EconomyState, acct: BankAccount): EconomyState
 export function handleDeposit(state: GameState, amount: number): GameState {
   if (amount <= 0) return state
   const players = state.players.map((p) => ({ ...p }))
-  const player = players.find((p) => p.id === state.turn.currentPlayerId)
+  const player = players.find((p) => p.id === state.turnContext.currentPlayerId)
   if (!player || player.cash < amount) return state
-  const economy = { ...(state.economy ?? createInitialEconomy(players.length, 15000)) }
+  const economy = { ...state.economy }
   const acct = { ...getBankAccount(player.id, economy) }
   player.cash -= amount
   acct.deposit += amount
@@ -63,9 +63,9 @@ export function handleDeposit(state: GameState, amount: number): GameState {
 export function handleWithdraw(state: GameState, amount: number): GameState {
   if (amount <= 0) return state
   const players = state.players.map((p) => ({ ...p }))
-  const player = players.find((p) => p.id === state.turn.currentPlayerId)
+  const player = players.find((p) => p.id === state.turnContext.currentPlayerId)
   if (!player) return state
-  const economy = { ...(state.economy ?? createInitialEconomy(players.length, 15000)) }
+  const economy = { ...state.economy }
   const acct = { ...getBankAccount(player.id, economy) }
   if (acct.deposit < amount) return state
   acct.deposit -= amount
@@ -77,12 +77,12 @@ export function handleWithdraw(state: GameState, amount: number): GameState {
 export function handleLoan(state: GameState, amount: number): GameState {
   if (amount <= 0 || amount > 30000) return state
   const players = state.players.map((p) => ({ ...p }))
-  const player = players.find((p) => p.id === state.turn.currentPlayerId)
+  const player = players.find((p) => p.id === state.turnContext.currentPlayerId)
   if (!player) return state
-  const economy = { ...(state.economy ?? createInitialEconomy(players.length, 15000)) }
+  const economy = { ...state.economy }
   const acct = { ...getBankAccount(player.id, economy) }
   if (acct.loan > 0) return state
-  const day = state.day ?? 1
+  const day = state.day
   acct.loan = amount
   acct.loanDueDay = day + economy.loanTermDays
   player.cash += amount
@@ -93,9 +93,9 @@ export function handleLoan(state: GameState, amount: number): GameState {
 export function handleRepay(state: GameState, amount: number): GameState {
   if (amount <= 0) return state
   const players = state.players.map((p) => ({ ...p }))
-  const player = players.find((p) => p.id === state.turn.currentPlayerId)
+  const player = players.find((p) => p.id === state.turnContext.currentPlayerId)
   if (!player) return state
-  const economy = { ...(state.economy ?? createInitialEconomy(players.length, 15000)) }
+  const economy = { ...state.economy }
   const acct = { ...getBankAccount(player.id, economy) }
   const repayAmount = Math.min(amount, acct.loan, player.cash)
   if (repayAmount <= 0) return state
@@ -124,11 +124,9 @@ function findCompanyDef(companyId: string): CompanyDefinition | undefined {
 export function handleBuyStock(state: GameState, companyId: string, quantity: number): GameState {
   if (quantity <= 0) return state
   const players = state.players.map((p) => ({ ...p }))
-  const player = players.find((p) => p.id === state.turn.currentPlayerId)
+  const player = players.find((p) => p.id === state.turnContext.currentPlayerId)
   if (!player) return state
-  const economy = state.economy
-    ? { ...state.economy, companies: { ...state.economy.companies } }
-    : createInitialEconomy(players.length, 15000)
+  const economy = { ...state.economy, companies: { ...state.economy.companies } }
   const company = economy.companies[companyId]
   if (!company) return state
   const cost = company.stockPrice * quantity
@@ -148,11 +146,9 @@ export function handleBuyStock(state: GameState, companyId: string, quantity: nu
 export function handleSellStock(state: GameState, companyId: string, quantity: number): GameState {
   if (quantity <= 0) return state
   const players = state.players.map((p) => ({ ...p }))
-  const player = players.find((p) => p.id === state.turn.currentPlayerId)
+  const player = players.find((p) => p.id === state.turnContext.currentPlayerId)
   if (!player) return state
-  const economy = state.economy
-    ? { ...state.economy, companies: { ...state.economy.companies } }
-    : createInitialEconomy(players.length, 15000)
+  const economy = { ...state.economy, companies: { ...state.economy.companies } }
   const company = economy.companies[companyId]
   if (!company) return state
   const held = player.stocks?.[companyId] ?? 0
@@ -183,7 +179,7 @@ export function handleStockAction(state: GameState, action: Action): GameState {
 export function handleDividend(state: GameState): GameState {
   const economy = state.economy
   if (!economy) return state
-  const day = state.day ?? 1
+  const day = state.day
   if (day % economy.dividendDay !== 0) return state
   const players = state.players.map((p) => ({ ...p }))
   const log = [...state.log]
@@ -234,7 +230,7 @@ export function calcPriceIndex(state: GameState): number {
   if (!economy) return 1.0
   if (economy.priceIndexMode === 'auto_increment') {
     const interval = economy.autoIncrementIntervalDays ?? 7
-    if ((state.day ?? 1) - (economy.lastAutoIncrementDay ?? 0) >= interval) {
+    if (state.day - (economy.lastAutoIncrementDay ?? 0) >= interval) {
       return economy.priceIndex + 1
     }
     return economy.priceIndex
@@ -244,9 +240,9 @@ export function calcPriceIndex(state: GameState): number {
     if (p.bankrupt) return s
     let assets = p.cash + (p.bankDeposit ?? 0)
     for (const tid of p.ownedTileIds) {
-      const tile = state.board.tiles[tid]
+      const tile = state.board.tiles.find(t => t.id === tid)
       const price = tile?.price ?? 0
-      const prop = state.properties[tid]
+      const prop = state.board.properties[tid]
       assets += prop?.mortgaged ? 0 : price
       assets += (prop?.level ?? 0) * price * 0.3
     }

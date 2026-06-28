@@ -11,6 +11,7 @@
     "allowConsecutiveDoublesJail": true,
     "priceIndexEnabled": true,
     "priceIndexMode": "auto_increment",
+    "autoIncrementIntervalDays": 7,
     "bankEnabled": true,
     "stockEnabled": false,
     "initialDeposit": 0,

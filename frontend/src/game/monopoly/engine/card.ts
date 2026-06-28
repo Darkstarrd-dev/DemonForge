@@ -1,4 +1,4 @@
-import type { GameState, Action, CardDefinition, CardDeckState, CardInstance, Player, DecisionRequest } from '../types'
+import type { GameState, Action, CardDefinition, CardDeckState, CardInstance, Player, DecisionRequest, PropertyState } from '../types'
 import { CardEffectType } from '../types'
 import cardsData from '../data/cards/richman4-cards.json'
 import { summonNearestGod, findGodDef } from './god'
@@ -39,7 +39,7 @@ export function handleBuyCard(state: GameState, action: Action & { type: 'BUY_CA
   const deck = state.cardDeck
   if (!deck) return state
   const players = state.players.map(p => ({ ...p }))
-  const player = players.find(p => p.id === state.turn.currentPlayerId)
+  const player = players.find(p => p.id === state.turnContext.currentPlayerId)
   if (!player || player.bankrupt) return state
   const def = findCardDef(action.cardDefId, deck)
   if (!def) return state
@@ -85,7 +85,7 @@ export function giveCardToPlayer(player: Player, defId: string, deck: CardDeckSt
 interface PendingEffect {
   effectType: CardEffectType
   targetId?: string
-  targetTileId?: number
+  targetTileId?: string
   playerId: string
   cardDefId: string
 }
@@ -95,7 +95,7 @@ function applyCardEffect(
   effect: PendingEffect,
 ): GameState {
   const players = state.players.map(p => ({ ...p }))
-  const properties = { ...state.properties }
+  const properties = { ...state.board.properties }
   const log = [...state.log]
   const pushLog = (kind: string, text: string) => log.push({ seq: log.length, kind, text })
   const player = players.find(p => p.id === effect.playerId)
@@ -105,7 +105,7 @@ function applyCardEffect(
   const cardName = def?.name ?? effect.cardDefId
   const targetId = effect.targetId
   const targetTileId = effect.targetTileId
-  let finalState: GameState = { ...state, players, properties, log }
+  let finalState: GameState = { ...state, board: { ...state.board, properties }, players, log }
 
   switch (effect.effectType) {
     case CardEffectType.EQUALIZE_CASH_ALL: {
@@ -132,7 +132,7 @@ function applyCardEffect(
       if (targetId) {
         const target = players.find(p => p.id === targetId)
         if (target && !target.bankrupt) {
-          target.inJailTurns = 3
+          target.jailTurns = 3
           pushLog('useCard', `${player.name} 使用「${cardName}」，将 ${target.name} 送入监狱`)
         }
       }
@@ -190,11 +190,10 @@ function applyCardEffect(
       break
     }
     case CardEffectType.UPGRADE_GROUP: {
-      const ownProp = Object.entries(properties)
-        .filter(([, p]) => p.ownerId === player.id && p.level < 4)
+      const ownProp = (Object.entries(properties) as [string, PropertyState][]).filter(([, p]) => p.ownerId === player.id && p.level < 4)
       for (const [tidStr, prop] of ownProp) {
-        const tid = Number(tidStr)
-        const tile = state.board.tiles[tid]
+        const tid = tidStr
+        const tile = state.board.tiles.find(t => t.id === tid)
         const cost = tile?.upgradeCost ?? 0
         if (player.cash >= cost) {
           player.cash -= cost
@@ -228,7 +227,7 @@ function applyCardEffect(
       if (targetTileId !== undefined) {
         const prop = properties[targetTileId]
         if (prop && !prop.ownerId) {
-          const tile = state.board.tiles[targetTileId]
+          const tile = state.board.tiles.find(t => t.id === targetTileId)
           const price = tile?.price ?? 0
           if (player.cash >= price) {
             player.cash -= price
@@ -288,12 +287,12 @@ function applyCardEffect(
     }
     case CardEffectType.PRICE_UP_GROUP: {
       if (targetTileId !== undefined) {
-        const tile = state.board.tiles[targetTileId]
+        const tile = state.board.tiles.find(t => t.id === targetTileId)
         const gid = tile?.zoneId
         if (gid) {
           finalState = {
             ...finalState,
-            priceUpGroups: { ...(finalState.priceUpGroups ?? {}), [gid]: (def?.effectParams.days as number) ?? 3 },
+            board: { ...finalState.board, priceUpGroups: { ...(finalState.board.priceUpGroups), [gid]: (def?.effectParams.days as number) ?? 3 } },
           }
           pushLog('useCard', `${player.name} 使用「${cardName}」，路段 ${gid} 涨价`)
         }
@@ -302,12 +301,12 @@ function applyCardEffect(
     }
     case CardEffectType.SEAL_GROUP: {
       if (targetTileId !== undefined) {
-        const tile = state.board.tiles[targetTileId]
+        const tile = state.board.tiles.find(t => t.id === targetTileId)
         const gid = tile?.zoneId
         if (gid) {
           finalState = {
             ...finalState,
-            sealedGroups: { ...(finalState.sealedGroups ?? {}), [gid]: (def?.effectParams.days as number) ?? 3 },
+            board: { ...finalState.board, sealedGroups: { ...(finalState.board.sealedGroups), [gid]: (def?.effectParams.days as number) ?? 3 } },
           }
           pushLog('useCard', `${player.name} 使用「${cardName}」，查封路段 ${gid}`)
         }
@@ -315,29 +314,27 @@ function applyCardEffect(
       break
     }
     case CardEffectType.STOCK_UP: {
-      if (state.economy) {
-        const companies = { ...state.economy.companies }
-        for (const id of Object.keys(companies)) {
-          companies[id] = { ...companies[id], stockLimitUpDays: 3 }
-        }
-        finalState = { ...finalState, economy: { ...state.economy, companies } }
-        pushLog('useCard', `${player.name} 使用「${cardName}」，股市涨停`)
+      const economy = state.economy
+      const companies = { ...economy.companies }
+      for (const id of Object.keys(companies)) {
+        companies[id] = { ...companies[id], stockLimitUpDays: 3 }
       }
+      finalState = { ...finalState, economy: { ...economy, companies } }
+      pushLog('useCard', `${player.name} 使用「${cardName}」，股市涨停`)
       break
     }
     case CardEffectType.STOCK_DOWN: {
-      if (state.economy) {
-        const companies = { ...state.economy.companies }
-        for (const id of Object.keys(companies)) {
-          companies[id] = { ...companies[id], stockLimitDownDays: 3 }
-        }
-        finalState = { ...finalState, economy: { ...state.economy, companies } }
-        pushLog('useCard', `${player.name} 使用「${cardName}」，股市跌停`)
+      const economy = state.economy
+      const companies = { ...economy.companies }
+      for (const id of Object.keys(companies)) {
+        companies[id] = { ...companies[id], stockLimitDownDays: 3 }
       }
+      finalState = { ...finalState, economy: { ...economy, companies } }
+      pushLog('useCard', `${player.name} 使用「${cardName}」，股市跌停`)
       break
     }
     case CardEffectType.SUMMON_GOD: {
-      const godId = summonNearestGod({ ...state, players, properties, log })
+      const godId = summonNearestGod({ ...state, board: { ...state.board, properties }, players, log })
       if (godId) {
         const godDef = findGodDef(godId)
         if (godDef) {
@@ -371,7 +368,7 @@ function applyCardEffect(
       pushLog('useCard', `${player.name} 使用「${cardName}」（效果未实现）`)
   }
 
-  return { ...finalState, players, properties, log, awaitingDecision: undefined }
+  return { ...finalState, players, board: { ...finalState.board, properties }, log, awaitingDecision: undefined }
 }
 
 // ─── Use Card (two-phase: remove from hand → check counter → apply effect) ───
@@ -380,7 +377,7 @@ export function handleUseCard(state: GameState, action: Action & { type: 'USE_CA
   const players = state.players.map(p => ({ ...p }))
   const log = [...state.log]
   const pushLog = (kind: string, text: string) => log.push({ seq: log.length, kind, text })
-  const player = players.find(p => p.id === state.turn.currentPlayerId)
+  const player = players.find(p => p.id === state.turnContext.currentPlayerId)
   if (!player || player.bankrupt) return state
   const deck = state.cardDeck
   if (!deck) return state
@@ -508,7 +505,7 @@ export function resolveCardReaction(state: GameState, optionId: string): GameSta
     const sourcePlayerId = d.context.sourcePlayerId as string
     const source = players.find(p => p.id === sourcePlayerId)
     if (source && !source.bankrupt) {
-      source.inJailTurns = 3
+      source.jailTurns = 3
       log.push({ seq: log.length, kind: 'cardReaction', text: `${source.name} 被反击送入监狱！` })
     }
     return { ...state, players, log, awaitingDecision: undefined }
@@ -523,7 +520,7 @@ export function resolveCardChoice(state: GameState, optionId: string): GameState
   const d = state.awaitingDecision
   if (!d || d.kind !== 'useCardChoice') return state
   const players = state.players.map(p => ({ ...p }))
-  const properties = { ...state.properties }
+  const properties = { ...state.board.properties }
   const log = [...state.log]
   const pushLog = (kind: string, text: string) => log.push({ seq: log.length, kind, text })
   const player = players.find(p => p.id === d.playerId)
@@ -534,35 +531,50 @@ export function resolveCardChoice(state: GameState, optionId: string): GameState
   // Handle movement choices directly
   if (effect === 'MOVE_FORWARD') {
     const steps = parseInt(optionId, 10)
-    const size = state.board.size
+    const size = state.board.tiles.length
     const from = player.position
-    const to = (from + steps) % size
-    if (from + steps >= size) {
-      player.cash += 2000
-      pushLog('salary', `${player.name} 经过起点，领取 ¥2000`)
+    const fromTile = state.board.tiles.find(t => t.id === from)
+    const fromIdx = fromTile?.index ?? 0
+    const to = (fromIdx + steps) % size
+    const toTile = state.board.tiles.find(t => t.index === to)
+    if (toTile) {
+      if (fromIdx + steps >= size) {
+        player.cash += 2000
+        pushLog('salary', `${player.name} 经过起点，领取 ¥2000`)
+      }
+      player.position = toTile.id
     }
-    player.position = to
     pushLog('move', `${player.name} 使用「${cardName}」前进 ${steps} 步`)
-    return { ...state, players, properties, log, awaitingDecision: undefined }
+    return { ...state, players, board: { ...state.board, properties }, log, awaitingDecision: undefined }
   }
   if (effect === 'MOVE_BACKWARD') {
     const steps = parseInt(optionId, 10)
-    const size = state.board.size
+    const size = state.board.tiles.length
     const from = player.position
-    player.position = ((from - steps) % size + size) % size
+    const fromTile = state.board.tiles.find(t => t.id === from)
+    const fromIdx = fromTile?.index ?? 0
+    const toIdx = ((fromIdx - steps) % size + size) % size
+    const toTile = state.board.tiles.find(t => t.index === toIdx)
+    if (toTile) {
+      player.position = toTile.id
+    }
     pushLog('move', `${player.name} 使用「${cardName}」后退 ${steps} 步`)
-    return { ...state, players, properties, log, awaitingDecision: undefined }
+    return { ...state, players, board: { ...state.board, properties }, log, awaitingDecision: undefined }
   }
   if (effect === 'TELEPORT_TO_SPACE') {
-    const targetIdx = parseInt(optionId, 10)
     const from = player.position
-    player.position = targetIdx
-    if (targetIdx < from) {
-      player.cash += 2000
-      pushLog('salary', `${player.name} 经过起点，领取 ¥2000`)
+    const fromTile = state.board.tiles.find(t => t.id === from)
+    const fromIdx = fromTile?.index ?? 0
+    const toTile = state.board.tiles.find(t => t.id === optionId)
+    if (toTile) {
+      if (toTile.index < fromIdx) {
+        player.cash += 2000
+        pushLog('salary', `${player.name} 经过起点，领取 ¥2000`)
+      }
+      player.position = toTile.id
     }
     pushLog('move', `${player.name} 使用「${cardName}」传送到目标格`)
-    return { ...state, players, properties, log, awaitingDecision: undefined }
+    return { ...state, players, board: { ...state.board, properties }, log, awaitingDecision: undefined }
   }
 
   // For other effects, pass the choice as target parameter to applyCardEffect
@@ -570,15 +582,15 @@ export function resolveCardChoice(state: GameState, optionId: string): GameState
   if (pending) {
     let updatedPending = { ...pending }
     if (effect === 'DEMOLISH_ONE' || effect === 'FORCE_AUCTION') {
-      updatedPending = { ...updatedPending, targetTileId: parseInt(optionId, 10) }
+      updatedPending = { ...updatedPending, targetTileId: optionId }
     } else if (effect === 'SEND_TO_JAIL' || effect === 'FREEZE') {
       updatedPending = { ...updatedPending, targetId: optionId }
     }
-    const afterEffect = applyCardEffect({ ...state, players, properties, log }, updatedPending)
+    const afterEffect = applyCardEffect({ ...state, players, board: { ...state.board, properties }, log }, updatedPending)
     return { ...afterEffect, awaitingDecision: undefined }
   }
 
-  return { ...state, players, properties, log, awaitingDecision: undefined }
+  return { ...state, players, board: { ...state.board, properties }, log, awaitingDecision: undefined }
 }
 
 // ─── Refresh Shop ───
@@ -622,8 +634,8 @@ function buildCardChoiceDecision(def: CardDefinition, playerId: string, state: G
     case CardEffectType.TELEPORT_TO_SPACE:
       return {
         playerId, kind: 'useCardChoice',
-        options: state.board.tiles.filter(t => t.index !== state.players.find(p => p.id === playerId)?.position).map(t => ({
-          id: String(t.index), label: t.name,
+        options: state.board.tiles.filter(t => t.id !== state.players.find(p => p.id === playerId)?.position).map(t => ({
+          id: t.id, label: t.name,
         })),
         context: { cardEffect: 'TELEPORT_TO_SPACE', cardName: def.name },
       }
@@ -631,16 +643,16 @@ function buildCardChoiceDecision(def: CardDefinition, playerId: string, state: G
       return {
         playerId, kind: 'useCardChoice',
         options: state.board.tiles
-          .map((t, i) => ({ id: String(i), label: t.name }))
-          .filter(o => (state.properties[Number(o.id)]?.level ?? 0) > 0),
+          .map((t) => ({ id: t.id, label: t.name }))
+          .filter(o => (state.board.properties[o.id]?.level ?? 0) > 0),
         context: { cardEffect: 'DEMOLISH_ONE', cardName: def.name },
       }
     case CardEffectType.FORCE_AUCTION:
       return {
         playerId, kind: 'useCardChoice',
         options: state.board.tiles
-          .map((t, i) => ({ id: String(i), label: t.name }))
-          .filter(o => state.properties[Number(o.id)]?.ownerId !== undefined && state.properties[Number(o.id)]?.ownerId !== playerId),
+          .map((t) => ({ id: t.id, label: t.name }))
+          .filter(o => state.board.properties[o.id]?.ownerId !== undefined && state.board.properties[o.id]?.ownerId !== playerId),
         context: { cardEffect: 'FORCE_AUCTION', cardName: def.name },
       }
     case CardEffectType.SEND_TO_JAIL:

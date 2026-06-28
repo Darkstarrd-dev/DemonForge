@@ -1,5 +1,5 @@
 // Item 子系统：13 种道具效果（M4 全量实现）
-import type { GameState, Action, ItemDefinition, ItemDeckState, ItemInstance, DecisionRequest } from '../types'
+import type { GameState, Action, ItemDefinition, ItemDeckState, ItemInstance, DecisionRequest, TrapState } from '../types'
 import itemsData from '../data/items/richman4-items.json'
 
 const ITEM_HAND_LIMIT = 5
@@ -52,7 +52,7 @@ export function handleBuyItem(state: GameState, action: Action & { type: 'BUY_IT
   const deck = state.itemDeck
   if (!deck) return state
   const players = state.players.map(p => ({ ...p }))
-  const player = players.find(p => p.id === state.turn.currentPlayerId)
+  const player = players.find(p => p.id === state.turnContext.currentPlayerId)
   if (!player || player.bankrupt) return state
   const def = findItemDef(action.itemDefId, deck)
   if (!def) return state
@@ -104,15 +104,15 @@ function applyItemEffect(
   def: ItemDefinition,
   playerIdx: number,
   itemIdx: number,
-  targetTileId?: number,
+  targetTileId?: string,
   targetId?: string,
 ): GameState {
   const players = state.players.map(p => ({ ...p }))
-  const properties = { ...state.properties }
+  const properties = { ...state.board.properties }
   const log = [...state.log]
   const pushLog = (kind: string, text: string) => log.push({ seq: log.length, kind, text })
   const player = players[playerIdx]
-  const traps = state.boardTraps ? { ...state.boardTraps } : {}
+  const traps: Record<string, TrapState> = state.board.boardTraps ? { ...state.board.boardTraps } : {}
 
   switch (def.id) {
     case 'item-00':
@@ -139,7 +139,8 @@ function applyItemEffect(
     case 'item-04':
       if (targetTileId !== undefined) {
         traps[targetTileId] = { itemDefId: def.id, instanceId: 'trap_' + Date.now(), ownerId: player.id, countdown: -1 }
-        pushLog('useItem', `${player.name} 在格 ${state.board.tiles[targetTileId]?.name ?? targetTileId} 放置地雷`)
+        const trapTile = state.board.tiles.find(t => t.id === targetTileId)
+        pushLog('useItem', `${player.name} 在格 ${trapTile?.name ?? targetTileId} 放置地雷`)
       }
       break
     case 'item-05':
@@ -149,10 +150,13 @@ function applyItemEffect(
       }
       break
     case 'item-06': {
+      const playerTile = state.board.tiles.find(t => t.id === player.position)
+      const playerTileIdx = playerTile?.index ?? 0
       let cleared = 0
-      for (let i = 0; i < state.board.size; i++) {
-        const ci = (player.position + i) % state.board.size
-        if (traps[ci]) { delete traps[ci]; cleared++ }
+      for (let i = 0; i < state.board.tiles.length; i++) {
+        const ci = (playerTileIdx + i) % state.board.tiles.length
+        const tileId = state.board.tiles[ci]?.id
+        if (tileId && traps[tileId]) { delete traps[tileId]; cleared++ }
       }
       pushLog('useItem', `${player.name} 使用「${def.name}」，清除 ${cleared} 个障碍`)
       break
@@ -160,15 +164,19 @@ function applyItemEffect(
     case 'item-07':
       if (targetTileId !== undefined) {
         traps[targetTileId] = { itemDefId: def.id, instanceId: 'block_' + Date.now(), ownerId: player.id, countdown: -1 }
-        pushLog('useItem', `${player.name} 在格 ${state.board.tiles[targetTileId]?.name ?? targetTileId} 放置路障`)
+        const trapTile = state.board.tiles.find(t => t.id === targetTileId)
+        pushLog('useItem', `${player.name} 在格 ${trapTile?.name ?? targetTileId} 放置路障`)
       }
       break
     case 'item-08':
       if (targetTileId !== undefined) {
-        const size = state.board.size; const from = player.position; const to = targetTileId % size
-        if (to < from) { player.cash += 2000; pushLog('salary', `${player.name} 经过起点，领取 ¥2000`) }
-        player.position = to
-        pushLog('useItem', `${player.name} 使用「${def.name}」移动到目标格`)
+        const fromTile = state.board.tiles.find(t => t.id === player.position)
+        const targetTile = state.board.tiles.find(t => t.id === targetTileId)
+        if (fromTile && targetTile) {
+          if (targetTile.index < fromTile.index) { player.cash += 2000; pushLog('salary', `${player.name} 经过起点，领取 ¥2000`) }
+          player.position = targetTileId
+          pushLog('useItem', `${player.name} 使用「${def.name}」移动到目标格`)
+        }
       }
       break
     case 'item-09':
@@ -184,10 +192,15 @@ function applyItemEffect(
       break
     case 'item-11':
       if (targetTileId !== undefined) {
+        const targetTile = state.board.tiles.find(t => t.id === targetTileId)
+        const targetIdx = targetTile?.index ?? 0
         const range = def.effectRange; let destroyed = 0
-        for (let i = Math.max(0, targetTileId - range); i <= Math.min(state.board.size - 1, targetTileId + range); i++) {
-          const prop = properties[i]
-          if (prop && prop.level > 0) { properties[i] = { ...prop, level: 0 }; destroyed++ }
+        for (let i = Math.max(0, targetIdx - range); i <= Math.min(state.board.tiles.length - 1, targetIdx + range); i++) {
+          const tId = state.board.tiles[i]?.id
+          if (tId) {
+            const prop = properties[tId]
+            if (prop && prop.level > 0) { properties[tId] = { ...prop, level: 0 }; destroyed++ }
+          }
         }
         pushLog('useItem', `${player.name} 使用「${def.name}」，摧毁 ${destroyed} 座建筑`)
       }
@@ -206,15 +219,19 @@ function applyItemEffect(
   const consumed = consumeItem(itemsArr, itemIdx, def)
   player.items = consumed
 
-  const finalTraps = Object.keys(traps).length > 0 ? traps : undefined
-  return { ...state, players, properties, log, boardTraps: finalTraps, awaitingDecision: undefined }
+  return {
+    ...state, players,
+    board: { ...state.board, properties, boardTraps: Object.keys(traps).length > 0 ? traps : {} },
+    log,
+    awaitingDecision: undefined,
+  }
 }
 
 // ─── Use Item (two-phase: apply or build choice) ───
 
 export function handleUseItem(state: GameState, action: Action & { type: 'USE_ITEM' }): GameState {
   const players = state.players.map(p => ({ ...p }))
-  const playerIdx = players.findIndex(p => p.id === state.turn.currentPlayerId)
+  const playerIdx = players.findIndex(p => p.id === state.turnContext.currentPlayerId)
   if (playerIdx === -1) return state
   const player = players[playerIdx]
   if (player.bankrupt) return state
@@ -270,18 +287,20 @@ export function buildItemChoiceDecision(def: ItemDefinition, playerId: string, s
     }
   }
   if (def.id === 'item-08') {
+    const playerPos = state.players.find(p => p.id === playerId)?.position
     return {
       playerId, kind: 'useCardChoice',
-      options: state.board.tiles.map((t, i) => ({ id: String(i), label: t.name })).filter((_, i) => i !== (state.players.find(p => p.id === playerId)?.position ?? -1)),
+      options: state.board.tiles
+        .filter(t => t.id !== playerPos)
+        .map(t => ({ id: t.id, label: t.name })),
       context: { cardEffect: 'ITEM_TARGET_TILE', cardName: def.name, itemDefId: def.id },
     }
   }
   if (TARGET_TILE_ITEMS.includes(def.id)) {
     const isOffensive = ['item-02', 'item-03', 'item-09', 'item-11']
     const tiles = state.board.tiles
-      .map((t, i) => ({ ...t, index: i }))
       .filter(t => {
-        const prop = state.properties[t.index]
+        const prop = state.board.properties[t.id]
         if (isOffensive.includes(def.id)) return prop && prop.level > 0 && prop.ownerId && prop.ownerId !== playerId
         return true // items 04,05,07 can be placed anywhere
       })
@@ -289,8 +308,8 @@ export function buildItemChoiceDecision(def: ItemDefinition, playerId: string, s
     return {
       playerId, kind: 'useCardChoice',
       options: tiles.slice(0, 20).map(t => ({
-        id: String(t.index),
-        label: `${t.name}${state.properties[t.index]?.level > 0 ? ` (${state.properties[t.index].level}级)` : ''}`,
+        id: t.id,
+        label: `${t.name}${state.board.properties[t.id]?.level > 0 ? ` (${state.board.properties[t.id].level}级)` : ''}`,
       })),
       context: { cardEffect: 'ITEM_TARGET_TILE', cardName: def.name, itemDefId: def.id },
     }
@@ -318,19 +337,18 @@ export function resolveItemChoice(state: GameState, optionId: string): GameState
 
   const items = player.items ?? []
   const itemIdx = items.findIndex((_, i) => {
-    const prevState = { ...state, players }
-    const p = prevState.players.find(x => x.id === d.playerId)
+    const p = players.find(x => x.id === d.playerId)
     return p?.items?.[i]?.definitionId === itemDefId
   })
 
-  let targetTileId: number | undefined
+  let targetTileId: string | undefined
   let targetId: string | undefined
   if (TARGET_PLAYER_ITEMS.includes(itemDefId)) {
     targetId = optionId
     const opponent = players.find(p => p.id === optionId)
     if (opponent) targetTileId = opponent.position
   } else {
-    targetTileId = parseInt(optionId, 10)
+    targetTileId = optionId
   }
 
   return applyItemEffect(
@@ -346,13 +364,15 @@ export function resolveItemChoice(state: GameState, optionId: string): GameState
 // ─── Trap resolution ───
 
 export function resolveTraps(state: GameState, tileIndex: number): GameState {
-  const traps = state.boardTraps
-  if (!traps || !traps[tileIndex]) return state
-  const trap = traps[tileIndex]
+  const tileId = state.board.tiles[tileIndex]?.id
+  if (!tileId) return state
+  const traps = state.board.boardTraps
+  if (!traps || !traps[tileId]) return state
+  const trap = traps[tileId]
   const players = state.players.map(p => ({ ...p }))
   const log = [...state.log]
   const pushLog = (kind: string, text: string) => log.push({ seq: log.length, kind, text })
-  const playerIdx = players.findIndex(p => p.id === state.turn.currentPlayerId)
+  const playerIdx = players.findIndex(p => p.id === state.turnContext.currentPlayerId)
   if (playerIdx === -1) return state
   const player = players[playerIdx]
   const newTraps = { ...traps }
@@ -362,53 +382,66 @@ export function resolveTraps(state: GameState, tileIndex: number): GameState {
     const dmg = 800
     player.cash = Math.max(0, player.cash - dmg)
     if (owner) owner.cash += dmg
-    player.inJailTurns = 2
+    player.hospitalTurns = 2
+    player.status = 'IN_HOSPITAL'
     pushLog('trap', `${player.name} 踩中地雷！扣 ¥${dmg} 住院 2 回合`)
-    delete newTraps[tileIndex]
+    delete newTraps[tileId]
   } else if (trap.itemDefId === 'item-07') {
     pushLog('trap', `${player.name} 被路障挡住`)
-    delete newTraps[tileIndex]
+    delete newTraps[tileId]
   } else if (trap.itemDefId === 'item-05') {
     const dmg = 2000
     player.cash = Math.max(0, player.cash - dmg)
-    player.inJailTurns = 3
+    player.hospitalTurns = 3
+    player.status = 'IN_HOSPITAL'
     pushLog('trap', `${player.name} 踩到定时炸弹！扣 ¥${dmg} 住院 3 回合`)
-    delete newTraps[tileIndex]
+    delete newTraps[tileId]
   }
 
-  return { ...state, players, log, boardTraps: newTraps }
+  return {
+    ...state, players, log,
+    board: { ...state.board, boardTraps: newTraps },
+  }
 }
 
 /** 定时炸弹每日倒计时 */
 export function tickTimedBombs(state: GameState): GameState {
-  const traps = state.boardTraps
+  const traps = state.board.boardTraps
   if (!traps || Object.keys(traps).length === 0) return state
   const players = state.players.map(p => ({ ...p }))
-  const properties = { ...state.properties }
+  const properties = { ...state.board.properties }
   const log = [...state.log]
   const pushLog = (kind: string, text: string) => log.push({ seq: log.length, kind, text })
-  const newTraps: Record<number, import('../types').TrapState> = {}
+  const newTraps: Record<string, TrapState> = {}
 
-  for (const [idxStr, trap] of Object.entries(traps)) {
-    const idx = Number(idxStr)
+  for (const [tileId, trap] of Object.entries(traps)) {
     if (trap.itemDefId === 'item-05') {
+      const tile = state.board.tiles.find(t => t.id === tileId)
+      const idx = tile?.index ?? 0
       const rem = trap.countdown - 1
       if (rem <= 0) {
         let d = 0
-        for (let i = Math.max(0, idx - 2); i <= Math.min(state.board.size - 1, idx + 2); i++) {
-          if (properties[i] && properties[i].level > 0) { properties[i] = { ...properties[i], level: 0 }; d++ }
+        for (let i = Math.max(0, idx - 2); i <= Math.min(state.board.tiles.length - 1, idx + 2); i++) {
+          const propTileId = state.board.tiles[i]?.id
+          if (propTileId && properties[propTileId] && properties[propTileId].level > 0) {
+            properties[propTileId] = { ...properties[propTileId], level: 0 }
+            d++
+          }
         }
         pushLog('trap', `定时炸弹爆炸！摧毁 ${d} 座建筑`)
       } else {
-        newTraps[idx] = { ...trap, countdown: rem }
+        newTraps[tileId] = { ...trap, countdown: rem }
       }
     } else {
-      newTraps[idx] = trap
+      newTraps[tileId] = trap
     }
   }
 
-  const boardTraps = Object.keys(newTraps).length > 0 ? newTraps : undefined
-  return { ...state, players, properties, log, boardTraps }
+  return {
+    ...state, players,
+    board: { ...state.board, properties, boardTraps: Object.keys(newTraps).length > 0 ? newTraps : {} },
+    log,
+  }
 }
 
 // ─── Route ───

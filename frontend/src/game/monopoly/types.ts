@@ -1,20 +1,15 @@
-// 大富翁规则引擎 —— 类型定义
+// 大富翁规则引擎 —— 类型定义（Phase 0 统一后）
 // 纯 TS，零渲染依赖（不得 import React/antd/Phaser/Three）。
-// §3 全量类型：P0-P6 blockout 所用类型保留（向后兼容）+ §3 新类型追加。
-// 旧类型：P0-P6 blockout 使用（BoardConfig/Tile/Player 等）
-// 新类型：M0+ 全量数据驱动层（BoardData/CardDefinition/FullGameState 等）
+//
+// M0 重构地基：类型系统已统一 ——
+//   GameState 为唯一顶层状态，TileV2→Tile（id: string），
+//   TurnContext + TurnPhaseV2 替代旧 TurnState，
+//   BoardState 统一地图运行时状态，所有 ID 均为 string。
 
 // ════════════════════════════════════════════
 // §3.0 基础枚举 & 工具类型
 // ════════════════════════════════════════════
 
-// ------ 旧的格子类型（P0-P6 blockout 用） ------
-export type TileType =
-  | 'go' | 'property' | 'station' | 'utility' | 'chance'
-  | 'fate' | 'news' | 'jail' | 'hospital' | 'tax'
-  | 'bank' | 'shop' | 'parking' | 'attack'
-
-// ------ 新的全量格子类型（§3.2） ------
 export const SpaceType = {
   PROPERTY: 'PROPERTY',
   COMPANY: 'COMPANY',
@@ -49,8 +44,10 @@ export type GamePhase = (typeof GamePhase)[keyof typeof GamePhase]
 export const GameStatus = { playing: 'playing', ended: 'ended' } as const
 export type GameStatus = (typeof GameStatus)[keyof typeof GameStatus]
 
+export type GameStatusStr = 'playing' | 'ended'
+
 // ════════════════════════════════════════════
-// §3.2 地图数据结构
+// §3.2 地图数据结构（Tile 已统一为 string ID）
 // ════════════════════════════════════════════
 
 export interface TileCoord { row: number; col: number }
@@ -109,38 +106,8 @@ export interface BoardShape {
   centerArea?: CenterAreaDef
 }
 
-/** 地图静态定义（数据文件加载，运行时只读） */
-export interface BoardData {
-  mapId: string
-  version: string
-  name: string
-  size: number
-  tiles: TileV2[]
-  groups: PropertyGroup[]
-  boardShape: BoardShape
-  layers: TilemapLayer[]
-  metadata?: Record<string, unknown>
-}
-
-// ------ 旧 Tile（P0-P6 blockout 用） ------
+/** 格子（§3.2 全量字段，已统一为 Tile 原名） */
 export interface Tile {
-  index: number
-  coord: TileCoord
-  type: TileType
-  name: string
-  zoneId?: string
-  color?: string
-  price?: number
-  upgradeCost?: number
-  rentByLevel?: number[]
-  taxAmount?: number
-  damage?: number              // 热斗模式攻击格伤害值
-  /** 原始 SpaceType（boardDataToBoardConfig 桥接时保留，用于事件格识别） */
-  spaceType?: SpaceType
-}
-
-// ------ 新 Tile（§3.2 全量字段） ------
-export interface TileV2 {
   id: string
   index: number
   type: SpaceType
@@ -158,26 +125,54 @@ export interface TileV2 {
   damage?: number
   damageRange?: number
   assetRef?: AssetRef
+  // 旧兼容字段（boardDataToBoardConfig 桥接产出的运行时属性）
+  price?: number
+  upgradeCost?: number
+  rentByLevel?: number[]
+  taxAmount?: number
+  color?: string
+  zoneId?: string
 }
 
-export interface BoardConfig { size: number; tiles: Tile[] }
-
-// ------ 地图运行时状态（§3.2） ------
-export interface BoardState {
-  data: BoardData
-  properties: Record<string, PropertyState>
-  sealedGroups: Record<string, number>
-  priceUpGroups: Record<string, number>
+/** 地图静态定义（数据文件加载，运行时只读） */
+export interface BoardData {
+  mapId: string
+  version: string
+  name: string
+  size: number
+  tiles: Tile[]
+  groups: PropertyGroup[]
+  boardShape: BoardShape
+  layers: TilemapLayer[]
+  metadata?: Record<string, unknown>
 }
 
-/** 地产运行态（旧：P0-P6 blockout 用） */
+/** 地产运行态 */
 export interface PropertyState {
-  tileId: number
+  tileId: string
   ownerId?: string
   level: number
   mortgaged: boolean
   isChainStore?: boolean
   buildingAssetRef?: AssetRef
+}
+
+/** 棋盘陷阱（地雷/路障/定时炸弹） */
+export interface TrapState {
+  itemDefId: string
+  instanceId: string
+  ownerId: string
+  countdown: number  // -1=触发型（地雷/路障），>0=倒计时（定时炸弹）
+}
+
+/** 地图运行时状态（§3.2） */
+export interface BoardState {
+  data: BoardData
+  tiles: Tile[]                          // data.tiles 的便捷引用
+  properties: Record<string, PropertyState>
+  sealedGroups: Record<string, number>
+  priceUpGroups: Record<string, number>
+  boardTraps: Record<string, TrapState>
 }
 
 // ════════════════════════════════════════════
@@ -186,26 +181,23 @@ export interface PropertyState {
 
 export type ControllerKind = 'human' | 'ai'
 
-/** 玩家（旧：P0-P6 blockout 用） */
 export interface Player {
   id: string
   name: string
   color: string
   cash: number
-  position: number
-  inJailTurns: number
-  ownedTileIds: number[]
+  position: string                  // Tile.id（字符串统一后）
+  ownedTileIds: string[]            // Tile.id[]
   bankrupt: boolean
   characterCardId?: string
   controller: ControllerKind
   aiNodeId?: string
-  // 扩展字段（§3.3，旧代码访问不到时不设也能用）
   totalAssets?: number
   bankDeposit?: number
   bankLoan?: number
   loanDueDay?: number
   stocks?: Record<string, number>
-  previousPosition?: number
+  previousPosition?: string
   hand?: CardInstance[]
   items?: ItemInstance[]
   status?: PlayerStatus
@@ -305,6 +297,28 @@ export interface CardDeckState {
 export const ItemCategory = { VEHICLE: 'VEHICLE', WEAPON: 'WEAPON', TRAP: 'TRAP', TOOL: 'TOOL' } as const
 export type ItemCategory = (typeof ItemCategory)[keyof typeof ItemCategory]
 
+export const ItemEffectType = {
+  SET_TRAP: 'SET_TRAP',
+  LAUNCH_MISSILE: 'LAUNCH_MISSILE',
+  REMOVE_DEBRIS: 'REMOVE_DEBRIS',
+  PLACE_BLOCK: 'PLACE_BLOCK',
+  STEAL: 'STEAL',
+  ROADBLOCK: 'ROADBLOCK',
+  FORCE_STOP: 'FORCE_STOP',
+  SUMMON_DICE: 'SUMMON_DICE',
+  CHANGE_DICE: 'CHANGE_DICE',
+  ABSORB_DAMAGE: 'ABSORB_DAMAGE',
+  NUCLEAR_BOMB: 'NUCLEAR_BOMB',
+  STEAL_CARD: 'STEAL_CARD',
+  PIGGY_BANK: 'PIGGY_BANK',
+  REMOTE_CONTROL: 'REMOTE_CONTROL',
+  REVERSE_DIRECTION: 'REVERSE_DIRECTION',
+  FREEZE: 'FREEZE',
+  LIGHTNING: 'LIGHTNING',
+  SHIELD: 'SHIELD',
+} as const
+export type ItemEffectType = (typeof ItemEffectType)[keyof typeof ItemEffectType]
+
 export interface ItemDefinition {
   id: string
   name: string
@@ -315,6 +329,8 @@ export interface ItemDefinition {
   effectRange: number
   durability: number
   versions: string[]
+  effectType?: ItemEffectType
+  effectParams?: Record<string, unknown>
   iconAssetRef?: AssetRef
 }
 
@@ -331,14 +347,6 @@ export interface ItemDeckState {
   definitions: ItemDefinition[]
   shopInventory: ItemShopInventory
   researchInventory: ItemResearchInventory
-}
-
-/** 棋盘陷阱（地雷/路障/定时炸弹） */
-export interface TrapState {
-  itemDefId: string
-  instanceId: string
-  ownerId: string
-  countdown: number  // -1=触发型（地雷/路障），>0=倒计时（定时炸弹）
 }
 
 // ════════════════════════════════════════════
@@ -527,6 +535,7 @@ export interface GameConfig {
   allowConsecutiveDoublesJail: boolean
   priceIndexEnabled: boolean
   priceIndexMode: 'asset_based' | 'auto_increment'
+  autoIncrementIntervalDays?: number
   bankEnabled: boolean
   stockEnabled: boolean
   initialDeposit: number
@@ -537,6 +546,9 @@ export interface GameConfig {
   variant: 'classic' | 'hot_fight' | 'richman_spinoff'
   renderMode: '2D' | '3D'
   version: 'richman4' | 'richman8' | 'richman10' | 'richman11'
+  cashAsHP?: boolean
+  noHospital?: boolean
+  attackSpaceRatio?: number
 }
 
 export interface ConfigPreset {
@@ -550,15 +562,14 @@ export interface ConfigPreset {
 // ════════════════════════════════════════════
 
 export interface SaveGame {
-  id: string                    // 唯一存档标识（UUID）
-  name: string                  // 用户可自定义的存档名
-  version: string               // 存档格式版本，如 "richman@1.0.0"
-  timestamp: number             // 存档时间戳
+  id: string
+  name: string
+  version: string
+  timestamp: number
   gameState: GameState
   config: GameConfig
 }
 
-/** 存档元信息（对局列表展示用） */
 export interface SaveMeta {
   id: string
   name: string
@@ -606,14 +617,14 @@ export type Action =
   | { type: 'CHOOSE_PATH'; direction: 'LEFT' | 'RIGHT' }
   | { type: 'END_TURN' }
   | { type: 'RESOLVE_DECISION'; optionId: string; extra?: Record<string, unknown> }
-  | { type: 'PURCHASE_PROPERTY'; tileId: number }
+  | { type: 'PURCHASE_PROPERTY'; tileId: string }
   | { type: 'DECLINE_PURCHASE' }
-  | { type: 'BUILD_STRUCTURE'; tileId: number }
+  | { type: 'BUILD_STRUCTURE'; tileId: string }
   | { type: 'DECLINE_BUILD' }
-  | { type: 'MORTGAGE_PROPERTY'; tileId: number }
-  | { type: 'REDEEM_PROPERTY'; tileId: number }
-  | { type: 'USE_CARD'; cardInstanceId: string; targetId?: string; targetTileId?: number }
-  | { type: 'USE_ITEM'; itemInstanceId: string; targetId?: string; targetTileId?: number }
+  | { type: 'MORTGAGE_PROPERTY'; tileId: string }
+  | { type: 'REDEEM_PROPERTY'; tileId: string }
+  | { type: 'USE_CARD'; cardInstanceId: string; targetId?: string; targetTileId?: string }
+  | { type: 'USE_ITEM'; itemInstanceId: string; targetId?: string; targetTileId?: string }
   | { type: 'BUY_CARD'; cardDefId: string }
   | { type: 'BUY_ITEM'; itemDefId: string }
   | { type: 'BANK_DEPOSIT'; amount: number }
@@ -629,19 +640,8 @@ export type Action =
   | { type: 'MINI_GAME_RESULT'; result: MiniGameResult }
 
 // ════════════════════════════════════════════
-// P0-P6 游戏状态（blockout 用，向后兼容）
+// 游戏状态（统一后，唯一顶层类型）
 // ════════════════════════════════════════════
-
-export type TurnPhase = 'ROLL' | 'MOVE' | 'SETTLE' | 'DECIDE' | 'END_TURN'
-
-export type GameStatusStr = 'playing' | 'ended'
-
-export interface TurnState {
-  currentPlayerId: string
-  phase: TurnPhase
-  dice?: number[]
-  doublesCount: number
-}
 
 export interface GameEvent {
   seq: number
@@ -650,26 +650,23 @@ export interface GameEvent {
   data?: Record<string, unknown>
 }
 
-/** P0-P6 blockout 游戏状态（旧系统），M2 起扩展 economy/day 字段，M3 起扩展 cardDeck */
 export interface GameState {
-  board: BoardConfig
+  version: string
   mapId: string
   mapName: string
+  day: number
+  phase: GamePhase
+  board: BoardState
   players: Player[]
-  properties: Record<number, PropertyState>
-  turn: TurnState
+  turnContext: TurnContext
+  economy: EconomyState
+  cardDeck: CardDeckState
+  itemDeck: ItemDeckState
+  config: GameConfig
   awaitingDecision?: DecisionRequest
   log: GameEvent[]
   status: GameStatusStr
   winnerId?: string
-  day?: number
-  economy?: EconomyState
-  cardDeck?: CardDeckState
-  itemDeck?: ItemDeckState
-  boardTraps?: Record<number, TrapState>
-  priceUpGroups?: Record<string, number>
-  sealedGroups?: Record<string, number>
-  config?: GameConfig              // M7: 当前对局的版本配置
 }
 
 export interface NewGamePlayerSpec {
@@ -682,43 +679,17 @@ export interface NewGamePlayerSpec {
 }
 
 export interface NewGameConfig {
-  board: BoardConfig
+  mapId: string
   players: NewGamePlayerSpec[]
   startingCash: number
-  mapId?: string
-  configPresetId?: string        // M7: 加载哪个配置预设（如 "richman4-default"）
-  variant?: 'classic' | 'hot_fight' | 'richman_spinoff'  // M7: 版本变体模式
-  version?: 'richman4' | 'richman8' | 'richman10' | 'richman11' // M7: 版本标识
+  configPresetId?: string
+  variant?: 'classic' | 'hot_fight' | 'richman_spinoff'
+  version?: 'richman4' | 'richman8' | 'richman10' | 'richman11'
 }
 
 // ════════════════════════════════════════════
-// §3.1 顶层 FullGameState（M1+ 全量系统用）
+// TurnFSM（回合状态机）
 // ════════════════════════════════════════════
-
-export interface TurnContext {
-  currentPlayerId: string
-  phase: TurnPhaseV2
-  diceResults: number[]
-  diceCount: number
-  moveSteps: number
-  movePath: string[]
-  pendingRent?: RentInfo
-  pendingPurchase?: PurchaseInfo
-  cardUseWindowFor?: string
-  consecutiveDoubles: number
-}
-
-export interface RentInfo {
-  tileId: string
-  amount: number
-  debtorId: string
-  creditorId: string
-}
-
-export interface PurchaseInfo {
-  tileId: string
-  price: number
-}
 
 export const TurnPhaseV2 = {
   TURN_START: 'TURN_START',
@@ -736,31 +707,29 @@ export const TurnPhaseV2 = {
 } as const
 export type TurnPhaseV2 = (typeof TurnPhaseV2)[keyof typeof TurnPhaseV2]
 
-export interface GameLogEntry {
-  seq: number
-  kind: string
-  text: string
-  data?: Record<string, unknown>
+export interface RentInfo {
+  tileId: string
+  amount: number
+  debtorId: string
+  creditorId: string
 }
 
-/** §3.1 全量游戏状态（M1+ 用） */
-export interface FullGameState {
-  version: string
-  mapId: string
-  day: number
-  phase: GamePhase
-  turnContext: TurnContext
-  board: BoardState
-  players: Player[]
-  cardDeck: CardDeckState
-  economy: EconomyState
-  config: GameConfig
-  pendingEvents: GameEvent[]
-  awaitingDecision?: DecisionRequest
-  log: GameLogEntry[]
-  rngSeed: number
-  status: GameStatus
-  winnerId?: string
+export interface PurchaseInfo {
+  tileId: string
+  price: number
+}
+
+export interface TurnContext {
+  currentPlayerId: string
+  phase: TurnPhaseV2
+  diceResults: number[]
+  diceCount: number
+  moveSteps: number
+  movePath: string[]
+  pendingRent?: RentInfo
+  pendingPurchase?: PurchaseInfo
+  cardUseWindowFor?: string
+  consecutiveDoubles: number
 }
 
 // ════════════════════════════════════════════

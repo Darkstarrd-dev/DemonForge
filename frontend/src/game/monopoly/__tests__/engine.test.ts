@@ -1,12 +1,9 @@
 import { describe, it, expect } from 'vitest'
 import { createInitialState, reducer } from '../engine'
-import { createDefaultBoard } from '../board.preset'
 import type { GameState, NewGameConfig } from '../types'
 
 function makeConfig(overrides?: Partial<NewGameConfig>): NewGameConfig {
-  return {
-    board: createDefaultBoard(),
-    players: [
+  return {    players: [
       { name: '玩家A', color: '#E74C3C', controller: 'human' },
       { name: '玩家B', color: '#3498DB', controller: 'ai' },
     ],
@@ -71,9 +68,7 @@ describe('reducer: ROLL_DICE', () => {
   })
 
   it('经过起点领取薪水', () => {
-    const state = createInitialState(makeConfig({
-      board: { size: 40, tiles: createDefaultBoard().tiles },
-    }))
+    const state = createInitialState(makeConfig({    }))
     // 把玩家放到 38 格，掷出 5 → 43 mod 40 = 3 → 经过起点
     const moved = reducer({ ...state, players: [{ ...state.players[0], position: 38 }] }, { type: 'ROLL_DICE', dice: [2, 3] })
     expect(moved.players[0].position).toBe(3)

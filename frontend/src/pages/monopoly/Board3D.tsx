@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import type { GameState } from '../../game/monopoly/types'
+import { SpaceType } from '../../game/monopoly/types'
 
 // 3D 渲染适配层：复用同一 GameState（经 stateRef 读取），不含任何游戏逻辑。
 // 棋盘格沿 tile.coord 环形铺开；棋子随 player.position 平滑移动；地产升起业主色柱（高随等级）。
@@ -68,10 +69,10 @@ export default function Board3D({ state }: { state: GameState }) {
     }
 
     // 棋盘格（静态）+ 地产柱（动态，存 ref）
-    const propPillars = new Map<number, THREE.Mesh>()
+    const propPillars = new Map<string, THREE.Mesh>()
     for (const tile of board.tiles) {
       const [x, z] = tileToWorld(tile.coord, side)
-      const isProp = tile.type === 'property'
+      const isProp = tile.type === SpaceType.PROPERTY
       const baseColor = isProp && tile.color ? hexToInt(tile.color) : 0x3a3a55
       const plate = new THREE.Mesh(
         new THREE.BoxGeometry(CELL * 0.92, 0.3, CELL * 0.92),
@@ -88,7 +89,7 @@ export default function Board3D({ state }: { state: GameState }) {
         pillar.position.set(x, 0, z)
         pillar.visible = false
         scene.add(pillar)
-        propPillars.set(tile.index, pillar)
+        propPillars.set(tile.id, pillar)
       }
     }
 
@@ -112,7 +113,9 @@ export default function Board3D({ state }: { state: GameState }) {
       st.players.forEach((p, i) => {
         const pawn = pawns.get(p.id)
         if (!pawn) return
-        const [tx, tz] = tileToWorld(st.board.tiles[p.position].coord, side)
+        const tile = st.board.tiles.find(t => t.id === p.position)
+        if (!tile) return
+        const [tx, tz] = tileToWorld(tile.coord, side)
         const ox = (i % 2) * 0.6 - 0.3
         const oz = Math.floor(i / 2) * 0.6 - 0.3
         pawn.position.x += (tx + ox - pawn.position.x) * 0.15
@@ -122,7 +125,7 @@ export default function Board3D({ state }: { state: GameState }) {
 
       // 地产柱：业主色 + 高度随等级 + 抵押半透明
       propPillars.forEach((pillar, tid) => {
-        const prop = st.properties[tid]
+        const prop = st.board.properties[tid]
         const mat = pillar.material as THREE.MeshStandardMaterial
         if (prop && prop.ownerId) {
           const owner = st.players.find((pl) => pl.id === prop.ownerId)

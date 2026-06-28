@@ -1,5 +1,5 @@
 // 数据校验：地图连通性 / 引用完整性 / 枚举合法 / 建筑等级连续
-import type { TileV2, BoardData, PropertyGroup } from '../types'
+import type { Tile, BoardData, PropertyGroup } from '../types'
 import { SpaceType } from '../types'
 
 export interface ValidationResult {
@@ -15,12 +15,12 @@ export function validateMapData(data: BoardData): ValidationResult {
   if (!data.mapId) errors.push('mapId 不能为空')
   if (data.size !== data.tiles.length) errors.push(`size (${data.size}) 与 tiles 长度 (${data.tiles.length}) 不匹配`)
 
-  const tileMap = new Map<string, TileV2>()
+  const tileMap = new Map<string, Tile>()
   for (const tile of data.tiles) {
     if (tileMap.has(tile.id)) errors.push(`重复 tile.id: ${tile.id}`)
     tileMap.set(tile.id, tile)
 
-    if (tile.index < 0 || tile.index >= data.size) errors.push(`tile ${tile.id} index 越界: ${tile.index}`)
+    if (tile.index < 0 || tile.index >= data.tiles.length) errors.push(`tile ${tile.id} index 越界: ${tile.index}`)
 
     if (tile.neighborIds.length === 0) warnings.push(`tile ${tile.id} 无 neighborIds`)
     for (const nid of tile.neighborIds) {

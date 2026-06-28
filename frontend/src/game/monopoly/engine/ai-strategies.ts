@@ -13,13 +13,13 @@ function getPlayer(state: GameState, playerId: string) {
 }
 
 function countBuilt(state: GameState, playerId: string): number {
-  return Object.values(state.properties).filter((p) => p.ownerId === playerId && p.level > 0).length
+  return Object.values(state.board.properties).filter((p) => p.ownerId === playerId && p.level > 0).length
 }
 
-function tilesPrice(state: GameState): Record<number, number> {
-  const result: Record<number, number> = {}
+function tilesPrice(state: GameState): Record<string, number> {
+  const result: Record<string, number> = {}
   for (const tile of state.board.tiles) {
-    if (tile.price) result[tile.index] = tile.price
+    if (tile.price) result[tile.id] = tile.price
   }
   return result
 }
@@ -28,7 +28,7 @@ function leaderId(state: GameState): string | undefined {
   const alive = state.players.filter((p) => !p.bankrupt)
   if (alive.length === 0) return undefined
   const tp = tilesPrice(state)
-  return alive.reduce((best, p) => (calcTotalAssets(p, state.properties, tp) > calcTotalAssets(best, state.properties, tp) ? p : best)).id
+  return alive.reduce((best, p) => (calcTotalAssets(p, state.board.properties, tp) > calcTotalAssets(best, state.board.properties, tp) ? p : best)).id
 }
 
 function buyProperty(state: GameState, playerId: string, request: DecisionRequest, cfg: AIConfig): string {
@@ -92,7 +92,7 @@ function payOrMortgage(state: GameState, playerId: string, request: DecisionRequ
   if (cfg.difficulty === 'easy') return player.cash >= amount ? 'pay' : 'mortgage'
   if (cfg.difficulty === 'normal') {
     if (player.cash >= amount) return 'pay'
-    const mortgagable = Object.entries(state.properties).filter(
+    const mortgagable = Object.entries(state.board.properties).filter(
       ([, p]) => p.ownerId === playerId && !p.mortgaged,
     ).length
     return mortgagable > 0 ? 'mortgage' : 'bankrupt'

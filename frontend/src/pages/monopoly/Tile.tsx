@@ -1,5 +1,6 @@
 import { theme } from 'antd'
 import type { Player, PropertyState, Tile } from '../../game/monopoly/types'
+import { SpaceType } from '../../game/monopoly/types'
 
 interface Props {
   tile: Tile
@@ -10,7 +11,7 @@ interface Props {
 
 export default function TileCell({ tile, property, owner, occupants }: Props) {
   const { token } = theme.useToken()
-  const isProperty = tile.type === 'property'
+  const isProperty = tile.type === SpaceType.PROPERTY
 
   return (
     <div

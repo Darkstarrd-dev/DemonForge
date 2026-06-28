@@ -4,12 +4,13 @@ import type { Action, GameState } from '../types'
 const MORTGAGE_RATE = 0.5
 const REDEEM_INTEREST = 1.1
 
-export function handleMortgage(state: GameState, tileId: number): GameState {
-  const prop = state.properties[tileId]
+export function handleMortgage(state: GameState, tileId: string): GameState {
+  const prop = state.board.properties[tileId]
   if (!prop || !prop.ownerId || prop.mortgaged) return state
-  const tile = state.board.tiles[tileId]
+  const tile = state.board.tiles.find(t => t.id === tileId)
+  if (!tile) return state
   const players = state.players.map((p) => ({ ...p }))
-  const properties = { ...state.properties }
+  const properties = { ...state.board.properties }
   const log = [...state.log]
   const owner = players.find((p) => p.id === prop.ownerId)
   if (!owner) return state
@@ -17,15 +18,16 @@ export function handleMortgage(state: GameState, tileId: number): GameState {
   owner.cash += value
   properties[tileId] = { ...prop, mortgaged: true }
   log.push({ seq: log.length, kind: 'mortgage', text: `${owner.name} 抵押「${tile.name}」，获得 ¥${value}` })
-  return { ...state, players, properties, log }
+  return { ...state, players, board: { ...state.board, properties }, log }
 }
 
-export function handleRedeem(state: GameState, tileId: number): GameState {
-  const prop = state.properties[tileId]
+export function handleRedeem(state: GameState, tileId: string): GameState {
+  const prop = state.board.properties[tileId]
   if (!prop || !prop.ownerId || !prop.mortgaged) return state
-  const tile = state.board.tiles[tileId]
+  const tile = state.board.tiles.find(t => t.id === tileId)
+  if (!tile) return state
   const players = state.players.map((p) => ({ ...p }))
-  const properties = { ...state.properties }
+  const properties = { ...state.board.properties }
   const log = [...state.log]
   const owner = players.find((p) => p.id === prop.ownerId)
   if (!owner) return state
@@ -34,7 +36,7 @@ export function handleRedeem(state: GameState, tileId: number): GameState {
   owner.cash -= cost
   properties[tileId] = { ...prop, mortgaged: false }
   log.push({ seq: log.length, kind: 'redeem', text: `${owner.name} 赎回「${tile.name}」，花费 ¥${cost}` })
-  return { ...state, players, properties, log }
+  return { ...state, players, board: { ...state.board, properties }, log }
 }
 
 export function handleBoardAction(state: GameState, action: Action): GameState {

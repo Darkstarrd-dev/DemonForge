@@ -1,13 +1,10 @@
 import { describe, it, expect } from 'vitest'
 import { createInitialState } from '../engine'
-import { createDefaultBoard } from '../board.preset'
 import type { GameState, NewGameConfig } from '../types'
 import { aiNextAction, aiDecide, configureAIController, resetAIController } from '../engine/ai'
 
 function makeConfig(overrides?: Partial<NewGameConfig>): NewGameConfig {
-  return {
-    board: createDefaultBoard(),
-    players: [
+  return {    players: [
       { name: '玩家A', color: '#E74C3C', controller: 'human' },
       { name: 'AI玩家', color: '#3498DB', controller: 'ai', aiDifficulty: 'normal' },
     ],

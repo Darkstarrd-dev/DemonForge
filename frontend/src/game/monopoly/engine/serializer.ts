@@ -37,7 +37,7 @@ export function extractSaveMeta(save: SaveGame): SaveMeta {
     playerCount: alive.length,
     mapId: s.mapId,
     mapName: s.mapName,
-    day: s.day ?? 1,
+    day: s.day,
     status: s.status,
   }
 }

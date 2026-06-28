@@ -2,9 +2,10 @@
 // 引擎层零渲染依赖。随机源（rollDice）独立于 reducer，dice 经 action 传入，
 // 以保持 reducer 纯、StrictMode 下重复调用安全。
 //
-// 子系统分拆到 engine/ 目录，本文件仅做路由派发。
+// Phase 0 统一后：基于 BoardState + TurnContext + string ID
 
-import type { Action, GameState, NewGameConfig, Player, PropertyState } from './types'
+import type { Action, GameState, NewGameConfig, Player } from './types'
+import { GamePhase, TurnPhaseV2 } from './types'
 import { handleRoll, handleResolveDecision, handleEndTurn } from './engine/turn'
 import { handleBoardAction } from './engine/board'
 import { handleBankrupt } from './engine/player'
@@ -13,34 +14,36 @@ import { handleItemAction, createItemDeck, resolveItemChoice, refreshItemShop, t
 import { handleEventAction } from './engine/event'
 import { handleBankAction, handleStockAction, createInitialEconomy } from './engine/economy'
 import { applyAllGodDailyEffects, tickGodDurations } from './engine/god'
-import { getMapName, loadConfig } from './engine/loader'
+import { getMapName, loadConfig, createBoardState, loadMapData } from './engine/loader'
 
 export function createInitialState(config: NewGameConfig): GameState {
-  const mapId = config.mapId ?? 'classic-40'
+  const mapId = config.mapId
   const presetId = config.configPresetId ?? 'richman4-default'
   const preset = loadConfig(presetId)
   const variant = config.variant ?? preset?.variant ?? 'classic'
 
-  // 热斗模式：将传入的 board 就地转换（PROPERTY→ATTACK_SPACE, HOSPITAL→PARK）
-  let finalBoard = config.board
-  if (variant === 'hot_fight') {
-    finalBoard = {
-      ...config.board,
-      tiles: config.board.tiles.map((t) => {
-        if (t.type === 'property') return { ...t, type: 'attack' as const, name: `攻击·${t.name}`, damage: 500 }
-        if (t.type === 'hospital') return { ...t, type: 'parking' as const, name: '公园' }
-        return t
-      }),
-    }
-  }
+  const { boardData } = loadMapData(mapId)
+
+  // 热斗模式转换
+  const finalBoardData = variant === 'hot_fight'
+    ? {
+        ...boardData,
+        tiles: boardData.tiles.map((t) => {
+          if (t.type === 'PROPERTY') return { ...t, type: 'ATTACK_SPACE' as const, name: `攻击·${t.name}`, damage: 500 }
+          if (t.type === 'HOSPITAL') return { ...t, type: 'PARK' as const, name: '公园' }
+          return t
+        }),
+      }
+    : boardData
+
+  const board = createBoardState(finalBoardData)
 
   const players: Player[] = config.players.map((spec, i) => ({
     id: `p${i + 1}`,
     name: spec.name,
     color: spec.color,
     cash: config.startingCash,
-    position: 0,
-    inJailTurns: 0,
+    position: board.tiles[0]?.id ?? '',
     ownedTileIds: [],
     bankrupt: false,
     characterCardId: spec.characterCardId,
@@ -52,27 +55,29 @@ export function createInitialState(config: NewGameConfig): GameState {
     items: [],
   }))
 
-  const properties: Record<number, PropertyState> = {}
-  for (const tile of finalBoard.tiles) {
-    if (tile.type === 'property') {
-      properties[tile.index] = { tileId: tile.index, level: 0, mortgaged: false }
-    }
-  }
-
   return {
-    board: finalBoard,
+    version: '1.0',
     mapId,
     mapName: getMapName(mapId),
-    players,
-    properties,
-    turn: { currentPlayerId: players[0].id, phase: 'ROLL', doublesCount: 0 },
-    log: [{ seq: 0, kind: 'gameStart', text: '游戏开始' }],
-    status: 'playing',
     day: 1,
+    phase: GamePhase.PLAYING,
+    board,
+    players,
+    turnContext: {
+      currentPlayerId: players[0].id,
+      phase: TurnPhaseV2.TURN_START,
+      diceResults: [],
+      diceCount: 2,
+      moveSteps: 0,
+      movePath: [],
+      consecutiveDoubles: 0,
+    },
     economy: createInitialEconomy(players.length, config.startingCash),
     cardDeck: createCardDeck(),
     itemDeck: createItemDeck(),
-    config: preset,
+    config: preset ?? (() => { throw new Error(`未知配置预设: ${presetId}`) })(),
+    log: [{ seq: 0, kind: 'gameStart', text: '游戏开始' }],
+    status: 'playing',
   }
 }
 
@@ -136,7 +141,7 @@ export function reducer(state: GameState, action: Action): GameState {
       let s = handleEndTurn(state)
       s = tickGodDurations(s)
       s = tickTimedBombs(s)
-      if (s.itemDeck) s = { ...s, itemDeck: refreshItemShop(s.itemDeck, s.day ?? 1) }
+      s = { ...s, itemDeck: refreshItemShop(s.itemDeck, s.day) }
       return s
     }
     default:
@@ -159,4 +164,4 @@ export { calcPriceIndex, calcRent, updatePriceIndex, handleDividend, handleDepos
 export { handleCompanyLand, getCompanyState } from './engine/company'
 export { applyAllGodDailyEffects, tickGodDurations, applyPlayerGodDailyEffect, findGodDef, loadGodDefinitions, summonNearestGod, getGodMoveBoost, handleGodPossession, handleGodDismiss, calcGodModifiedRent } from './engine/god'
 export { validateMapData, validateMapConnectivity } from './engine/validator'
-export { loadMapData, loadAllMaps, getMapIds, getMapName, getMapList, boardDataToBoardConfig } from './engine/loader'
+export { loadMapData, loadAllMaps, getMapIds, getMapName, getMapList, boardDataToBoardConfig, createBoardState } from './engine/loader'

@@ -23,7 +23,7 @@
     { "id": "tw_16", "index": 16, "type": "JAIL",       "name": "监狱",        "coord":{"row":8,"col":10}, "neighborIds":["tw_15","tw_17"] },
     { "id": "tw_17", "index": 17, "type": "TELEPORT",   "name": "传送点",      "coord":{"row":9,"col":10}, "neighborIds":["tw_16","tw_18"] },
     { "id": "tw_18", "index": 18, "type": "FATE",       "name": "命运",        "coord":{"row":10,"col":10},"neighborIds":["tw_17","tw_19"] },
-    { "id": "tw_19", "index": 19, "type": "TAX",        "name": "税务局",      "coord":{"row":10,"col":9}, "neighborIds":["tw_18","tw_20"] },
+    { "id": "tw_19", "index": 19, "type": "TAX",        "name": "税务局",      "coord":{"row":10,"col":9}, "neighborIds":["tw_18","tw_20"], "taxRate": 0.1 },
     { "id": "tw_20", "index": 20, "type": "BANK",       "name": "银行",        "coord":{"row":10,"col":8}, "neighborIds":["tw_19","tw_21"] },
     { "id": "tw_21", "index": 21, "type": "PROPERTY",   "name": "日月潭",      "coord":{"row":10,"col":7}, "neighborIds":["tw_20","tw_22"], "groupId":"g_sunmoon","basePrice":250,"buildingLevels":[{"level":0,"buildCost":0,"baseRent":25},{"level":1,"buildCost":250,"baseRent":75},{"level":2,"buildCost":250,"baseRent":150},{"level":3,"buildCost":250,"baseRent":250},{"level":4,"buildCost":250,"baseRent":380},{"level":5,"buildCost":250,"baseRent":500}],"landType":"RESIDENTIAL" },
     { "id": "tw_22", "index": 22, "type": "TREASURE_BOX","name": "宝箱",        "coord":{"row":10,"col":6}, "neighborIds":["tw_21","tw_23"] },

@@ -12,7 +12,7 @@ export function buildLLMMessages(
 ): ChatMessage[] {
   const player = state.players.find((p) => p.id === request.playerId)
   const playerSummary = player
-    ? `玩家 ${player.name}（ID=${player.id}）\n现金：${player.cash} | 存款：${player.bankDeposit ?? 0} | 贷款：${player.bankLoan ?? 0}\n总资产估值：${player.totalAssets ?? player.cash}\n位置：第 ${player.position} 格 | 持有地产：${player.ownedTileIds.length} 处`
+    ? `玩家 ${player.name}（ID=${player.id}）\n现金：${player.cash} | 存款：${player.bankDeposit ?? 0} | 贷款：${player.bankLoan ?? 0}\n总资产估值：${player.totalAssets ?? player.cash}\n位置：${player.position} | 持有地产：${player.ownedTileIds.length} 处`
     : '未知玩家'
 
   const body = request.options
@@ -34,7 +34,7 @@ export function buildLLMMessages(
     {
       role: 'user',
       content: `当前游戏状态：
-第 ${state.day ?? 1} 天
+第 ${state.day} 天
 ${playerSummary}
 
 决策类型：${request.kind}

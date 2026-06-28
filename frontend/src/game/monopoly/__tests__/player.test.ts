@@ -1,13 +1,10 @@
 import { describe, it, expect } from 'vitest'
 import { createInitialState } from '../engine'
-import { createDefaultBoard } from '../board.preset'
 import type { GameState, NewGameConfig, Player, PropertyState } from '../types'
 import { handleBankrupt, calcTotalAssets } from '../engine/player'
 
 function makeConfig(overrides?: Partial<NewGameConfig>): NewGameConfig {
-  return {
-    board: createDefaultBoard(),
-    players: [
+  return {    players: [
       { name: '玩家A', color: '#E74C3C', controller: 'human' },
       { name: '玩家B', color: '#3498DB', controller: 'ai' },
     ],

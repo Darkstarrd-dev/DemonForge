@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
 import { Button, Segmented, Switch, Tooltip, Typography, theme } from 'antd'
-import { createInitialState, reducer, rollDice, loadMapData, boardDataToBoardConfig } from '../../game/monopoly/engine'
+import { createInitialState, reducer, rollDice } from '../../game/monopoly/engine'
 import { aiNextAction, configureAIController, resetAIController } from '../../game/monopoly/engine/ai'
 import type { NewGamePlayerSpec, GameState, SaveGame } from '../../game/monopoly/types'
 import { mapEntityCardToCharacter } from '../../game/monopoly/engine/character-mapper'
@@ -32,12 +32,10 @@ const AI_DELAY = 800
 
 function initGame(): GameState {
   const defaultPlayers = buildDefaultPlayersFromCards(useAppStore.getState().cards)
-  const { board } = boardDataToBoardConfig(loadMapData('classic-40').boardData)
   return createInitialState({
-    board,
+    mapId: 'classic-40',
     players: defaultPlayers,
     startingCash: 15000,
-    mapId: 'classic-40',
   })
 }
 
@@ -93,24 +91,23 @@ export default function MonopolyPage() {
     return () => clearTimeout(timer)
   }, [state])
 
-  const current = state.players.find((p) => p.id === state.turn.currentPlayerId)
+  const current = state.players.find((p) => p.id === state.turnContext.currentPlayerId)
   const interactive = current?.controller === 'human'
   const onRoll = () => dispatch({ type: 'ROLL_DICE', dice: rollDice(current?.vehicle) })
   const onEndTurn = () => dispatch({ type: 'END_TURN' })
   const onDecide = (optionId: string) => dispatch({ type: 'RESOLVE_DECISION', optionId })
-  const onMortgage = (tileId: number) => dispatch({ type: 'MORTGAGE_PROPERTY', tileId })
-  const onRedeem = (tileId: number) => dispatch({ type: 'REDEEM_PROPERTY', tileId })
-  const onUseCard = (cardInstanceId: string, targetId?: string, targetTileId?: number) =>
+  const onMortgage = (tileId: string) => dispatch({ type: 'MORTGAGE_PROPERTY', tileId })
+  const onRedeem = (tileId: string) => dispatch({ type: 'REDEEM_PROPERTY', tileId })
+  const onUseCard = (cardInstanceId: string, targetId?: string, targetTileId?: string) =>
     dispatch({ type: 'USE_CARD', cardInstanceId, targetId, targetTileId } as const)
   const onBuyCard = (cardDefId: string) => dispatch({ type: 'BUY_CARD', cardDefId })
-  const onUseItem = (itemInstanceId: string, targetId?: string, targetTileId?: number) =>
+  const onUseItem = (itemInstanceId: string, targetId?: string, targetTileId?: string) =>
     dispatch({ type: 'USE_ITEM', itemInstanceId, targetId, targetTileId } as const)
   const onBuyItem = (itemDefId: string) => dispatch({ type: 'BUY_ITEM', itemDefId })
   const onStartNewGame = (players: NewGamePlayerSpec[], mapId: string, configPresetId?: string) => {
-    const { board } = boardDataToBoardConfig(loadMapData(mapId).boardData)
     dispatch({
       type: 'NEW_GAME',
-      config: { board, players, startingCash: 15000, mapId, configPresetId },
+      config: { mapId, players, startingCash: 15000, configPresetId },
     })
   }
 
@@ -170,7 +167,7 @@ export default function MonopolyPage() {
         </div>
       </div>
 
-      <PlayerHUD players={state.players} currentPlayerId={state.turn.currentPlayerId} />
+      <PlayerHUD players={state.players} currentPlayerId={state.turnContext.currentPlayerId} />
       <div style={{ flex: 1, minHeight: 0, display: 'flex', overflow: 'hidden' }}>
         <div style={{ flex: 1, minWidth: 0, position: 'relative', overflow: 'hidden' }}>
           {view === '2d' ? (

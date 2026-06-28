@@ -1,14 +1,11 @@
 import { describe, it, expect } from 'vitest'
 import { createInitialState, reducer } from '../engine'
-import { createDefaultBoard } from '../board.preset'
 import type { GameState, NewGameConfig } from '../types'
 import { handleDeposit, handleWithdraw, handleLoan, handleRepay, handleBuyStock, handleSellStock, handleDividend, calcPriceIndex, createInitialEconomy } from '../engine/economy'
 import { handleCompanyLand } from '../engine/company'
 
 function makeConfig(overrides?: Partial<NewGameConfig>): NewGameConfig {
-  return {
-    board: createDefaultBoard(),
-    players: [
+  return {    players: [
       { name: '玩家A', color: '#E74C3C', controller: 'human' },
       { name: '玩家B', color: '#3498DB', controller: 'human' },
     ],

@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { getConfigPresets, getMapIds, getMapList, loadConfig, loadMapData, boardDataToBoardConfig } from '../engine/loader'
+import { SpaceType } from '../types'
 
 describe('loader', () => {
   it('能获取地图 ID 列表', () => {
@@ -37,21 +38,20 @@ describe('loader', () => {
 
   describe('boardDataToBoardConfig', () => {
     it('经典 40 格转换后含正确 tile 数量和 type', () => {
-      const { board, gridSide } = boardDataToBoardConfig(loadMapData('classic-40').boardData)
+      const board = boardDataToBoardConfig(loadMapData('classic-40').boardData)
       expect(board.tiles).toHaveLength(40)
-      expect(gridSide).toBe(11)
-      const propCount = board.tiles.filter((t) => t.type === 'property').length
+      const propCount = board.tiles.filter((t) => t.type === SpaceType.PROPERTY).length
       expect(propCount).toBeGreaterThan(0)
     })
 
     it('台湾地图转换后含 36 格', () => {
-      const { board } = boardDataToBoardConfig(loadMapData('richman4-taiwan').boardData)
+      const board = boardDataToBoardConfig(loadMapData('richman4-taiwan').boardData)
       expect(board.tiles).toHaveLength(36)
     })
 
     it('PROPERTY 瓦片映射 price/upgradeCost/rentByLevel', () => {
-      const { board } = boardDataToBoardConfig(loadMapData('classic-40').boardData)
-      const prop = board.tiles.find((t) => t.type === 'property' && t.index === 1)
+      const board = boardDataToBoardConfig(loadMapData('classic-40').boardData)
+      const prop = board.tiles.find((t) => t.type === SpaceType.PROPERTY && t.index === 1)
       expect(prop).toBeDefined()
       expect(prop!.price).toBe(1060)
       expect(prop!.upgradeCost).toBe(530)

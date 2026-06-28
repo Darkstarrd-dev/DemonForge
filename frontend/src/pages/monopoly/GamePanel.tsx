@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Button, Modal, Segmented, Select, Space, Tag, theme, Typography } from 'antd'
 import type { GameState, Player } from '../../game/monopoly/types'
+import { TurnPhaseV2 } from '../../game/monopoly/types'
 import { useAppStore } from '../../store/appStore'
 
 interface Props {
@@ -9,11 +10,11 @@ interface Props {
   interactive: boolean
   onRoll: () => void
   onEndTurn: () => void
-  onMortgage: (tileId: number) => void
-  onRedeem: (tileId: number) => void
-  onUseCard: (cardInstanceId: string, targetId?: string, targetTileId?: number) => void
+  onMortgage: (tileId: string) => void
+  onRedeem: (tileId: string) => void
+  onUseCard: (cardInstanceId: string, targetId?: string, targetTileId?: string) => void
   onBuyCard?: (cardDefId: string) => void
-  onUseItem?: (itemInstanceId: string, targetId?: string, targetTileId?: number) => void
+  onUseItem?: (itemInstanceId: string, targetId?: string, targetTileId?: string) => void
   onBuyItem?: (itemDefId: string) => void
 }
 
@@ -23,10 +24,10 @@ export default function GamePanel({
   onUseItem, onBuyItem,
 }: Props) {
   const { token } = theme.useToken()
-  const { phase, dice } = state.turn
+  const { phase, diceResults: dice } = state.turnContext
   const ended = state.status === 'ended'
   const winner = ended ? state.players.find((p) => p.id === state.winnerId) : undefined
-  const inHospital = current ? current.inJailTurns > 0 : false
+  const inHospital = current ? (current.jailTurns ?? 0) > 0 : false
   const myTiles = current ? current.ownedTileIds : []
   const [cardShopOpen, setCardShopOpen] = useState(false)
   const [shopTab, setShopTab] = useState<string>('cards')
@@ -48,7 +49,7 @@ export default function GamePanel({
   const opponentTiles = state.board.tiles
     .map((t, i) => ({ ...t, index: i }))
     .filter(t => {
-      const prop = state.properties[t.index]
+      const prop = state.board.properties[t.index]
       return prop && prop.ownerId && prop.ownerId !== current?.id && prop.level > 0
     })
 
@@ -104,7 +105,7 @@ export default function GamePanel({
               <span style={{ fontWeight: 600, fontSize: 16, color: token.colorText }}>{current?.name ?? '-'}</span>
               <span style={{ fontSize: 11, color: token.colorTextSecondary }}>
                 {current?.controller === 'human' ? '玩家' : 'AI'}
-                {current?.inJailTurns ? ` · 住院${current.inJailTurns}回合` : ''}
+                {current?.jailTurns ? ` · 住院${current.jailTurns}回合` : ''}
               </span>
             </>
           )}
@@ -114,7 +115,7 @@ export default function GamePanel({
       {/* Dice + Actions */}
       <div style={{ padding: 16, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, borderBottom: `1px solid ${token.colorBorderSecondary}` }}>
         <div style={{ display: 'flex', gap: 12 }}>
-          {(dice ?? [undefined, undefined]).map((v, i) => (
+          {(dice ?? [undefined, undefined]).map((v: number | undefined, i: number) => (
             <div key={i} style={{ width: 48, height: 48, borderRadius: 8, border: `2px solid ${token.colorBorder}`, background: token.colorBgContainer, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24, fontWeight: 700, color: token.colorText }}>
               {v ?? '·'}
             </div>
@@ -124,7 +125,7 @@ export default function GamePanel({
 
         {ended ? null : !interactive ? (
           <div style={{ fontSize: 13, color: token.colorTextSecondary }}>AI 行动中…</div>
-        ) : phase === 'ROLL' ? (
+        ) : phase === TurnPhaseV2.ROLL_DICE ? (
           <Space style={{ width: '100%' }}>
             <Button type="primary" block onClick={onRoll}>
               {inHospital ? '跳过回合' : '掷骰子'}
@@ -142,7 +143,7 @@ export default function GamePanel({
               />
             )}
           </Space>
-        ) : phase === 'DECIDE' ? (
+        ) : phase === TurnPhaseV2.PURCHASE_DECISION ? (
           <div style={{ fontSize: 13, color: token.colorTextSecondary }}>请在弹窗中做出选择…</div>
         ) : (
           <Space style={{ width: '100%' }}>
@@ -209,9 +210,10 @@ export default function GamePanel({
         <div style={{ padding: '8px 12px', borderBottom: `1px solid ${token.colorBorderSecondary}`, maxHeight: 168, overflow: 'auto' }}>
           <div style={{ fontSize: 12, color: token.colorTextSecondary, marginBottom: 6 }}>我的地产</div>
           {myTiles.map(tid => {
-            const tile = state.board.tiles[tid]
-            const prop = state.properties[tid]
-            const levelLabel = prop.level >= 4 ? '地标' : `${prop.level}级`
+            const tile = state.board.tiles.find(t => t.id === tid)
+            if (!tile) return null
+            const prop = state.board.properties[tid]
+            const levelLabel = (prop?.level ?? 0) >= 4 ? '地标' : `${prop?.level ?? 0}级`
             return (
               <div key={tid} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '4px 0' }}>
                 <div style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -346,7 +348,7 @@ export default function GamePanel({
             <div style={{ fontWeight: 600, fontSize: 12, marginTop: 8, marginBottom: 4, color: token.colorText }}>对手地产</div>
             {opponentTiles.slice(0, 8).map(t => (
               <Button key={t.index} block style={{ textAlign: 'left', marginBottom: 4 }}
-                onClick={() => { onUseCard(useCardModal!.instanceId, undefined, t.index); setUseCardModal(null) }}>
+                onClick={() => { onUseCard(useCardModal!.instanceId, undefined, t.id); setUseCardModal(null) }}>
                 {t.name}
               </Button>
             ))}
@@ -378,20 +380,19 @@ export default function GamePanel({
             const attackItems = ['item-02', 'item-03', 'item-09', 'item-11']
             const filterForAttack = attackItems.includes(defId)
             const tiles = state.board.tiles
-              .map((t, i) => ({ ...t, index: i }))
               .filter(t => {
-                const prop = state.properties[t.index]
+                const prop = state.board.properties[t.id]
                 if (filterForAttack) return prop && prop.level > 0 && prop.ownerId && prop.ownerId !== current?.id
-                return !prop || prop.level === 0 // placement goes on non-owned or empty properties
+                return !prop || prop.level === 0
               })
             const isDiceItem = defId === 'item-08'
             const tileList = isDiceItem
-              ? state.board.tiles.map((t, i) => ({ ...t, index: i })).filter((_, i) => i !== current?.position)
+              ? state.board.tiles.filter(t => t.id !== current?.position)
               : tiles
             return tileList.slice(0, 12).map(t => (
-              <Button key={t.index} block style={{ textAlign: 'left', marginBottom: 4 }}
-                onClick={() => { onUseItem?.(useItemModal!.instanceId, undefined, t.index); setUseItemModal(null) }}>
-                {t.name}{state.properties[t.index]?.level > 0 ? ` (${state.properties[t.index].level}级)` : ''}
+              <Button key={t.id} block style={{ textAlign: 'left', marginBottom: 4 }}
+                onClick={() => { onUseItem?.(useItemModal!.instanceId, undefined, t.id); setUseItemModal(null) }}>
+                {t.name}{state.board.properties[t.id]?.level > 0 ? ` (${state.board.properties[t.id].level}级)` : ''}
               </Button>
             ))
           }

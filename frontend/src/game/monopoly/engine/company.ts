@@ -23,7 +23,7 @@ export function handleCompanyLand(state: GameState, companyId: string): GameStat
 
   const players = state.players.map((p) => ({ ...p }))
   const log = [...state.log]
-  const player = players.find((p) => p.id === state.turn.currentPlayerId)
+  const player = players.find((p) => p.id === state.turnContext.currentPlayerId)
   if (!player) return state
 
   const heldShares = player.stocks?.[companyId] ?? 0
