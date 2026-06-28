@@ -2,7 +2,7 @@
 
 **最后更新**：2026-06-28
 **当前位置**：办公场所 A
-**本轮主题**：**质量审计 audit-02 修复**（按复审优先级修 C-1/C-2/B-3/B-4/B-6/B-9/B-10/B-11 共 8 项，回归全绿，待提交）；前序：角色交流模块重构 + 第二轮质量审核 audit-02
+**本轮主题**：**质量审计 audit-02 第三梯队收尾**（B-5 抽 useCompareSession + B-8 creation.ts 拆三文件，回归全绿，待提交）；前序：audit-02 修复 8 项（C-1/C-2/B-3/B-4/B-6/B-9/B-10/B-11）+ 角色交流模块重构 + 第二轮质量审核 audit-02
 
 > 📦 **历史明细已归档** → `docs/handoff_history.md`
 > 本文件只保留「恢复工作所需的活内容」：进行中任务、模块清单、下一步、交接参考。
@@ -102,7 +102,8 @@
   - **monopoly 新模块 ☑ 审计优秀（无整改项）**：纯 reducer（随机源外置）/ effect-driven 自动循环（卸载有 cleanup、无闭包陈旧，B-2 三问题皆无）/ Three 资源完整 dispose / 零 any / 无胖文件——工程纪律正面样板，值得反哺 role-chat。
   - B-3~B-11：除 **B-7（chat.ts 删除作废）** 外，并行开发期间均未触及。
 - **2026-06-28 第三次走查·修复（待提交）**：按上述优先级**已修复 8 项**——C-1（roleChatAutoConfig 入 settingsPayload，后端 merge 透传闭环已验）/ C-2（role-chat 卸载 useEffect，切路由停循环+中止在途流）/ B-3（持久化脏检查声明式化，payload 键集驱动，根治漏写）/ B-4（settings 手写 SSE→parseSSE，顺带理顺 done 重复显示）/ B-6（batchChars 注解）/ B-9（三弹窗卸载 abort）/ B-10（import 收口 api.ts）/ B-11（sseHelper ACAO 经 reply.request 回显白名单）。回归：后端 tsc 0 + 前端 build + vitest **55 绿** + 改动文件 eslint 0。详见 audit-02 **第 7 节**。
-- **仍遗留**：B-5（useInferenceSession 抽 useCompareSession）/ B-8（creation.ts 拆三文件）——第三梯队，需先出设计稿；新模块（monopoly / roleChatEngine 纯函数）单测缺口（复审 6.5）。
+- **2026-06-28 第四次走查·实施（待提交）**：第三梯队两项结构重构**已完成**——**B-5**（`useInferenceSession` 抽 `useCompareSession`：slot 字典消 30+ 三元 + `runStream` 合并两处 streamChat 回调 + 卸载 useEffect abort 左右 acRef；780→471 行委托并 spread，`index.tsx`/`index.test.tsx` 零改动）/ **B-8**（`creation.ts` 731 行按领域拆 `creation.shared`+`origin`+`generate`(含 M3 simulate)+`m2`，creation.ts→12 行 barrel，`server/index.ts` 零改动）。回归：后端 tsc 0 + 前端 build + vitest **55 绿** + 改动文件 eslint 0。详见 audit-02 **第 8 节**。
+- **仍遗留**：新模块单测缺口（monopoly `engine.ts` / roleChatEngine `buildParticipantMessages` 纯函数，复审 6.5）——audit-02 全部 B-/C- 行动项除此外已全部收口。
 - 第一梯队 A-1~A-4 已完成（删死文件 / 修 UTC 日期 bug / vitest 地基 / 首批单测）。详见归档。
 
 ---
@@ -184,10 +185,10 @@
 ### 关键文件路径
 - 前端服务层：`frontend/src/services/api.ts` → `mock/` / `real/`；统一 SSE 解析 `services/sse.ts`；清理调度器 `services/cleanScheduler.ts`；多 Session 引擎 `services/sessionEngine.ts`。
 - 状态：`frontend/src/store/appStore.ts`（90 行组合根 + `slices/` 6 切片 + `persistence.ts` + `bootstrap.ts` + `types.ts`）。
-- 节点测试：`pages/node-test/`（index 444 行 + 7 组件 + `hooks/` 2 hook + `panels/ParamsPanel` + `constants.ts`）。
+- 节点测试：`pages/node-test/`（index 444 行 + 7 组件 + `hooks/` 3 hook：useNodeTestForm / useInferenceSession 471 行 / **useCompareSession 296 行**（B-5 抽出对比模式）+ `panels/ParamsPanel` + `constants.ts`）。
 - 设置页：`pages/settings/index.tsx` + `panels/`（4 Tab 组件）。
 - 阅读器：`pages/book-reader/ImmersiveReader.tsx` + `.css`。
-- 后端：`server/src/` — `llmClient.ts`（含 embed）/ `imageClient.ts`(ModelScope) / `gptImageClient.ts` / `xaiImageClient.ts` / `prompts.ts` / `contextAssembler.ts` / `store/{db,vector}.ts`；路由 `routes/{creation,image,gptImage,xaiImage,llm}.ts`（role-chat 已改走 `llm` 通用对话端点，原 `chat.ts` 已删）。
+- 后端：`server/src/` — `llmClient.ts`（含 embed）/ `imageClient.ts`(ModelScope) / `gptImageClient.ts` / `xaiImageClient.ts` / `prompts.ts` / `contextAssembler.ts` / `store/{db,vector}.ts`；路由 `routes/{image,gptImage,xaiImage,llm}.ts` + **创作端点 B-8 已拆**：`creation.ts`(barrel) → `creation.{shared,origin,generate,m2}.ts`（role-chat 已改走 `llm` 通用对话端点，原 `chat.ts` 已删）。
 
 ### 数据兼容性
 - 旧 `imageGallery`→`testHistory`；`imageDemoForm`→`nodeTestForm`；表 `image_gallery`→`test_history`（向后兼容）。

@@ -2,8 +2,8 @@
 //
 // 消化全部推理逻辑，与 UI 视图态解耦：
 //   - 单栏：经引擎 sendInSession 发起，运行态/消息派生自 sessionRuntimes + chatSessions（切走仍继续）。
-//   - 对比：本地 state（chatMessagesLeft/Right）+ 直调 streamChat（双侧并发，各自 AbortController）。
-//   - 共享：编辑态（单栏 + 对比）、elapsed 计时、自动滚动两个 effect。
+//   - 对比：委托 useCompareSession（本地 state + 直调 streamChat，双侧并发、各自 AbortController、卸载清理）。
+//   - 共享：编辑态（单栏 + 对比，editingCompareSide 注入对比 hook）、elapsed 计时、自动滚动两个 effect。
 // store 订阅在 hook 内部完成；UI 视图态（testMode/mainView/sidebar/bottomMenu/节点类型拦截/paste）留在 index。
 //
 // 注：本 hook 行为与原 index 内联实现逐字一致——重构安全网为 index.test.tsx。
@@ -12,12 +12,13 @@ import type { Dispatch, SetStateAction, KeyboardEvent as ReactKeyboardEvent } fr
 import { App } from 'antd'
 import { useAppStore } from '../../../store/appStore'
 import { genId } from '../../../store/appStore'
-import { streamChat, sendInSession, cancelSession } from '../../../services/api'
+import { sendInSession, cancelSession } from '../../../services/api'
 import { imageHosts } from '../../../services/imageHost'
 import type { ProviderNode, ImageInputMode, ChatSession } from '../../../services/types'
 import type { NodeTestForm } from '../../../store/appStore'
 import type { DebugInfoData } from '../DebugInfoPanel'
 import type { ChatMessage, Phase } from '../types'
+import { useCompareSession } from './useCompareSession'
 
 export interface InferenceSessionArgs {
   testMode: 'text' | 'image'
@@ -55,27 +56,17 @@ export function useInferenceSession(args: InferenceSessionArgs) {
   const updateChatSession = useAppStore((s) => s.updateChatSession)
   const setActiveChatSessionId = useAppStore((s) => s.setActiveChatSessionId)
 
-  // ===== 编辑态 =====
+  // ===== 编辑态（单栏与对比共享） =====
   const [editingMsgId, setEditingMsgId] = useState<string | null>(null)
   const [editingText, setEditingText] = useState('')
-
-  // ===== 对比模式状态 =====
-  const [chatMessagesLeft, setChatMessagesLeft] = useState<ChatMessage[]>([])
-  const [chatMessagesRight, setChatMessagesRight] = useState<ChatMessage[]>([])
-  const [selectedNodeIdLeft, setSelectedNodeIdLeft] = useState<string | undefined>(undefined)
-  const [selectedNodeIdRight, setSelectedNodeIdRight] = useState<string | undefined>(undefined)
-  const selectedNodeIdLeftRef = useRef<string | undefined>(undefined)
-  const selectedNodeIdRightRef = useRef<string | undefined>(undefined)
-  const setSelectedNodeIdLeftWrapped = (v: string | undefined) => { selectedNodeIdLeftRef.current = v; setSelectedNodeIdLeft(v) }
-  const setSelectedNodeIdRightWrapped = (v: string | undefined) => { selectedNodeIdRightRef.current = v; setSelectedNodeIdRight(v) }
-  const [phaseLeft, setPhaseLeft] = useState<Phase>('idle')
-  const [phaseRight, setPhaseRight] = useState<Phase>('idle')
-  const acRefLeft = useRef<AbortController | null>(null)
-  const acRefRight = useRef<AbortController | null>(null)
-  const [debugInfoLeft, setDebugInfoLeft] = useState<DebugInfoData>({ previewBody: null, actualBody: null, sseChunks: [] })
-  const [debugInfoRight, setDebugInfoRight] = useState<DebugInfoData>({ previewBody: null, actualBody: null, sseChunks: [] })
-  const [debugSide, setDebugSide] = useState<'left' | 'right'>('left')
   const [editingCompareSide, setEditingCompareSide] = useState<'left' | 'right' | null>(null)
+
+  // ===== 对比模式 session（委托 useCompareSession：本地 state + 直调 streamChat + 卸载清理） =====
+  const compare = useCompareSession({
+    availableNodes, activeSystemPrompt, nodeTestForm,
+    editingMsgId, editingText, editingCompareSide,
+    setEditingMsgId, setEditingText, setEditingCompareSide,
+  })
 
   const chatEndRef = useRef<HTMLDivElement>(null)
 
@@ -231,131 +222,6 @@ export function useInferenceSession(args: InferenceSessionArgs) {
     }
   }
 
-  // ===== 对比模式消息操作 =====
-
-  const deleteCompareMessage = (side: 'left' | 'right', msgId: string) => {
-    const setter = side === 'left' ? setChatMessagesLeft : setChatMessagesRight
-    setter((prev) => prev.filter((m) => m.id !== msgId))
-    if (editingMsgId === msgId) {
-      setEditingMsgId(null)
-      setEditingText('')
-      setEditingCompareSide(null)
-    }
-  }
-
-  const editCompareMessage = (side: 'left' | 'right', msgId: string) => {
-    const messages = side === 'left' ? chatMessagesLeft : chatMessagesRight
-    const msg = messages.find((m) => m.id === msgId)
-    if (!msg) return
-    setEditingMsgId(msgId)
-    setEditingCompareSide(side)
-    setEditingText(msg.content)
-  }
-
-  const commitCompareEdit = () => {
-    if (!editingMsgId || !editingCompareSide) return
-    if (!editingText.trim()) {
-      message.warning('内容不能为空')
-      return
-    }
-    const setter = editingCompareSide === 'left' ? setChatMessagesLeft : setChatMessagesRight
-    setter((prev) => prev.map((m) => m.id === editingMsgId ? { ...m, content: editingText } : m))
-    setEditingMsgId(null)
-    setEditingText('')
-    setEditingCompareSide(null)
-  }
-
-  const cancelCompareEdit = () => {
-    setEditingMsgId(null)
-    setEditingText('')
-    setEditingCompareSide(null)
-  }
-
-  const retryCompareMessage = async (side: 'left' | 'right', msgId: string) => {
-    const messages = side === 'left' ? chatMessagesLeft : chatMessagesRight
-    const index = messages.findIndex((m) => m.id === msgId)
-    if (index === -1) return
-    const msg = messages[index]
-    const nodeId = side === 'left' ? selectedNodeIdLeft : selectedNodeIdRight
-    if (!nodeId) return
-    const node = availableNodes.find((n) => n.id === nodeId)
-    if (!node) return
-
-    let newMessages: ChatMessage[]
-    let triggerUser: ChatMessage
-    if (msg.role === 'user') {
-      newMessages = messages.slice(0, index)
-      triggerUser = msg
-    } else {
-      newMessages = messages.slice(0, index)
-      const lastUser = [...newMessages].reverse().find((m) => m.role === 'user')
-      if (!lastUser) { message.warning('无法找到触发该回复的用户消息'); return }
-      triggerUser = lastUser
-    }
-
-    const setter = side === 'left' ? setChatMessagesLeft : setChatMessagesRight
-    setter(newMessages)
-
-    const ac = new AbortController()
-    if (side === 'left') { acRefLeft.current = ac; setPhaseLeft('streaming') }
-    else { acRefRight.current = ac; setPhaseRight('streaming') }
-    if (side === 'left') setDebugInfoLeft({ previewBody: null, actualBody: null, sseChunks: [] })
-    else setDebugInfoRight({ previewBody: null, actualBody: null, sseChunks: [] })
-
-    const assistantMsgId = genId('msg')
-    const assistantMsg: ChatMessage = { id: assistantMsgId, role: 'assistant', content: '', reasoning: '', timestamp: Date.now(), nodeId: node.id, modelName: node.model }
-    const allMessages = [...newMessages, triggerUser, assistantMsg]
-    setter(allMessages)
-
-    const apiMessages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = []
-    if (activeSystemPrompt.trim()) apiMessages.push({ role: 'system', content: activeSystemPrompt.trim() })
-    newMessages.forEach((m) => { apiMessages.push({ role: m.role, content: m.content }) })
-    apiMessages.push({ role: 'user', content: triggerUser.content })
-
-    setter((prev) => {
-      const setDebugInfo = side === 'left' ? setDebugInfoLeft : setDebugInfoRight
-      setDebugInfo({ previewBody: { model: node.model, messages: apiMessages, stream: true, ...(typeof nodeTestForm.temperature === 'number' ? { temperature: nodeTestForm.temperature } : {}), ...(typeof nodeTestForm.topP === 'number' ? { top_p: nodeTestForm.topP } : {}), ...(typeof nodeTestForm.maxTokens === 'number' ? { max_tokens: nodeTestForm.maxTokens } : {}) }, actualBody: null, sseChunks: [] })
-      return prev
-    })
-
-    let fullText = ''
-    let fullReasoning = ''
-    try {
-      await streamChat(
-        { baseURL: node.baseURL, apiKey: node.apiKey, model: node.model, messages: apiMessages, includeRaw: true, ...(typeof nodeTestForm.temperature === 'number' ? { temperature: nodeTestForm.temperature } : {}), ...(typeof nodeTestForm.topP === 'number' ? { topP: nodeTestForm.topP } : {}), ...(typeof nodeTestForm.maxTokens === 'number' ? { maxTokens: nodeTestForm.maxTokens } : {}) },
-        {
-          reasoningDelta: (delta) => {
-            fullReasoning += delta
-            setter((prev) => prev.map((m) => m.id === assistantMsgId ? { ...m, reasoning: fullReasoning } : m))
-          },
-          delta: (delta) => {
-            fullText += delta
-            setter((prev) => prev.map((m) => m.id === assistantMsgId ? { ...m, content: fullText } : m))
-          },
-          requestBody: (body) => { if (side === 'left') setDebugInfoLeft((prev) => ({ ...prev, actualBody: body as object })); else setDebugInfoRight((prev) => ({ ...prev, actualBody: body as object })) },
-          rawChunk: (raw) => { if (side === 'left') setDebugInfoLeft((prev) => ({ ...prev, sseChunks: [...prev.sseChunks, raw] })); else setDebugInfoRight((prev) => ({ ...prev, sseChunks: [...prev.sseChunks, raw] })) },
-          done: (finalText) => {
-            setter((prev) => prev.map((m) => m.id === assistantMsgId ? { ...m, content: finalText, reasoning: fullReasoning || undefined } : m))
-            if (side === 'left') setPhaseLeft('done'); else setPhaseRight('done')
-          },
-          error: (err) => {
-            const errorMsg: ChatMessage = { id: genId('msg'), role: 'assistant', content: `失败：${err}`, timestamp: Date.now() }
-            setter((prev) => [...prev.filter((m) => m.id !== assistantMsgId), errorMsg])
-            if (side === 'left') setPhaseLeft('error'); else setPhaseRight('error')
-          },
-        },
-        ac.signal,
-      )
-    } catch (e) {
-      if (!ac.signal.aborted) {
-        const errMsg = e instanceof Error ? e.message : String(e)
-        const errorMsg: ChatMessage = { id: genId('msg'), role: 'assistant', content: `失败：${errMsg}`, timestamp: Date.now() }
-        setter((prev) => [...prev.filter((m) => m.id !== assistantMsgId), errorMsg])
-        if (side === 'left') setPhaseLeft('error'); else setPhaseRight('error')
-      }
-    }
-  }
-
   // 重试消息（user 或 assistant）：截断当前 session 到触发 user 之前，再经引擎在该 session 重发
   const retryMessage = (msgId: string) => {
     if (!activeChatSessionId || !activeSession) return
@@ -400,172 +266,6 @@ export function useInferenceSession(args: InferenceSessionArgs) {
     })
   }
 
-  // 对比模式：单侧生成（支持 reasoning + debug info）
-  const handleGenerateSide = async (side: 'left' | 'right') => {
-    const nodeId = side === 'left' ? selectedNodeIdLeft : selectedNodeIdRight
-    if (!nodeId) return
-
-    const node = availableNodes.find(n => n.id === nodeId)
-    if (!node) return
-
-    const ac = new AbortController()
-    if (side === 'left') {
-      acRefLeft.current?.abort()
-      acRefLeft.current = ac
-      setPhaseLeft('streaming')
-      setDebugInfoLeft({ previewBody: null, actualBody: null, sseChunks: [] })
-    } else {
-      acRefRight.current?.abort()
-      acRefRight.current = ac
-      setPhaseRight('streaming')
-      setDebugInfoRight({ previewBody: null, actualBody: null, sseChunks: [] })
-    }
-
-    const userMsg: ChatMessage = {
-      id: genId('msg'),
-      role: 'user',
-      content: nodeTestForm.prompt.trim(),
-      timestamp: Date.now(),
-      nodeId: node.id,
-      modelName: node.model,
-    }
-
-    const assistantMsgId = genId('msg')
-    const assistantMsg: ChatMessage = {
-      id: assistantMsgId,
-      role: 'assistant',
-      content: '',
-      reasoning: '',
-      timestamp: Date.now(),
-      nodeId: node.id,
-      modelName: node.model,
-    }
-
-    if (side === 'left') {
-      setChatMessagesLeft(prev => [...prev, userMsg, assistantMsg])
-    } else {
-      setChatMessagesRight(prev => [...prev, userMsg, assistantMsg])
-    }
-
-    const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = []
-    if (activeSystemPrompt.trim()) {
-      messages.push({ role: 'system', content: activeSystemPrompt.trim() })
-    }
-
-    const currentMessages = side === 'left' ? chatMessagesLeft : chatMessagesRight
-    currentMessages.forEach(m => {
-      messages.push({ role: m.role, content: m.content })
-    })
-    messages.push({ role: 'user', content: nodeTestForm.prompt.trim() })
-
-    // preview body
-    const previewBody = {
-      model: node.model,
-      messages,
-      stream: true,
-      ...(typeof nodeTestForm.temperature === 'number' ? { temperature: nodeTestForm.temperature } : {}),
-      ...(typeof nodeTestForm.topP === 'number' ? { top_p: nodeTestForm.topP } : {}),
-      ...(typeof nodeTestForm.maxTokens === 'number' ? { max_tokens: nodeTestForm.maxTokens } : {}),
-    }
-    if (side === 'left') {
-      setDebugInfoLeft((prev) => ({ ...prev, previewBody }))
-    } else {
-      setDebugInfoRight((prev) => ({ ...prev, previewBody }))
-    }
-
-    let fullText = ''
-    let fullReasoning = ''
-
-    try {
-      await streamChat(
-        {
-          baseURL: node.baseURL,
-          apiKey: node.apiKey,
-          model: node.model,
-          messages,
-          includeRaw: true,
-          ...(typeof nodeTestForm.temperature === 'number' ? { temperature: nodeTestForm.temperature } : {}),
-          ...(typeof nodeTestForm.topP === 'number' ? { topP: nodeTestForm.topP } : {}),
-          ...(typeof nodeTestForm.maxTokens === 'number' ? { maxTokens: nodeTestForm.maxTokens } : {}),
-        },
-        {
-          reasoningDelta: (delta) => {
-            fullReasoning += delta
-            if (side === 'left') {
-              setChatMessagesLeft(prev => prev.map(m => m.id === assistantMsgId ? { ...m, reasoning: fullReasoning } : m))
-            } else {
-              setChatMessagesRight(prev => prev.map(m => m.id === assistantMsgId ? { ...m, reasoning: fullReasoning } : m))
-            }
-          },
-          delta: (delta) => {
-            fullText += delta
-            if (side === 'left') {
-              setChatMessagesLeft(prev => prev.map(m => m.id === assistantMsgId ? { ...m, content: fullText } : m))
-            } else {
-              setChatMessagesRight(prev => prev.map(m => m.id === assistantMsgId ? { ...m, content: fullText } : m))
-            }
-          },
-          requestBody: (body) => {
-            if (side === 'left') {
-              setDebugInfoLeft((prev) => ({ ...prev, actualBody: body as object }))
-            } else {
-              setDebugInfoRight((prev) => ({ ...prev, actualBody: body as object }))
-            }
-          },
-          rawChunk: (raw) => {
-            if (side === 'left') {
-              setDebugInfoLeft((prev) => ({ ...prev, sseChunks: [...prev.sseChunks, raw] }))
-            } else {
-              setDebugInfoRight((prev) => ({ ...prev, sseChunks: [...prev.sseChunks, raw] }))
-            }
-          },
-          done: (finalText) => {
-            if (side === 'left') {
-              setChatMessagesLeft(prev => prev.map(m => m.id === assistantMsgId ? { ...m, content: finalText, reasoning: fullReasoning || undefined } : m))
-              setPhaseLeft('done')
-            } else {
-              setChatMessagesRight(prev => prev.map(m => m.id === assistantMsgId ? { ...m, content: finalText, reasoning: fullReasoning || undefined } : m))
-              setPhaseRight('done')
-            }
-          },
-          error: (err) => {
-            const errorMsg: ChatMessage = {
-              id: genId('msg'),
-              role: 'assistant',
-              content: `失败：${err}`,
-              timestamp: Date.now(),
-            }
-            if (side === 'left') {
-              setChatMessagesLeft(prev => [...prev.filter(m => m.id !== assistantMsgId), errorMsg])
-              setPhaseLeft('error')
-            } else {
-              setChatMessagesRight(prev => [...prev.filter(m => m.id !== assistantMsgId), errorMsg])
-              setPhaseRight('error')
-            }
-          },
-        },
-        ac.signal
-      )
-    } catch (e) {
-      if (!ac.signal.aborted) {
-        const errMsg = e instanceof Error ? e.message : String(e)
-        const errorMsg: ChatMessage = {
-          id: genId('msg'),
-          role: 'assistant',
-          content: `失败：${errMsg}`,
-          timestamp: Date.now(),
-        }
-        if (side === 'left') {
-          setChatMessagesLeft(prev => [...prev.filter(m => m.id !== assistantMsgId), errorMsg])
-          setPhaseLeft('error')
-        } else {
-          setChatMessagesRight(prev => [...prev.filter(m => m.id !== assistantMsgId), errorMsg])
-          setPhaseRight('error')
-        }
-      }
-    }
-  }
-
   const handleGenerate = async () => {
     // 对比模式：并行调用左右生成（仅支持文本推理）
     if (compareMode) {
@@ -573,7 +273,7 @@ export function useInferenceSession(args: InferenceSessionArgs) {
         message.warning('对比模式下不支持图片生成，请切换到文本推理模式')
         return
       }
-      if (!selectedNodeIdLeft && !selectedNodeIdRight) {
+      if (!compare.selectedNodeIdLeft && !compare.selectedNodeIdRight) {
         message.warning('请先选择左右两侧的节点')
         return
       }
@@ -584,8 +284,8 @@ export function useInferenceSession(args: InferenceSessionArgs) {
 
       // 并行调用左右生成
       const promises: Promise<void>[] = []
-      if (selectedNodeIdLeft) promises.push(handleGenerateSide('left'))
-      if (selectedNodeIdRight) promises.push(handleGenerateSide('right'))
+      if (compare.selectedNodeIdLeft) promises.push(compare.handleGenerateSide('left'))
+      if (compare.selectedNodeIdRight) promises.push(compare.handleGenerateSide('right'))
 
       await Promise.all(promises)
       return
@@ -690,10 +390,7 @@ export function useInferenceSession(args: InferenceSessionArgs) {
   const clearConversation = () => {
     // 新对话：取消激活 session（派生 chatMessages 随之清空）。运行中的其它 session 不受影响。
     setActiveChatSessionId(null)
-    if (compareMode) {
-      setChatMessagesLeft([])
-      setChatMessagesRight([])
-    }
+    if (compareMode) compare.clearCompare()
   }
 
   const handleCancel = () => {
@@ -704,9 +401,9 @@ export function useInferenceSession(args: InferenceSessionArgs) {
   const copyAllMessages = () => {
     if (compareMode) {
       const parts: string[] = []
-      if (chatMessagesLeft.length > 0) {
+      if (compare.chatMessagesLeft.length > 0) {
         parts.push('=== 左侧对话 ===')
-        chatMessagesLeft.forEach((m) => {
+        compare.chatMessagesLeft.forEach((m) => {
           const role = m.role === 'user' ? '用户' : '助手'
           parts.push(`[${role}] ${new Date(m.timestamp).toLocaleTimeString()}`)
           if (m.reasoning) parts.push(`[思考过程]\n${m.reasoning}`)
@@ -714,9 +411,9 @@ export function useInferenceSession(args: InferenceSessionArgs) {
           parts.push('')
         })
       }
-      if (chatMessagesRight.length > 0) {
+      if (compare.chatMessagesRight.length > 0) {
         parts.push('=== 右侧对话 ===')
-        chatMessagesRight.forEach((m) => {
+        compare.chatMessagesRight.forEach((m) => {
           const role = m.role === 'user' ? '用户' : '助手'
           parts.push(`[${role}] ${new Date(m.timestamp).toLocaleTimeString()}`)
           if (m.reasoning) parts.push(`[思考过程]\n${m.reasoning}`)
@@ -765,14 +462,8 @@ export function useInferenceSession(args: InferenceSessionArgs) {
     // 编辑态
     editingMsgId, editingText, setEditingText, editingCompareSide,
     editMessage, commitEdit, cancelEdit, deleteMessage,
-    // 对比态
-    chatMessagesLeft, chatMessagesRight,
-    selectedNodeIdLeft, selectedNodeIdRight,
-    setSelectedNodeIdLeftWrapped, setSelectedNodeIdRightWrapped,
-    selectedNodeIdLeftRef, selectedNodeIdRightRef,
-    phaseLeft, phaseRight,
-    debugInfoLeft, debugInfoRight, debugSide, setDebugSide,
-    editCompareMessage, commitCompareEdit, cancelCompareEdit, deleteCompareMessage, retryCompareMessage,
+    // 对比态（委托 useCompareSession：chatMessagesLeft/Right、节点选择、phase、debug、对比编辑/重试等）
+    ...compare,
     // 推理动作
     handleGenerate, handleCancel, clearConversation, retryMessage,
     copyAllMessages, copyText, handleKeyDown,
