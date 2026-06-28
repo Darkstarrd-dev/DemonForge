@@ -215,6 +215,7 @@ export interface Player {
   godRemainingDays?: number
   points?: number
   vehicle?: 'PEDESTRIAN' | 'MOTORCYCLE' | 'CAR'
+  rentAbsorbing?: boolean
   aiDifficulty?: 'easy' | 'normal' | 'hard'
 }
 
@@ -312,6 +313,29 @@ export interface ItemDefinition {
   durability: number
   versions: string[]
   iconAssetRef?: AssetRef
+}
+
+export interface ItemShopInventory {
+  availableItemIds: string[]
+  refreshOnDay: number
+}
+
+export interface ItemResearchInventory {
+  availableResearchIds: string[]
+}
+
+export interface ItemDeckState {
+  definitions: ItemDefinition[]
+  shopInventory: ItemShopInventory
+  researchInventory: ItemResearchInventory
+}
+
+/** 棋盘陷阱（地雷/路障/定时炸弹） */
+export interface TrapState {
+  itemDefId: string
+  instanceId: string
+  ownerId: string
+  countdown: number  // -1=触发型（地雷/路障），>0=倒计时（定时炸弹）
 }
 
 // ════════════════════════════════════════════
@@ -560,7 +584,7 @@ export interface DecisionRequest {
 export type Action =
   | { type: 'NEW_GAME'; config: NewGameConfig }
   | { type: 'LOAD_GAME'; save: SaveGame }
-  | { type: 'ROLL_DICE'; dice: [number, number] }
+  | { type: 'ROLL_DICE'; dice: number[] }
   | { type: 'CHOOSE_PATH'; direction: 'LEFT' | 'RIGHT' }
   | { type: 'END_TURN' }
   | { type: 'RESOLVE_DECISION'; optionId: string; extra?: Record<string, unknown> }
@@ -571,7 +595,7 @@ export type Action =
   | { type: 'MORTGAGE_PROPERTY'; tileId: number }
   | { type: 'REDEEM_PROPERTY'; tileId: number }
   | { type: 'USE_CARD'; cardInstanceId: string; targetId?: string; targetTileId?: number }
-  | { type: 'USE_ITEM'; itemInstanceId: string; targetTileId?: number }
+  | { type: 'USE_ITEM'; itemInstanceId: string; targetId?: string; targetTileId?: number }
   | { type: 'BUY_CARD'; cardDefId: string }
   | { type: 'BUY_ITEM'; itemDefId: string }
   | { type: 'BANK_DEPOSIT'; amount: number }
@@ -597,7 +621,7 @@ export type GameStatusStr = 'playing' | 'ended'
 export interface TurnState {
   currentPlayerId: string
   phase: TurnPhase
-  dice?: [number, number]
+  dice?: number[]
   doublesCount: number
 }
 
@@ -623,6 +647,8 @@ export interface GameState {
   day?: number
   economy?: EconomyState
   cardDeck?: CardDeckState
+  itemDeck?: ItemDeckState
+  boardTraps?: Record<number, TrapState>
   priceUpGroups?: Record<string, number>
   sealedGroups?: Record<string, number>
 }

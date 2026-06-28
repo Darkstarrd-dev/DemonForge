@@ -17,7 +17,9 @@ function liquidate(player: Player, properties: Record<number, PropertyState>) {
   player.bankrupt = true
 }
 
-export function handleRoll(state: GameState, dice: [number, number]): GameState {
+import { resolveTraps } from './item'
+
+export function handleRoll(state: GameState, dice: number[]): GameState {
   const players = state.players.map((p) => ({ ...p }))
   const properties = { ...state.properties }
   const log = [...state.log]
@@ -36,7 +38,7 @@ export function handleRoll(state: GameState, dice: [number, number]): GameState 
     return { ...state, players, log, turn: { ...state.turn, phase: 'END_TURN' } }
   }
 
-  const sum = dice[0] + dice[1]
+  const sum = dice.reduce((s, v) => s + v, 0)
   const size = state.board.size
   const from = player.position
   const to = (from + sum) % size
@@ -96,7 +98,13 @@ export function handleRoll(state: GameState, dice: [number, number]): GameState 
       const rent = (tile.rentByLevel ?? [0])[prop.level] ?? 0
       const owner = players.find((p) => p.id === prop.ownerId)
       if (owner) {
-        if (player.cash >= rent) {
+        if (player.rentAbsorbing) {
+          const absorbed = Math.min(rent, player.cash)
+          player.cash -= absorbed
+          player.cash += absorbed  // absorbed = toll goes back to self
+          player.rentAbsorbing = false
+          pushLog('rent', `${player.name} 使用吸尘器吸收过路费 ¥${absorbed}（免付 ${owner.name} 的租金）`)
+        } else if (player.cash >= rent) {
           player.cash -= rent
           owner.cash += rent
           pushLog('rent', `${player.name} 向 ${owner.name} 支付过路费 ¥${rent}`)
@@ -111,8 +119,8 @@ export function handleRoll(state: GameState, dice: [number, number]): GameState 
     }
   }
 
-  let status = state.status
-  let winnerId = state.winnerId
+  let status: GameState['status'] = state.status
+  let winnerId: GameState['winnerId'] = state.winnerId
   const alive = players.filter((p) => !p.bankrupt)
   if (alive.length <= 1) {
     status = 'ended'
@@ -121,8 +129,11 @@ export function handleRoll(state: GameState, dice: [number, number]): GameState 
     if (winner) pushLog('win', `${winner.name} 获胜！`)
   }
 
+  // Check for traps on the landed tile
+  const trapResolved = resolveTraps({ ...state, players, properties, log, status, winnerId }, to)
+
   return {
-    ...state, players, properties, log, status, winnerId,
+    ...trapResolved,
     turn: { ...state.turn, dice, phase: decision ? 'DECIDE' : 'END_TURN' as const },
     awaitingDecision: decision,
   }

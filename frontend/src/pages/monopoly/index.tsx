@@ -49,7 +49,7 @@ export default function MonopolyPage() {
 
   const current = state.players.find((p) => p.id === state.turn.currentPlayerId)
   const interactive = current?.controller === 'human'
-  const onRoll = () => dispatch({ type: 'ROLL_DICE', dice: rollDice() })
+  const onRoll = () => dispatch({ type: 'ROLL_DICE', dice: rollDice(current?.vehicle) })
   const onEndTurn = () => dispatch({ type: 'END_TURN' })
   const onDecide = (optionId: string) => dispatch({ type: 'RESOLVE_DECISION', optionId })
   const onMortgage = (tileId: number) => dispatch({ type: 'MORTGAGE_PROPERTY', tileId })
@@ -57,6 +57,9 @@ export default function MonopolyPage() {
   const onUseCard = (cardInstanceId: string, targetId?: string, targetTileId?: number) =>
     dispatch({ type: 'USE_CARD', cardInstanceId, targetId, targetTileId } as const)
   const onBuyCard = (cardDefId: string) => dispatch({ type: 'BUY_CARD', cardDefId })
+  const onUseItem = (itemInstanceId: string, targetId?: string, targetTileId?: number) =>
+    dispatch({ type: 'USE_ITEM', itemInstanceId, targetId, targetTileId } as const)
+  const onBuyItem = (itemDefId: string) => dispatch({ type: 'BUY_ITEM', itemDefId })
   const onStartNewGame = (players: NewGamePlayerSpec[], mapId: string) => {
     const { board } = boardDataToBoardConfig(loadMapData(mapId).boardData)
     dispatch({
@@ -135,6 +138,8 @@ export default function MonopolyPage() {
           onRedeem={onRedeem}
           onUseCard={onUseCard}
           onBuyCard={onBuyCard}
+          onUseItem={onUseItem}
+          onBuyItem={onBuyItem}
         />
       </div>
 

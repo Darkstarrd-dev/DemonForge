@@ -9,7 +9,7 @@ import { handleRoll, handleResolveDecision, handleEndTurn } from './engine/turn'
 import { handleBoardAction } from './engine/board'
 import { handleBankrupt } from './engine/player'
 import { handleCardAction, createCardDeck, resolveCardReaction, resolveCardChoice } from './engine/card'
-import { handleItemAction } from './engine/item'
+import { handleItemAction, createItemDeck, resolveItemChoice, refreshItemShop, tickTimedBombs } from './engine/item'
 import { handleEventAction } from './engine/event'
 import { handleBankAction, handleStockAction, createInitialEconomy } from './engine/economy'
 import { getMapName } from './engine/loader'
@@ -52,11 +52,19 @@ export function createInitialState(config: NewGameConfig): GameState {
     day: 1,
     economy: createInitialEconomy(players.length, config.startingCash),
     cardDeck: createCardDeck(),
+    itemDeck: createItemDeck(),
   }
 }
 
-export function rollDice(): [number, number] {
-  return [1 + Math.floor(Math.random() * 6), 1 + Math.floor(Math.random() * 6)]
+export function getDiceCount(vehicle?: string): number {
+  if (vehicle === 'CAR') return 3
+  if (vehicle === 'MOTORCYCLE') return 2
+  return 2
+}
+
+export function rollDice(vehicle?: string): number[] {
+  const count = getDiceCount(vehicle)
+  return Array.from({ length: count }, () => 1 + Math.floor(Math.random() * 6))
 }
 
 export function reducer(state: GameState, action: Action): GameState {
@@ -65,12 +73,16 @@ export function reducer(state: GameState, action: Action): GameState {
       return createInitialState(action.config)
     case 'ROLL_DICE':
       return handleRoll(state, action.dice)
-    case 'RESOLVE_DECISION':
-      if (state.awaitingDecision?.kind === 'cardReaction')
-        return resolveCardReaction(state, action.optionId)
-      if (state.awaitingDecision?.kind === 'useCardChoice')
+    case 'RESOLVE_DECISION': {
+      const ak = state.awaitingDecision?.kind
+      if (ak === 'cardReaction') return resolveCardReaction(state, action.optionId)
+      if (ak === 'useCardChoice') {
+        const ctx = state.awaitingDecision?.context
+        if (ctx?.itemDefId) return resolveItemChoice(state, action.optionId)
         return resolveCardChoice(state, action.optionId)
+      }
       return handleResolveDecision(state, action.optionId)
+    }
     case 'MORTGAGE_PROPERTY':
     case 'REDEEM_PROPERTY':
       return handleBoardAction(state, action)
@@ -91,13 +103,15 @@ export function reducer(state: GameState, action: Action): GameState {
     case 'BUY_STOCK':
     case 'SELL_STOCK':
       return handleStockAction(state, action)
-    case 'BUY_CARD':
-      return handleCardAction(state, action)
     case 'TRIGGER_EVENT':
     case 'MINI_GAME_RESULT':
       return handleEventAction(state, action)
-    case 'END_TURN':
-      return handleEndTurn(state)
+    case 'END_TURN': {
+      let s = handleEndTurn(state)
+      s = tickTimedBombs(s)
+      if (s.itemDeck) s = { ...s, itemDeck: refreshItemShop(s.itemDeck, s.day ?? 1) }
+      return s
+    }
     default:
       return state
   }
@@ -105,6 +119,7 @@ export function reducer(state: GameState, action: Action): GameState {
 
 export { handleMortgage, handleRedeem } from './engine/board'
 export { createCardDeck, findCardDef, giveCardToPlayer, refreshShop, resolveCardReaction, resolveCardChoice } from './engine/card'
+export { createItemDeck, findItemDef, handleBuyItem, handleUseItem, resolveItemChoice, buildItemChoiceDecision, resolveTraps, tickTimedBombs, refreshItemShop, ITEM_HAND_LIMIT } from './engine/item'
 export { aiDecide, aiNextAction } from './engine/ai'
 export { liquidate, calcTotalAssets } from './engine/player'
 export { calcPriceIndex, calcRent, updatePriceIndex, handleDividend, handleDeposit, handleWithdraw, handleLoan, handleRepay, handleBuyStock, handleSellStock, createInitialEconomy, fluctuateStockPrices } from './engine/economy'

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Button, Modal, Select, Space, Tag, theme, Typography } from 'antd'
+import { Button, Modal, Segmented, Select, Space, Tag, theme, Typography } from 'antd'
 import type { GameState, Player } from '../../game/monopoly/types'
 
 interface Props {
@@ -12,11 +12,14 @@ interface Props {
   onRedeem: (tileId: number) => void
   onUseCard: (cardInstanceId: string, targetId?: string, targetTileId?: number) => void
   onBuyCard?: (cardDefId: string) => void
+  onUseItem?: (itemInstanceId: string, targetId?: string, targetTileId?: number) => void
+  onBuyItem?: (itemDefId: string) => void
 }
 
 export default function GamePanel({
   state, current, interactive, onRoll, onEndTurn,
   onMortgage, onRedeem, onUseCard, onBuyCard,
+  onUseItem, onBuyItem,
 }: Props) {
   const { token } = theme.useToken()
   const { phase, dice } = state.turn
@@ -25,7 +28,9 @@ export default function GamePanel({
   const inHospital = current ? current.inJailTurns > 0 : false
   const myTiles = current ? current.ownedTileIds : []
   const [cardShopOpen, setCardShopOpen] = useState(false)
+  const [shopTab, setShopTab] = useState<string>('cards')
   const [useCardModal, setUseCardModal] = useState<{ instanceId: string; defName: string } | null>(null)
+  const [useItemModal, setUseItemModal] = useState<{ instanceId: string; defName: string; defId: string } | null>(null)
 
   const hand = current?.hand ?? []
   const points = current?.points ?? 0
@@ -47,6 +52,21 @@ export default function GamePanel({
       onUseCard(instanceId)
     } else {
       setUseCardModal({ instanceId, defName: def.name })
+    }
+  }
+
+  const itemDeck = state.itemDeck
+  const items = current?.items ?? []
+  const handleUseItem = (instanceId: string) => {
+    const inst = items.find(c => c.instanceId === instanceId)
+    if (!inst || !itemDeck) return
+    const def = itemDeck.definitions.find(d => d.id === inst.definitionId)
+    if (!def) return
+    const selfUseItems = ['item-00', 'item-01', 'item-06', 'item-10']
+    if (selfUseItems.includes(def.id)) {
+      onUseItem?.(instanceId)
+    } else {
+      setUseItemModal({ instanceId, defName: def.name, defId: def.id })
     }
   }
 
@@ -78,13 +98,13 @@ export default function GamePanel({
       {/* Dice + Actions */}
       <div style={{ padding: 16, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, borderBottom: `1px solid ${token.colorBorderSecondary}` }}>
         <div style={{ display: 'flex', gap: 12 }}>
-          {[0, 1].map(i => (
+          {(dice ?? [undefined, undefined]).map((v, i) => (
             <div key={i} style={{ width: 48, height: 48, borderRadius: 8, border: `2px solid ${token.colorBorder}`, background: token.colorBgContainer, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24, fontWeight: 700, color: token.colorText }}>
-              {dice ? dice[i] : '·'}
+              {v ?? '·'}
             </div>
           ))}
         </div>
-        {dice && <div style={{ fontSize: 13, color: token.colorTextSecondary }}>合计 {dice[0] + dice[1]} 点</div>}
+        {dice && <div style={{ fontSize: 13, color: token.colorTextSecondary }}>合计 {dice.reduce((s, v) => s + v, 0)} 点</div>}
 
         {ended ? null : !interactive ? (
           <div style={{ fontSize: 13, color: token.colorTextSecondary }}>AI 行动中…</div>
@@ -121,15 +141,15 @@ export default function GamePanel({
           点数: <strong style={{ color: token.colorText }}>{points}</strong>
         </Typography.Text>
         {interactive && !ended && (
-          <Button size="small" disabled={!deck} onClick={() => setCardShopOpen(true)}>
-            卡片商店
+          <Button size="small" disabled={!deck && !itemDeck} onClick={() => setCardShopOpen(true)}>
+            商店
           </Button>
         )}
       </div>
 
       {/* Card Hand */}
       {hand.length > 0 && (
-        <div style={{ padding: '8px 12px', borderBottom: `1px solid ${token.colorBorderSecondary}`, maxHeight: 120, overflow: 'auto' }}>
+        <div style={{ padding: '8px 12px', borderBottom: `1px solid ${token.colorBorderSecondary}`, maxHeight: 90, overflow: 'auto' }}>
           <div style={{ fontSize: 12, color: token.colorTextSecondary, marginBottom: 6 }}>
             手牌 ({hand.length}/15)
           </div>
@@ -140,6 +160,27 @@ export default function GamePanel({
                 <Tag key={c.instanceId} color="blue" style={{ cursor: 'pointer', margin: 0 }}
                   onClick={() => handleUseCard(c.instanceId)}>
                   {def?.name ?? '?'}
+                </Tag>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Items */}
+      {items.length > 0 && (
+        <div style={{ padding: '8px 12px', borderBottom: `1px solid ${token.colorBorderSecondary}`, maxHeight: 90, overflow: 'auto' }}>
+          <div style={{ fontSize: 12, color: token.colorTextSecondary, marginBottom: 6 }}>
+            道具 ({items.length}/5)
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+            {items.map(c => {
+              const def = itemDeck?.definitions.find(d => d.id === c.definitionId)
+              return (
+                <Tag key={c.instanceId} color="orange" style={{ cursor: 'pointer', margin: 0 }}
+                  onClick={() => handleUseItem(c.instanceId)}>
+                  {def?.name ?? '?'}
+                  {c.durability > 0 && ` (${c.durability})`}
                 </Tag>
               )
             })}
@@ -183,9 +224,21 @@ export default function GamePanel({
         ))}
       </div>
 
-      {/* Card Shop Modal */}
-      <Modal open={cardShopOpen} title="卡片商店" onCancel={() => setCardShopOpen(false)} footer={null} width={380}>
-        {deck?.shopInventory.availableCards.map(cardId => {
+      {/* Shop Modal */}
+      <Modal open={cardShopOpen} onCancel={() => setCardShopOpen(false)} footer={null} width={420}
+        title={
+          <Segmented<string>
+            value={shopTab}
+            onChange={setShopTab}
+            options={[
+              { label: '卡片', value: 'cards' },
+              { label: '道具店', value: 'items' },
+              { label: '研究所', value: 'research' },
+            ]}
+          />
+        }
+      >
+        {shopTab === 'cards' && deck?.shopInventory.availableCards.map(cardId => {
           const def = deck.definitions.find(d => d.id === cardId)
           if (!def) return null
           const canBuy = points >= def.pointCost && (current?.hand ?? []).length < 15
@@ -204,8 +257,56 @@ export default function GamePanel({
             </div>
           )
         })}
-        {deck && deck.shopInventory.availableCards.length === 0 && (
-          <Typography.Text type="secondary">商店暂无库存</Typography.Text>
+        {shopTab === 'cards' && deck && deck.shopInventory.availableCards.length === 0 && (
+          <Typography.Text type="secondary">商店暂无卡片库存</Typography.Text>
+        )}
+
+        {shopTab === 'items' && itemDeck?.shopInventory.availableItemIds.map(itemId => {
+          const def = itemDeck.definitions.find(d => d.id === itemId)
+          if (!def) return null
+          const canBuy = points >= def.pointCost && (current?.items ?? []).length < 5
+          return (
+            <div key={itemId} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: `1px solid ${token.colorBorderSecondary}` }}>
+              <div>
+                <div style={{ fontWeight: 600, fontSize: 13, color: token.colorText }}>{def.name}</div>
+                <div style={{ fontSize: 11, color: token.colorTextSecondary }}>{def.description}</div>
+              </div>
+              <Space>
+                <Tag>{def.pointCost} 点</Tag>
+                {def.durability > 0 && <Tag color="orange">{def.durability} 次</Tag>}
+                <Button size="small" type="primary" disabled={!canBuy} onClick={() => { onBuyItem?.(itemId); setCardShopOpen(false) }}>
+                  购买
+                </Button>
+              </Space>
+            </div>
+          )
+        })}
+        {shopTab === 'items' && itemDeck && itemDeck.shopInventory.availableItemIds.length === 0 && (
+          <Typography.Text type="secondary">道具店暂无库存</Typography.Text>
+        )}
+
+        {shopTab === 'research' && itemDeck?.researchInventory.availableResearchIds.map(itemId => {
+          const def = itemDeck.definitions.find(d => d.id === itemId)
+          if (!def) return null
+          const canBuy = points >= def.pointCost && (current?.items ?? []).length < 5
+          return (
+            <div key={itemId} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: `1px solid ${token.colorBorderSecondary}` }}>
+              <div>
+                <div style={{ fontWeight: 600, fontSize: 13, color: token.colorText }}>{def.name}</div>
+                <div style={{ fontSize: 11, color: token.colorTextSecondary }}>{def.description}</div>
+              </div>
+              <Space>
+                <Tag>{def.pointCost} 点</Tag>
+                {def.durability > 0 && <Tag color="orange">{def.durability} 次</Tag>}
+                <Button size="small" type="primary" disabled={!canBuy} onClick={() => { onBuyItem?.(itemId); setCardShopOpen(false) }}>
+                  研发
+                </Button>
+              </Space>
+            </div>
+          )
+        })}
+        {shopTab === 'research' && itemDeck && itemDeck.researchInventory.availableResearchIds.length === 0 && (
+          <Typography.Text type="secondary">研究所暂无可用项目</Typography.Text>
         )}
       </Modal>
 
@@ -238,6 +339,47 @@ export default function GamePanel({
         <Button block style={{ marginTop: 8 }} onClick={() => { onUseCard(useCardModal!.instanceId); setUseCardModal(null) }}>
           对自己使用
         </Button>
+      </Modal>
+
+      {/* Use Item Target Modal */}
+      <Modal open={!!useItemModal} title={`使用「${useItemModal?.defName ?? ''}」`}
+        onCancel={() => setUseItemModal(null)} footer={null} width={360}>
+        <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>选择目标</Typography.Text>
+        {(() => {
+          const defId = useItemModal?.defId
+          if (!defId) return null
+          const isPlayerTarget = defId === 'item-12'
+          const isTileTarget = !isPlayerTarget
+          if (isPlayerTarget) {
+            return opponents.map(p => (
+              <Button key={p.id} block style={{ textAlign: 'left', marginBottom: 4 }}
+                onClick={() => { onUseItem?.(useItemModal!.instanceId, p.id); setUseItemModal(null) }}>
+                {p.name}
+              </Button>
+            ))
+          }
+          if (isTileTarget) {
+            const attackItems = ['item-02', 'item-03', 'item-09', 'item-11']
+            const filterForAttack = attackItems.includes(defId)
+            const tiles = state.board.tiles
+              .map((t, i) => ({ ...t, index: i }))
+              .filter(t => {
+                const prop = state.properties[t.index]
+                if (filterForAttack) return prop && prop.level > 0 && prop.ownerId && prop.ownerId !== current?.id
+                return !prop || prop.level === 0 // placement goes on non-owned or empty properties
+              })
+            const isDiceItem = defId === 'item-08'
+            const tileList = isDiceItem
+              ? state.board.tiles.map((t, i) => ({ ...t, index: i })).filter((_, i) => i !== current?.position)
+              : tiles
+            return tileList.slice(0, 12).map(t => (
+              <Button key={t.index} block style={{ textAlign: 'left', marginBottom: 4 }}
+                onClick={() => { onUseItem?.(useItemModal!.instanceId, undefined, t.index); setUseItemModal(null) }}>
+                {t.name}{state.properties[t.index]?.level > 0 ? ` (${state.properties[t.index].level}级)` : ''}
+              </Button>
+            ))
+          }
+        })()}
       </Modal>
     </div>
   )
