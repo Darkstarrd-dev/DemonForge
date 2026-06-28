@@ -46,6 +46,23 @@
 
 ---
 
+## 🆕 大富翁整改结果复审（2026-06-29，未完成，报告已保存）
+
+对声称已完成的 Phase 0–4 整改进行独立复核（子代理并行精读 + 本地 tsc/vitest/build/eslint）。**结论：未完成**。
+
+- **Phase 0 类型系统**：大部分完成（GameState/Tile.id/BoardState/TurnContext 已落地）。
+- **Phase 1 引擎规则**：部分完成。走动逻辑仍 index 取模、租金公式不完整、破产清算未分步、物价指数未在 handleEndTurn 触发、AI 随机源仍内置、道具效果未数据驱动。
+- **Phase 2 数据文件**：部分修正。新闻/命运/道具/魔法屋类型与枚举同步仍有大量缺口。
+- **Phase 3 UI**：页面已迁移新类型，但 DecisionModal 仅覆盖 2/14 决策、HUD/面板缺经济信息、NewGameModal 缺角色头像、GamePanel 有 t.index 索引 bug。
+- **Phase 4 单测/清理**：全项目 337 绿，但大富翁模块仅 282；eslint 11 errors；engine.ts 导出未收敛。
+
+复审报告（含逐项证据 + 供低阶模型实施的任务清单 P0-1~P3-3）：
+→ `docs/quality/logs/2026-06-29-monopoly-implementation-reaudit.md`
+
+**下一步建议**：按报告 §5 顺序执行 P0-1~P1-6 高优引擎与 UI 修复。
+
+---
+
 ## 🆕 大富翁审计整改实施（2026-06-28，app 层 tsc 0 + vite build ✓，待提交）
 
 按审计报告 5 Phase 整改清单实施，已完成 Phase 0–3。
