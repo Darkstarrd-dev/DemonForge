@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import {
   Alert,
   App,
+  AutoComplete,
   Button,
   Card,
   Checkbox,
@@ -160,6 +161,8 @@ export default function SettingsPage() {
   // 供应商编辑
   const [editingProvider, setEditingProvider] = useState<Provider | null>(null)
   const [providerForm] = Form.useForm<Provider>()
+  // 选中已有供应商时，Modal 切为「新增节点」模式
+  const [selectedExistingProvider, setSelectedExistingProvider] = useState<Provider | null>(null)
 
   // 节点编辑
   const [editingNode, setEditingNode] = useState<{ node: ProviderNode; provider: Provider } | null>(null)
@@ -195,6 +198,7 @@ export default function SettingsPage() {
 
   // ===== 供应商操作 =====
   const openProviderEdit = () => {
+    setSelectedExistingProvider(null)
     const target: Provider = {
       id: genId('prov'),
       name: '',
@@ -208,11 +212,20 @@ export default function SettingsPage() {
   }
 
   const editProvider = (p: Provider) => {
+    setSelectedExistingProvider(null)
     setEditingProvider(p)
     providerForm.setFieldsValue(p)
   }
 
   const saveProvider = async () => {
+    // 选中已有供应商 → 切为「新增节点」模式
+    if (selectedExistingProvider) {
+      setEditingProvider(null)
+      providerForm.resetFields()
+      addNodeForProvider(selectedExistingProvider.id)
+      setSelectedExistingProvider(null)
+      return
+    }
     const values = await providerForm.validateFields()
     const apiKeys = (values.apiKeys ?? []).map((k: { id?: string; key: string; label?: string; enabled?: boolean; state?: string }) => ({
       id: k.id || genId('key'),
@@ -920,19 +933,71 @@ export default function SettingsPage() {
 
       {/* 供应商编辑 Modal */}
       <Modal
-        title={storeProviders.some((p) => p.id === editingProvider?.id) ? '编辑供应商' : '新增供应商'}
+        title={
+          selectedExistingProvider
+            ? `新增节点到「${selectedExistingProvider.name}」`
+            : storeProviders.some((p) => p.id === editingProvider?.id)
+              ? '编辑供应商'
+              : '新增供应商 / 节点'
+        }
         open={!!editingProvider}
         onOk={saveProvider}
-        onCancel={() => setEditingProvider(null)}
+        onCancel={() => { setEditingProvider(null); setSelectedExistingProvider(null) }}
+        okText={selectedExistingProvider ? '下一步：配置节点' : '保存'}
         destroyOnHidden
         width={Math.min(800, window.innerWidth - 48)}
       >
+        {selectedExistingProvider && (
+          <Alert
+            type="info"
+            showIcon
+            style={{ marginBottom: 16 }}
+            message={`已选择现有供应商「${selectedExistingProvider.name}」，确认后将打开节点配置表单。`}
+          />
+        )}
         <Form form={providerForm} layout="vertical" style={{ marginTop: 8 }}>
           <Form.Item name="name" label="名称" rules={[{ required: true }]}>
-            <Input placeholder="如：OpenAI" />
+            <AutoComplete
+              placeholder={
+                storeProviders.some((p) => p.id === editingProvider?.id)
+                  ? '供应商名称'
+                  : '输入新名称，或点击箭头选择已有供应商'
+              }
+              options={
+                // 编辑已有供应商时不显示下拉选项
+                storeProviders.some((p) => p.id === editingProvider?.id)
+                  ? []
+                  : storeProviders.map((p) => ({ value: p.name, label: `${p.name}（${p.baseURL}）` }))
+              }
+              filterOption={(input, option) => (option?.label as string)?.toLowerCase().includes(input.toLowerCase())}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') e.preventDefault()
+              }}
+              onChange={(value) => {
+                if (storeProviders.some((p) => p.id === editingProvider?.id)) return
+                const matched = storeProviders.find((p) => p.name === value)
+                if (matched) {
+                  setSelectedExistingProvider(matched)
+                  providerForm.setFieldsValue({
+                    baseURL: matched.baseURL,
+                    rotationPolicy: matched.rotationPolicy,
+                    apiKeys: matched.apiKeys,
+                  })
+                } else {
+                  if (selectedExistingProvider) {
+                    setSelectedExistingProvider(null)
+                    providerForm.setFieldsValue({
+                      baseURL: '',
+                      rotationPolicy: 'round-robin',
+                      apiKeys: [{ id: genId('key'), key: '', enabled: true, state: 'ok' }],
+                    })
+                  }
+                }
+              }}
+            />
           </Form.Item>
           <Form.Item name="baseURL" label="Base URL" rules={[{ required: true }]}>
-            <Input placeholder="http://127.0.0.1:8080/v1" />
+            <Input placeholder="http://127.0.0.1:8080/v1" disabled={!!selectedExistingProvider} />
           </Form.Item>
           <Form.Item name="rotationPolicy" label="轮询策略">
             <Segmented
@@ -940,6 +1005,7 @@ export default function SettingsPage() {
                 { value: 'round-robin', label: 'Round-Robin' },
                 { value: 'failover', label: 'Failover' },
               ]}
+              disabled={!!selectedExistingProvider}
             />
           </Form.Item>
           <Form.Item label="API KEY">
@@ -954,14 +1020,14 @@ export default function SettingsPage() {
                         rules={[{ required: true, message: '请输入 KEY' }]}
                         style={{ marginBottom: 0 }}
                       >
-                        <Input.Password placeholder="sk-..." style={{ width: 240 }} />
+                        <Input.Password placeholder="sk-..." style={{ width: 240 }} disabled={!!selectedExistingProvider} />
                       </Form.Item>
                       <Form.Item
                         {...restField}
                         name={[name, 'label']}
                         style={{ marginBottom: 0 }}
                       >
-                        <Input placeholder="备注" style={{ width: 120 }} />
+                        <Input placeholder="备注" style={{ width: 120 }} disabled={!!selectedExistingProvider} />
                       </Form.Item>
                       <Form.Item
                         {...restField}
@@ -969,16 +1035,18 @@ export default function SettingsPage() {
                         valuePropName="checked"
                         style={{ marginBottom: 0 }}
                       >
-                        <Switch checkedChildren="启用" unCheckedChildren="禁用" />
+                        <Switch checkedChildren="启用" unCheckedChildren="禁用" disabled={!!selectedExistingProvider} />
                       </Form.Item>
-                      <Button type="text" danger onClick={() => remove(name)} disabled={fields.length <= 1}>
+                      <Button type="text" danger onClick={() => remove(name)} disabled={fields.length <= 1 || !!selectedExistingProvider}>
                         删除
                       </Button>
                     </Space>
                   ))}
-                  <Button type="dashed" onClick={() => add({ id: genId('key'), key: '', enabled: true, state: 'ok' })} block>
-                    添加 API KEY
-                  </Button>
+                  {!selectedExistingProvider && (
+                    <Button type="dashed" onClick={() => add({ id: genId('key'), key: '', enabled: true, state: 'ok' })} block>
+                      添加 API KEY
+                    </Button>
+                  )}
                   <Form.ErrorList errors={errors} />
                 </>
               )}

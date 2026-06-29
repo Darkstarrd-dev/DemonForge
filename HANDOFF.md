@@ -2,11 +2,33 @@
 
 **最后更新**：2026-06-30
 **当前位置**：办公场所 A（已推送）
-**本轮主题**：**节点池模块化方案文档落地**——审计解耦程度、产出完整实施规划 5.1-5.7、验收清单。
+**本轮主题**：**节点池 UI 优化：合并「新增供应商」与「新增节点到现有供应商」**
 
 > 📦 **历史明细已归档** → `docs/handoff_history.md`
 > 本文件只保留「恢复工作所需的活内容」：进行中任务、模块清单、下一步、交接参考。
 > 各轮工作的逐项实现细节、技术决策记录、详尽验证清单全部移入归档文件，按需查阅。
+
+---
+
+## 🆕 节点池 UI 优化：合并新增供应商与新增节点（2026-06-30，待推送）
+
+按用户需求将「新增节点到现有供应商」移除，其选择器下拉菜单并入「新增供应商」Modal。
+
+### 改动
+
+- **`NodesTabContent.tsx`**：移除"新增节点到现有供应商"按钮及关联 `useState`/Modal；按钮文案改为"新增供应商 / 节点"
+- **`settings/index.tsx`**：新增供应商 Modal 的 name 字段从 `<Input>` 改为 `<AutoComplete>`：
+  - 点击空白区直接输入新名称（新增供应商）
+  - 点击箭头下拉选择已有供应商名（选中后自动填充 baseURL/apiKeys/rotationPolicy 并禁用这些字段，title 变为"新增节点到 XXX"，okText 变为"下一步：配置节点"，确认后打开节点编辑 Modal）
+  - 编辑已有供应商时 AutoComplete 不显示下拉选项
+
+### 验证
+
+| 命令 | 结果 |
+|---|---|
+| `npx tsc -p tsconfig.app.json --noEmit` | 0 error |
+| `npx eslint src/pages/settings/index.tsx src/pages/settings/panels/NodesTabContent.tsx` | 0 error |
+| `npx vite build` | 成功 |
 
 ---
 

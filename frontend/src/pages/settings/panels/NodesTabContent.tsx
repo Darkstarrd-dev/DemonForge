@@ -1,5 +1,4 @@
-import { useState } from 'react'
-import { Button, Input, Modal, Segmented, Select, Space, Switch, Table, Tag, Typography } from 'antd'
+import { Button, Input, Segmented, Select, Space, Switch, Table, Tag, Typography } from 'antd'
 import type { TableColumnsType } from 'antd'
 import { DownOutlined, UpOutlined } from '@ant-design/icons'
 import type {
@@ -99,10 +98,6 @@ export default function NodesTabContent(props: NodesTabContentProps) {
   setDraftTestText,
   m1TestText,
 } = props
-
-  // 「新增节点到现有供应商」选择器
-  const [pickProviderOpen, setPickProviderOpen] = useState(false)
-  const [selectedProviderId, setSelectedProviderId] = useState<string | null>(null)
 
   // 按当前 Tab 过滤节点（文本/图片），再按 providerId 分组
   const visibleNodes = resolvedNodes.filter((n) => n.nodeType === nodeTypeFilter)
@@ -249,14 +244,8 @@ export default function NodesTabContent(props: NodesTabContentProps) {
           <Button loading={batchTesting} onClick={runBatchTest}>
             批量测试
           </Button>
-            <Button
-              onClick={() => { setSelectedProviderId(null); setPickProviderOpen(true) }}
-              disabled={providers.length === 0}
-            >
-              新增节点到现有供应商
-            </Button>
             <Button type="primary" onClick={openProviderEdit}>
-              新增供应商
+              新增供应商 / 节点
             </Button>
         </Space>
       </div>
@@ -451,38 +440,7 @@ export default function NodesTabContent(props: NodesTabContentProps) {
           />
          </div>
          </div>
-       </div>
-
-      {/* 新增节点到现有供应商选择器 */}
-      <Modal
-        title={`新增${nodeTypeFilter === 'text' ? '文本' : '图片'}节点到现有供应商`}
-        open={pickProviderOpen}
-        onOk={() => {
-          if (selectedProviderId) {
-            addNodeForProvider(selectedProviderId)
-            setPickProviderOpen(false)
-            setSelectedProviderId(null)
-          }
-        }}
-        onCancel={() => { setPickProviderOpen(false); setSelectedProviderId(null) }}
-        okText="下一步：配置节点"
-        okButtonProps={{ disabled: !selectedProviderId }}
-        width={Math.min(480, window.innerWidth - 48)}
-      >
-        <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 12 }}>
-          选择供应商后将打开节点配置表单，节点类型跟随当前 Tab（{nodeTypeFilter === 'text' ? '文本' : '图片'}）。
-          当前 Tab 下不包含该类型节点的供应商也会出现在此列表中。
-        </Typography.Text>
-        <Select
-          style={{ width: '100%' }}
-          placeholder="选择供应商"
-          value={selectedProviderId ?? undefined}
-          onChange={(v) => setSelectedProviderId(v)}
-          options={providers.map((p) => ({ value: p.id, label: `${p.name}（${p.baseURL}）` }))}
-          showSearch
-          filterOption={(input, option) => (option?.label as string)?.toLowerCase().includes(input.toLowerCase())}
-        />
-      </Modal>
+        </div>
     </div>
   )
 }
