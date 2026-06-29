@@ -184,3 +184,34 @@ body {
 .hide-scrollbar::-webkit-scrollbar {
   display: none; /* Chromium / Electron */
 }
+
+/* 供应商卡片圆角容器：标题栏 + 节点表格统一圆角 */
+.provider-card-wrapper {
+  border-radius: 8px;
+  border: 1px solid var(--ant-color-border);
+  background: var(--ant-color-bg-container);
+  overflow: hidden;
+  margin-bottom: 8px;
+}
+.provider-card-wrapper .ant-table-wrapper .ant-table {
+  border-radius: 0;
+}
+.provider-card-wrapper .ant-table-wrapper .ant-table-container {
+  border-radius: 0;
+  border-top: none;
+}
+.provider-card-wrapper .ant-table-wrapper .ant-table-thead > tr > th:first-child {
+  border-radius: 0;
+}
+.provider-card-wrapper .ant-table-wrapper .ant-table-thead > tr > th:last-child {
+  border-radius: 0;
+}
+.provider-card-wrapper .ant-table-wrapper .ant-table-tbody > tr > td {
+  border-bottom: 1px solid var(--ant-color-border-secondary);
+  padding-block: 4px !important;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.provider-card-wrapper .ant-table-wrapper .ant-table-tbody > tr:last-child > td {
+  border-bottom: none;
+}

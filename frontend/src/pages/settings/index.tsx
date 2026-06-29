@@ -325,19 +325,28 @@ export default function SettingsPage() {
     message.success(`已复制为「${next.model}」`)
   }
 
-  /** 在 providerNodes 数组中按当前 Tab 过滤后的顺序交换位置。 */
-  const moveNode = (nodeId: string, dir: -1 | 1) => {
-    const list = storeProviderNodes.filter((n) => n.nodeType === nodeTypeFilter)
-    const idxInList = list.findIndex((n) => n.id === nodeId)
-    if (idxInList < 0) return
-    const swapWith = list[idxInList + dir]
-    if (!swapWith) return
-    const aIdx = storeProviderNodes.findIndex((n) => n.id === nodeId)
-    const bIdx = storeProviderNodes.findIndex((n) => n.id === swapWith.id)
-    if (aIdx < 0 || bIdx < 0) return
+  /** 重排供应商顺序（传入所有 provider id 的新顺序）。 */
+  const reorderProviders = (ids: string[]) => {
+    const map = new Map(storeProviders.map((p) => [p.id, p]))
+    const reordered = ids.map((id) => map.get(id)).filter((p) => p) as Provider[]
+    setState({ providers: reordered })
+  }
+
+  /** 重排节点顺序（传入节点 id 列表，仅影响这些节点在 providerNodes 数组中的相对顺序）。
+   *  不在该列表中的节点保持原位，列表中的节点按给定顺序排列。 */
+  const reorderNodes = (ids: string[]) => {
+    const idSet = new Set(ids)
     const next = [...storeProviderNodes]
-    ;[next[aIdx], next[bIdx]] = [next[bIdx], next[aIdx]]
-    setState({ providerNodes: next })
+    const toReorder = next.filter((n) => idSet.has(n.id))
+    const reordered = ids.map((id) => toReorder.find((n) => n.id === id)!).filter(Boolean)
+    let reorderIdx = 0
+    const result = next.map((n) => {
+      if (idSet.has(n.id)) {
+        return reordered[reorderIdx++]
+      }
+      return n
+    })
+    setState({ providerNodes: result })
   }
 
   /** 测试节点连通性。 */
@@ -870,7 +879,8 @@ export default function SettingsPage() {
                 testNode={testNode}
                 concurrencyTestNode={concurrencyTestNode}
                 duplicateNode={duplicateNode}
-                moveNode={moveNode}
+                reorderProviders={reorderProviders}
+                reorderNodes={reorderNodes}
                 providers={storeProviders}
                 providerNodes={storeProviderNodes}
                 resolvedNodes={resolvedNodes}
