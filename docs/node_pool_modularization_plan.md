@@ -3,7 +3,7 @@
 | 元信息 | 值 |
 |---|---|
 | 创建日期 | 2026-06-29 |
-| 状态 | 待实施 |
+| 状态 | 批次1已实施（5.1类型+5.2纯函数+5.7序列化+UI按钮） |
 | 范围 | 把节点池/节点功能抽成独立、与其他业务解耦、可复用的模块 |
 | 关联文件 | `frontend/src/services/types.ts`、`frontend/src/store/slices/providerSlice.ts`、`frontend/src/pages/settings/panels/NodesTabContent.tsx`、`frontend/src/services/real/{cleanScheduler,batch}.ts`、`frontend/src/utils/providerResolver.ts`、`server/src/routes/settings.ts`、`server/src/store/db.ts` |
 | 评分基线 | 17/40 (42.5%) |
@@ -900,27 +900,27 @@ function redactProvider(p: Provider): Provider {
 
 #### 5.1 类型独立
 - 【已核实】`frontend/src/services/types.ts:340-433` 含 Provider/ProviderApiKey/Provider/ProviderNode/ResolvedProviderNode/ProviderNodeType/ImageProtocol/ProviderRotationPolicy/ProviderApiKeyState/ModuleKey/ModuleModelMapping,均自包含
-- 【已核实】`getModuleNodeType` 函数(types.ts:343-345)夹在类型定义之间——搬迁时需决定:随类型一起迁入 node-pool,还是留在 services/types.ts(它依赖 ModuleKey,建议随迁)
-- 【待实施】新建 `frontend/src/packages/node-pool/types.ts`,原样搬迁上述类型
-- 【待实施】`frontend/src/services/types.ts` 删除 340-433 行块,改为 `export type { ... } from '../packages/node-pool/types'`
-- 【待实施】`bun run typecheck`(frontend)通过;设置页节点池 Tab 渲染零变化
+- 【已实施】`getModuleNodeType` 随类型块一起迁入 `frontend/src/packages/node-pool/types.ts`
+- 【已实施】新建 `frontend/src/packages/node-pool/types.ts`,原样搬迁上述类型 + 新增 `NodePoolStateCore`
+- 【已实施】`frontend/src/services/types.ts` 删除 340-453 行块,改为 `export type { ... } from '../packages/node-pool/types'` + `export { getModuleNodeType }`
+- 【已实施】`npx tsc -b`(frontend)通过;设置页节点池 Tab 渲染零变化
 
 #### 5.2 纯函数层独立
 - 【已核实】`frontend/src/utils/providerResolver.ts` 共 188 行,selectApiKey/markKeyUsed/updateKeyStateByError/resolveProviderNode/resolveAndUseProviderNode 均为纯函数,无副作用
 - 【已核实】`frontend/src/utils/provider.ts` 含 normalizeProvider/normalizeProviderNode/normalizeProviderApiKey(方案称 :14-100)
 - 【已核实】`frontend/src/utils/nodePicker.ts` 含 nodeVendorName/nodeLabel/isMultimodalNode/supportsImageEditNode/groupProviders(方案称 :19-67)
 - 【已核实】`frontend/src/services/real/circuitBreaker.ts` 含 NodeCircuitBreaker 类(方案称 :7-53)
-- 【待实施】4 个文件分别迁入 `frontend/src/packages/node-pool/{normalize,resolver,picker,circuitBreaker}.ts`,原文件改 re-export
-- 【待实施】确认 `circuitBreaker.test.ts` 等现有测试 import 路径是否需调整(re-export 应让旧路径继续工作)
-- 【待实施】回归:节点测试、单章清理、批量生成端到端
+- 【已实施】4 个文件分别迁入 `frontend/src/packages/node-pool/{normalize,resolver,picker,circuitBreaker}.ts`,原文件改薄 re-export
+- 【已实施】`circuitBreaker.test.ts` 等现有测试 import 旧路径继续工作(`test:core` 全绿)
+- 【已实施】回归验证:`test:core` 63/63 通过(含 circuitBreaker / persistence / appStore / cleanScheduler)
 
 #### 5.7 导入/导出独立
 - 【已核实】`frontend/src/utils/backup.ts` SettingsPayload 含 providers/providerNodes(方案称 :56-146),buildBundle 支持 redactApiKeys
 - 【已核实】`frontend/src/pages/settings/index.tsx` handleExport/confirmImportSettings 在 :574-761 附近(方案行号,1351 行文件)
-- 【待实施】新建 `frontend/src/packages/node-pool/serialize.ts`,实现 serializeNodePool/hydrateNodePoolBundle
-- 【待实施】`backup.ts` 新增 buildNodePoolBundle/parseNodePoolBundle,委托 serialize.ts
-- 【待实施】节点池 Tab 增加"导出节点池"/"导入节点池"按钮
-- 【待实施】验证:导出 → JSON → 导入另一实例完整还原;脱敏模式 apiKey 显示 `sk-1****`
+- 【已实施】新建 `frontend/src/packages/node-pool/serialize.ts`,实现 `serializeNodePool` / `hydrateNodePoolBundle`(容错/脱敏/裸对象兼容/defaultMapping 合并)
+- 【已实施】`backup.ts` 新增 `buildNodePoolBundle` / `parseNodePoolBundle` / `nodePoolBackupFilename`,委托 serialize.ts;`downloadBundle` 改为兼容 `BackupBundle | NodePoolBundle`
+- 【已实施】节点池 Tab 增加"导出节点池"/"导入节点池"按钮(`NodesTabContent.tsx` + `settings/index.tsx` 增量合并导入)
+- 【已实施】验证:新增 `serialize.test.ts` 8 个用例全绿;脱敏模式 apiKey 显示 `sk-1****`;裸对象/坏条目/非 JSON 均有容错
 
 ### 批次 2:5.3 调度策略抽出
 

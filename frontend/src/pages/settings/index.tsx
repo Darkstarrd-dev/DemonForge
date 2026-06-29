@@ -41,6 +41,9 @@ import {
   readFileAsText,
   summarizeBusiness,
   backupFilename,
+  buildNodePoolBundle,
+  parseNodePoolBundle,
+  nodePoolBackupFilename,
   type BackupBundle,
   type BundleKind,
 } from '../../utils/backup'
@@ -642,6 +645,99 @@ export default function SettingsPage() {
     return false
   }
 
+  // ===== 节点池单独导入导出 =====
+  const handleExportNodePool = () => {
+    try {
+      const st = useAppStore.getState()
+      const bundle = buildNodePoolBundle(
+        {
+          providers: st.providers,
+          providerNodes: st.providerNodes,
+          moduleMapping: st.moduleMapping,
+        },
+        exportRedact,
+      )
+      downloadBundle(bundle, nodePoolBackupFilename(exportRedact))
+      message.success(`已导出节点池（${exportRedact ? '已脱敏 API Key' : '含 API Key'}）`)
+    } catch (e) {
+      message.error(`导出节点池失败：${e instanceof Error ? e.message : String(e)}`)
+    }
+  }
+
+  const handleImportNodePool = () => {
+    const input = document.createElement('input')
+    input.type = 'file'
+    input.accept = '.json'
+    input.style.display = 'none'
+    input.onchange = async () => {
+      const file = input.files?.[0]
+      document.body.removeChild(input)
+      if (!file) return
+      try {
+        const text = await readFileAsText(file)
+        const result = parseNodePoolBundle(text)
+        if (result.fatal || !result.bundle) {
+          message.error(`无法导入节点池：${result.fatal}`)
+          return
+        }
+        const bundle = result.bundle
+        const currentState = useAppStore.getState()
+        const patch: Partial<typeof currentState> = {}
+
+        // providers：按 id 判重，增量导入
+        if (Array.isArray(bundle.providers)) {
+          const existingProviderIds = new Set(currentState.providers.map((p) => p.id))
+          const providersToAdd = bundle.providers.filter((p) => !existingProviderIds.has(p.id))
+          if (providersToAdd.length > 0) {
+            patch.providers = [...currentState.providers, ...providersToAdd]
+          }
+        }
+
+        // providerNodes：按 providerId+model 判重，增量导入
+        if (Array.isArray(bundle.providerNodes)) {
+          const existingNodeKeys = new Set(
+            currentState.providerNodes.map((n) => `${n.providerId}|||${n.model}`),
+          )
+          const nodesToAdd = bundle.providerNodes.filter(
+            (n) => !existingNodeKeys.has(`${n.providerId}|||${n.model}`),
+          )
+          if (nodesToAdd.length > 0) {
+            patch.providerNodes = [...currentState.providerNodes, ...nodesToAdd]
+          }
+        }
+
+        // moduleMapping：仅填充当前缺失的模块映射
+        if (bundle.moduleMapping) {
+          const merged = { ...currentState.moduleMapping }
+          let hasNew = false
+          for (const key of Object.keys(bundle.moduleMapping) as ModuleKey[]) {
+            if (!merged[key] || !merged[key].nodeId) {
+              merged[key] = bundle.moduleMapping[key]
+              hasNew = true
+            }
+          }
+          if (hasNew) patch.moduleMapping = merged
+        }
+
+        if (Object.keys(patch).length === 0) {
+          message.info('节点池无新增内容（供应商/节点均已存在）')
+          return
+        }
+
+        setState(patch)
+        pushSettingsNow()
+        message.success(`节点池导入成功${result.warnings.length > 0 ? `（${result.warnings.length} 条警告）` : ''}`)
+        if (result.warnings.length > 0) {
+          Modal.warning({ title: '导入节点池警告', content: result.warnings.join('\n') })
+        }
+      } catch (e) {
+        message.error(`导入节点池失败：${e instanceof Error ? e.message : String(e)}`)
+      }
+    }
+    document.body.appendChild(input)
+    input.click()
+  }
+
   const confirmImportSettings = async (bundle: BackupBundle, replaceBusiness: boolean) => {
     setImportBusy(true)
     try {
@@ -864,6 +960,8 @@ export default function SettingsPage() {
                 moduleMapping={moduleMapping}
                 MODULE_LABELS={MODULE_LABELS}
                 setModuleNode={setModuleNode}
+                onExportNodePool={handleExportNodePool}
+                onImportNodePool={handleImportNodePool}
               />,
             },
             {

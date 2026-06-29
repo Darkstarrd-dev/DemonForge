@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useMemo, useState } from 'react'
-import { Button, Input, Segmented, Space, Switch, Table, Tag, Typography } from 'antd'
+import { Button, Segmented, Space, Switch, Table, Tag, Typography } from 'antd'
 import type { TableColumnsType } from 'antd'
 import { DownOutlined, HolderOutlined, RightOutlined } from '@ant-design/icons'
 import {
@@ -67,6 +67,8 @@ interface NodesTabContentProps {
   moduleMapping: Record<ModuleKey, { nodeId: string | null; model?: string }>
   MODULE_LABELS: Record<ModuleKey, string>
   setModuleNode: (key: ModuleKey, nodeId: string | null) => void
+  onExportNodePool: () => void
+  onImportNodePool: () => void
 }
 
 interface SortableProviderCardProps {
@@ -275,6 +277,8 @@ export default function NodesTabContent(props: NodesTabContentProps) {
     moduleMapping,
     MODULE_LABELS,
     setModuleNode,
+    onExportNodePool,
+    onImportNodePool,
   } = props
 
   const [modelMappingModalOpen, setModelMappingModalOpen] = useState(false)
@@ -440,6 +444,12 @@ export default function NodesTabContent(props: NodesTabContentProps) {
           </Button>
           <Button onClick={() => setModelMappingModalOpen(true)}>
             模型映射
+          </Button>
+          <Button onClick={onExportNodePool}>
+            导出节点池
+          </Button>
+          <Button onClick={onImportNodePool}>
+            导入节点池
           </Button>
           <Button type="primary" onClick={openProviderEdit}>
             新增供应商 / 节点

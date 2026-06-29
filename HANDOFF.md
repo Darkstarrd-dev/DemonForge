@@ -2,7 +2,7 @@
 
 **最后更新**：2026-06-30
 **当前位置**：办公场所 A（本轮待推送）
-**本轮主题**：**节点池模块化方案核对 → 偏差修正 → 实施前清单落地（不写实现代码）**
+**本轮主题**：**节点池模块化批次1实施完成：5.1 类型独立 + 5.2 纯函数层独立 + 5.7 导入/导出独立**
 
 > 📦 **历史明细已归档** → `docs/handoff_history.md`
 > 本文件只保留「恢复工作所需的活内容」：进行中任务、模块清单、下一步、交接参考。
@@ -10,7 +10,48 @@
 
 ---
 
-## 🆕 节点池模块化方案核对 + 偏差修正 + 实施前清单（本轮，待推送）
+## 🆕 节点池模块化方案 · 批次1实施完成（2026-06-30，待推送）
+
+按 `docs/node_pool_modularization_plan.md` §11 建议批次1实施 5.1 + 5.2 + 5.7。
+
+### 改动
+
+- **5.1 类型独立**：
+  - 新增 `frontend/src/packages/node-pool/types.ts`，迁入 Provider / ProviderApiKey / ProviderNode / ResolvedProviderNode / ModuleKey / ModuleModelMapping 等类型 + `getModuleNodeType` + `NodePoolStateCore`
+  - `frontend/src/services/types.ts` 删除原类型块，改为 re-export
+- **5.2 纯函数层独立**：
+  - 新增 `frontend/src/packages/node-pool/{normalize,resolver,picker,circuitBreaker}.ts`
+  - 原文件 `utils/provider.ts`、`utils/providerResolver.ts`、`utils/nodePicker.ts`、`services/real/circuitBreaker.ts` 改为薄 re-export，调用方零改动
+- **5.7 导入/导出独立**：
+  - 新增 `frontend/src/packages/node-pool/serialize.ts`，实现 `serializeNodePool` / `hydrateNodePoolBundle`（容错、脱敏、裸对象兼容、defaultMapping 合并）
+  - `utils/backup.ts` 新增 `buildNodePoolBundle` / `parseNodePoolBundle` / `nodePoolBackupFilename`，`downloadBundle` 改为兼容 `BackupBundle | NodePoolBundle`
+  - 设置页·节点池 Tab 新增「导出节点池」「导入节点池」按钮（`NodesTabContent.tsx` + `settings/index.tsx`）
+  - 新增单测 `frontend/src/packages/node-pool/serialize.test.ts`（8 个用例）
+
+### 验证
+
+| 命令 | 结果 |
+|---|---|
+| `npx tsc -b`（frontend） | 通过；剩余 4 个预存错误与本次改动无关（Step3Clean.tsx ×3 / ModelMappingModal.tsx ×1） |
+| `bun run lint`（frontend） | 通过；剩余 2 个预存错误与本次改动无关（Step3Clean.tsx parseSSE/ProviderNode 未用） |
+| `bun run test:core`（frontend） | **63/63 passed**（新增 8 个 serialize 用例） |
+| `npx tsc --noEmit`（server） | 通过 |
+| `npx tsc --noEmit`（electron） | 通过 |
+
+### 回滚策略
+- 本次为文件迁移 + re-export，无数据迁移。
+- 如出现异常，可 `git revert` 或单独把 re-export 文件替换回原实现。
+
+### 下一步
+- 批次2：5.3 调度策略抽出（`runtime.ts` / `policy.ts` / `SchedulableNode`）
+- 批次3：5.4 状态 slice 解耦
+- 批次4：5.5a 后端独立路由（过渡）
+- 批次5：5.6 UI 组件拆分
+- 批次6（可选）：5.5b 迁 SQLite
+
+---
+
+## 🆕 节点池模块化方案核对 + 偏差修正 + 实施前清单（2026-06-30，已推送）
 
 对 `docs/node_pool_modularization_plan.md`（2026-06-29 落地）与项目当前实际状态逐项核对，修正 4 类偏差，追加实施前核对清单。**本轮不写实现代码，仅更新文档。**
 

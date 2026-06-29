@@ -35,6 +35,9 @@ import type {
 import { normalizeProvider, normalizeProviderNode } from './provider'
 import { DEFAULT_SPLIT_PATTERNS } from './split'
 import { seedModuleMapping } from '../mocks/seed'
+import { serializeNodePool, hydrateNodePoolBundle } from '../packages/node-pool/serialize'
+import type { NodePoolBundle } from '../packages/node-pool/serialize'
+import type { NodePoolStateCore } from '../packages/node-pool/types'
 
 /** 文生图 Demo 表单结构（与 appStore.ImageDemoForm 对齐）。 */
 export interface ImageDemoForm {
@@ -154,6 +157,32 @@ export function migrateBundle(bundle: BackupBundle): BackupBundle {
   // 未来版本迁移示例：
   // if (bundle.version < 2) { /* 字段重命名等 */ bundle = { ...bundle, version: 2 } }
   return bundle
+}
+
+/**
+ * 单独组装备份包：仅含节点池配置（providers / providerNodes / moduleMapping）。
+ * 用于"导出节点池"功能，不必整体 settings 备份。
+ * @param state 节点池状态（可传 AppState 子集，只要含 providers/providerNodes/moduleMapping）
+ * @param redactApiKeys true 则脱敏 apiKeys.key
+ */
+export function buildNodePoolBundle(
+  state: NodePoolStateCore,
+  redactApiKeys = false,
+): NodePoolBundle {
+  return serializeNodePool(state, { redact: redactApiKeys })
+}
+
+/**
+ * 单独解析节点池备份包（纯函数，容错）。
+ * 返回解析后的 NodePoolBundle； fatal 不为空表示致命错误（非 JSON 或根本不是对象）。
+ */
+export function parseNodePoolBundle(raw: string): {
+  bundle: NodePoolBundle | null
+  warnings: string[]
+  fatal: string | null
+} {
+  const result = hydrateNodePoolBundle(raw, { defaultMapping: seedModuleMapping })
+  return result
 }
 
 export interface ParseResult {
@@ -434,7 +463,7 @@ export function summarizeBusiness(b: BusinessPayload | undefined): Record<string
 // ===== 浏览器 API（仅 UI 层调用，单测不触及）=====
 
 /** 触发浏览器下载 bundle 文件。 */
-export function downloadBundle(bundle: BackupBundle, filename: string): void {
+export function downloadBundle(bundle: BackupBundle | NodePoolBundle, filename: string): void {
   const json = JSON.stringify(bundle, null, 2)
   const blob = new Blob([json], { type: 'application/json' })
   const url = URL.createObjectURL(blob)
@@ -464,4 +493,12 @@ export function backupFilename(kind: BundleKind, redacted: boolean): string {
   const ymd = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`
   const tag = redacted ? '-redacted' : ''
   return `novelhelper-${kind}${tag}-${ymd}.json`
+}
+
+/** 生成节点池独立备份文件名。 */
+export function nodePoolBackupFilename(redacted: boolean): string {
+  const d = new Date()
+  const ymd = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`
+  const tag = redacted ? '-redacted' : ''
+  return `novelhelper-node-pool${tag}-${ymd}.json`
 }
