@@ -2,11 +2,59 @@
 
 **最后更新**：2026-06-30
 **当前位置**：办公场所 A（本轮待推送）
-**本轮主题**：**M1 清理提示词/测试文本迁移 → 节点池布局与高度修复 → 滚动条隐藏 & 重复面板移除**
+**本轮主题**：**节点池模块化方案核对 → 偏差修正 → 实施前清单落地（不写实现代码）**
 
 > 📦 **历史明细已归档** → `docs/handoff_history.md`
 > 本文件只保留「恢复工作所需的活内容」：进行中任务、模块清单、下一步、交接参考。
 > 各轮工作的逐项实现细节、技术决策记录、详尽验证清单全部移入归档文件，按需查阅。
+
+---
+
+## 🆕 节点池模块化方案核对 + 偏差修正 + 实施前清单（本轮，待推送）
+
+对 `docs/node_pool_modularization_plan.md`（2026-06-29 落地）与项目当前实际状态逐项核对，修正 4 类偏差，追加实施前核对清单。**本轮不写实现代码，仅更新文档。**
+
+### 核对方式
+
+并行读取方案引用的 12 个关键文件（types.ts/providerSlice.ts/providerResolver.ts/NodesTabContent.tsx/cleanScheduler.ts/batch.ts/llm.ts/db.ts/settings.ts/persistence.ts/ImmersiveReader.tsx + routes 目录列举），交叉验证行号、字段、描述。
+
+### 吻合度结论
+
+- **核心判断仍成立**：17/40 评分、TOP 5 耦合点、两极分化（类型+纯函数层已独立 / 存储+路由+store+UI 深度耦合）均准确
+- **后端无专用路由+表**（db.ts ENTITIES 数组无 providers/providerNodes、settings.ts 仅 /api/settings）✓
+- **providerSlice Pick<AppState> 派生**（:7-90）✓
+- **providerResolver 纯函数**（:50-188）✓
+- **NodeRuntime 两处重复**（cleanScheduler:23-26 + batch:59-62）✓
+- **pickCandidate 仅 batch.ts:105-126**（cleanScheduler 用 per-node-per-slot worker）✓
+- **ImmersiveReader 手工映射 CleanNode**（:418-430）✓
+- **xAI 协议已实现**（xaiImage.ts 路由存在、types.ts:348 含 'xai'）✓
+
+### 已修正的 4 类偏差
+
+| # | 偏差 | 修正 |
+|---|---|---|
+| 1 | NodesTabContent 描述"30+ props + M1 提示词 + 测试文本" | 实际 26 props，M1 提示词/测试文本已于 2026-06-30 迁至 m1-import（Step3Clean）；§2.1/§2.2/§3/§4 行号 `:14-63`→`:42-70`；§5.6 子组件 5→3（删 M1PromptPanel/TestTextPanel），成本 16→12 人时 |
+| 2 | types.ts "550 行" + 范围 `:340-428` | 实际 504 行，范围 `:340-433`（ResolvedProviderNode 到 433） |
+| 3 | §5.3 SchedulableNode "字段实际一致，风险低" | 实际 CleanNode 含 batchChars（必填）、BatchGenNode 无此字段；SchedulableNode.batchChars 改为可选，CleanNode 保留为 `SchedulableNode & { batchChars: number }` 别名 |
+| 4 | 全文路径 `packages/node-pool/` | 统一为 `frontend/src/packages/node-pool/`（子目录方案），re-export 相对路径相应修正 |
+
+### 用户决策（本轮对齐）
+
+- **模块定位**：子目录 `frontend/src/packages/node-pool/`（不升级 monorepo）
+- **后端存储**：两步走——5.5a 加路由仍存 settings.json（本轮实施目标）/ 5.5b 迁 SQLite（独立排期）
+- **实施范围**：本轮仅出详细实施清单，不写实现代码
+- **偏差修正**：同意按上述 4 类修正
+
+### 产出
+
+- `docs/node_pool_modularization_plan.md`：§2.1/§2.2/§3/§4/§5.1-5.7/§9/§11/§12 全量修正 + 新增 §13（实施前核对清单）+ §14（3 个潜在陷阱）+ **§15（核心业务跑通路线图：单章清理 + 批量章节生成两个场景的完整调用流程 + NodeRuntime 时序示例）** + **§16（关键数据切片：ResolvedProviderNode / SchedulableNode / NodeRuntimeMap 并发态三个 JSON 片段，标注 batchChars 可选差异与字段剥离关系）**
+- §5.5 重构为三部分：5.5a（过渡方案）+ **前瞻约束（Repository 接口隔离契约）** + 5.5b（终态设计草案）。新增 `NodePoolRepository` 接口 + `SettingsJsonRepo`/`SqliteRepo` 双实现——路由层只依赖接口、接收 repo 注入，5.5b 时只换注入实例、路由层零改动。表结构 DDL 从关系型分列表改为文档式 `(id TEXT PRIMARY KEY, data TEXT)`（符合 db.ts 现有 11 张表统一模式）
+- §13 批次 4/6 核对清单同步更新（5.5a 强制接口隔离、5.5b 只新增 SqliteRepo 实现）
+- 总成本修正：44.5 → 40.5 人时（不含 5.5b）/ 56.5 → 52.5 人时（含 5.5b）
+
+### 下次实施起点
+
+直接读 `docs/node_pool_modularization_plan.md` §13，按批次 1（5.1+5.2+5.7，8.5 人时，零成本可一次提交）开始。每项有【已核实】/【待实施】标记 + 验证点。
 
 ---
 
