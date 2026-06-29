@@ -2,7 +2,7 @@
 
 **最后更新**：2026-06-30
 **当前位置**：办公场所 A（待推送）
-**本轮主题**：**节点池拖拽排序 + 行高/圆角修复**
+**本轮主题**：**节点池编辑面板 5 项修复**
 
 > 📦 **历史明细已归档** → `docs/handoff_history.md`
 > 本文件只保留「恢复工作所需的活内容」：进行中任务、模块清单、下一步、交接参考。
@@ -10,42 +10,39 @@
 
 ---
 
-## 🆕 节点池拖拽排序 + 行高/圆角修复（本轮）
-
-前序节点池重构（两层模型 + 编辑对话框修复）基础上，按用户需求新增 3 项 UI 改进。
+## 🆕 节点池编辑面板 5 项修复（本轮，待推送）
 
 ### 改动
 
-- **`frontend/package.json`**：新增 `@dnd-kit/core` `@dnd-kit/sortable` `@dnd-kit/utilities`
-- **`frontend/src/pages/settings/panels/NodesTabContent.tsx`**：
-  1. **删除上下移动箭头**：移除排序列（`UpOutlined`/`DownOutlined`）和 `moveNode`
-  2. **供应商拖拽排序**：`DndContext` + `SortableContext` 包裹供应商列表；标题栏左侧 `≡` 拖拽手柄
-  3. **节点拖拽排序**：每个供应商内嵌独立 `DndContext`；`DragListenersContext` 从 `SortableNodeRow` 向拖拽列透传 `listeners`，仅 `≡` 手柄可拖拽
-  4. **行高压缩**：Table `size="small"` + CSS `padding-block: 4px`，行高与供应商标题栏一致
-  5. **圆角修复**：`.provider-card-wrapper`（`border-radius: 8px` + `overflow: hidden`）统一包裹标题栏和表格
-- **`frontend/src/pages/settings/index.tsx`**：移除 `moveNode`，新增 `reorderProviders`/`reorderNodes`
-- **`frontend/src/index.css`**：供应商卡片圆角/行高 CSS 规则
+- **`settings/index.tsx`**：
+  1. **合并 label/extra 到 placeholder**：移除 Form.Item 的 `label="模型名"` 和 `extra`，placeholder 改为完整说明文字"模型名，支持多个模型，用逗号分隔（如 gpt-4, gpt-3.5-turbo）"
+  2. **多模态 Switch 归入次数限制行**：从模型名 Space.Compact 移出，与次数限制 Switch 并列 `<Row gutter={16}>` 各占 `Col span={8}`
+  3. **最大并发/请求间隔天然对齐**：模型名 TextArea 独占全宽后，3 Col Row 左右边界与之对齐，无需额外样式
+  4. **同名模型静默跳过**：`batchAddNodes` 过滤已有同名模型并提示跳过数；`saveNode` 新增同名检查阻止重复创建
+  5. **修复编辑时模型名不显示**：移除 `destroyOnHidden` + `afterOpenChange`，改为 `onCancel` 时 `nodeForm.resetFields()`，使 `setFieldsValue` 在 Form 常驻挂载时立即生效
 
 ### 验证
 
 | 命令 | 结果 |
 |---|---|
 | `bun run build`（frontend） | 成功 |
-| `bun run lint`（frontend） | 0 error |
+| `npx tsc --noEmit --project frontend/tsconfig.app.json` | 仅预存错误，settings 无新增 |
 
 ---
 
-## 🆕 节点池编辑对话框四项修复（2026-06-30）
+## 🆕 节点池编辑对话框四项修复（2026-06-30，已推送 `9f7b7ad`，本轮已重写部分实现）
 
 按用户需求修复节点编辑 Modal 的 4 个问题。
 
-### 改动
+### 改动（最终状态，本轮优化后）
 
 - **`settings/index.tsx`**：
-  1. **模型名空值修复**：Modal 添加 `afterOpenChange` 回调，在 Modal 打开动画结束后才调用 `nodeForm.setFieldsValue`，确保 `destroyOnHidden` 重建的表单正确接收值
+  1. **模型名空值修复**：移除 `destroyOnHidden` + `afterOpenChange`，`onCancel` 时 `nodeForm.resetFields()`，使表单常驻挂载时 `setFieldsValue` 立即生效（本轮优化）
   2. **供应商名入标题**：移除顶部 `<Form.Item label="供应商">` 禁用输入框，编辑标题改为 `${provider.name} 编辑节点`
-  3. **多模态开关移位**：从独立 Form.Item 移入模型名 `Space.Compact` 内，紧跟 TextArea 右侧（`noStyle`），`checkedChildren="多模态" unCheckedChildren="纯文本"`
+  3. **多模态 Switch 归入次数限制行**：从 Space.Compact 移出，与次数限制并列 `<Row gutter={16}>` 各占 `Col span={8}`（本轮优化）
   4. **获取模型按钮迁移**：从编辑 Modal 移除，移至供应商栏「新增节点」左侧；新增 `fetchModelsProvider` 状态解耦批量添加与编辑表单的依赖
+  5. **模型名输入简化**：移除 `label` 和 `extra`，完整说明合并到 placeholder（本轮补充）
+  6. **同名检查**：`batchAddNodes` 过滤 + `saveNode` 拒绝重复创建（本轮补充）
 - **`NodesTabContent.tsx`**：新增 `fetchModels`/`fetchingModels` prop；供应商行按钮组首位添加「获取模型」按钮
 
 ### 验证

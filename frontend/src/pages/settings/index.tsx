@@ -289,6 +289,13 @@ export default function SettingsPage() {
     if (!editingNode) return
     const values = await nodeForm.validateFields()
     const merged: ProviderNode = { ...editingNode.node, ...values }
+    const sameNameNode = storeProviderNodes.find(
+      (n) => n.providerId === merged.providerId && n.nodeType === merged.nodeType && n.model === merged.model && n.id !== merged.id,
+    )
+    if (sameNameNode) {
+      message.warning(`同名节点「${merged.model}」已存在`)
+      return
+    }
     if (merged.usageLimitEnabled) {
       const old = storeProviderNodes.find((n) => n.id === merged.id)
       const limitChanged = old?.usageLimit !== merged.usageLimit
@@ -529,7 +536,7 @@ export default function SettingsPage() {
     }
   }
 
-  /** 批量添加节点。优先取 fetchModelsProvider（从供应商栏触发），否则取 editingNode.provider。 */
+  /** 批量添加节点。优先取 fetchModelsProvider（从供应商栏触发），否则取 editingNode.provider。同名模型静默跳过。 */
   const batchAddNodes = () => {
     if (selectedModels.length === 0) {
       message.warning('请至少选择一个模型')
@@ -537,8 +544,20 @@ export default function SettingsPage() {
     }
     const provider = fetchModelsProvider ?? editingNode?.provider
     if (!provider) return
+    const existingModels = new Set(
+      storeProviderNodes
+        .filter((n) => n.providerId === provider.id && n.nodeType === nodeTypeFilter)
+        .map((n) => n.model),
+    )
+    const toAdd = selectedModels.filter((m) => !existingModels.has(m))
+    if (toAdd.length === 0) {
+      message.info('所有模型均已存在，无需添加')
+      setModelSelectOpen(false)
+      setFetchModelsProvider(null)
+      return
+    }
     const values = nodeForm.getFieldsValue()
-    const newNodes: ProviderNode[] = selectedModels.map((model) => ({
+    const newNodes: ProviderNode[] = toAdd.map((model) => ({
       id: genId('node'),
       providerId: provider.id,
       nodeType: nodeTypeFilter,
@@ -556,7 +575,8 @@ export default function SettingsPage() {
       isMultimodal: nodeTypeFilter === 'text' ? (values.isMultimodal ?? false) : undefined,
     }))
     newNodes.forEach((n) => addProviderNode(n))
-    message.success(`已添加 ${newNodes.length} 个节点`)
+    const skipped = selectedModels.length - toAdd.length
+    message.success(`已添加 ${toAdd.length} 个节点${skipped > 0 ? `（${skipped} 个同名跳过）` : ''}`)
     setModelSelectOpen(false)
     setFetchModelsProvider(null)
     setEditingNode(null)
@@ -1080,13 +1100,7 @@ export default function SettingsPage() {
         }
         open={!!editingNode}
         onOk={saveNode}
-        onCancel={() => setEditingNode(null)}
-        destroyOnHidden
-        afterOpenChange={(open) => {
-          if (open && editingNode) {
-            nodeForm.setFieldsValue(editingNode.node)
-          }
-        }}
+        onCancel={() => { setEditingNode(null); nodeForm.resetFields() }}
         width={Math.min(800, window.innerWidth - 48)}
       >
         <Form form={nodeForm} layout="vertical" style={{ marginTop: 8 }}>
@@ -1101,23 +1115,11 @@ export default function SettingsPage() {
               />
             </Form.Item>
           )}
-          <Form.Item name="model" label="模型名" rules={[{ required: true }]} extra="支持多个模型，用逗号分隔（如 gpt-4, gpt-3.5-turbo）">
-            <Space.Compact style={{ width: '100%' }}>
-              <Input.TextArea
-                placeholder="模型名（多个用逗号分隔）"
-                autoSize={{ minRows: 1, maxRows: 4 }}
-                style={{ flex: 1 }}
-              />
-              {nodeTypeFilter === 'text' && (
-                <Form.Item name="isMultimodal" valuePropName="checked" noStyle>
-                  <Switch
-                    checkedChildren="多模态"
-                    unCheckedChildren="纯文本"
-                    style={{ minWidth: 80 }}
-                  />
-                </Form.Item>
-              )}
-            </Space.Compact>
+          <Form.Item name="model" rules={[{ required: true }]}>
+            <Input.TextArea
+              placeholder="模型名，支持多个模型，用逗号分隔（如 gpt-4, gpt-3.5-turbo）"
+              autoSize={{ minRows: 1, maxRows: 4 }}
+            />
           </Form.Item>
           <Row gutter={16}>
             <Col span={8}>
@@ -1140,16 +1142,27 @@ export default function SettingsPage() {
               </Form.Item>
             </Col>
           </Row>
-          <Form.Item name="usageLimitEnabled" label="次数限制" valuePropName="checked">
-            <Switch
-              onChange={(checked) => {
-                if (checked) {
-                  const cur = nodeForm.getFieldValue('usageLimit')
-                  if (typeof cur !== 'number' || cur <= 0) nodeForm.setFieldsValue({ usageLimit: 100, usageLeft: 100 })
-                }
-              }}
-            />
-          </Form.Item>
+          <Row gutter={16}>
+            <Col span={8}>
+              <Form.Item name="usageLimitEnabled" label="次数限制" valuePropName="checked">
+                <Switch
+                  onChange={(checked) => {
+                    if (checked) {
+                      const cur = nodeForm.getFieldValue('usageLimit')
+                      if (typeof cur !== 'number' || cur <= 0) nodeForm.setFieldsValue({ usageLimit: 100, usageLeft: 100 })
+                    }
+                  }}
+                />
+              </Form.Item>
+            </Col>
+            {nodeTypeFilter === 'text' && (
+              <Col span={8}>
+                <Form.Item name="isMultimodal" label="多模态" valuePropName="checked">
+                  <Switch />
+                </Form.Item>
+              </Col>
+            )}
+          </Row>
           <Form.Item shouldUpdate={(prev, cur) => prev.usageLimitEnabled !== cur.usageLimitEnabled} noStyle>
             {({ getFieldValue }) =>
               getFieldValue('usageLimitEnabled') ? (
