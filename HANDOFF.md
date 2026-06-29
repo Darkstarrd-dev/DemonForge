@@ -2,7 +2,7 @@
 
 **最后更新**：2026-06-30
 **当前位置**：办公场所 A（本轮待推送）
-**本轮主题**：**M1 清理提示词/测试文本迁移 → 节点池布局与高度修复**
+**本轮主题**：**M1 清理提示词/测试文本迁移 → 节点池布局与高度修复 → 滚动条隐藏 & 重复面板移除**
 
 > 📦 **历史明细已归档** → `docs/handoff_history.md`
 > 本文件只保留「恢复工作所需的活内容」：进行中任务、模块清单、下一步、交接参考。
@@ -31,12 +31,15 @@
 - **`ImmersiveReader.tsx`**：清理节点列表加 `nodeType === 'text'` 过滤图片节点
 - **`NodesTabContent.tsx`**：移除 M1 清理提示词+测试文本两张 Card 及 11 个关联 props
 - **`settings/index.tsx`**：移除已迁移 props/state/导入
+- **`index.tsx`（m1-import）**：滚动容器加 `className="m1-scroll-area"`（配合 CSS 隐藏滚动条）
+- **`Step3Clean.tsx`**：移除「清理提示词（本次）」Collapse 面板（与节点池标头按钮 Modal 重复）；清理 `overridePrompt`/`setOverridePrompt` 状态、`PromptEditorButton` 导入、`promptOverrides` 本地变量
+- **`index.css`**：新增 `[data-slot="m1-import"] .ant-card-body` flex 修复 + `.m1-scroll-area` 滚动条隐藏规则（`scrollbar-width:none` + `-ms-overflow-style:none` + `::-webkit-scrollbar{display:none;width:0;height:0}` + `!important`）
 
 ### 验证
 
 | 命令 | 结果 |
 |---|---|
-| `npx tsc --noEmit`（frontend） | 0 error |
+| `bun run build`（frontend） | 仅预存错误（`parseSSE`/`ProviderNode` 未用、`getDefaultPrompt` 参数数、ModelMapping 类型、NodesTabContent `Input` 未用），本轮改动无新增 |
 
 ---
 

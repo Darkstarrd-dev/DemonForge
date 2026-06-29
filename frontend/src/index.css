@@ -167,6 +167,27 @@ body {
   height: 100%;
 }
 
+/* M1 导入页 Card body flex 修复：让 .ant-card-body 参与 flex 布局，
+   使内部 overflowY:auto 的容器能正确滚动 */
+[data-slot="m1-import"] .ant-card-body {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* M1 导入页隐藏滚动条（不限定作用域，确保覆盖 antd cssinjs） */
+.m1-scroll-area {
+  scrollbar-width: none !important;
+  -ms-overflow-style: none !important;
+}
+.m1-scroll-area::-webkit-scrollbar {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+}
+
 /* 修复浅色模式下菜单右侧阴影问题 */
 .ant-menu-light {
   box-shadow: none !important;

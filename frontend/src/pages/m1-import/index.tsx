@@ -110,7 +110,7 @@ export default function M1ImportPage() {
         items={stepsItems}
         style={{ marginBottom: 24, flexShrink: 0 }}
       />
-      <div style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
+      <div className="m1-scroll-area" style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
         {step === 0 && <Step1Import />}
         {step === 1 && <Step2Split />}
         {step === 2 && <Step3Clean />}

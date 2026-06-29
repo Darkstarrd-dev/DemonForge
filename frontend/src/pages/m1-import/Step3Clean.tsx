@@ -36,7 +36,6 @@ import {
 import { useAppStore, pushImportSessionNow, type CleanRunNodeSession } from '../../store/appStore'
 import { createM1ImportSlice } from '../../store/slices/m1ImportSlice'
 import { startCleanQueue, getDefaultPrompt, type CleanNode, type CleanQueueHandle, type CleanQueueDebugEvent } from '../../services/api'
-import { PromptEditorButton } from '../../components/PromptEditorButton'
 import { useNavigate } from 'react-router-dom'
 import { resolveProviderNodes } from '../../utils/providerResolver'
 import { parseSSE } from '../../services/sse'
@@ -82,7 +81,6 @@ export default function Step3Clean() {
   const m1SystemPrompt = useAppStore((s) => s.m1SystemPrompt)
   const m1AutoRetry = useAppStore((s) => s.m1AutoRetry)
   const m1TestText = useAppStore((s) => s.m1TestText)
-  const promptOverrides = useAppStore((s) => s.promptOverrides)
   const storeProviderNodes = useAppStore((s) => s.providerNodes)
   const updateProviderNodeAction = useAppStore((s) => s.updateProviderNode)
   const cleanRun = useAppStore((s) => s.cleanRun)
@@ -136,7 +134,6 @@ export default function Step3Clean() {
   const [selectedTask, setSelectedTask] = useState<string | null>(null)
   const [debugEntries, setDebugEntries] = useState<DebugEntry[]>([])
   const [logFilter, setLogFilter] = useState<'all' | 'request' | 'response' | 'error'>('all')
-  const [overridePrompt, setOverridePrompt] = useState('')
   const [promptLoaded, setPromptLoaded] = useState(false)
   const errorCountRef = useRef(0)
 
@@ -223,7 +220,6 @@ export default function Step3Clean() {
     if (promptLoaded) return
     getDefaultPrompt().then((p) => {
       if (p) {
-        setOverridePrompt(p)
         setPromptLoaded(true)
       }
     })
@@ -518,7 +514,7 @@ export default function Step3Clean() {
           })
         },
       },
-      { systemPrompt: overridePrompt.trim() || useAppStore.getState().promptOverrides['m1-clean'] || m1SystemPrompt || undefined, isNodeAvailable: (id) => useAppStore.getState().consumeProviderUsage(id), autoRetry: m1AutoRetry },
+      { systemPrompt: useAppStore.getState().promptOverrides['m1-clean'] || m1SystemPrompt || undefined, isNodeAvailable: (id) => useAppStore.getState().consumeProviderUsage(id), autoRetry: m1AutoRetry },
     )
     handleRef.current = handle
     // 同步 handle 到 store（跨页面访问）
@@ -987,42 +983,6 @@ export default function Step3Clean() {
           </Row>
         </Col>
       </Row>
-
-      {/* 清理提示词（本次） */}
-      <Collapse
-        items={[
-          {
-            key: 'prompt',
-            label: `清理提示词（本次）${overridePrompt ? ` · ${overridePrompt.length} 字` : ''}`,
-            children: (
-              <>
-                <Input.TextArea
-                  value={overridePrompt}
-                  onChange={(e) => setOverridePrompt(e.target.value)}
-                  autoSize={{ minRows: 4, maxRows: 14 }}
-                  disabled={running}
-                  placeholder={
-                    m1SystemPrompt
-                      ? `留空则使用设置页默认提示词（${m1SystemPrompt.length} 字）`
-                      : '留空则使用后端内置默认提示词；到设置页可查看/修改默认'
-                  }
-                  style={{ fontFamily: 'monospace', fontSize: 12 }}
-                />
-                <Space style={{ marginTop: 8 }}>
-                  <Button size="small" disabled={running || !overridePrompt} onClick={() => setOverridePrompt('')}>
-                    清空本次覆盖
-                  </Button>
-                  <PromptEditorButton promptKey="m1-clean" label="编辑持久化提示词" />
-                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                    生效优先级：本次覆盖 &gt; 持久化覆盖 &gt; 设置页默认 &gt; 后端内置
-                  </Typography.Text>
-                </Space>
-              </>
-            ),
-          },
-        ]}
-        style={{ background: token.colorBgContainer }}
-      />
 
       {/* 调试日志（成功响应不再含流式正文，仅记录诊断信息） */}
       <Collapse
