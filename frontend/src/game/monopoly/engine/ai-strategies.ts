@@ -135,11 +135,22 @@ function useCard(state: GameState, playerId: string, request: DecisionRequest, c
 function useItem(state: GameState, playerId: string, request: DecisionRequest, cfg: AIConfig): string {
   const player = getPlayer(state, playerId)
   if (!player) return 'skip'
-  const weaponIds = ['item-01', 'item-02', 'item-03', 'item-04']
-  const trapIds = ['item-05', 'item-06', 'item-07']
-  const opts = request.options
-  const weapons = opts.filter((o) => weaponIds.includes(o.id))
-  const traps = opts.filter((o) => trapIds.includes(o.id))
+  const deck = state.itemDeck
+  const isWeapon = (optId: string) => {
+    const inst = player.items?.find(i => i.instanceId === optId)
+    if (!inst || !deck) return false
+    const def = deck.definitions.find(d => d.id === inst.definitionId)
+    return def?.category === 'WEAPON'
+  }
+  const isTrap = (optId: string) => {
+    const inst = player.items?.find(i => i.instanceId === optId)
+    if (!inst || !deck) return false
+    const def = deck.definitions.find(d => d.id === inst.definitionId)
+    return def?.category === 'TRAP'
+  }
+  const opts = request.options.filter(o => o.id !== 'skip')
+  const weapons = opts.filter(o => isWeapon(o.id))
+  const traps = opts.filter(o => isTrap(o.id))
   if (cfg.difficulty === 'easy') {
     if (traps.length > 0 && Math.random() < 0.3) return traps[0].id
     return 'skip'

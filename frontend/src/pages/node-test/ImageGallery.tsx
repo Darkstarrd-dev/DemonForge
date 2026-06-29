@@ -1,10 +1,10 @@
 // 节点测试 · 图片模式画廊（A-8 从 index.tsx 抽出，render-only）。
-// 渲染：用户提示词气泡 + 生成图（ResultImage）/ 错误气泡 + busy 时的 SVG loading 动画。
-// onAsInput（把生成图加入输入区）与 onRetry（错误气泡重试）由父级注入；message 提示留在回调内。
+// 渲染：用户提示词气泡（ChatBubble 复用，含编辑/重试/复制/删除）+ 生成图（ResultImage，含重试/删除）+ 错误气泡 + busy 动画。
 import { Button, Typography, theme } from 'antd'
 import { RedoOutlined } from '@ant-design/icons'
 import type { RefObject } from 'react'
 import type { ChatMessage } from './types'
+import ChatBubble from './ChatBubble'
 import ResultImage from './ResultImage'
 
 export default function ImageGallery(props: {
@@ -13,11 +13,23 @@ export default function ImageGallery(props: {
   statusText: string
   elapsed: number
   onAsInput: (dataUrl: string) => void
-  onRetry: () => void
   chatEndRef: RefObject<HTMLDivElement | null>
+  editingMsgId: string | null
+  editingText: string
+  setEditingText: (v: string) => void
+  onRetryMessage: (msgId: string) => void
+  onEditMessage: (msgId: string) => void
+  onDeleteMessage: (msgId: string) => void
+  onCopyText: (text: string) => void
+  onCommitEdit: () => void
+  onCancelEdit: () => void
 }) {
   const { token } = theme.useToken()
-  const { chatMessages, busy, statusText, elapsed, onAsInput, onRetry, chatEndRef } = props
+  const {
+    chatMessages, busy, statusText, elapsed, onAsInput, chatEndRef,
+    editingMsgId, editingText, setEditingText,
+    onRetryMessage, onEditMessage, onDeleteMessage, onCopyText, onCommitEdit, onCancelEdit,
+  } = props
 
   if (chatMessages.length === 0 && !busy) {
     return (
@@ -31,27 +43,26 @@ export default function ImageGallery(props: {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24, maxWidth: 800, margin: '0 auto', paddingBottom: 24 }}>
       {chatMessages.map((msg) => {
         if (msg.role === 'user') {
+          const isEditing = editingMsgId === msg.id
           return (
-            <div key={msg.id} style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
-              <div style={{ maxWidth: '70%', background: token.colorPrimaryBg, borderRadius: 12, padding: '8px 14px' }}>
-                <Typography.Text>{msg.content}</Typography.Text>
-              </div>
-              {msg.images && msg.images.length > 0 && (
-                <div style={{ display: 'flex', gap: 8, marginTop: 8, justifyContent: 'flex-end' }}>
-                  {msg.images.map((img, i) => (
-                    <img
-                      key={i}
-                      src={img}
-                      alt=""
-                      style={{ height: 80, maxWidth: 200, objectFit: 'contain', borderRadius: 6, background: token.colorBgElevated }}
-                    />
-                  ))}
-                </div>
-              )}
-            </div>
+            <ChatBubble
+              key={msg.id}
+              msg={msg}
+              isEditing={isEditing}
+              isStreamingLast={false}
+              busy={busy}
+              editingText={editingText}
+              setEditingText={setEditingText}
+              onRetry={() => onRetryMessage(msg.id)}
+              onCopy={() => onCopyText(msg.content)}
+              onEdit={() => onEditMessage(msg.id)}
+              onDelete={() => onDeleteMessage(msg.id)}
+              onCommitEdit={onCommitEdit}
+              onCancelEdit={onCancelEdit}
+              copyText={onCopyText}
+            />
           )
         } else {
-          // 图片内容两种形态：data URL（旧）或归档文件 URL /api/image/file/<name>（现行）。
           if (msg.content.startsWith('data:image') || msg.content.startsWith('/api/image/file/')) {
             return (
               <ResultImage
@@ -60,6 +71,9 @@ export default function ImageGallery(props: {
                 revisedPrompt={msg.revisedPrompt}
                 genMs={msg.genMs}
                 onAsInput={onAsInput}
+                onRetry={() => onRetryMessage(msg.id)}
+                onDelete={() => onDeleteMessage(msg.id)}
+                busy={busy}
               />
             )
           } else {
@@ -67,7 +81,7 @@ export default function ImageGallery(props: {
               <div key={msg.id} style={{ background: token.colorErrorBg, border: `1px solid ${token.colorErrorBorder}`, borderRadius: 8, padding: 12 }}>
                 <Typography.Text type="danger">{msg.content.replace(/^失败：/, '')}</Typography.Text>
                 <div style={{ marginTop: 8 }}>
-                  <Button size="small" danger icon={<RedoOutlined />} onClick={onRetry} disabled={busy}>重试</Button>
+                  <Button size="small" danger icon={<RedoOutlined />} onClick={() => onRetryMessage(msg.id)} disabled={busy}>重试</Button>
                 </div>
               </div>
             )

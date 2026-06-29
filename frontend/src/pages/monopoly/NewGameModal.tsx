@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Modal, Segmented, Select, Space, Typography, Radio } from 'antd'
+import { Modal, Segmented, Select, Space, Typography, Radio, Avatar } from 'antd'
 import type { ControllerKind, NewGamePlayerSpec } from '../../game/monopoly/types'
 import { mapEntityCardToCharacter } from '../../game/monopoly/engine/character-mapper'
 import { getConfigPresets, getMapList } from '../../game/monopoly/engine/loader'
@@ -12,6 +12,14 @@ interface Props {
   open: boolean
   onClose: () => void
   onStart: (specs: NewGamePlayerSpec[], mapId: string, configPresetId: string) => void
+}
+
+function getAvatarUrl(characterCardId: string | undefined, cards: ReturnType<typeof useAppStore.getState>['cards']): string | undefined {
+  if (!characterCardId) return
+  const card = cards.find((c) => c.id === characterCardId)
+  if (!card) return
+  const img = card.coverImageId ? card.images?.find((i) => i.id === card.coverImageId) : card.images?.[0]
+  return img?.url
 }
 
 export default function NewGameModal({ open, onClose, onStart }: Props) {
@@ -93,9 +101,14 @@ export default function NewGameModal({ open, onClose, onStart }: Props) {
         </div>
 
         {slots.slice(0, count).map((s, i) => {
+          const avatarUrl = getAvatarUrl(s.charId, allCards)
+          const charName = characters.find((c) => c.id === s.charId)?.name ?? '?'
           return (
             <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
               <Typography.Text style={{ width: 52, flexShrink: 0 }}>玩家 {i + 1}</Typography.Text>
+              <Avatar size={28} src={avatarUrl} style={{ flexShrink: 0, backgroundColor: '#1677ff' }}>
+                {charName[0]}
+              </Avatar>
               <Select
                 value={s.charId}
                 onChange={(v) => setSlot(i, { charId: v })}

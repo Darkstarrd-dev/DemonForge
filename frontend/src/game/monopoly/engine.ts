@@ -14,6 +14,7 @@ import { handleItemAction, createItemDeck, resolveItemChoice, refreshItemShop, t
 import { handleEventAction } from './engine/event'
 import { handleBankAction, handleStockAction, createInitialEconomy, updatePriceIndex, handleDividend } from './engine/economy'
 import { applyAllGodDailyEffects, tickGodDurations } from './engine/god'
+import { applyChairmanPrivileges } from './engine/company'
 import { getMapName, loadConfig, createBoardState, loadMapData, applyVariantToBoard } from './engine/loader'
 
 export function createInitialState(config: NewGameConfig): GameState {
@@ -121,6 +122,7 @@ export function reducer(state: GameState, action: Action): GameState {
       let s = handleEndTurn(state)
       s = updatePriceIndex(s)
       s = handleDividend(s)
+      s = applyChairmanPrivileges(s)
       s = tickGodDurations(s)
       s = tickTimedBombs(s)
       s = { ...s, itemDeck: refreshItemShop(s.itemDeck, s.day) }

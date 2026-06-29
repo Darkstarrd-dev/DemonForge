@@ -44,7 +44,30 @@ export async function parseImageMeta(dataUrl: string): Promise<{
 export async function copyImageToClipboard(dataUrl: string): Promise<boolean> {
   try {
     const blob = await (await fetch(dataUrl)).blob()
-    await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })])
+    if (blob.type === 'image/png') {
+      await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })])
+      return true
+    }
+    const img = new window.Image()
+    const objectUrl = URL.createObjectURL(blob)
+    img.src = objectUrl
+    await new Promise<void>((resolve, reject) => {
+      img.onload = () => resolve()
+      img.onerror = () => reject(new Error('Failed to load image'))
+    })
+    URL.revokeObjectURL(objectUrl)
+    const canvas = document.createElement('canvas')
+    canvas.width = img.naturalWidth
+    canvas.height = img.naturalHeight
+    const ctx = canvas.getContext('2d')!
+    ctx.drawImage(img, 0, 0)
+    const pngBlob = await new Promise<Blob>((resolve, reject) => {
+      canvas.toBlob(
+        (b) => b ? resolve(b) : reject(new Error('Canvas toBlob failed')),
+        'image/png',
+      )
+    })
+    await navigator.clipboard.write([new ClipboardItem({ 'image/png': pngBlob })])
     return true
   } catch {
     return false

@@ -21,20 +21,36 @@ export default function ParamsPanel(props: {
 }) {
   const { token } = theme.useToken()
   const { isImageMode, isModelScope, isGpt, isXai, gptSizeIsCustom, supportsEdit, isMultimodal, busy, nodeTestForm, setForm, clearConversation } = props
+  const modelScopeSizeIsCustom = isModelScope
+    && nodeTestForm.resolution !== ''
+    && !RESOLUTIONS.some((s) => s.value === nodeTestForm.resolution)
+
   return (
-    isImageMode ? (
-            <>
-              {isModelScope && (
-                <div style={{ marginBottom: 16 }}>
-                  <Typography.Text style={{ color: token.colorTextSecondary, fontSize: 12, display: 'block', marginBottom: 4 }}>分辨率</Typography.Text>
-                  <Select
-                    style={{ width: '100%' }}
-                    value={nodeTestForm.resolution}
-                    onChange={(v) => setForm({ resolution: v })}
-                    options={RESOLUTIONS}
-                  />
-                </div>
+    <>
+      {isImageMode ? (
+        <>
+          {isModelScope && (
+            <div style={{ marginBottom: 16 }}>
+              <Typography.Text style={{ color: token.colorTextSecondary, fontSize: 12, display: 'block', marginBottom: 4 }}>分辨率</Typography.Text>
+              <Select
+                style={{ width: '100%' }}
+                value={modelScopeSizeIsCustom ? '__custom__' : nodeTestForm.resolution}
+                onChange={(v) => setForm({ resolution: v === '__custom__' ? '' : v })}
+                disabled={busy}
+                options={[...RESOLUTIONS, { value: '__custom__', label: '自定义...' }]}
+              />
+              {(modelScopeSizeIsCustom || nodeTestForm.resolution === '') && (
+                <input
+                  type="text"
+                  value={nodeTestForm.resolution}
+                  onChange={(e) => setForm({ resolution: e.target.value })}
+                  placeholder="如 512x512"
+                  disabled={busy}
+                  style={{ width: '100%', marginTop: 8, background: token.colorBgContainer, border: `1px solid ${token.colorBorder}`, borderRadius: 6, padding: 8, color: token.colorText, fontSize: 13 }}
+                />
               )}
+            </div>
+          )}
 
               {isGpt && (
                 <>
@@ -367,6 +383,27 @@ export default function ParamsPanel(props: {
                 清空对话历史
               </Button>
             </>
-          )
+          )}
+      <div style={{ marginTop: 16 }}>
+        <Typography.Text style={{ color: token.colorTextSecondary, fontSize: 12, display: 'block', marginBottom: 4 }}>Note</Typography.Text>
+        <textarea
+          value={nodeTestForm.note ?? ''}
+          onChange={(e) => setForm({ note: e.target.value })}
+          placeholder="记录灵感、参数说明、使用备注…"
+          rows={4}
+          style={{
+            width: '100%',
+            background: token.colorBgContainer,
+            border: `1px solid ${token.colorBorder}`,
+            borderRadius: 6,
+            padding: 8,
+            color: token.colorText,
+            fontSize: 13,
+            resize: 'vertical',
+            fontFamily: 'inherit',
+          }}
+        />
+      </div>
+    </>
   )
 }

@@ -38,6 +38,7 @@ export function useNodeTestForm(): {
     topP: nodeParams?.topP ?? 0.9,
     topK: nodeParams?.topK,
     maxTokens: nodeParams?.maxTokens ?? 2000,
+    note: nodeParams?.note ?? '',
   }
 
   const setForm = (patch: Partial<NodeTestForm>) => {

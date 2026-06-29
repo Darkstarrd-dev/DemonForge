@@ -66,6 +66,8 @@ export interface NodeTestForm {
   topP?: number
   topK?: number
   maxTokens?: number
+  /** 用户笔记（按节点持久化，记录灵感） */
+  note?: string
 }
 
 /** System Prompt 预设（节点测试，全局共享，持久化到 settings.json） */

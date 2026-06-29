@@ -165,7 +165,7 @@ export default function AppLayout() {
               style={{ flex: 1, cursor: 'pointer' }}
               onClick={onLogoClick}
             >
-              DemonForge
+              {isNodeTest && nodeTestSidebarMode === 'sessions' ? '节点测试' : 'DemonForge'}
             </span>
             <Segmented
               value={theme}

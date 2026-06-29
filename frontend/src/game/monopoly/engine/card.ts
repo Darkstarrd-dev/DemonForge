@@ -1,5 +1,5 @@
 import type { GameState, Action, CardDefinition, CardDeckState, CardInstance, Player, DecisionRequest, PropertyState } from '../types'
-import { CardEffectType } from '../types'
+import { CardEffectType, TurnPhaseV2 } from '../types'
 import cardsData from '../data/cards/richman4-cards.json'
 import { summonNearestGod, findGodDef } from './god'
 
@@ -431,6 +431,7 @@ export function handleUseCard(state: GameState, action: Action & { type: 'USE_CA
           })
         return {
           ...state, players, log,
+          turnContext: { ...state.turnContext, phase: TurnPhaseV2.CARD_USE_WINDOW },
           awaitingDecision: {
             playerId: targetId,
             kind: 'cardReaction',
@@ -462,18 +463,18 @@ export function resolveCardReaction(state: GameState, optionId: string): GameSta
   if (!player) return state
 
   const pending = d.context.pendingEffect as PendingEffect | undefined
-  if (!pending) return { ...state, players, log, awaitingDecision: undefined }
+  if (!pending) return { ...state, players, log, awaitingDecision: undefined, turnContext: { ...state.turnContext, phase: TurnPhaseV2.TURN_END } }
 
   if (optionId === '__ignore__') {
     log.push({ seq: log.length, kind: 'cardReaction', text: `${player.name} 选择承受攻击效果` })
     const afterEffect = applyCardEffect({ ...state, players, log }, pending)
-    return { ...afterEffect, awaitingDecision: undefined }
+    return { ...afterEffect, awaitingDecision: undefined, turnContext: { ...state.turnContext, phase: TurnPhaseV2.TURN_END } }
   }
 
   // Counter: use the selected card
   const hand = player.hand ?? []
   const idx = hand.findIndex(c => c.instanceId === optionId)
-  if (idx === -1) return { ...state, players, log, awaitingDecision: undefined }
+  if (idx === -1) return { ...state, players, log, awaitingDecision: undefined, turnContext: { ...state.turnContext, phase: TurnPhaseV2.TURN_END } }
   const inst = hand[idx]
   const deck = state.cardDeck
   if (!deck) return state
@@ -486,7 +487,7 @@ export function resolveCardReaction(state: GameState, optionId: string): GameSta
 
   if (def.effectType === CardEffectType.IMMUNITY) {
     log.push({ seq: log.length, kind: 'cardReaction', text: `攻击被 ${player.name} 免疫！` })
-    return { ...state, players, log, awaitingDecision: undefined }
+    return { ...state, players, log, awaitingDecision: undefined, turnContext: { ...state.turnContext, phase: TurnPhaseV2.TURN_END } }
   }
   if (def.effectType === CardEffectType.FRAME_TRANSFER) {
     const sourcePlayerId = d.context.sourcePlayerId as string
@@ -497,9 +498,9 @@ export function resolveCardReaction(state: GameState, optionId: string): GameSta
       const transferred = { ...pending, targetId: newTarget.id }
       const afterEffect = applyCardEffect({ ...state, players, log }, transferred)
       log.push({ seq: log.length, kind: 'cardReaction', text: `攻击被转嫁给 ${newTarget.name}！` })
-      return { ...afterEffect, awaitingDecision: undefined }
+      return { ...afterEffect, awaitingDecision: undefined, turnContext: { ...state.turnContext, phase: TurnPhaseV2.TURN_END } }
     }
-    return { ...state, players, log, awaitingDecision: undefined }
+    return { ...state, players, log, awaitingDecision: undefined, turnContext: { ...state.turnContext, phase: TurnPhaseV2.TURN_END } }
   }
   if (def.effectType === CardEffectType.REVENGE) {
     const sourcePlayerId = d.context.sourcePlayerId as string
@@ -508,10 +509,10 @@ export function resolveCardReaction(state: GameState, optionId: string): GameSta
       source.jailTurns = 3
       log.push({ seq: log.length, kind: 'cardReaction', text: `${source.name} 被反击送入监狱！` })
     }
-    return { ...state, players, log, awaitingDecision: undefined }
+    return { ...state, players, log, awaitingDecision: undefined, turnContext: { ...state.turnContext, phase: TurnPhaseV2.TURN_END } }
   }
 
-  return { ...state, players, log, awaitingDecision: undefined }
+  return { ...state, players, log, awaitingDecision: undefined, turnContext: { ...state.turnContext, phase: TurnPhaseV2.TURN_END } }
 }
 
 // ─── Card Choice Resolution (for effects needing player choice) ───

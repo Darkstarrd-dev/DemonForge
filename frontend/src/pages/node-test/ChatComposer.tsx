@@ -248,7 +248,7 @@ export default function ChatComposer(props: {
                 whiteSpace: 'nowrap',
               }}
             >
-              {selectedNode.name}
+              {selectedNode.name} · {selectedNode.model}
             </Typography.Text>
           )}
         </div>

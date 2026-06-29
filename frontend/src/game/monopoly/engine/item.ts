@@ -386,24 +386,26 @@ export function resolveTraps(state: GameState, tileIndex: number): GameState {
   const player = players[playerIdx]
   const newTraps = { ...traps }
 
-  if (trap.itemDefId === 'item-04') {
+  const deck = state.itemDeck
+  const def = deck ? findItemDef(trap.itemDefId, deck) : undefined
+  const effectType = def?.effectType
+  const params = def?.effectParams ?? {}
+
+  if (effectType === ItemEffectType.SET_TRAP) {
+    const trapType = (params.trapType as string) ?? 'mine'
+    const dmg = (params.damage as number) ?? 800
+    const hospTurns = (params.hospitalTurns as number) ?? 2
     const owner = players.find(p => p.id === trap.ownerId)
-    const dmg = 800
     player.cash = Math.max(0, player.cash - dmg)
     if (owner) owner.cash += dmg
-    player.hospitalTurns = 2
+    player.hospitalTurns = hospTurns
     player.status = 'IN_HOSPITAL'
-    pushLog('trap', `${player.name} 踩中地雷！扣 ¥${dmg} 住院 2 回合`)
+    pushLog('trap', `${player.name} 踩中${def?.name ?? '陷阱'}！扣 ¥${dmg} 住院 ${hospTurns} 回合`)
     delete newTraps[tileId]
-  } else if (trap.itemDefId === 'item-07') {
-    pushLog('trap', `${player.name} 被路障挡住`)
+  } else if (effectType === ItemEffectType.ROADBLOCK) {
+    pushLog('trap', `${player.name} 被${def?.name ?? '路障'}挡住`)
     delete newTraps[tileId]
-  } else if (trap.itemDefId === 'item-05') {
-    const dmg = 2000
-    player.cash = Math.max(0, player.cash - dmg)
-    player.hospitalTurns = 3
-    player.status = 'IN_HOSPITAL'
-    pushLog('trap', `${player.name} 踩到定时炸弹！扣 ¥${dmg} 住院 3 回合`)
+  } else {
     delete newTraps[tileId]
   }
 
@@ -424,7 +426,12 @@ export function tickTimedBombs(state: GameState): GameState {
   const newTraps: Record<string, TrapState> = {}
 
   for (const [tileId, trap] of Object.entries(traps)) {
-    if (trap.itemDefId === 'item-05') {
+    const deck = state.itemDeck
+    const def = deck ? findItemDef(trap.itemDefId, deck) : undefined
+    const params = def?.effectParams ?? {}
+    const trapType = (params.trapType as string) ?? ''
+    const isBomb = trapType === 'bomb' || (trap.countdown ?? -1) > 0
+    if (isBomb) {
       const tile = state.board.tiles.find(t => t.id === tileId)
       const idx = tile?.index ?? 0
       const rem = trap.countdown - 1

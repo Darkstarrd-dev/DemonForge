@@ -91,13 +91,23 @@ export default function NodeTestPage() {
 
   const showImageInput = supportsEdit || isMultimodal || isGpt || isXai
 
-  // 从 AppLayout 常驻侧栏切换/新建 session 时：同步测试模式并回到对话视图
+  // 从 AppLayout 常驻侧栏切换/新建 session 时：同步测试模式、节点选择并回到对话视图
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- 侧栏切换会话时同步回到对话视图
     setMainView('chat')
     if (!activeChatSessionId) return
     const s = useAppStore.getState().chatSessions.find((c) => c.id === activeChatSessionId)
-    if (s) setTestMode(s.testType === 'image' ? 'image' : 'text')
+    if (s) {
+      setTestMode(s.testType === 'image' ? 'image' : 'text')
+      if (s.nodeId) {
+        const node = useAppStore.getState().providers.find((p) => p.id === s.nodeId)
+        if (node) {
+          prevNodeTypeRef.current = node.nodeType
+          const gForm = useAppStore.getState().nodeTestGlobalForm
+          setState({ nodeTestGlobalForm: { ...gForm, nodeId: s.nodeId } })
+        }
+      }
+    }
   }, [activeChatSessionId])
 
   // 当切换节点时，检测节点类型变化并拦截
@@ -289,8 +299,16 @@ export default function NodeTestPage() {
                     statusText={inf.statusText}
                     elapsed={inf.elapsed}
                     onAsInput={onAsInput}
-                    onRetry={inf.handleGenerate}
                     chatEndRef={inf.chatEndRef}
+                    editingMsgId={inf.editingMsgId}
+                    editingText={inf.editingText}
+                    setEditingText={inf.setEditingText}
+                    onRetryMessage={inf.retryMessage}
+                    onEditMessage={inf.editMessage}
+                    onDeleteMessage={inf.deleteMessage}
+                    onCopyText={inf.copyText}
+                    onCommitEdit={inf.commitEdit}
+                    onCancelEdit={inf.cancelEdit}
                   />
                 </div>
               ) : compareMode ? (

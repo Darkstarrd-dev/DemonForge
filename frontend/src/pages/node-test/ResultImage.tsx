@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
-import { Image, Button, Space, Dropdown, Typography } from 'antd'
-import { CopyOutlined, DownloadOutlined, SnippetsOutlined } from '@ant-design/icons'
+import { Image, Button, Space, Dropdown, Typography, Tooltip, Popconfirm } from 'antd'
+import { CopyOutlined, DownloadOutlined, SnippetsOutlined, RedoOutlined, DeleteOutlined } from '@ant-design/icons'
 import { App } from 'antd'
 import { parseImageMeta, copyImageToClipboard, saveImageAs } from '../../utils/imageResult'
 
@@ -9,9 +9,12 @@ interface Props {
   revisedPrompt?: string
   genMs?: number
   onAsInput: (dataUrl: string) => void
+  onRetry?: () => void
+  onDelete?: () => void
+  busy?: boolean
 }
 
-export default function ResultImage({ dataUrl, revisedPrompt, genMs, onAsInput }: Props) {
+export default function ResultImage({ dataUrl, revisedPrompt, genMs, onAsInput, onRetry, onDelete, busy }: Props) {
   const { message } = App.useApp()
   const [meta, setMeta] = useState<{ format: string; width: number; height: number; hasAlpha?: boolean } | null>(null)
 
@@ -35,7 +38,7 @@ export default function ResultImage({ dataUrl, revisedPrompt, genMs, onAsInput }
     <div>
       <Image
         src={dataUrl}
-        style={{ maxWidth: '100%', borderRadius: 12, display: 'block', boxShadow: '0 10px 40px rgba(0,0,0,0.5)' }}
+        style={{ maxWidth: '100%', maxHeight: '50vh', borderRadius: 12, display: 'block', boxShadow: '0 10px 40px rgba(0,0,0,0.5)', objectFit: 'contain' }}
         preview={{}}
       />
       {meta && (
@@ -70,6 +73,18 @@ export default function ResultImage({ dataUrl, revisedPrompt, genMs, onAsInput }
             保存
           </Button>
         </Dropdown>
+        {onRetry && (
+          <Tooltip title="重试">
+            <Button size="small" icon={<RedoOutlined />} onClick={onRetry} disabled={busy} />
+          </Tooltip>
+        )}
+        {onDelete && (
+          <Popconfirm title="删除该图片？" onConfirm={onDelete} okText="删除" cancelText="取消" okButtonProps={{ danger: true }}>
+            <Tooltip title="删除">
+              <Button size="small" icon={<DeleteOutlined />} disabled={busy} />
+            </Tooltip>
+          </Popconfirm>
+        )}
       </Space>
     </div>
   )
