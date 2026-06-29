@@ -60,27 +60,34 @@ export const DICE_FACE_DEFS: Record<number, DiceFaceDef[]> = {
     { normal: v(-1, -1, -1), faceValue: 8 },
   ],
 
-  // d10: 五角双锥 10 面，对面之和=11
-  // 上 5 面（法向量 y>0）+ 下 5 面（法向量 y<0），倾斜角 26.57°
+  // d10: 五角双锥（pentagonal bipyramid）10 面，对面之和=11
+  // 5 上 + 5 下三角面，法向量倾斜角由双锥比例决定
+  // 双锥上下面法向量在同一组 φ 角（36°+72°*i），仅 y 分量正负不同
   10: (() => {
-    const cosA = Math.cos(Math.atan(1 / 2))
-    const sinA = Math.sin(Math.atan(1 / 2))
+    const R = 0.7
+    const H = 1
+    const sin72 = Math.sin(72 * Math.PI / 180)
+    const cos72 = Math.cos(72 * Math.PI / 180)
+    const nx0 = H * R * sin72
+    const ny0 = R * R * sin72
+    const nz0 = R * H * (1 - cos72)
+    const mag = Math.sqrt(nx0 * nx0 + ny0 * ny0 + nz0 * nz0)
+    const unx = nx0 / mag
+    const uny = ny0 / mag
+    const unz = nz0 / mag
     const faces: DiceFaceDef[] = []
-    // 上 5 面，φ=0°,72°,144°,216°,288°
     const upperValues = [1, 3, 5, 7, 9]
+    const lowerValues = [10, 8, 6, 4, 2]
     for (let i = 0; i < 5; i++) {
-      const phi = (i * 72 * Math.PI) / 180
+      const rot = (i * 72 * Math.PI) / 180
+      const cosR = Math.cos(rot)
+      const sinR = Math.sin(rot)
       faces.push({
-        normal: v(cosA * Math.cos(phi), sinA, cosA * Math.sin(phi)),
+        normal: v(unx * cosR + unz * sinR, uny, -unx * sinR + unz * cosR),
         faceValue: upperValues[i],
       })
-    }
-    // 下 5 面，φ=36°,108°,180°,252°,324°
-    const lowerValues = [4, 2, 10, 8, 6]
-    for (let i = 0; i < 5; i++) {
-      const phi = ((i * 72 + 36) * Math.PI) / 180
       faces.push({
-        normal: v(cosA * Math.cos(phi), -sinA, cosA * Math.sin(phi)),
+        normal: v(unx * cosR + unz * sinR, -uny, -unx * sinR + unz * cosR),
         faceValue: lowerValues[i],
       })
     }
@@ -177,57 +184,36 @@ function ensureNonIndexed(geo: THREE.BufferGeometry): THREE.BufferGeometry {
   return geo
 }
 
-// d10 五角双锥——手写 BufferGeometry（唯一不能用 Three.js 内置几何体的骰子）
+// d10 五角双锥——7 顶点（2 极 + 5 环），10 三角面
 function createD10Geometry(size: number): THREE.BufferGeometry {
-  // 顶点：顶极点 + 底极点 + 上环 5 点 + 下环 5 点（共 12 顶点）
-  const ringY = size * 0.5
-  const ringR = size
-  const poleY = size * 1.5
+  const R = size * 0.7
+  const H = size
 
-  const positions: number[] = []
-  // 顶极点 index 0
-  positions.push(0, poleY, 0)
-  // 底极点 index 1
-  positions.push(0, -poleY, 0)
-
-  // 上环 5 点 (index 2-6)，φ = 0°, 72°, 144°, 216°, 288°
+  const topPole = [0, H, 0]
+  const bottomPole = [0, -H, 0]
+  const eqVerts: number[][] = []
   for (let i = 0; i < 5; i++) {
     const phi = (i * 72 * Math.PI) / 180
-    positions.push(ringR * Math.cos(phi), ringY, ringR * Math.sin(phi))
+    eqVerts.push([R * Math.cos(phi), 0, R * Math.sin(phi)])
   }
 
-  // 下环 5 点 (index 7-11)，φ = 36°, 108°, 180°, 252°, 324°
+  const positions: number[] = []
   for (let i = 0; i < 5; i++) {
-    const phi = ((i * 72 + 36) * Math.PI) / 180
-    positions.push(ringR * Math.cos(phi), -ringY, ringR * Math.sin(phi))
-  }
-
-  // 面索引：10 个 kite 面，每个拆为 2 个三角形 = 20 三角形
-  // 面 k 的 kite: upper[k], lower[k], lower[k+1], upper[k+1]
-  // 三角 1: upper[k], lower[k], lower[k+1]
-  // 三角 2: upper[k], lower[k+1], upper[k+1]
-  const indices: number[] = []
-  for (let k = 0; k < 5; k++) {
-    const u0 = 2 + k // upper ring index
-    const u1 = 2 + ((k + 1) % 5)
-    const l0 = 7 + k // lower ring index
-    const l1 = 7 + ((k + 1) % 5)
-
-    // 三角 1
-    indices.push(u0, l0, l1)
-    // 三角 2
-    indices.push(u0, l1, u1)
+    const e0 = eqVerts[i]
+    const e1 = eqVerts[(i + 1) % 5]
+    // Upper face: top, e1, e0（外法向量 y>0）
+    positions.push(...topPole, ...e1, ...e0)
+    // Lower face: bottom, e0, e1（外法向量 y<0）
+    positions.push(...bottomPole, ...e0, ...e1)
   }
 
   const geo = new THREE.BufferGeometry()
   geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3))
-  geo.setIndex(indices)
   geo.computeVertexNormals()
 
-  // 添加 groups：10 个面，每个 6 个索引（2 个三角形），materialIndex 0-9
   geo.clearGroups()
   for (let i = 0; i < 10; i++) {
-    geo.addGroup(i * 6, 6, i)
+    geo.addGroup(i * 3, 3, i)
   }
 
   return geo

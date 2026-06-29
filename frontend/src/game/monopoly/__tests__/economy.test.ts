@@ -510,7 +510,7 @@ describe('补充场景', () => {
       // p1 到达该公司格
       state = setTurn(state, state.players[1].id)
       const next = handleCompanyLand(state, 'company-01')
-      const chairmanFee = Math.floor(150 * 0.05)
+      const chairmanFee = Math.floor(150 * 0.025)
       const p0CashBefore = 15000 - 80 * 150
       expect(next.players[0].cash).toBe(p0CashBefore + chairmanFee)
     })

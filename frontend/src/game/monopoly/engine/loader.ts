@@ -48,7 +48,7 @@ export function groupColor(groupId?: string): string | undefined {
   return COLOR_PALETTE[idx % COLOR_PALETTE.length]
 }
 
-/** 从 BoardData 创建运行时 BoardState（替代旧 boardDataToBoardConfig 降级逻辑） */
+/** 从 BoardData 创建运行时 BoardState */
 export function createBoardState(boardData: BoardData): BoardState {
   const tiles = boardData.tiles.map((t) => {
     const enriched = { ...t }
@@ -74,11 +74,6 @@ export function createBoardState(boardData: BoardData): BoardState {
     priceUpGroups: {},
     boardTraps: {},
   }
-}
-
-/** 旧桥接函数（兼容过渡期），直接调用 createBoardState */
-export function boardDataToBoardConfig(boardData: BoardData): BoardState {
-  return createBoardState(boardData)
 }
 
 export function loadMapData(mapId: string): LoadedMap {
