@@ -14,7 +14,7 @@ import { handleItemAction, createItemDeck, resolveItemChoice, refreshItemShop, t
 import { handleEventAction } from './engine/event'
 import { handleBankAction, handleStockAction, createInitialEconomy, updatePriceIndex, handleDividend } from './engine/economy'
 import { applyAllGodDailyEffects, tickGodDurations } from './engine/god'
-import { getMapName, loadConfig, createBoardState, loadMapData } from './engine/loader'
+import { getMapName, loadConfig, createBoardState, loadMapData, applyVariantToBoard } from './engine/loader'
 
 export function createInitialState(config: NewGameConfig): GameState {
   const mapId = config.mapId
@@ -24,17 +24,8 @@ export function createInitialState(config: NewGameConfig): GameState {
 
   const { boardData } = loadMapData(mapId)
 
-  // 热斗模式转换
-  const finalBoardData = variant === 'hot_fight'
-    ? {
-        ...boardData,
-        tiles: boardData.tiles.map((t) => {
-          if (t.type === 'PROPERTY') return { ...t, type: 'ATTACK_SPACE' as const, name: `攻击·${t.name}`, damage: 500 }
-          if (t.type === 'HOSPITAL') return { ...t, type: 'PARK' as const, name: '公园' }
-          return t
-        }),
-      }
-    : boardData
+  // 热斗模式转换（收敛到 loader.ts:applyVariantToBoard）
+  const finalBoardData = applyVariantToBoard(boardData, variant)
 
   const board = createBoardState(finalBoardData)
 
@@ -140,20 +131,5 @@ export function reducer(state: GameState, action: Action): GameState {
   }
 }
 
-export { handleMortgage, handleRedeem } from './engine/board'
-export { createCardDeck, findCardDef, giveCardToPlayer, refreshShop, resolveCardReaction, resolveCardChoice } from './engine/card'
-export { createItemDeck, findItemDef, handleBuyItem, handleUseItem, resolveItemChoice, buildItemChoiceDecision, resolveTraps, tickTimedBombs, refreshItemShop, ITEM_HAND_LIMIT } from './engine/item'
-export { aiDecide, aiNextAction, aiDecideAsync, configureAIController, resetAIController } from './engine/ai'
-export { aiDecideWithStrategy, AI_CONFIGS } from './engine/ai-strategies'
-export { serializeGame, deserializeGame, extractSaveMeta, generateSaveId, validateSaveIntegrity } from './engine/serializer'
-export { createSaveStorage } from './engine/saveStorage'
-export type { SaveStorage } from './engine/saveStorage'
-export { buildLLMMessages } from './engine/ai-llm'
-export type { LLMDecisionFn } from './engine/ai-llm'
-export { liquidate, calcTotalAssets } from './engine/player'
-export { calcPriceIndex, calcRent, updatePriceIndex, handleDividend, handleDeposit, handleWithdraw, handleLoan, handleRepay, handleBuyStock, handleSellStock, createInitialEconomy, fluctuateStockPrices } from './engine/economy'
-export { handleCompanyLand, getCompanyState } from './engine/company'
-export { applyAllGodDailyEffects, tickGodDurations, applyPlayerGodDailyEffect, findGodDef, loadGodDefinitions, summonNearestGod, getGodMoveBoost, handleGodPossession, handleGodDismiss, calcGodModifiedRent } from './engine/god'
-export { validateMapData, validateMapConnectivity } from './engine/validator'
-export { loadMapData, loadAllMaps, getMapIds, getMapName, getMapList, boardDataToBoardConfig, createBoardState } from './engine/loader'
+export type { Action } from './types'
 export { rollDice, getDiceCount } from './engine/dice'

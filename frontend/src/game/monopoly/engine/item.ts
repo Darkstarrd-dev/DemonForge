@@ -4,14 +4,14 @@ import { ItemEffectType } from '../types'
 import itemsData from '../data/items/richman4-items.json'
 
 const ITEM_HAND_LIMIT = 5
-const TILE_TARGET_EFFECTS: ItemEffectType[] = [
+const TILE_TARGET_EFFECTS = new Set<string>([
   ItemEffectType.LAUNCH_MISSILE, ItemEffectType.SET_TRAP,
   ItemEffectType.ROADBLOCK, ItemEffectType.NUCLEAR_BOMB,
-  ItemEffectType.REMOVE_DEBRIS, ItemEffectType.TELEPORT,
-]
-const PLAYER_TARGET_EFFECTS: ItemEffectType[] = [
+  ItemEffectType.TELEPORT,
+])
+const PLAYER_TARGET_EFFECTS = new Set<string>([
   ItemEffectType.STEAL_CARD, ItemEffectType.STEAL,
-]
+])
 
 function shuffle<T>(arr: T[]): T[] {
   const a = [...arr]
@@ -253,7 +253,7 @@ export function handleUseItem(state: GameState, action: Action & { type: 'USE_IT
   if (!def) return state
 
   // If target already provided (or self-use item), apply directly
-  const isSelfUse = !TILE_TARGET_EFFECTS.includes(def.effectType ?? ItemEffectType.SET_TRAP) && !PLAYER_TARGET_EFFECTS.includes(def.effectType ?? ItemEffectType.STEAL)
+  const isSelfUse = !TILE_TARGET_EFFECTS.has(def.effectType ?? '') && !PLAYER_TARGET_EFFECTS.has(def.effectType ?? '')
   if (isSelfUse || action.targetTileId !== undefined || action.targetId !== undefined) {
     return applyItemEffect(state, def, playerIdx, itemIdx, action.targetTileId, action.targetId)
   }
@@ -285,7 +285,7 @@ export function handleUseItem(state: GameState, action: Action & { type: 'USE_IT
 // ─── Build Item Choice Decision ───
 
 export function buildItemChoiceDecision(def: ItemDefinition, playerId: string, state: GameState): DecisionRequest | undefined {
-  if (PLAYER_TARGET_EFFECTS.includes(def.effectType ?? ItemEffectType.STEAL)) {
+  if (PLAYER_TARGET_EFFECTS.has(def.effectType ?? '')) {
     const opponents = state.players.filter(p => p.id !== playerId && !p.bankrupt)
     if (opponents.length === 0) return undefined
     return {
@@ -304,13 +304,13 @@ export function buildItemChoiceDecision(def: ItemDefinition, playerId: string, s
       context: { cardEffect: 'ITEM_TARGET_TILE', cardName: def.name, itemDefId: def.id },
     }
   }
-  if (TARGET_TILE_ITEMS.includes(def.id)) {
-    const isOffensive = ['item-02', 'item-03', 'item-09', 'item-11']
+  if (TILE_TARGET_EFFECTS.has(def.effectType ?? '')) {
+    const isOffensive = new Set<string>([ItemEffectType.LAUNCH_MISSILE, ItemEffectType.NUCLEAR_BOMB, ItemEffectType.REMOVE_DEBRIS])
     const tiles = state.board.tiles
       .filter(t => {
         const prop = state.board.properties[t.id]
-        if (isOffensive.includes(def.id)) return prop && prop.level > 0 && prop.ownerId && prop.ownerId !== playerId
-        return true // items 04,05,07 can be placed anywhere
+        if (isOffensive.has(def.effectType ?? '')) return prop && prop.level > 0 && prop.ownerId && prop.ownerId !== playerId
+        return true
       })
     if (tiles.length === 0) return undefined
     return {
@@ -351,7 +351,8 @@ export function resolveItemChoice(state: GameState, optionId: string): GameState
 
   let targetTileId: string | undefined
   let targetId: string | undefined
-  if (TARGET_PLAYER_ITEMS.includes(itemDefId)) {
+  const isPlayerTarget = PLAYER_TARGET_EFFECTS.has(def.effectType ?? '')
+  if (isPlayerTarget) {
     targetId = optionId
     const opponent = players.find(p => p.id === optionId)
     if (opponent) targetTileId = opponent.position

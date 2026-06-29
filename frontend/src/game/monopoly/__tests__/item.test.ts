@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { createInitialState, reducer, resolveTraps, tickTimedBombs } from '../engine'
+import { createInitialState, reducer } from '../engine'
+import { resolveTraps, tickTimedBombs } from '../engine/item'
 import type { GameState, NewGameConfig } from '../types'
 
 function makeConfig(overrides?: Partial<NewGameConfig>): NewGameConfig {

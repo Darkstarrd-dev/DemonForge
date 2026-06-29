@@ -41,7 +41,7 @@ const GROUP_COLORS: Record<string, string> = {
 
 const COLOR_PALETTE = ['#1ABC9C', '#9B59B6', '#3498DB', '#E91E63', '#FF5722', '#795548', '#607D8B', '#009688', '#CDDC39', '#FF9800']
 
-function groupColor(groupId?: string): string | undefined {
+export function groupColor(groupId?: string): string | undefined {
   if (!groupId) return undefined
   if (GROUP_COLORS[groupId]) return GROUP_COLORS[groupId]
   const idx = groupId.split('').reduce((s, c) => s + c.charCodeAt(0), 0)
@@ -52,16 +52,6 @@ function groupColor(groupId?: string): string | undefined {
 export function createBoardState(boardData: BoardData): BoardState {
   const tiles = boardData.tiles.map((t) => {
     const enriched = { ...t }
-    if (t.type === SpaceType.PROPERTY) {
-      enriched.price = t.basePrice
-      enriched.upgradeCost = t.buildingLevels?.[1]?.buildCost ?? 0
-      enriched.rentByLevel = t.buildingLevels?.slice(0, 5).map((b) => b.baseRent) ?? []
-      enriched.color = groupColor(t.groupId)
-      enriched.zoneId = t.groupId
-    }
-    if (t.type === SpaceType.TAX) {
-      enriched.taxAmount = 1000
-    }
     if (t.type === SpaceType.ATTACK_SPACE) {
       enriched.damage = enriched.damage ?? 500
     }

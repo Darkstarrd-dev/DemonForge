@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
 import { Button, Segmented, Switch, Tooltip, Typography, theme } from 'antd'
-import { createInitialState, reducer, rollDice } from '../../game/monopoly/engine'
+import { createInitialState, reducer } from '../../game/monopoly/engine'
+import { rollDice } from '../../game/monopoly/engine/dice'
 import { aiNextAction, configureAIController, resetAIController } from '../../game/monopoly/engine/ai'
 import type { NewGamePlayerSpec, GameState, SaveGame } from '../../game/monopoly/types'
 import { mapEntityCardToCharacter } from '../../game/monopoly/engine/character-mapper'

@@ -118,7 +118,7 @@ export function handleNewsEvent(state: GameState): GameState {
       const priceUpGroups: Record<string, number> = {}
       const duration = (event.effect as { duration?: number }).duration ?? 3
       for (const t of state.board.tiles) {
-        if (t.zoneId) priceUpGroups[t.zoneId] = duration
+        if (t.groupId) priceUpGroups[t.groupId] = duration
       }
       return { ...state, board: { ...state.board, priceUpGroups }, players, log }
     }

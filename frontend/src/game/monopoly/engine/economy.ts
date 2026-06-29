@@ -241,7 +241,7 @@ export function calcPriceIndex(state: GameState): number {
     let assets = p.cash + (p.bankDeposit ?? 0)
     for (const tid of p.ownedTileIds) {
       const tile = state.board.tiles.find(t => t.id === tid)
-      const price = tile?.price ?? 0
+      const price = tile?.basePrice ?? 0
       const prop = state.board.properties[tid]
       assets += prop?.mortgaged ? 0 : price
       assets += (prop?.level ?? 0) * price * 0.3

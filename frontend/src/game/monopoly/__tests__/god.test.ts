@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { createInitialState, reducer, findGodDef, loadGodDefinitions, applyPlayerGodDailyEffect, getGodMoveBoost, calcGodModifiedRent, handleGodPossession, handleGodDismiss, tickGodDurations, summonNearestGod } from '../engine'
+import { createInitialState, reducer } from '../engine'
+import { findGodDef, loadGodDefinitions, applyPlayerGodDailyEffect, getGodMoveBoost, calcGodModifiedRent, handleGodPossession, handleGodDismiss, tickGodDurations, summonNearestGod } from '../engine/god'
 import type { GameState, NewGameConfig } from '../types'
 
 function makeConfig(overrides?: Partial<NewGameConfig>): NewGameConfig {

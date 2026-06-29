@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Button, Input, List, Modal, Typography, App } from 'antd'
 import type { GameState, GameConfig, SaveGame, SaveMeta } from '../../game/monopoly/types'
-import { serializeGame, createSaveStorage } from '../../game/monopoly/engine'
-import type { SaveStorage } from '../../game/monopoly/engine'
+import { serializeGame } from '../../game/monopoly/engine/serializer'
+import { createSaveStorage } from '../../game/monopoly/engine/saveStorage'
+import type { SaveStorage } from '../../game/monopoly/engine/saveStorage'
 
 interface SaveLoadModalProps {
   open: boolean

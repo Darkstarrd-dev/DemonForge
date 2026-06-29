@@ -49,13 +49,14 @@ describe('loader', () => {
       expect(board.tiles).toHaveLength(36)
     })
 
-    it('PROPERTY 瓦片映射 price/upgradeCost/rentByLevel', () => {
+    it('PROPERTY 瓦片映射 basePrice/buildingLevels/taxRate/groupId', () => {
       const board = boardDataToBoardConfig(loadMapData('classic-40').boardData)
       const prop = board.tiles.find((t) => t.type === SpaceType.PROPERTY && t.index === 1)
       expect(prop).toBeDefined()
-      expect(prop!.price).toBe(1060)
-      expect(prop!.upgradeCost).toBe(530)
-      expect(prop!.rentByLevel).toHaveLength(5)
+      expect(prop!.basePrice).toBe(1060)
+      expect(prop!.buildingLevels?.[1]?.buildCost).toBe(530)
+      expect(prop!.buildingLevels?.[0]?.baseRent).toBeDefined()
+      expect(prop!.groupId).toBeDefined()
     })
   })
 })

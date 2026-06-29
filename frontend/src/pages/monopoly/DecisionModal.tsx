@@ -91,14 +91,23 @@ export default function DecisionModal({ state, interactive, onDecide }: Props) {
                 onClick={() => onDecide(o.id)}
               >
                 {o.label}
-                {o.preview?.cashDelta !== undefined && (
-                  <span style={{ marginLeft: 6, fontSize: 11, opacity: 0.7 }}>
-                    {o.preview.cashDelta >= 0 ? '+' : ''}¥{o.preview.cashDelta}
-                  </span>
-                )}
               </Button>
             ))}
           </Space>
+          {d.options.some(o => o.preview) && (
+            <Space direction="vertical" size={4} style={{ width: '100%', borderTop: '1px solid #f0f0f0', paddingTop: 8 }}>
+              {d.options.filter(o => o.preview).map(o => (
+                <Typography.Text key={o.id} type="secondary" style={{ fontSize: 12 }}>
+                  {o.label}：
+                  {o.preview!.description ?? (
+                    o.preview!.cashDelta !== undefined
+                      ? `${o.preview!.cashDelta >= 0 ? '+' : ''}¥${o.preview!.cashDelta}`
+                      : ''
+                  )}
+                </Typography.Text>
+              ))}
+            </Space>
+          )}
         </Space>
       )}
     </Modal>

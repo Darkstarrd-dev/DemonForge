@@ -19,7 +19,7 @@ function countBuilt(state: GameState, playerId: string): number {
 function tilesPrice(state: GameState): Record<string, number> {
   const result: Record<string, number> = {}
   for (const tile of state.board.tiles) {
-    if (tile.price) result[tile.id] = tile.price
+    if (tile.basePrice) result[tile.id] = tile.basePrice
   }
   return result
 }

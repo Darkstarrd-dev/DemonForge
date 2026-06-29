@@ -275,24 +275,24 @@ describe('USE_CARD: property effects', () => {
     let state = baseState()
     state = setTurn(state, state.players[0].id)
     state = addCardToHand(state, state.players[0].id, 'card-08')
-    const tile = state.board.tiles.find(t => t.zoneId !== undefined)
+    const tile = state.board.tiles.find(t => t.groupId !== undefined)
     if (!tile) return
     const next = reducer(state, { type: 'USE_CARD', cardInstanceId: 'test_card-08', targetTileId: tile.id })
-    const zoneId = tile.zoneId!
+    const groupId = tile.groupId!
     expect(next.board.priceUpGroups).toBeDefined()
-    expect(next.board.priceUpGroups![zoneId]).toBe(5)
+    expect(next.board.priceUpGroups![groupId]).toBe(5)
   })
 
   it('查封卡查封路段', () => {
     let state = baseState()
     state = setTurn(state, state.players[0].id)
     state = addCardToHand(state, state.players[0].id, 'card-09')
-    const tile = state.board.tiles.find(t => t.zoneId !== undefined)
+    const tile = state.board.tiles.find(t => t.groupId !== undefined)
     if (!tile) return
     const next = reducer(state, { type: 'USE_CARD', cardInstanceId: 'test_card-09', targetTileId: tile.id })
-    const zoneId = tile.zoneId!
+    const groupId = tile.groupId!
     expect(next.board.sealedGroups).toBeDefined()
-    expect(next.board.sealedGroups![zoneId]).toBe(5)
+    expect(next.board.sealedGroups![groupId]).toBe(5)
   })
 })
 
@@ -301,18 +301,18 @@ describe('sell and remove card', () => {
     let state = baseState()
     state = setTurn(state, state.players[0].id)
     state = addCardToHand(state, state.players[0].id, 'card-08')
-    const tile = state.board.tiles.find(t => t.zoneId !== undefined)
+    const tile = state.board.tiles.find(t => t.groupId !== undefined)
     if (!tile) return
     const withCard = reducer(state, { type: 'USE_CARD', cardInstanceId: 'test_card-08', targetTileId: tile.id })
-    expect(withCard.board.priceUpGroups![tile.zoneId!]).toBe(5)
+    expect(withCard.board.priceUpGroups![tile.groupId!]).toBe(5)
     const afterEnd1 = reducer(withCard, { type: 'END_TURN' })
-    expect(afterEnd1.board.priceUpGroups![tile.zoneId!]).toBe(4)
+    expect(afterEnd1.board.priceUpGroups![tile.groupId!]).toBe(4)
     const afterEnd2 = reducer(afterEnd1, { type: 'END_TURN' })
-    expect(afterEnd2.board.priceUpGroups![tile.zoneId!]).toBe(3)
+    expect(afterEnd2.board.priceUpGroups![tile.groupId!]).toBe(3)
     const afterEnd3 = reducer(afterEnd2, { type: 'END_TURN' })
-    expect(afterEnd3.board.priceUpGroups![tile.zoneId!]).toBe(2)
+    expect(afterEnd3.board.priceUpGroups![tile.groupId!]).toBe(2)
     const afterEnd4 = reducer(afterEnd3, { type: 'END_TURN' })
-    expect(afterEnd4.board.priceUpGroups![tile.zoneId!]).toBe(1)
+    expect(afterEnd4.board.priceUpGroups![tile.groupId!]).toBe(1)
     const afterEnd5 = reducer(afterEnd4, { type: 'END_TURN' })
     expect(afterEnd5.board.priceUpGroups).toEqual({})
   })

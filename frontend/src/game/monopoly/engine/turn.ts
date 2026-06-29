@@ -130,14 +130,16 @@ export function handleRoll(state: GameState, dice: number[]): GameState {
       pushLog('bankrupt', `${player.name} 被攻击格击败，宣告破产`)
       liquidate(player, state)
     }
-  } else if (tile.type === SpaceType.TAX) {
-    const tax = tile.taxAmount ?? 0
+   } else if (tile.type === SpaceType.TAX) {
+     const basePrice = tile.basePrice ?? 0
+     const taxRate = tile.taxRate ?? 0
+     const tax = (basePrice > 0 && taxRate > 0) ? Math.floor(basePrice * taxRate) : 1000
     player.cash -= tax
     pushLog('tax', `${player.name} 缴纳税款 ¥${tax}`)
   } else if (tile.type === SpaceType.PROPERTY) {
     const prop = state.board.properties[tile.id]
     if (!prop.ownerId) {
-      const price = tile.price ?? tile.basePrice ?? 0
+        const price = tile.basePrice ?? 0
       if (player.cash >= price) {
         decision = {
           playerId: player.id,
@@ -154,7 +156,7 @@ export function handleRoll(state: GameState, dice: number[]): GameState {
       }
     } else if (prop.ownerId === player.id) {
       if (prop.level < MAX_NORMAL_LEVEL) {
-        const cost = tile.upgradeCost ?? 0
+        const cost = tile.buildingLevels?.[1]?.buildCost ?? 0
         if (player.cash >= cost) {
           decision = {
             playerId: player.id,

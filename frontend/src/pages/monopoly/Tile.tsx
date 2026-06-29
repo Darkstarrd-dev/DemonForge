@@ -1,6 +1,7 @@
 import { theme } from 'antd'
 import type { Player, PropertyState, Tile } from '../../game/monopoly/types'
 import { SpaceType } from '../../game/monopoly/types'
+import { groupColor } from '../../game/monopoly/engine/loader'
 
 interface Props {
   tile: Tile
@@ -30,7 +31,7 @@ export default function TileCell({ tile, property, owner, occupants }: Props) {
       }}
     >
       {/* 街区色带 */}
-      {isProperty && <div style={{ height: 7, background: tile.color, flexShrink: 0 }} />}
+      {isProperty && <div style={{ height: 7, background: groupColor(tile.groupId), flexShrink: 0 }} />}
 
       {/* 名称 + 价格 + 等级 */}
       <div
@@ -46,9 +47,9 @@ export default function TileCell({ tile, property, owner, occupants }: Props) {
         }}
       >
         <div style={{ fontWeight: 600, lineHeight: 1.1, color: token.colorText }}>{tile.name}</div>
-        {isProperty && <div style={{ color: token.colorTextSecondary }}>¥{tile.price}</div>}
+        {isProperty && <div style={{ color: token.colorTextSecondary }}>¥{tile.basePrice ?? 0}</div>}
         {isProperty && property && property.level > 0 && (
-          <div style={{ color: tile.color, letterSpacing: 1, lineHeight: 1 }}>
+          <div style={{ color: groupColor(tile.groupId), letterSpacing: 1, lineHeight: 1 }}>
             {property.level >= 4 ? '★' : '●'.repeat(property.level)}
           </div>
         )}

@@ -3,6 +3,7 @@ import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import type { GameState } from '../../game/monopoly/types'
 import { SpaceType } from '../../game/monopoly/types'
+import { groupColor } from '../../game/monopoly/engine/loader'
 
 // 3D 渲染适配层：复用同一 GameState（经 stateRef 读取），不含任何游戏逻辑。
 // 棋盘格沿 tile.coord 环形铺开；棋子随 player.position 平滑移动；地产升起业主色柱（高随等级）。
@@ -73,7 +74,7 @@ export default function Board3D({ state }: { state: GameState }) {
     for (const tile of board.tiles) {
       const [x, z] = tileToWorld(tile.coord, side)
       const isProp = tile.type === SpaceType.PROPERTY
-      const baseColor = isProp && tile.color ? hexToInt(tile.color) : 0x3a3a55
+      const baseColor = isProp && tile.groupId ? hexToInt(groupColor(tile.groupId) ?? '#3a3a55') : 0x3a3a55
       const plate = new THREE.Mesh(
         new THREE.BoxGeometry(CELL * 0.92, 0.3, CELL * 0.92),
         new THREE.MeshStandardMaterial({ color: baseColor }),

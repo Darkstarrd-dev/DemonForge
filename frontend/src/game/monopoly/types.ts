@@ -125,13 +125,6 @@ export interface Tile {
   damage?: number
   damageRange?: number
   assetRef?: AssetRef
-  // 旧兼容字段（boardDataToBoardConfig 桥接产出的运行时属性）
-  price?: number
-  upgradeCost?: number
-  rentByLevel?: number[]
-  taxAmount?: number
-  color?: string
-  zoneId?: string
 }
 
 /** 地图静态定义（数据文件加载，运行时只读） */

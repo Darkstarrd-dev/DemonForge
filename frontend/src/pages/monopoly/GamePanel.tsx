@@ -72,8 +72,9 @@ export default function GamePanel({
     if (!inst || !itemDeck) return
     const def = itemDeck.definitions.find(d => d.id === inst.definitionId)
     if (!def) return
-    const selfUseItems = ['item-00', 'item-01', 'item-06', 'item-10']
-    if (selfUseItems.includes(def.id)) {
+    const selfUseEffectTypes = ['CHANGE_VEHICLE', 'ABSORB_DAMAGE', 'PIGGY_BANK', 'REMOTE_CONTROL', 'REMOVE_DEBRIS', 'SUMMON_DICE', 'CHANGE_DICE', 'LIGHTNING', 'SHIELD']
+    const isSelfUse = !def.effectType ? true : selfUseEffectTypes.includes(def.effectType)
+    if (isSelfUse) {
       onUseItem?.(instanceId)
     } else {
       setUseItemModal({ instanceId, defName: def.name, defId: def.id })
@@ -409,7 +410,9 @@ export default function GamePanel({
         {(() => {
           const defId = useItemModal?.defId
           if (!defId) return null
-          const isPlayerTarget = defId === 'item-12'
+          const inst = items.find(c => c.instanceId === useItemModal!.instanceId)
+          const def = inst ? itemDeck?.definitions.find(d => d.id === inst.definitionId) : undefined
+          const isPlayerTarget = def?.effectType === 'STEAL_CARD' || def?.effectType === 'STEAL'
           const isTileTarget = !isPlayerTarget
           if (isPlayerTarget) {
             return opponents.map(p => (
@@ -420,15 +423,15 @@ export default function GamePanel({
             ))
           }
           if (isTileTarget) {
-            const attackItems = ['item-02', 'item-03', 'item-09', 'item-11']
-            const filterForAttack = attackItems.includes(defId)
+            const attackEffectTypes = ['LAUNCH_MISSILE', 'NUCLEAR_BOMB', 'REMOVE_DEBRIS']
+            const filterForAttack = attackEffectTypes.includes(def?.effectType ?? '')
             const tiles = state.board.tiles
               .filter(t => {
                 const prop = state.board.properties[t.id]
                 if (filterForAttack) return prop && prop.level > 0 && prop.ownerId && prop.ownerId !== current?.id
                 return !prop || prop.level === 0
               })
-            const isDiceItem = defId === 'item-08'
+            const isDiceItem = def?.effectType === 'TELEPORT'
             const tileList = isDiceItem
               ? state.board.tiles.filter(t => t.id !== current?.position)
               : tiles

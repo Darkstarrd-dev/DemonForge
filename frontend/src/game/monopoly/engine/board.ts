@@ -81,7 +81,7 @@ export function handleMortgage(state: GameState, tileId: string): GameState {
   const log = [...state.log]
   const owner = players.find((p) => p.id === prop.ownerId)
   if (!owner) return state
-  const value = Math.round(((tile.price ?? 0) * MORTGAGE_RATE) / 10) * 10
+  const value = Math.round(((tile.basePrice ?? 0) * MORTGAGE_RATE) / 10) * 10
   owner.cash += value
   properties[tileId] = { ...prop, mortgaged: true }
   log.push({ seq: log.length, kind: 'mortgage', text: `${owner.name} 抵押「${tile.name}」，获得 ¥${value}` })
@@ -98,7 +98,7 @@ export function handleRedeem(state: GameState, tileId: string): GameState {
   const log = [...state.log]
   const owner = players.find((p) => p.id === prop.ownerId)
   if (!owner) return state
-  const cost = Math.round(((tile.price ?? 0) * MORTGAGE_RATE * REDEEM_INTEREST) / 10) * 10
+  const cost = Math.round(((tile.basePrice ?? 0) * MORTGAGE_RATE * REDEEM_INTEREST) / 10) * 10
   if (owner.cash < cost) return state
   owner.cash -= cost
   properties[tileId] = { ...prop, mortgaged: false }

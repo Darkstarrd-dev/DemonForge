@@ -194,7 +194,7 @@ function applyCardEffect(
       for (const [tidStr, prop] of ownProp) {
         const tid = tidStr
         const tile = state.board.tiles.find(t => t.id === tid)
-        const cost = tile?.upgradeCost ?? 0
+        const cost = tile?.buildingLevels?.[1]?.buildCost ?? 0
         if (player.cash >= cost) {
           player.cash -= cost
           prop.level += 1
@@ -228,7 +228,7 @@ function applyCardEffect(
         const prop = properties[targetTileId]
         if (prop && !prop.ownerId) {
           const tile = state.board.tiles.find(t => t.id === targetTileId)
-          const price = tile?.price ?? 0
+          const price = tile?.basePrice ?? 0
           if (player.cash >= price) {
             player.cash -= price
             prop.ownerId = player.id
@@ -288,7 +288,7 @@ function applyCardEffect(
     case CardEffectType.PRICE_UP_GROUP: {
       if (targetTileId !== undefined) {
         const tile = state.board.tiles.find(t => t.id === targetTileId)
-        const gid = tile?.zoneId
+        const gid = tile?.groupId
         if (gid) {
           finalState = {
             ...finalState,
@@ -302,7 +302,7 @@ function applyCardEffect(
     case CardEffectType.SEAL_GROUP: {
       if (targetTileId !== undefined) {
         const tile = state.board.tiles.find(t => t.id === targetTileId)
-        const gid = tile?.zoneId
+        const gid = tile?.groupId
         if (gid) {
           finalState = {
             ...finalState,

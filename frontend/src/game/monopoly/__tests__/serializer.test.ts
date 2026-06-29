@@ -98,6 +98,97 @@ describe('migrateSaveVersion', () => {
     const migrated = migrateSaveVersion(oldSave)
     expect(migrated.version).toBe(SAVE_VERSION)
   })
+
+  it('补全缺失的 turnContext 字段', () => {
+    const state = baseState()
+    const save = serializeGame(state, state.config!, 'test')
+    const gs = save.gameState as unknown as Record<string, unknown>
+    const tc = gs.turnContext as Record<string, unknown>
+    delete tc.diceCount
+    delete tc.movePath
+    delete tc.consecutiveDoubles
+    const migrated = migrateSaveVersion({ ...save, version: 'richman@0.8.0' })
+    const mt = (migrated.gameState as unknown as Record<string, unknown>).turnContext as Record<string, unknown>
+    expect(mt.diceCount).toBe(2)
+    expect(mt.movePath).toEqual([])
+    expect(mt.consecutiveDoubles).toBe(0)
+  })
+
+  it('补全缺失的 economy 字段', () => {
+    const state = baseState()
+    const save = serializeGame(state, state.config!, 'test')
+    const gs = save.gameState as unknown as Record<string, unknown>
+    const ec = gs.economy as Record<string, unknown>
+    delete ec.bankAccounts
+    delete ec.companies
+    delete ec.priceIndex
+    const migrated = migrateSaveVersion({ ...save, version: 'richman@0.8.0' })
+    const me = (migrated.gameState as unknown as Record<string, unknown>).economy as Record<string, unknown>
+    expect(me.bankAccounts).toEqual({})
+    expect(me.companies).toEqual({})
+    expect(me.priceIndex).toBe(1.0)
+  })
+
+  it('补全缺失的玩家字段', () => {
+    const state = baseState()
+    const save = serializeGame(state, state.config!, 'test')
+    const gs = save.gameState as unknown as Record<string, unknown>
+    const players = gs.players as Record<string, unknown>[]
+    delete players[0].hand
+    delete players[0].items
+    delete players[0].points
+    delete players[0].vehicle
+    delete players[0].hospitalTurns
+    const migrated = migrateSaveVersion({ ...save, version: 'richman@0.8.0' })
+    const mp = (migrated.gameState as unknown as Record<string, unknown>).players as Record<string, unknown>[]
+    expect(mp[0].hand).toEqual([])
+    expect(mp[0].items).toEqual([])
+    expect(mp[0].points).toBe(0)
+    expect(mp[0].vehicle).toBe('PEDESTRIAN')
+    expect(mp[0].hospitalTurns).toBe(0)
+  })
+
+  it('补全缺失的 board 字段', () => {
+    const state = baseState()
+    const save = serializeGame(state, state.config!, 'test')
+    const gs = save.gameState as unknown as Record<string, unknown>
+    const bd = gs.board as Record<string, unknown>
+    delete bd.sealedGroups
+    delete bd.priceUpGroups
+    delete bd.boardTraps
+    const migrated = migrateSaveVersion({ ...save, version: 'richman@0.8.0' })
+    const mb = (migrated.gameState as unknown as Record<string, unknown>).board as Record<string, unknown>
+    expect(mb.sealedGroups).toEqual({})
+    expect(mb.priceUpGroups).toEqual({})
+    expect(mb.boardTraps).toEqual([])
+  })
+
+  it('补全缺失的 itemDeck 字段', () => {
+    const state = baseState()
+    const save = serializeGame(state, state.config!, 'test')
+    const gs = save.gameState as unknown as Record<string, unknown>
+    const id = gs.itemDeck as Record<string, unknown>
+    delete id.shopInventory
+    delete id.researchInventory
+    const migrated = migrateSaveVersion({ ...save, version: 'richman@0.8.0' })
+    const mi = (migrated.gameState as unknown as Record<string, unknown>).itemDeck as Record<string, unknown>
+    expect(mi.shopInventory).toEqual({})
+    expect(mi.researchInventory).toEqual({})
+  })
+
+  it('整段缺失 turnContext/economy 时用默认值填充', () => {
+    const state = baseState()
+    const save = serializeGame(state, state.config!, 'test')
+    const gs = save.gameState as unknown as Record<string, unknown>
+    delete gs.turnContext
+    delete gs.economy
+    const migrated = migrateSaveVersion({ ...save, version: 'richman@0.7.0' })
+    const mg = migrated.gameState as unknown as Record<string, unknown>
+    expect(mg.turnContext).toBeDefined()
+    expect((mg.turnContext as Record<string, unknown>).diceCount).toBe(2)
+    expect(mg.economy).toBeDefined()
+    expect((mg.economy as Record<string, unknown>).priceIndex).toBe(1.0)
+  })
 })
 
 describe('validateSaveIntegrity', () => {
