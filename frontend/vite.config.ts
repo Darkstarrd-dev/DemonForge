@@ -7,12 +7,34 @@ export default defineConfig({
   base: './',
   plugins: [react()],
   test: {
-    // 默认 node 环境（纯函数工具，最轻量）。组件测试在文件顶部用
-    // `// @vitest-environment jsdom` docblock 单文件切 jsdom（vitest 4 移除了 environmentMatchGlobs）。
+    // Vitest 4 用 test.projects 替代 workspace 机制。各 project 独立 include/exclude，
+    // 互不干扰。project 未覆盖的选项从根 test 继承（如 environment / setupFiles）。
     environment: 'node',
-    include: ['src/**/*.{test,spec}.{ts,tsx}'],
-    // 全局 setup：注册 jest-dom 匹配器 + RTL afterEach 自动 cleanup（node 测试加载安全）。
     setupFiles: ['src/test/setup.ts'],
+    projects: [
+      {
+        test: {
+          name: 'core',
+          include: ['src/**/*.{test,spec}.{ts,tsx}'],
+          exclude: ['src/game/**/__tests__/**'],
+          setupFiles: ['src/test/setup.ts'],
+        },
+      },
+      {
+        test: {
+          name: 'monopoly',
+          include: ['src/game/monopoly/__tests__/**/*.{test,spec}.{ts,tsx}'],
+          setupFiles: ['src/test/setup.ts'],
+        },
+      },
+      {
+        test: {
+          name: 'dice',
+          include: ['src/game/dice/__tests__/**/*.{test,spec}.{ts,tsx}'],
+          setupFiles: ['src/test/setup.ts'],
+        },
+      },
+    ],
   },
   server: {
     // 开发期把 /api 转发到本地 LLM 网关（server/，监听 8787）；SSE 流式透传

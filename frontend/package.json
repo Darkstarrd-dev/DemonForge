@@ -9,6 +9,9 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "test": "vitest run",
+    "test:core": "vitest run --project core",
+    "test:monopoly": "vitest run --project monopoly",
+    "test:dice": "vitest run --project dice",
     "test:watch": "vitest"
   },
   "dependencies": {

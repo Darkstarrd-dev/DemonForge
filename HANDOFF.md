@@ -1,12 +1,40 @@
 # HANDOFF.md — novelhelper 交接备忘
 
 **最后更新**：2026-06-30
-**当前位置**：办公场所 A（待提交推送）
-**本轮主题**：**遗留项全部收尾（R-6 + N-2）**——R-6 旧桥接删除、N-2 d10 五角双锥重写、economy 董事长费率测试修正。
+**当前位置**：办公场所 A（已推送）
+**本轮主题**：**Vitest 4 测试项目拆分**——将 monopoly 337 个单测与核心 55 个单测解耦为独立 project，互不干扰。
 
 > 📦 **历史明细已归档** → `docs/handoff_history.md`
 > 本文件只保留「恢复工作所需的活内容」：进行中任务、模块清单、下一步、交接参考。
 > 各轮工作的逐项实现细节、技术决策记录、详尽验证清单全部移入归档文件，按需查阅。
+
+---
+
+## 🆕 Vitest 4 测试项目拆分（2026-06-30，已推送 `a0f48ed`）
+
+将大富翁 337 个单测与核心 55 个单测解耦为独立 vitest project，互不干扰。
+
+### 改动
+
+- **`frontend/vite.config.ts`**：用 `test.projects` 拆成 3 个独立 project（core/monopoly/dice），各 project 独立 `include`/`exclude`/`setupFiles`
+- **`frontend/package.json`**：新增 3 个 npm script：`test:core` / `test:monopoly` / `test:dice`
+- **`frontend/vitest.workspace.ts`**：已删除（Vitest 4 移除了 workspace 文件机制，统一用 `test.projects`）
+
+### 使用方式
+
+| 命令 | 范围 | 用时 |
+|------|------|------|
+| `npm test` | 全部 430 个 | ~6.7s |
+| `npm run test:core` | 仅非游戏模块（55 个） | ~6.0s |
+| `npm run test:monopoly` | 仅大富翁（337 个） | ~1.3s |
+| `npm run test:dice` | 仅骰子（38 个） | ~1.5s |
+
+### 验证
+
+- `npm run test:core` — 55/55 绿（11 files）
+- `npm run test:monopoly` — 337/337 绿（16 files）
+- `npm run test:dice` — 38/38 绿（4 files）
+- `npm test` — 430/430 绿（31 files，向后兼容）
 
 ---
 
