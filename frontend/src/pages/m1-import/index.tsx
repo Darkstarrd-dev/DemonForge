@@ -98,7 +98,7 @@ export default function M1ImportPage() {
   const displayCurrent = isCleanMode ? step - 2 : step
 
   return (
-    <Card data-slot="m1-import">
+    <Card data-slot="m1-import" style={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       <Steps
         data-slot="steps"
         current={displayCurrent}
@@ -108,12 +108,14 @@ export default function M1ImportPage() {
           gotoStep(internalStep)
         }}
         items={stepsItems}
-        style={{ marginBottom: 24 }}
+        style={{ marginBottom: 24, flexShrink: 0 }}
       />
-      {step === 0 && <Step1Import />}
-      {step === 1 && <Step2Split />}
-      {step === 2 && <Step3Clean />}
-      {step === 3 && <Step4Review />}
+      <div style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
+        {step === 0 && <Step1Import />}
+        {step === 1 && <Step2Split />}
+        {step === 2 && <Step3Clean />}
+        {step === 3 && <Step4Review />}
+      </div>
     </Card>
   )
 }
