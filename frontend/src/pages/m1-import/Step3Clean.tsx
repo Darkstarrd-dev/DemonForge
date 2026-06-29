@@ -11,6 +11,7 @@ import {
   Input,
   InputNumber,
   List,
+  Modal,
   Progress,
   Radio,
   Row,
@@ -28,12 +29,18 @@ import {
   ThunderboltOutlined,
   PlusOutlined,
   ReloadOutlined,
+  ExperimentOutlined,
+  FileTextOutlined,
+  EditOutlined,
 } from '@ant-design/icons'
 import { useAppStore, pushImportSessionNow, type CleanRunNodeSession } from '../../store/appStore'
+import { createM1ImportSlice } from '../../store/slices/m1ImportSlice'
 import { startCleanQueue, getDefaultPrompt, type CleanNode, type CleanQueueHandle, type CleanQueueDebugEvent } from '../../services/api'
 import { PromptEditorButton } from '../../components/PromptEditorButton'
 import { useNavigate } from 'react-router-dom'
 import { resolveProviderNodes } from '../../utils/providerResolver'
+import { parseSSE } from '../../services/sse'
+import type { ResolvedProviderNode, ProviderNode } from '../../services/types'
 
 interface DebugEntry {
   chapterId: string
@@ -74,6 +81,10 @@ export default function Step3Clean() {
   const providerNodes = useAppStore((s) => s.providerNodes)
   const m1SystemPrompt = useAppStore((s) => s.m1SystemPrompt)
   const m1AutoRetry = useAppStore((s) => s.m1AutoRetry)
+  const m1TestText = useAppStore((s) => s.m1TestText)
+  const promptOverrides = useAppStore((s) => s.promptOverrides)
+  const storeProviderNodes = useAppStore((s) => s.providerNodes)
+  const updateProviderNodeAction = useAppStore((s) => s.updateProviderNode)
   const cleanRun = useAppStore((s) => s.cleanRun)
   const setState = useAppStore((s) => s.setState)
   const resolvedNodes = useMemo(() => resolveProviderNodes({ providers, providerNodes }), [providers, providerNodes])
@@ -87,7 +98,7 @@ export default function Step3Clean() {
         typeof next === 'function' ? next(useAppStore.getState().cleanNodeOverrides) : next,
     })
 
-  const enabledNodes = useMemo(() => resolvedNodes.filter((p) => p.enabled), [resolvedNodes])
+  const enabledNodes = useMemo(() => resolvedNodes.filter((p) => p.enabled && p.nodeType === 'text'), [resolvedNodes])
 
   /** 统一设置所有节点三参数（应用后仍可逐节点单独覆盖） */
   const [bulkConcurrency, setBulkConcurrency] = useState<number | null>(null)
@@ -128,6 +139,12 @@ export default function Step3Clean() {
   const [overridePrompt, setOverridePrompt] = useState('')
   const [promptLoaded, setPromptLoaded] = useState(false)
   const errorCountRef = useRef(0)
+
+  const [promptModalOpen, setPromptModalOpen] = useState(false)
+  const [draftPrompt, setDraftPrompt] = useState('')
+  const [testTextModalOpen, setTestTextModalOpen] = useState(false)
+  const [draftTestText, setDraftTestText] = useState('')
+  const [batchTesting, setBatchTesting] = useState(false)
   const accMapRef = useRef<Map<string, string>>(new Map())
   const [liveAcc, setLiveAcc] = useState('')
   const viewingIdRef = useRef<string | undefined>(undefined)
@@ -284,7 +301,7 @@ export default function Step3Clean() {
     const nowOverrides = s.cleanNodeOverrides
     const nowResolved = resolveProviderNodes({ providers: s.providers, providerNodes: s.providerNodes })
     return nowResolved
-      .filter((p) => p.enabled)
+      .filter((p) => p.enabled && p.nodeType === 'text')
       .filter((p) => (nowOverrides[p.id] ?? {}).participating !== false)
       .map((p) => {
         const o = nowOverrides[p.id] ?? {}
@@ -304,7 +321,70 @@ export default function Step3Clean() {
       .filter((n) => n.baseURL.trim() && n.model.trim())
   }
 
-  /** onStart：记录 chapterId → sessionKey，并创建/追加会话（每 batch 独立 session） */
+  /** 批量测试所有参选文本节点：使用当前清理提示词和测试文本调用真实 /api/llm/clean */
+  const runBatchCleanTest = async () => {
+    const s = useAppStore.getState()
+    const nowResolved = resolveProviderNodes({ providers: s.providers, providerNodes: s.providerNodes })
+    const targets = nowResolved
+      .filter((p) => p.enabled && p.nodeType === 'text')
+      .filter((p) => (s.cleanNodeOverrides[p.id] ?? {}).participating !== false)
+      .filter((p) => p.baseURL.trim() && p.model.trim())
+    if (!targets.length) {
+      message.warning('没有参选的文本节点')
+      return
+    }
+    const testContent = s.m1TestText || m1TestText
+    if (!testContent.trim()) {
+      message.warning('测试文本为空，请先在「测试文本」中设置')
+      return
+    }
+    const systemPrompt = s.promptOverrides['m1-clean'] || s.m1SystemPrompt || undefined
+    setBatchTesting(true)
+    let done = 0
+    let okCount = 0
+    const CONCURRENCY = 4
+    const idx = { i: 0 }
+    const runOne = async (node: ResolvedProviderNode) => {
+      try {
+        const res = await fetch('/api/llm/clean', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            baseURL: node.baseURL,
+            apiKey: node.apiKey,
+            model: node.model,
+            content: testContent,
+            systemPrompt,
+          }),
+        })
+        const ok = res.ok
+        const raw = storeProviderNodes.find((n) => n.id === node.id)
+        if (raw) updateProviderNodeAction({ ...raw, lastTestResult: ok ? 'ok' : 'fail' })
+        if (ok) okCount += 1
+      } catch {
+        const raw = storeProviderNodes.find((n) => n.id === node.id)
+        if (raw) updateProviderNodeAction({ ...raw, lastTestResult: 'fail' })
+      }
+      done += 1
+      message.info({ content: `批量测试进度：${done}/${targets.length}`, key: 'batch-clean-test-progress' })
+    }
+    const workers: Promise<void>[] = []
+    for (let w = 0; w < CONCURRENCY; w++) {
+      workers.push(
+        (async () => {
+          while (idx.i < targets.length) {
+            const node = targets[idx.i++]
+            await runOne(node)
+          }
+        })(),
+      )
+    }
+    await Promise.all(workers)
+    setBatchTesting(false)
+    message.success(`批量测试完成：${okCount}/${targets.length} 正常`)
+  }
+
+  /** 打开清理提示词弹窗时，初始化草稿为当前生效值 */
   const trackAssign = (chapterId: string, nodeName: string, nodeId?: string, workerId?: string, batchSeq?: number) => {
     if (!nodeId || !workerId || batchSeq == null) return
     const sessionKey = `${workerId}:${batchSeq}`
@@ -569,12 +649,19 @@ export default function Step3Clean() {
           {
             key: 'nodes',
             label: (
-              <Space>
-                <Typography.Text strong>清理节点池</Typography.Text>
-                <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                  （{nodeRunStates.length} 个节点，参选 {participatingNodes.length}）
-                </Typography.Text>
-              </Space>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', paddingRight: 8 }}>
+                <Space>
+                  <Typography.Text strong>清理节点池</Typography.Text>
+                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                    （{nodeRunStates.length} 个节点，参选 {participatingNodes.length}）
+                  </Typography.Text>
+                </Space>
+                <Space size={4}>
+                  <Button size="small" icon={<EditOutlined />} onClick={(e) => { e.stopPropagation(); const s = useAppStore.getState(); setDraftPrompt(s.promptOverrides['m1-clean'] || s.m1SystemPrompt || ''); setPromptModalOpen(true) }}>清理提示词</Button>
+                  <Button size="small" icon={<FileTextOutlined />} onClick={(e) => { e.stopPropagation(); setDraftTestText(m1TestText); setTestTextModalOpen(true) }}>测试文本</Button>
+                  <Button size="small" icon={<ExperimentOutlined />} loading={batchTesting} disabled={batchTesting || nodeRunStates.length === 0} onClick={(e) => { e.stopPropagation(); runBatchCleanTest() }}>批量测试</Button>
+                </Space>
+              </div>
             ),
             children:
               nodeRunStates.length === 0 ? (
@@ -638,16 +725,16 @@ export default function Step3Clean() {
                           <Card
                             size="small"
                             title={
-                              <Space size={4}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 4, minWidth: 0 }}>
                                 <Switch
                                   size="small"
                                   checked={rs.participating}
                                   onChange={(v) => toggleParticipating(rs.nodeId, v)}
                                 />
-                                <Typography.Text ellipsis style={{ maxWidth: 160 }}>
+                                <Typography.Text ellipsis style={{ flex: 1, minWidth: 0 }}>
                                   {label}
                                 </Typography.Text>
-                              </Space>
+                              </div>
                             }
                             style={{ borderColor: rs.participating ? '#1677ff' : undefined }}
                           >
@@ -697,9 +784,6 @@ export default function Step3Clean() {
                                   活跃 {active.filter((t) => t.nodeName === (p?.name ?? '')).length} / {rs.concurrency}
                                 </Typography.Text>
                               )}
-                              {!rs.participating && (
-                                <Typography.Text type="secondary" style={{ fontSize: 12 }}>已关闭（不接新任务）</Typography.Text>
-                              )}
                             </Space>
                           </Card>
                         </Col>
@@ -739,13 +823,15 @@ export default function Step3Clean() {
       </Space>
 
       {/* 摘要 */}
-      <Tag icon={<ThunderboltOutlined />} color={participatingNodes.length ? 'blue' : 'red'}>
-        {participatingNodes.length ? `${participatingNodes.length} 个节点 · ` : '无参选节点'}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+        <Tag icon={<ThunderboltOutlined />} color={participatingNodes.length ? 'blue' : 'red'}>
+          {participatingNodes.length ? `${participatingNodes.length} 个节点` : '无参选节点'}
+        </Tag>
         {participatingNodes.map((s) => {
           const p = resolvedNodes.find((x) => x.id === s.nodeId)
-          return `${p?.name ?? s.nodeId}(${s.concurrency}进程/${Math.round(s.batchChars/1000)}K字)`
-        }).join(', ')}
-      </Tag>
+          return <Tag key={s.nodeId}>{p?.name ?? s.nodeId}({s.concurrency}进程/{Math.round(s.batchChars/1000)}K字)</Tag>
+        })}
+      </div>
 
       {/* 操作按钮 */}
       <Space wrap>
@@ -805,7 +891,7 @@ export default function Step3Clean() {
       )}
 
       {/* 活跃任务 + 实时窗口 */}
-      <Row gutter={[16, 16]} style={{ minHeight: screens.lg ? 460 : 'auto' }}>
+      <Row gutter={[16, 16]} style={{ minHeight: screens.lg ? 460 : 'auto', maxHeight: screens.lg ? 'calc(100vh - 320px)' : undefined, height: screens.lg ? 'calc(100vh - 320px)' : 'auto' }}>
         <Col xs={24} lg={8} style={{ height: screens.lg ? '100%' : 'auto', display: 'flex', flexDirection: 'column', marginBottom: screens.lg ? 0 : 16 }}>
           <Tabs
             className="m1-tabs-panel"
@@ -1088,6 +1174,79 @@ export default function Step3Clean() {
         ]}
         style={{ background: token.colorBgContainer }}
       />
+
+      {/* 清理提示词弹窗 */}
+      <Modal
+        title="清理提示词"
+        open={promptModalOpen}
+        onCancel={() => setPromptModalOpen(false)}
+        footer={[
+          <Button key="cancel" onClick={() => setPromptModalOpen(false)}>取消</Button>,
+          <Button key="clear" onClick={() => setDraftPrompt('')}>清空</Button>,
+          <Button key="reset" onClick={async () => {
+            const builtin = await getDefaultPrompt()
+            setDraftPrompt(builtin)
+            setState({ promptOverrides: { ...useAppStore.getState().promptOverrides, 'm1-clean': '' }, m1SystemPrompt: '' })
+          }}>恢复默认</Button>,
+          <Button key="save" type="primary" onClick={() => {
+            const s = useAppStore.getState()
+            const newOverrides = { ...s.promptOverrides }
+            if (draftPrompt.trim()) {
+              newOverrides['m1-clean'] = draftPrompt
+            } else {
+              delete newOverrides['m1-clean']
+            }
+            setState({ promptOverrides: newOverrides })
+            setPromptModalOpen(false)
+            message.success('提示词已保存')
+          }}>保存</Button>,
+        ]}
+        width={640}
+      >
+        <Input.TextArea
+          value={draftPrompt}
+          onChange={(e) => setDraftPrompt(e.target.value)}
+          autoSize={{ minRows: 8, maxRows: 20 }}
+          placeholder="留空则使用后端内置默认提示词"
+          style={{ fontFamily: 'monospace', fontSize: 12 }}
+        />
+        <Typography.Paragraph type="secondary" style={{ marginTop: 8, marginBottom: 0 }}>
+          {draftPrompt ? `当前编辑 ${draftPrompt.length} 字。保存后作为持久化覆盖生效，优先级高于后端内置默认。` : '留空时清理使用后端内置默认提示词。点「恢复默认」可查看内置内容并恢复。'}
+        </Typography.Paragraph>
+      </Modal>
+
+      {/* 测试文本弹窗 */}
+      <Modal
+        title="测试文本"
+        open={testTextModalOpen}
+        onCancel={() => setTestTextModalOpen(false)}
+        footer={[
+          <Button key="cancel" onClick={() => setTestTextModalOpen(false)}>取消</Button>,
+          <Button key="clear" onClick={() => { setDraftTestText(''); setState({ m1TestText: '' }); message.success('已清空') }}>清空</Button>,
+          <Button key="reset" onClick={() => {
+            const { m1TestText: defaultText } = createM1ImportSlice(undefined as never)
+            setDraftTestText(defaultText)
+            setState({ m1TestText: defaultText })
+          }}>恢复默认</Button>,
+          <Button key="save" type="primary" disabled={draftTestText === m1TestText} onClick={() => {
+            setState({ m1TestText: draftTestText })
+            setTestTextModalOpen(false)
+            message.success('测试文本已保存')
+          }}>保存</Button>,
+        ]}
+        width={640}
+      >
+        <Input.TextArea
+          value={draftTestText}
+          onChange={(e) => setDraftTestText(e.target.value)}
+          autoSize={{ minRows: 8, maxRows: 20 }}
+          placeholder="用于批量测试的文本内容"
+          style={{ fontFamily: 'monospace', fontSize: 12 }}
+        />
+        <Typography.Paragraph type="secondary" style={{ marginTop: 8, marginBottom: 0 }}>
+          {draftTestText ? `当前 ${draftTestText.length} 字。用于「批量测试」按钮的真实清理调用。` : '测试文本为空时批量测试无法执行。'}
+        </Typography.Paragraph>
+      </Modal>
     </Space>
   )
 }

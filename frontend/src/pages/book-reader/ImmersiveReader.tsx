@@ -709,7 +709,7 @@ export default function ImmersiveReader({
                       <div style={{ padding: '8px 16px', fontSize: 13, color: 'var(--imm-muted)', marginBottom: 4 }}>
                         选择清理节点：
                       </div>
-                      {resolvedNodes.filter((p: ResolvedProviderNode) => p.enabled).map((node) => {
+                      {resolvedNodes.filter((p: ResolvedProviderNode) => p.enabled && p.nodeType === 'text').map((node) => {
                         const disabled = cleanPhase !== 'selecting'
                         const active = selectedNodeId === node.id
                         return (
@@ -727,7 +727,7 @@ export default function ImmersiveReader({
                           </div>
                         )
                       })}
-                      {resolvedNodes.filter((p: ResolvedProviderNode) => p.enabled).length === 0 && (
+                      {resolvedNodes.filter((p: ResolvedProviderNode) => p.enabled && p.nodeType === 'text').length === 0 && (
                         <div style={{ padding: 16, color: 'var(--imm-muted)', fontSize: 13, textAlign: 'center' }}>
                           暂无已启用的 Provider 节点。<br />请先在设置中配置并测试。
                         </div>

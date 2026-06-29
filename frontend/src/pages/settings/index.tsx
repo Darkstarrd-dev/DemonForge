@@ -30,7 +30,7 @@ import {
   settingsPayload,
   useAppStore,
 } from '../../store/appStore'
-import { testProvider, getDefaultPrompt } from '../../services/api'
+import { testProvider } from '../../services/api'
 import { parseSSE } from '../../services/sse'
 import type { ModuleKey, Provider, ProviderNode, ProviderNodeType, ResolvedProviderNode } from '../../services/types'
 import { resolveProviderNodes } from '../../utils/providerResolver'
@@ -146,11 +146,8 @@ export default function SettingsPage() {
     intervalSec?: number
     error?: string
   } | null>(null)
-  const [draftPrompt, setDraftPrompt] = useState<string>(m1SystemPrompt)
-  const [draftTestText, setDraftTestText] = useState<string>(m1TestText)
   const [draftDir, setDraftDir] = useState<string>(assetDir)
   const [applyingDir, setApplyingDir] = useState(false)
-  const [loadingPrompt, setLoadingPrompt] = useState(false)
   const [testResult, setTestResult] = useState<{
     node: ResolvedProviderNode
     ok: boolean
@@ -909,16 +906,6 @@ export default function SettingsPage() {
                 moduleMapping={moduleMapping}
                 MODULE_LABELS={MODULE_LABELS}
                 setModuleNode={setModuleNode}
-                setState={setState}
-                draftPrompt={draftPrompt}
-                setDraftPrompt={setDraftPrompt}
-                loadingPrompt={loadingPrompt}
-                setLoadingPrompt={setLoadingPrompt}
-                getDefaultPrompt={getDefaultPrompt}
-                m1SystemPrompt={m1SystemPrompt}
-                draftTestText={draftTestText}
-                setDraftTestText={setDraftTestText}
-                m1TestText={m1TestText}
               />,
             },
             {

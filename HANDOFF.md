@@ -2,7 +2,7 @@
 
 **最后更新**：2026-06-30
 **当前位置**：办公场所 A（待推送）
-**本轮主题**：**节点池编辑面板 5 项修复**
+**本轮主题**：**模型映射弹窗化 + M1 清理/测试迁移**
 
 > 📦 **历史明细已归档** → `docs/handoff_history.md`
 > 本文件只保留「恢复工作所需的活内容」：进行中任务、模块清单、下一步、交接参考。
@@ -10,7 +10,40 @@
 
 ---
 
-## 🆕 节点池编辑面板 5 项修复（本轮，待推送）
+## 🆕 模型映射弹窗化 + M1 清理/测试迁移（本轮，待推送）
+
+### 改动
+
+- **`services/types.ts`**：新增 `getModuleNodeType()` 函数——`m2CardImage` → `'image'`，其余模块 → `'text'`
+- **`panels/ModelMappingModal.tsx`**（新建）：
+  - 3 列 Table：模块 | 供应商 | 节点
+  - 供应商列过滤：仅显示拥有对应 moduleType 节点的供应商
+  - 节点列过滤：级联（选中的供应商下 enabled 且 nodeType 匹配的节点），label 仅模型名
+  - 行级 `pendingProviderId` local state 管理中间态；`destroyOnClose` 确保每次打开状态刷新
+- **`panels/NodesTabContent.tsx`**：
+  - **删除** inline 映射 Card，替换为标题栏"模型映射"按钮（在"批量测试"和"新增供应商/节点"之间）
+  - **删除** M1 提示词 Card 和测试文本 Card（已迁至 Step3Clean）
+  - 清理已废弃的 `setState`/`draftPrompt`/`m1TestText` 等 11 个 props
+  - 新增 `<ModelMappingModal>` 引用
+- **`settings/index.tsx`**：移除注入 `NodesTabContent` 的 M1 清理/测试相关 props
+- **`m1-import/Step3Clean.tsx`**：接收 M1 清理/测试设置
+  - 清理节点池标签栏新增 3 个按钮：清理提示词 Modal、测试文本 Modal、批量测试
+  - 节点过滤加 `p.nodeType === 'text'` 过滤非文本节点
+  - 清理提示词 Modal：编辑/保存/恢复默认/清空，持久化到 `promptOverrides['m1-clean']`
+  - 测试文本 Modal：编辑/保存/恢复默认/清空，持久化到 `m1TestText`
+  - 批量测试：并发 4 路调用真实 `/api/llm/clean`，更新节点 `lastTestResult`
+- **`book-reader/ImmersiveReader.tsx`**：清理节点选择器过滤 `p.nodeType === 'text'`
+
+### 验证
+
+| 命令 | 结果 |
+|---|---|
+| `npx tsc --noEmit`（frontend） | 0 error |
+| `npm test`（frontend） | TBD |
+
+---
+
+## 🆕 节点池编辑面板 5 项修复（已推送）
 
 ### 改动
 

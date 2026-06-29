@@ -339,6 +339,11 @@ export interface ConsistencyIssue {
 
 export type ProviderNodeType = 'text' | 'image'
 
+/** 根据模块 Key 返回所需节点类型：仅 m2CardImage 为 image，其余均为 text。 */
+export function getModuleNodeType(key: ModuleKey): ProviderNodeType {
+  return key === 'm2CardImage' ? 'image' : 'text'
+}
+
 /** 图片生图协议：ModelScope 异步任务 / GPT Image 同步 API / xAI Imagine 同步 API */
 export type ImageProtocol = 'modelscope' | 'gpt' | 'xai'
 
