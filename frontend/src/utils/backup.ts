@@ -26,12 +26,13 @@ import type {
   MergeCandidate,
   GeneratedImage,
   ChatSession,
+  Provider,
   ProviderNode,
   ModuleKey,
   ModuleModelMapping,
   SplitPattern,
 } from '../services/types'
-import { normalizeProvider } from './provider'
+import { normalizeProvider, normalizeProviderNode } from './provider'
 import { DEFAULT_SPLIT_PATTERNS } from './split'
 import { seedModuleMapping } from '../mocks/seed'
 
@@ -53,7 +54,8 @@ export const BUNDLE_VERSION = 1
 
 /** settings.json 中由前端管理的键（排除 storeInitialized/embeddingDim 等后端内部字段）。 */
 export interface SettingsPayload {
-  providers?: ProviderNode[]
+  providers?: Provider[]
+  providerNodes?: ProviderNode[]
   moduleMapping?: Record<ModuleKey, ModuleModelMapping>
   m1SystemPrompt?: string
   assetDir?: string
@@ -104,7 +106,7 @@ export const BUSINESS_KEYS = [
 
 /** settings 的所有合法键（导入时按此白名单过滤）。 */
 export const SETTINGS_KEYS = [
-  'providers', 'moduleMapping', 'm1SystemPrompt', 'assetDir',
+  'providers', 'providerNodes', 'moduleMapping', 'm1SystemPrompt', 'assetDir',
   'currentBookId', 'imageDemoForm', 'imageDemoGlobalForm', 'imageDemoFormPerNode',
   'showMenuBar', 'splitPatterns', 'cleanNodeOverrides',
   'm1AutoRetry', 'm1TitleTemplate', 'm1TestText',
@@ -125,7 +127,10 @@ export function buildBundle(
 ): BackupBundle {
   const settingsCopy: SettingsPayload = { ...settings }
   if (redactApiKeys && Array.isArray(settingsCopy.providers)) {
-    settingsCopy.providers = settingsCopy.providers.map((p) => ({ ...p, apiKey: '' }))
+    settingsCopy.providers = settingsCopy.providers.map((p) => ({
+      ...p,
+      apiKeys: p.apiKeys.map((k) => ({ ...k, key: '' })),
+    }))
   }
   const bundle: BackupBundle = {
     version: BUNDLE_VERSION,
@@ -240,28 +245,115 @@ export function parseBundle(raw: string): ParseResult {
 /** 规范化 settings：按白名单取键 + 逐项容错补默认。 */
 function normalizeSettings(raw: Record<string, unknown>, warnings: string[]): SettingsPayload {
   const out: SettingsPayload = {}
+
+  // 供应商/节点两层模型：优先 providerNodes；providers 可能是新格式（Supplier）或旧格式（ProviderNode[]）。
   if (Array.isArray(raw.providers)) {
-    const providers: ProviderNode[] = []
-    raw.providers.forEach((p, i) => {
+    const first = raw.providers[0]
+    const isOldProviderNode =
+      first && typeof first === 'object' && typeof (first as Record<string, unknown>).model === 'string'
+
+    if (isOldProviderNode) {
+      // 旧格式：每个 ProviderNode 拆成一个 Provider + 一个 ProviderNode，保留原 id
+      const providers: Provider[] = []
+      const providerNodes: ProviderNode[] = []
+      raw.providers.forEach((p, i) => {
+        if (!p || typeof p !== 'object') {
+          warnings.push(`providers 第 ${i + 1} 项不是对象，已跳过。`)
+          return
+        }
+        const item = p as Record<string, unknown>
+        if (
+          typeof item.id !== 'string' ||
+          typeof item.name !== 'string' ||
+          typeof item.baseURL !== 'string' ||
+          typeof item.model !== 'string'
+        ) {
+          warnings.push(`providers 第 ${i + 1} 项缺少核心字段(id/name/baseURL/model)，已跳过。`)
+          return
+        }
+        try {
+          const providerId = item.id
+          providers.push(
+            normalizeProvider({
+              id: providerId,
+              name: item.name as string,
+              baseURL: item.baseURL as string,
+              apiKey: typeof item.apiKey === 'string' ? item.apiKey : '',
+              createdAt: Date.now(),
+            } as Parameters<typeof normalizeProvider>[0]),
+          )
+          providerNodes.push(
+            normalizeProviderNode({
+              id: providerId,
+              providerId,
+              nodeType: item.nodeType === 'image' ? 'image' : 'text',
+              protocol: item.protocol === 'gpt' ? 'gpt' : item.protocol === 'xai' ? 'xai' : 'modelscope',
+              model: item.model as string,
+              enabled: item.enabled !== false,
+              lastTestResult: item.lastTestResult === 'ok' || item.lastTestResult === 'fail' ? item.lastTestResult : null,
+              maxConcurrency: typeof item.maxConcurrency === 'number' ? item.maxConcurrency : 2,
+              batchChars: typeof item.batchChars === 'number' ? item.batchChars : 10000,
+              intervalSec: typeof item.intervalSec === 'number' ? item.intervalSec : 0,
+              usageLimitEnabled: item.usageLimitEnabled === true,
+              usageLimit: typeof item.usageLimit === 'number' ? item.usageLimit : 0,
+              usageLeft: typeof item.usageLeft === 'number' ? item.usageLeft : 0,
+              usageResetDate: typeof item.usageResetDate === 'string' ? item.usageResetDate : '',
+              isMultimodal: item.isMultimodal === true,
+            } as unknown as Parameters<typeof normalizeProviderNode>[0]),
+          )
+        } catch (err) {
+          warnings.push(`providers 第 ${i + 1} 项规范化失败：${String(err)}，已跳过。`)
+        }
+      })
+      out.providers = providers
+      out.providerNodes = providerNodes
+    } else {
+      const providers: Provider[] = []
+      raw.providers.forEach((p, i) => {
+        if (!p || typeof p !== 'object') {
+          warnings.push(`providers 第 ${i + 1} 项不是对象，已跳过。`)
+          return
+        }
+        const item = p as Record<string, unknown>
+        if (typeof item.id !== 'string' || typeof item.name !== 'string' || typeof item.baseURL !== 'string') {
+          warnings.push(`providers 第 ${i + 1} 项缺少核心字段(id/name/baseURL)，已跳过。`)
+          return
+        }
+        try {
+          providers.push(normalizeProvider(item as Parameters<typeof normalizeProvider>[0]))
+        } catch (err) {
+          warnings.push(`providers 第 ${i + 1} 项规范化失败：${String(err)}，已跳过。`)
+        }
+      })
+      out.providers = providers
+    }
+  }
+
+  if (Array.isArray(raw.providerNodes)) {
+    const providerNodes: ProviderNode[] = []
+    raw.providerNodes.forEach((p, i) => {
       if (!p || typeof p !== 'object') {
-        warnings.push(`providers 第 ${i + 1} 项不是对象，已跳过。`)
+        warnings.push(`providerNodes 第 ${i + 1} 项不是对象，已跳过。`)
         return
       }
       const item = p as Record<string, unknown>
-      // normalizeProvider 要求至少有 id/name/baseURL/model 四个核心字段
-      if (typeof item.id !== 'string' || typeof item.name !== 'string' ||
-          typeof item.baseURL !== 'string' || typeof item.model !== 'string') {
-        warnings.push(`providers 第 ${i + 1} 项缺少核心字段(id/name/baseURL/model)，已跳过。`)
+      if (
+        typeof item.id !== 'string' ||
+        typeof item.providerId !== 'string' ||
+        typeof item.model !== 'string'
+      ) {
+        warnings.push(`providerNodes 第 ${i + 1} 项缺少核心字段(id/providerId/model)，已跳过。`)
         return
       }
       try {
-        providers.push(normalizeProvider(item as Parameters<typeof normalizeProvider>[0]))
+        providerNodes.push(normalizeProviderNode(item as Parameters<typeof normalizeProviderNode>[0]))
       } catch (err) {
-        warnings.push(`providers 第 ${i + 1} 项规范化失败：${String(err)}，已跳过。`)
+        warnings.push(`providerNodes 第 ${i + 1} 项规范化失败：${String(err)}，已跳过。`)
       }
     })
-    out.providers = providers
+    out.providerNodes = providerNodes
   }
+
   if (raw.moduleMapping && typeof raw.moduleMapping === 'object') {
     // 与 seedModuleMapping 合并，确保新增的 ModuleKey 有默认值（向后兼容）
     out.moduleMapping = { ...seedModuleMapping, ...(raw.moduleMapping as Record<ModuleKey, ModuleModelMapping>) }

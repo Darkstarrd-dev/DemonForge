@@ -16,13 +16,14 @@
  */
 import { useMemo } from 'react'
 import { useAppStore } from '../store/appStore'
-import type { ModuleKey, ProviderNode } from '../services/types'
+import type { ModuleKey, ResolvedProviderNode } from '../services/types'
+import { resolveProviderNode, resolveProviderNodes } from '../utils/providerResolver'
 
 export interface ModuleNodeState {
   /** 解析出的节点 id（无可用节点时为空串）。 */
   nodeId: string
   /** 节点对象（无可用时 undefined）。 */
-  node: ProviderNode | undefined
+  node: ResolvedProviderNode | undefined
   /** 是否走了默认（即 value 未给或值无效）。决定按钮「（默认）」后缀。 */
   isDefault: boolean
 }
@@ -38,26 +39,32 @@ export function useModuleNode(
   localOverride?: string,
 ): ModuleNodeState {
   const providers = useAppStore((s) => s.providers)
+  const providerNodes = useAppStore((s) => s.providerNodes)
   const moduleMapping = useAppStore((s) => s.moduleMapping)
 
   return useMemo(() => {
-    const enabledOfKind = providers.filter((p) => p.enabled && p.nodeType === kind)
+    const resolved = resolveProviderNodes({ providers, providerNodes })
+    const enabledOfKind = resolved.filter((n) => n.enabled && n.nodeType === kind)
 
     // 1. 本地覆盖优先（用户本次显式选择）
     if (localOverride) {
-      const found = providers.find((p) => p.id === localOverride && p.enabled)
-      if (found) return { nodeId: found.id, node: found, isDefault: false }
+      const found = resolveProviderNode({ providers, providerNodes }, localOverride)
+      if (found && found.enabled && found.nodeType === kind) {
+        return { nodeId: found.id, node: found, isDefault: false }
+      }
     }
 
     // 2. moduleMapping 默认
     const mappedId = moduleMapping[moduleKey]?.nodeId
     if (mappedId) {
-      const found = providers.find((p) => p.id === mappedId && p.enabled)
-      if (found) return { nodeId: found.id, node: found, isDefault: true }
+      const found = resolveProviderNode({ providers, providerNodes }, mappedId)
+      if (found && found.enabled && found.nodeType === kind) {
+        return { nodeId: found.id, node: found, isDefault: true }
+      }
     }
 
     // 3. 兜底首个 enabled 同 kind 节点
     const first = enabledOfKind[0]
     return { nodeId: first?.id ?? '', node: first, isDefault: true }
-  }, [providers, moduleMapping, moduleKey, kind, localOverride])
+  }, [providers, providerNodes, moduleMapping, moduleKey, kind, localOverride])
 }

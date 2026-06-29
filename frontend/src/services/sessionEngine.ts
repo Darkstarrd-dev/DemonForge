@@ -9,7 +9,7 @@
 
 import { useAppStore, genId } from '../store/appStore'
 import type { NodeTestForm } from '../store/appStore'
-import type { ProviderNode, ChatSessionMessage, ImageInputMode, SessionRuntime } from './types'
+import type { ResolvedProviderNode, ChatSessionMessage, ImageInputMode, SessionRuntime } from './types'
 import { streamChat, generateTitle } from './real/chat'
 import { generateImageGpt } from './real/gptImage'
 import { generateImage } from './real/image'
@@ -63,7 +63,7 @@ function pushDebug(
 
 export interface SendArgs {
   sessionId: string
-  node: ProviderNode
+  node: ResolvedProviderNode
   testMode: 'text' | 'image'
   /** 图片协议（testMode==='image' 时有意义） */
   protocol: 'modelscope' | 'gpt' | 'xai'

@@ -7,7 +7,7 @@
  * 用法：<PromptEditorButton promptKey="m0-arch" onOverrideChange={setSystemPrompt} />
  * 按类型分支：<PromptEditorButton promptKey="m2-card-single" type={card.type} ... />
  */
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { Button, Modal, Input, Typography, App, Spin } from 'antd'
 import { EditOutlined } from '@ant-design/icons'
 import { usePromptOverride } from '../hooks/usePromptOverride'
@@ -38,10 +38,10 @@ export function PromptEditorButton({
   const { defaultValue, currentValue, defaultLoaded, isDirty, save, reset } =
     usePromptOverride(promptKey, type)
 
-  // 打开时用当前生效值初始化草稿
-  useEffect(() => {
-    if (open) setDraft(currentValue)
-  }, [open, currentValue])
+  const handleOpen = () => {
+    setDraft(currentValue)
+    setOpen(true)
+  }
 
   const handleSave = () => {
     save(draft)
@@ -62,7 +62,7 @@ export function PromptEditorButton({
 
   return (
     <>
-      <Button size={size} icon={<EditOutlined />} onClick={() => setOpen(true)}>
+      <Button size={size} icon={<EditOutlined />} onClick={handleOpen}>
         {buttonLabel}{dirtyBadge}
       </Button>
       <Modal

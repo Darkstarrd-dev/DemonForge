@@ -392,7 +392,6 @@ export function resolveTraps(state: GameState, tileIndex: number): GameState {
   const params = def?.effectParams ?? {}
 
   if (effectType === ItemEffectType.SET_TRAP) {
-    const trapType = (params.trapType as string) ?? 'mine'
     const dmg = (params.damage as number) ?? 800
     const hospTurns = (params.hospitalTurns as number) ?? 2
     const owner = players.find(p => p.id === trap.ownerId)

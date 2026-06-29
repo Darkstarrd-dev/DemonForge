@@ -1,11 +1,11 @@
 // M2 设定卡片 · AI 生成服务层——经后端 /api/llm/generate-card 与 /api/llm/card-image-prompts 调用。
 // 节点由调用方从节点池选定后传入（面板内选择器，非模块映射）。
 
-import type { EntityCard, EntityType, ProviderNode } from '../types'
+import type { EntityCard, EntityType, ResolvedProviderNode } from '../types'
 import { parseSSE } from '../sse'
 
 /** 选中节点里取连通所需的最小字段。 */
-type NodeLike = Pick<ProviderNode, 'baseURL' | 'apiKey' | 'model'>
+type NodeLike = Pick<ResolvedProviderNode, 'baseURL' | 'apiKey' | 'model'>
 
 export interface GenerateCardArgs {
   type: EntityType

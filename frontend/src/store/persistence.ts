@@ -156,6 +156,7 @@ export async function pushStoreNowChecked(): Promise<void> {
 /** 设置载荷构造（单一真相：脏检查键集与 backup.ts 备份均从此派生，加字段只改这里）。 */
 export const settingsPayload = (s: AppState) => ({
   providers: s.providers,
+  providerNodes: s.providerNodes,
   moduleMapping: s.moduleMapping,
   m1SystemPrompt: s.m1SystemPrompt,
   assetDir: s.assetDir,

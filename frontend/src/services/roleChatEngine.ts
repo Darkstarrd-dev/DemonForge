@@ -13,6 +13,7 @@
 import { useAppStore, genId } from '../store/appStore'
 import type { EntityCard, RoleChatParticipant, RoleChatMessage, RoleChatRuntime } from './types'
 import { streamChat, type ChatMessage } from './api'
+import { resolveProviderNode } from '../utils/providerResolver'
 
 /** 每参与者的在途请求句柄（不可序列化，留模块级，不进 store）。 */
 const inflight = new Map<string, AbortController>()
@@ -93,7 +94,7 @@ export function respondParticipant(participant: RoleChatParticipant): Promise<vo
   const st = store()
   const pid = participant.id
   const card = st.cards.find((c) => c.id === participant.cardId)
-  const node = st.providers.find((p) => p.id === participant.nodeId)
+  const node = resolveProviderNode({ providers: st.providers, providerNodes: st.providerNodes }, participant.nodeId)
 
   if (!node) {
     rt(pid, { status: 'error', error: '未找到该参与者的推理节点（可能已在设置中删除）' })

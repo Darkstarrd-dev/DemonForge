@@ -15,6 +15,7 @@ import {
 import { useAppStore } from '../../store/appStore'
 import { cancelSession } from '../../services/api'
 import type { ChatSession } from '../../services/types'
+import { resolveProviderNodes } from '../../utils/providerResolver'
 
 export default function SessionSidebar() {
   const { token } = theme.useToken()
@@ -22,6 +23,8 @@ export default function SessionSidebar() {
   const activeChatSessionId = useAppStore((s) => s.activeChatSessionId)
   const sessionRuntimes = useAppStore((s) => s.sessionRuntimes)
   const providers = useAppStore((s) => s.providers)
+  const providerNodes = useAppStore((s) => s.providerNodes)
+  const resolvedNodes = resolveProviderNodes({ providers, providerNodes })
   const setActiveChatSessionId = useAppStore((s) => s.setActiveChatSessionId)
   const renameChatSession = useAppStore((s) => s.renameChatSession)
   const deleteChatSession = useAppStore((s) => s.deleteChatSession)
@@ -60,7 +63,7 @@ export default function SessionSidebar() {
           sorted.map((s) => {
             const active = s.id === activeChatSessionId
             const running = sessionRuntimes[s.id]?.status === 'streaming'
-            const node = providers.find((p) => p.id === s.nodeId)
+            const node = resolvedNodes.find((p) => p.id === s.nodeId)
             const sub = `${node?.name ?? ''}${node ? ' · ' : ''}${s.modelName ?? ''}`
             return (
               <div

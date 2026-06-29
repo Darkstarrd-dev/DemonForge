@@ -29,14 +29,21 @@ vi.mock('../../services/api', () => ({
 import NodeTestPage from './index'
 import { sendInSession } from '../../services/api'
 import { useAppStore } from '../../store/appStore'
-import type { ProviderNode } from '../../services/types'
+import type { Provider, ProviderNode } from '../../services/types'
+
+const provider: Provider = {
+  id: 'p1',
+  name: '测试供应商',
+  baseURL: 'http://example.test/v1',
+  apiKeys: [{ id: 'k1', key: 'sk-test', enabled: true, state: 'ok' }],
+  rotationPolicy: 'round-robin',
+  createdAt: Date.now(),
+}
 
 const textNode: ProviderNode = {
   id: 'n1',
-  name: '测试节点 (gpt-4o)',
+  providerId: 'p1',
   nodeType: 'text',
-  baseURL: 'http://example.test/v1',
-  apiKey: 'sk-test',
   model: 'gpt-4o',
   enabled: true,
   maxConcurrency: 2,
@@ -59,6 +66,7 @@ beforeEach(() => {
   // 重置节点测试相关域字段（其它 slice 保持初始）。storeReady 默认 false → 不触发持久化。
   useAppStore.setState({
     providers: [],
+    providerNodes: [],
     chatSessions: [],
     activeChatSessionId: null,
     sessionRuntimes: {},
@@ -77,7 +85,8 @@ describe('NodeTestPage · characterization', () => {
 
   it('单栏发送经引擎 sendInSession 并透传本轮 user 文本与节点', () => {
     useAppStore.setState({
-      providers: [textNode],
+      providers: [provider],
+      providerNodes: [textNode],
       nodeTestGlobalForm: { provider: 'modelscope', nodeId: 'n1' },
       nodeTestFormPerNode: { n1: { prompt: '你好，世界' } },
     })
@@ -96,7 +105,8 @@ describe('NodeTestPage · characterization', () => {
 
   it('切换对比模式后出现左右双栏', () => {
     useAppStore.setState({
-      providers: [textNode],
+      providers: [provider],
+      providerNodes: [textNode],
       nodeTestGlobalForm: { provider: 'modelscope', nodeId: 'n1' },
     })
     const { container } = renderPage()

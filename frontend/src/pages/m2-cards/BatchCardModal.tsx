@@ -7,7 +7,7 @@ import {
   Progress, Radio, Select, Space, Spin, Tag, Typography,
 } from 'antd'
 import { DeleteOutlined, PlusOutlined, ThunderboltOutlined, StopOutlined, ReloadOutlined } from '@ant-design/icons'
-import type { Book, EntityCard, EntityType, ProviderNode } from '../../services/types'
+import type { Book, EntityCard, EntityType, ResolvedProviderNode } from '../../services/types'
 import { generateCardProfiles, generateCardsBatch, type CardProfile, type GeneratedCard } from '../../services/api'
 import { NodePickerButton } from '../../components/node-picker/NodePickerButton'
 import { PromptEditorButton } from '../../components/PromptEditorButton'
@@ -25,7 +25,7 @@ const TYPE_OPTIONS: { value: EntityType; label: string }[] = [
 
 interface Props {
   books: Book[]
-  providers: ProviderNode[]
+  providers: ResolvedProviderNode[]
   defaultTextNodeId?: string
   /** 默认归属书；批量默认素材库（空串） */
   defaultBookId?: string

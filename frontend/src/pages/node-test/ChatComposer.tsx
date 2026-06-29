@@ -4,7 +4,7 @@
 import { Button, Space, Typography, Upload, Segmented, theme } from 'antd'
 import { CloseOutlined, MessageOutlined, PictureOutlined, FileImageOutlined, SendOutlined } from '@ant-design/icons'
 import type { RefObject } from 'react'
-import type { ProviderNode } from '../../services/types'
+import type { ResolvedProviderNode } from '../../services/types'
 import type { NodeTestForm } from '../../store/appStore'
 import type { TestMode } from './types'
 import { NodeList } from '../../components/node-picker/NodeList'
@@ -23,7 +23,7 @@ export default function ChatComposer(props: {
   testMode: TestMode
   onChangeTestMode: (v: TestMode) => void
   // 节点列表
-  availableNodes: ProviderNode[]
+  availableNodes: ResolvedProviderNode[]
   nodeGroupExpanded: Record<string, boolean>
   toggleGroup: (groupKey: string) => void
   effectiveNodeId: string | undefined
@@ -34,7 +34,7 @@ export default function ChatComposer(props: {
   isImageMode: boolean
   isMultimodal: boolean
   supportsEdit: boolean
-  selectedNode: ProviderNode | undefined
+  selectedNode: ResolvedProviderNode | undefined
   nodeTestForm: NodeTestForm
   setForm: (patch: Partial<NodeTestForm>) => void
   handleKeyDown: (e: React.KeyboardEvent<HTMLTextAreaElement>) => void

@@ -39,6 +39,7 @@ import { useAppStore, pushStoreNow } from '../../store/appStore'
 import { extractEntities } from '../../services/api'
 import type { CardImage, EntityCard, EntityType } from '../../services/types'
 import type { ExtractProgress } from '../../services/api'
+import { resolveProviderNodes } from '../../utils/providerResolver'
 import CardEditorModal from './CardEditorModal'
 import ImageBatchModal from './ImageBatchModal'
 import BatchCardModal from './BatchCardModal'
@@ -60,9 +61,11 @@ export default function M2CardsPage() {
   const currentBookId = useAppStore((s) => s.currentBookId)
   const mergeCandidates = useAppStore((s) => s.mergeCandidates)
   const providers = useAppStore((s) => s.providers)
+  const providerNodes = useAppStore((s) => s.providerNodes)
   const moduleMapping = useAppStore((s) => s.moduleMapping)
   const setState = useAppStore((s) => s.setState)
   const updateCard = useAppStore((s) => s.updateCard)
+  const resolvedNodes = useMemo(() => resolveProviderNodes({ providers, providerNodes }), [providers, providerNodes])
 
   const [scope, setScope] = useState<'project' | 'all'>('all')
   const [typeFilter, setTypeFilter] = useState<EntityType | 'all'>('all')
@@ -82,7 +85,7 @@ export default function M2CardsPage() {
   const [editForm] = Form.useForm()
 
   const defaultTextNodeId = moduleMapping.m2Extract?.nodeId ?? undefined
-  const defaultImageNodeId = providers.find((p) => p.nodeType === 'image' && p.enabled)?.id ?? undefined
+  const defaultImageNodeId = resolvedNodes.find((p) => p.nodeType === 'image' && p.enabled)?.id ?? undefined
 
   const filtered = useMemo(() => {
     return cards.filter((c) => {
@@ -882,7 +885,7 @@ export default function M2CardsPage() {
         <CardEditorModal
           initialMode={cardEditor.mode}
           books={books}
-          providers={providers}
+          providers={resolvedNodes}
           defaultTextNodeId={defaultTextNodeId}
           defaultBookId={currentBookId || books[0]?.id}
           onClose={() => setCardEditor(null)}
@@ -893,7 +896,7 @@ export default function M2CardsPage() {
       {batchOpen && (
         <BatchCardModal
           books={books}
-          providers={providers}
+          providers={resolvedNodes}
           defaultTextNodeId={defaultTextNodeId}
           defaultBookId=""
           onClose={() => setBatchOpen(false)}
@@ -907,7 +910,7 @@ export default function M2CardsPage() {
         return (
           <ImageBatchModal
             card={bc}
-            providers={providers}
+          providers={resolvedNodes}
             defaultTextNodeId={defaultTextNodeId}
             defaultImageNodeId={defaultImageNodeId}
             onClose={() => setBatchCardId(null)}

@@ -9,6 +9,7 @@
 import { Modal } from 'antd'
 import { useAppStore } from '../../store/appStore'
 import { NodeList } from './NodeList'
+import { resolveProviderNodes } from '../../utils/providerResolver'
 
 export interface NodePickerModalProps {
   open: boolean
@@ -29,7 +30,8 @@ export function NodePickerModal({
   title,
 }: NodePickerModalProps) {
   const providers = useAppStore((s) => s.providers)
-  const nodes = providers.filter((p) => p.enabled && p.nodeType === kind)
+  const providerNodes = useAppStore((s) => s.providerNodes)
+  const nodes = resolveProviderNodes({ providers, providerNodes }).filter((n) => n.enabled && n.nodeType === kind)
 
   return (
     <Modal

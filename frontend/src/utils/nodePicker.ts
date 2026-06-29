@@ -10,33 +10,33 @@
  * 本模块作为节点选择 UI（NodeList / NodePickerModal / NodePickerButton）的唯一数据源。
  * 无副作用、无框架依赖，可被纯 node 单测引用（仿 provider.ts）。
  */
-import type { ProviderNode } from '../services/types'
+import type { ResolvedProviderNode } from '../services/types'
 
 /**
  * 节点对应的「供应商名」＝ 去掉 `name` 末尾括号后缀（与节点池分组规则一致），
  * 空则回退 `baseURL`。例：「通义千问 (华东)」→「通义千问」。
  */
-export function nodeVendorName(node: ProviderNode): string {
+export function nodeVendorName(node: ResolvedProviderNode): string {
   return node.name.replace(/\s*\([^)]*\)\s*$/, '').trim() || node.baseURL
 }
 
 /** 节点完整标签（兼容旧 `${name}·${model}` 显示形态）。 */
-export function nodeLabel(node: ProviderNode): string {
+export function nodeLabel(node: ResolvedProviderNode): string {
   return `${node.name} · ${node.model}`
 }
 
 /** 仅模型名（两行版式下行用）。 */
-export function nodeModelName(node: ProviderNode): string {
+export function nodeModelName(node: ResolvedProviderNode): string {
   return node.model
 }
 
 /** 是否支持视觉多模态（VLM）。仅文本节点有效；图片节点恒 false。 */
-export function isMultimodalNode(node: ProviderNode): boolean {
+export function isMultimodalNode(node: ResolvedProviderNode): boolean {
   return node.nodeType === 'text' && node.isMultimodal === true
 }
 
 /** 是否支持图生图（Image2Image / 图片编辑）。仅图片节点有效；文本节点恒 false。 */
-export function supportsImageEditNode(node: ProviderNode): boolean {
+export function supportsImageEditNode(node: ResolvedProviderNode): boolean {
   return node.nodeType === 'image' && node.supportsImageEdit === true
 }
 
@@ -48,14 +48,14 @@ export interface ProviderGroup {
   /** 服务端点。 */
   baseURL: string
   /** 组内节点列表。 */
-  nodes: ProviderNode[]
+  nodes: ResolvedProviderNode[]
 }
 
 /**
  * 按 baseURL + 供应商名 分组（消除 3 处重复逻辑）。
  * 与 `pages/node-test/index.tsx` 旧版 inline 分组规则等价。
  */
-export function groupProviders(nodes: ProviderNode[]): ProviderGroup[] {
+export function groupProviders(nodes: ResolvedProviderNode[]): ProviderGroup[] {
   const acc: Record<string, ProviderGroup> = {}
   for (const node of nodes) {
     const groupName = nodeVendorName(node)

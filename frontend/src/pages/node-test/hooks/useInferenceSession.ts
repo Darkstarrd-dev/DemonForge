@@ -14,7 +14,8 @@ import { useAppStore } from '../../../store/appStore'
 import { genId } from '../../../store/appStore'
 import { sendInSession, cancelSession } from '../../../services/api'
 import { imageHosts } from '../../../services/imageHost'
-import type { ProviderNode, ImageInputMode, ChatSession } from '../../../services/types'
+import type { ResolvedProviderNode, ImageInputMode, ChatSession } from '../../../services/types'
+import { resolveProviderNodes } from '../../../utils/providerResolver'
 import type { NodeTestForm } from '../../../store/appStore'
 import type { DebugInfoData } from '../DebugInfoPanel'
 import type { ChatMessage, Phase } from '../types'
@@ -22,8 +23,8 @@ import { useCompareSession } from './useCompareSession'
 
 export interface InferenceSessionArgs {
   testMode: 'text' | 'image'
-  selectedNode: ProviderNode | undefined
-  availableNodes: ProviderNode[]
+  selectedNode: ResolvedProviderNode | undefined
+  availableNodes: ResolvedProviderNode[]
   isImageMode: boolean
   isGpt: boolean
   isXai: boolean
@@ -49,6 +50,8 @@ export function useInferenceSession(args: InferenceSessionArgs) {
 
   // ===== store 订阅（推理所需） =====
   const providers = useAppStore((s) => s.providers)
+  const providerNodes = useAppStore((s) => s.providerNodes)
+  const resolvedNodes = useMemo(() => resolveProviderNodes({ providers, providerNodes }), [providers, providerNodes])
   const chatSessions = useAppStore((s) => s.chatSessions)
   const activeChatSessionId = useAppStore((s) => s.activeChatSessionId)
   const sessionRuntimes = useAppStore((s) => s.sessionRuntimes)
@@ -127,7 +130,7 @@ export function useInferenceSession(args: InferenceSessionArgs) {
     let modelName = ''
     if (session) {
       modelName = session.modelName || ''
-      const node = providers.find((p) => p.id === session.nodeId)
+      const node = resolvedNodes.find((p) => p.id === session.nodeId)
       if (node) nodeName = node.name
     } else if (selectedNode) {
       nodeName = selectedNode.name
@@ -135,7 +138,7 @@ export function useInferenceSession(args: InferenceSessionArgs) {
     }
     const label = nodeName ? `${nodeName} · ${modelName}` : modelName
     return { msgId: lastAsst.id, label }
-  }, [chatMessages, chatSessions, activeChatSessionId, providers, selectedNode])
+  }, [chatMessages, chatSessions, activeChatSessionId, resolvedNodes, selectedNode])
 
   // 检测模型切换点：返回需要显示模型标记的消息ID及其标签
   const modelChanges = useMemo(() => {
@@ -151,14 +154,14 @@ export function useInferenceSession(args: InferenceSessionArgs) {
         const nextModel = nextAssistant.modelName || nextAssistant.nodeId
         if (currentModel && nextModel && currentModel !== nextModel) {
           // 找到切换点：当前消息是切换前的最后一条
-          const nodeName = msg.nodeId ? providers.find((p) => p.id === msg.nodeId)?.name || '' : ''
+          const nodeName = msg.nodeId ? resolvedNodes.find((p) => p.id === msg.nodeId)?.name || '' : ''
           const label = nodeName ? `${nodeName} · ${msg.modelName}` : msg.modelName || ''
           changes.push({ msgId: msg.id, label })
         }
       }
     }
     return changes
-  }, [chatMessages, providers])
+  }, [chatMessages, resolvedNodes])
 
   // 同步 chatMessages 到 activeChatSession
   // 把一组消息写回当前激活 session（编辑/删除用；session 即唯一真相源）

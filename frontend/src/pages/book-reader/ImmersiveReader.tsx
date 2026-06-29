@@ -25,11 +25,12 @@ import {
   ReloadOutlined,
 } from '@ant-design/icons'
 import { useAppStore, pushStoreNow } from '../../store/appStore'
-import type { Chapter, LineDecision } from '../../services/types'
+import type { Chapter, LineDecision, ResolvedProviderNode } from '../../services/types'
 import DiffView from '../m1-import/DiffView'
 import { alignedDiff, applyLineDecisions } from '../../utils/alignedDiff'
 import { streamSingleChapter } from '../../services/api'
 import type { CleanNode, CleanQueueCallbacks } from '../../services/api'
+import { resolveProviderNode, resolveProviderNodes } from '../../utils/providerResolver'
 import './ImmersiveReader.css'
 
 // ── Find/Replace types ──
@@ -108,8 +109,10 @@ export default function ImmersiveReader({
   const updateChapter = useAppStore((s) => s.updateChapter)
   const globalTheme = useAppStore((s) => s.theme)
   const providers = useAppStore((s) => s.providers)
+  const providerNodes = useAppStore((s) => s.providerNodes)
   const m1SystemPrompt = useAppStore((s) => s.m1SystemPrompt)
   const consumeProviderUsage = useAppStore((s) => s.consumeProviderUsage)
+  const resolvedNodes = useMemo(() => resolveProviderNodes({ providers, providerNodes }), [providers, providerNodes])
 
   const readerRef = useRef<HTMLDivElement>(null)
   const contentRef = useRef<HTMLDivElement>(null)
@@ -414,7 +417,10 @@ export default function ImmersiveReader({
 
   const startClean = async () => {
     if (!cleanChapter || !selectedNodeId) return
-    const node = providers.find((p) => p.id === selectedNodeId)
+    const node = resolveProviderNode(
+      { providers: useAppStore.getState().providers, providerNodes: useAppStore.getState().providerNodes },
+      selectedNodeId,
+    )
     if (!node) { message.error('节点不存在'); return }
     if (!consumeProviderUsage(node.id)) { message.error('该节点今日额度已用完'); return }
 
@@ -703,7 +709,7 @@ export default function ImmersiveReader({
                       <div style={{ padding: '8px 16px', fontSize: 13, color: 'var(--imm-muted)', marginBottom: 4 }}>
                         选择清理节点：
                       </div>
-                      {providers.filter((p) => p.enabled).map((node) => {
+                      {resolvedNodes.filter((p: ResolvedProviderNode) => p.enabled).map((node) => {
                         const disabled = cleanPhase !== 'selecting'
                         const active = selectedNodeId === node.id
                         return (
@@ -721,7 +727,7 @@ export default function ImmersiveReader({
                           </div>
                         )
                       })}
-                      {providers.filter((p) => p.enabled).length === 0 && (
+                      {resolvedNodes.filter((p: ResolvedProviderNode) => p.enabled).length === 0 && (
                         <div style={{ padding: 16, color: 'var(--imm-muted)', fontSize: 13, textAlign: 'center' }}>
                           暂无已启用的 Provider 节点。<br />请先在设置中配置并测试。
                         </div>

@@ -2,6 +2,8 @@
 
 import type { SimScene, EntityCard } from '../types'
 import { parseSSE } from '../sse'
+import { resolveProviderNode } from '../../utils/providerResolver'
+import { normalizeProvider, normalizeProviderNode } from '../../utils/provider'
 
 export interface SimulateParams {
   baseURL: string
@@ -35,18 +37,28 @@ export async function simulateCharacter(
   if (!settingsRes.ok) throw new Error('无法读取设置')
   const settings = await settingsRes.json()
   const m3Mapping = settings.moduleMapping?.m3Simulate
-  if (!m3Mapping?.providerId) {
-    throw new Error('M3 模块未配置 Provider，请前往设置页指定')
+  const nodeId = m3Mapping?.nodeId as string | undefined
+  if (!nodeId) {
+    throw new Error('M3 模块未配置节点，请前往设置页指定')
   }
-  const provider = settings.providers?.find((p: { id: string }) => p.id === m3Mapping.providerId)
-  if (!provider) {
-    throw new Error(`Provider ${m3Mapping.providerId} 不存在`)
+  const normalizedProviders = (settings.providers ?? []).map((p: unknown) =>
+    normalizeProvider(p as unknown as Parameters<typeof normalizeProvider>[0]),
+  )
+  const normalizedNodes = (settings.providerNodes ?? []).map((n: unknown) =>
+    normalizeProviderNode(n as unknown as Parameters<typeof normalizeProviderNode>[0]),
+  )
+  const node = resolveProviderNode(
+    { providers: normalizedProviders, providerNodes: normalizedNodes },
+    nodeId,
+  )
+  if (!node) {
+    throw new Error(`节点 ${nodeId} 不存在`)
   }
 
   const body: SimulateParams = {
-    baseURL: provider.baseURL,
-    apiKey: provider.apiKey,
-    model: m3Mapping.modelName || provider.model,
+    baseURL: node.baseURL,
+    apiKey: node.apiKey,
+    model: node.model,
     scene,
     targetCharacterId: card.id,
     candidateCount: 2,

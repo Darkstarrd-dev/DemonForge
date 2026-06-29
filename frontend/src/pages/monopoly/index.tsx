@@ -8,6 +8,7 @@ import { mapEntityCardToCharacter } from '../../game/monopoly/engine/character-m
 import { useAppStore } from '../../store/appStore'
 import { streamChat } from '../../services/api'
 import type { ChatMessage } from '../../services/api'
+import { resolveProviderNodes } from '../../utils/providerResolver'
 import Board from './Board'
 import Board3D from './Board3D'
 import PlayerHUD from './PlayerHUD'
@@ -52,9 +53,12 @@ export default function MonopolyPage() {
   useEffect(() => { lastStateRef.current = state }, [state])
 
   const handleLLMDecide = useCallback(async (messages: ChatMessage[]): Promise<string> => {
-    const providers = useAppStore.getState().providers.filter((n) => n.nodeType === 'text' && n.enabled)
-    if (providers.length === 0) throw new Error('无可用文本节点')
-    const provider = providers[0]
+    const st = useAppStore.getState()
+    const textNodes = resolveProviderNodes({ providers: st.providers, providerNodes: st.providerNodes }).filter(
+      (n) => n.nodeType === 'text' && n.enabled,
+    )
+    if (textNodes.length === 0) throw new Error('无可用文本节点')
+    const provider = textNodes[0]
     return new Promise((resolve, reject) => {
       let result = ''
       streamChat(

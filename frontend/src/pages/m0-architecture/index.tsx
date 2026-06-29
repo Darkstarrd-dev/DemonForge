@@ -29,6 +29,7 @@ import { parseArchitecture, parseBlueprint, type ParsedBlueprintChapter } from '
 import { NodePickerButton } from '../../components/node-picker/NodePickerButton'
 import { PromptEditorButton } from '../../components/PromptEditorButton'
 import { useModuleNode } from '../../hooks/useModuleNode'
+import { resolveProviderNode } from '../../utils/providerResolver'
 
 const ARCH_FIELDS: {
   key: 'seed' | 'characterDynamics' | 'worldBuilding' | 'plotStructure'
@@ -65,7 +66,6 @@ const ARCH_FIELDS: {
 export default function M0ArchitecturePage() {
   const screens = Grid.useBreakpoint()
   const { message, modal } = App.useApp()
-  const providers = useAppStore((s) => s.providers)
   const architectures = useAppStore((s) => s.architectures)
   const outline = useAppStore((s) => s.outline)
   const setState = useAppStore((s) => s.setState)
@@ -104,7 +104,10 @@ export default function M0ArchitecturePage() {
 
   const getProvider = (nodeId: string | null) => {
     if (!nodeId) return null
-    const p = providers.find((x) => x.id === nodeId)
+    const p = resolveProviderNode(
+      { providers: useAppStore.getState().providers, providerNodes: useAppStore.getState().providerNodes },
+      nodeId,
+    )
     if (!p) return null
     return { baseURL: p.baseURL, apiKey: p.apiKey?.trim() || undefined, model: p.model }
   }

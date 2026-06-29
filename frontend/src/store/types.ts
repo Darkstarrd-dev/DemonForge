@@ -10,6 +10,7 @@ import type {
   SimFragment,
   StateEvent,
   ConsistencyIssue,
+  Provider,
   ProviderNode,
   ModuleKey,
   ModuleModelMapping,
@@ -145,7 +146,10 @@ export interface AppState {
   issues: ConsistencyIssue[]
   /** 小说架构（book 级，起源流程产出） */
   architectures: NovelArchitecture[]
-  providers: ProviderNode[]
+  /** 供应商列表（名称 / URL / API KEY 池 / 轮询策略） */
+  providers: Provider[]
+  /** 节点列表（模型级配置，挂在供应商下） */
+  providerNodes: ProviderNode[]
   moduleMapping: Record<ModuleKey, ModuleModelMapping>
   /** M1 清理系统提示词（设置页持久化默认）。空串=用后端内置默认 */
   m1SystemPrompt: string
@@ -276,6 +280,14 @@ export interface AppState {
    * - 否则 usageLeft -= 1 并写回，返回 true。
    */
   consumeProviderUsage: (nodeId: string) => boolean
+  /** 供应商：新增 / 更新 / 删除。删除供应商会级联删除其下所有节点。 */
+  addProvider: (provider: Provider) => void
+  updateProvider: (provider: Provider) => void
+  removeProvider: (id: string) => void
+  /** 节点：新增 / 更新 / 删除。 */
+  addProviderNode: (node: ProviderNode) => void
+  updateProviderNode: (node: ProviderNode) => void
+  removeProviderNode: (id: string) => void
   /** 节点测试：保存/更新 System Prompt 预设。activeId 有值则更新，null 则新建并设为当前激活（立即落 settings.json） */
   saveSystemPromptPreset: (title: string, content: string) => void
   /** 节点测试：按 id 删除 System Prompt 预设。删除当前激活项时 activeId 置 null（立即落 settings.json） */

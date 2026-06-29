@@ -4,6 +4,7 @@ import { ThunderboltOutlined, PauseOutlined, PlayCircleOutlined, StopOutlined } 
 import { useAppStore } from '../../store/appStore'
 import { PromptEditorButton } from '../../components/PromptEditorButton'
 import { startBatchGenerate, type BatchGenTask, type BatchGenNode, type BatchGenCallbacks, type BatchGenHandle } from '../../services/api'
+import { resolveProviderNodes } from '../../utils/providerResolver'
 
 type TaskState = {
   id: string
@@ -18,8 +19,10 @@ export default function BatchGeneratePage() {
   const currentBookId = useAppStore((s) => s.currentBookId)
   const outline = useAppStore((s) => s.outline)
   const providers = useAppStore((s) => s.providers)
+  const providerNodes = useAppStore((s) => s.providerNodes)
   const books = useAppStore((s) => s.books)
   const setState = useAppStore((s) => s.setState)
+  const resolvedNodes = useMemo(() => resolveProviderNodes({ providers, providerNodes }), [providers, providerNodes])
 
   const [selectedIds, setSelectedIds] = useState<string[]>([])
   const [running, setRunning] = useState(false)
@@ -28,7 +31,7 @@ export default function BatchGeneratePage() {
   const [taskStates, setTaskStates] = useState<Map<string, TaskState>>(new Map())
 
   const bookOutline = outline.filter((o) => o.bookId === currentBookId).sort((a, b) => a.order - b.order)
-  const enabledNodes = providers.filter((p) => p.enabled)
+  const enabledNodes = resolvedNodes.filter((p) => p.enabled)
   const book = books.find((b) => b.id === currentBookId)
 
   const batchNodes: BatchGenNode[] = useMemo(

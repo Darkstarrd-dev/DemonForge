@@ -11,7 +11,7 @@ import {
   CheckCircleTwoTone,
   ThunderboltOutlined,
 } from '@ant-design/icons'
-import type { CardImage, EntityCard, ProviderNode } from '../../services/types'
+import type { CardImage, EntityCard, ResolvedProviderNode } from '../../services/types'
 import { generateCardImagePrompts, generateOneCardImage, runImageBatch } from '../../services/api'
 import { NodePickerButton } from '../../components/node-picker/NodePickerButton'
 import { PromptEditorButton } from '../../components/PromptEditorButton'
@@ -31,7 +31,7 @@ interface QItem {
 
 interface Props {
   card: EntityCard
-  providers: ProviderNode[]
+  providers: ResolvedProviderNode[]
   defaultTextNodeId?: string
   defaultImageNodeId?: string
   onClose: () => void

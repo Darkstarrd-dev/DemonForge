@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { App, Button, Divider, Form, Input, Modal, Select, Space, Spin, Typography, theme } from 'antd'
 import { PlusOutlined, DeleteOutlined, ThunderboltOutlined, ReloadOutlined, StopOutlined } from '@ant-design/icons'
-import type { Book, DebugInfoData, EntityCard, EntityType, ProviderNode } from '../../services/types'
+import type { Book, DebugInfoData, EntityCard, EntityType, ResolvedProviderNode } from '../../services/types'
 import { streamGenerateCard, serializeCardForEnrich } from '../../services/api'
 import { genId, useAppStore } from '../../store/appStore'
 import DebugInfoPanel from '../node-test/DebugInfoPanel'
@@ -29,7 +29,7 @@ interface FieldRow {
 interface Props {
   initialMode: 'manual' | 'ai'
   books: Book[]
-  providers: ProviderNode[]
+  providers: ResolvedProviderNode[]
   defaultTextNodeId?: string
   defaultBookId?: string
   onClose: () => void

@@ -9,7 +9,8 @@ import { PictureOutlined, MessageOutlined, CopyOutlined } from '@ant-design/icon
 import { Button, Typography } from 'antd'
 import { useAppStore } from '../../store/appStore'
 import { pushSettingsNow } from '../../store/appStore'
-import type { ProviderNode, ProviderNodeType } from '../../services/types'
+import type { ResolvedProviderNode, ProviderNodeType } from '../../services/types'
+import { resolveProviderNodes } from '../../utils/providerResolver'
 import HistoryList from './HistoryList'
 import ChatTranscript from './ChatTranscript'
 import CompareColumn from './CompareColumn'
@@ -25,6 +26,8 @@ export default function NodeTestPage() {
   const { message } = App.useApp()
   const { token } = theme.useToken()
   const providers = useAppStore((s) => s.providers)
+  const providerNodes = useAppStore((s) => s.providerNodes)
+  const resolvedNodes = useMemo(() => resolveProviderNodes({ providers, providerNodes }), [providers, providerNodes])
   const nodeGroupExpanded = useAppStore((s) => s.nodeGroupExpanded)
   const setState = useAppStore((s) => s.setState)
   const chatSessions = useAppStore((s) => s.chatSessions)
@@ -56,13 +59,13 @@ export default function NodeTestPage() {
   // 根据测试模式过滤可用节点
   const availableNodes = useMemo(() => {
     if (testMode === 'image') {
-      return providers.filter((p) => p.nodeType === 'image' && p.enabled)
+      return resolvedNodes.filter((p) => p.nodeType === 'image' && p.enabled)
     } else {
-      return providers.filter((p) => p.nodeType === 'text' && p.enabled)
+      return resolvedNodes.filter((p) => p.nodeType === 'text' && p.enabled)
     }
-  }, [providers, testMode])
+  }, [resolvedNodes, testMode])
 
-  const selectedNode: ProviderNode | undefined = effectiveNodeId
+  const selectedNode: ResolvedProviderNode | undefined = effectiveNodeId
     ? availableNodes.find((n) => n.id === effectiveNodeId)
     : undefined
 
@@ -100,15 +103,16 @@ export default function NodeTestPage() {
     if (s) {
       setTestMode(s.testType === 'image' ? 'image' : 'text')
       if (s.nodeId) {
-        const node = useAppStore.getState().providers.find((p) => p.id === s.nodeId)
+        const st = useAppStore.getState()
+        const node = resolveProviderNodes({ providers: st.providers, providerNodes: st.providerNodes }).find((p) => p.id === s.nodeId)
         if (node) {
           prevNodeTypeRef.current = node.nodeType
-          const gForm = useAppStore.getState().nodeTestGlobalForm
+          const gForm = st.nodeTestGlobalForm
           setState({ nodeTestGlobalForm: { ...gForm, nodeId: s.nodeId } })
         }
       }
     }
-  }, [activeChatSessionId])
+  }, [activeChatSessionId, setState])
 
   // 当切换节点时，检测节点类型变化并拦截
   useEffect(() => {

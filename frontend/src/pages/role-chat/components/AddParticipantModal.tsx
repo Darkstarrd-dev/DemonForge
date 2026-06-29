@@ -5,6 +5,7 @@ import { useAppStore, genId } from '../../../store/appStore'
 import type { RoleChatParticipant, EntityCard } from '../../../services/types'
 import { NodePickerButton } from '../../../components/node-picker/NodePickerButton'
 import { useModuleNode } from '../../../hooks/useModuleNode'
+import { resolveProviderNodes } from '../../../utils/providerResolver'
 
 interface Props {
   open: boolean
@@ -28,6 +29,8 @@ export default function AddParticipantModal({ open, onClose, onAddMany }: Props)
   const currentBookId = useAppStore((s) => s.currentBookId)
   const cards = useAppStore((s) => s.cards)
   const providers = useAppStore((s) => s.providers)
+  const providerNodes = useAppStore((s) => s.providerNodes)
+  const resolvedNodes = resolveProviderNodes({ providers, providerNodes })
 
   // 多选角色 + 每个角色独立节点
   const [selectedCardIds, setSelectedCardIds] = useState<string[]>([])
@@ -46,7 +49,7 @@ export default function AddParticipantModal({ open, onClose, onAddMany }: Props)
     : characterCards
 
   // 文本节点池（仅用于空提示）
-  const textNodes = providers.filter((p) => p.nodeType === 'text' && p.enabled)
+  const textNodes = resolvedNodes.filter((p) => p.nodeType === 'text' && p.enabled)
 
   // 重置状态
   useEffect(() => {

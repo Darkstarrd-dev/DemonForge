@@ -3,6 +3,7 @@ import { Modal, Input, Select, Button, Space, Typography, App } from 'antd'
 import { BulbOutlined, ClearOutlined } from '@ant-design/icons'
 import { useAppStore } from '../../../store/appStore'
 import { streamChat } from '../../../services/api'
+import { resolveProviderNodes } from '../../../utils/providerResolver'
 
 interface Props {
   open: boolean
@@ -17,7 +18,8 @@ interface Props {
 export default function SceneSettingModal({ open, value, participantNames, onClose, onSave }: Props) {
   const { message } = App.useApp()
   const providers = useAppStore((s) => s.providers)
-  const textNodes = providers.filter((p) => p.nodeType === 'text' && p.enabled)
+  const providerNodes = useAppStore((s) => s.providerNodes)
+  const textNodes = resolveProviderNodes({ providers, providerNodes }).filter((p) => p.nodeType === 'text' && p.enabled)
 
   const [draft, setDraft] = useState(value)
   const [genNodeId, setGenNodeId] = useState<string>()

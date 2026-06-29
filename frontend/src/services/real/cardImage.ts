@@ -2,7 +2,7 @@
 // 复用 services/real/{image,gptImage,xaiImage}.ts，协议分支参考 sessionEngine.ts。
 // done.image 现为 /api/image/file/<name> 归档 URL（非 b64），直接存进卡片。
 
-import type { ProviderNode } from '../types'
+import type { ResolvedProviderNode } from '../types'
 import { generateImage } from './image'
 import { generateImageGpt } from './gptImage'
 import { generateImageXai } from './xaiImage'
@@ -25,7 +25,7 @@ export interface CardImageParams {
 
 /** 在指定图片节点上生成一张图，resolve 出归档文件 URL。失败 / 中止抛错。 */
 export async function generateOneCardImage(
-  node: ProviderNode,
+  node: ResolvedProviderNode,
   prompt: string,
   params: CardImageParams,
   signal?: AbortSignal,
@@ -90,7 +90,7 @@ export interface BatchItemUpdate {
 
 /** 小并发池跑一批生图：每项状态经 onUpdate 上报；单项失败不中断其他项。 */
 export async function runImageBatch(
-  node: ProviderNode,
+  node: ResolvedProviderNode,
   prompts: string[],
   opts: { concurrency: number; params: CardImageParams; onUpdate: (u: BatchItemUpdate) => void },
   signal?: AbortSignal,

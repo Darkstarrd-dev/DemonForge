@@ -12,6 +12,7 @@ import type {
   SimFragment,
   StateEvent,
   ConsistencyIssue,
+  Provider,
   ProviderNode,
   ModuleKey,
   ModuleModelMapping,
@@ -35,11 +36,33 @@ import {
   seedArchitectures,
   seedMergeCandidates,
 } from '../mocks/seed'
-import { normalizeProvider } from '../utils/provider'
+import { normalizeProvider, normalizeProviderNode } from '../utils/provider'
 import { useAppStore } from './appStore'
 import type { AppState, ImageDemoForm, NodeTestForm, SystemPromptPreset } from './types'
 import { pushStore, setStoreReady } from './persistence'
 import { defaultRoleChatAutoConfig } from './slices/roleChatSlice'
+
+/** 旧版 ProviderNode 形态（迁移用）。 */
+interface OldProviderNode {
+  id: string
+  name: string
+  nodeType: 'text' | 'image'
+  baseURL: string
+  apiKey: string
+  model: string
+  protocol?: 'modelscope' | 'gpt' | 'xai'
+  enabled?: boolean
+  lastTestResult?: 'ok' | 'fail' | null
+  maxConcurrency?: number
+  batchChars?: number
+  intervalSec?: number
+  usageLimitEnabled?: boolean
+  usageLimit?: number
+  usageLeft?: number
+  usageResetDate?: string
+  isMultimodal?: boolean
+  supportsImageEdit?: boolean
+}
 
 /** 启动引导：先拉设置，再拉业务数据；后端为空且从未初始化过才用种子播种。 */
 export async function bootstrapStore(): Promise<void> {
@@ -50,7 +73,8 @@ export async function bootstrapStore(): Promise<void> {
     const res = await fetch('/api/settings')
     if (res.ok) {
       const d = (await res.json()) as {
-        providers?: ProviderNode[]
+        providers?: Provider[] | ProviderNode[]
+        providerNodes?: ProviderNode[]
         moduleMapping?: Record<ModuleKey, ModuleModelMapping>
         m1SystemPrompt?: string
         assetDir?: string
@@ -80,7 +104,61 @@ export async function bootstrapStore(): Promise<void> {
       }
       storeInitialized = d.storeInitialized === true
       const patch: Partial<AppState> = {}
-      if (d.providers?.length) patch.providers = d.providers.map((p) => normalizeProvider(p))
+
+      // 供应商/节点两层模型迁移：
+      // 1. 若已有 providerNodes → 按新格式直接用；providers 也按新格式用。
+      // 2. 若只有旧 providers（元素含 model/apiKey）→ 每个旧节点拆成一个 Provider + 一个 ProviderNode，保留原 id 让 moduleMapping 不失效。
+      if (Array.isArray(d.providerNodes) && d.providerNodes.length > 0) {
+        patch.providers = Array.isArray(d.providers)
+          ? (d.providers as Provider[]).map((p) => normalizeProvider(p))
+          : []
+        patch.providerNodes = d.providerNodes.map((n) => normalizeProviderNode(n as ProviderNode))
+      } else if (Array.isArray(d.providers) && d.providers.length > 0) {
+        const first = d.providers[0] as Provider | OldProviderNode
+        const isOldProviderNode =
+          'model' in first && typeof (first as OldProviderNode).model === 'string'
+        if (isOldProviderNode) {
+          const migratedProviders: Provider[] = []
+          const migratedNodes: ProviderNode[] = []
+          for (const legacy of (d.providers as unknown) as OldProviderNode[]) {
+            const providerId = legacy.id
+            migratedProviders.push(
+              normalizeProvider({
+                id: providerId,
+                name: legacy.name ?? '未命名供应商',
+                baseURL: legacy.baseURL,
+                apiKey: legacy.apiKey,
+                createdAt: Date.now(),
+              } as Partial<Provider> & { id: string; name: string; baseURL: string }),
+            )
+            migratedNodes.push(
+              normalizeProviderNode({
+                id: providerId,
+                providerId,
+                nodeType: legacy.nodeType,
+                protocol: legacy.protocol,
+                model: legacy.model,
+                enabled: legacy.enabled,
+                lastTestResult: legacy.lastTestResult,
+                maxConcurrency: legacy.maxConcurrency,
+                batchChars: legacy.batchChars,
+                intervalSec: legacy.intervalSec,
+                usageLimitEnabled: legacy.usageLimitEnabled,
+                usageLimit: legacy.usageLimit,
+                usageLeft: legacy.usageLeft,
+                usageResetDate: legacy.usageResetDate,
+                isMultimodal: legacy.isMultimodal,
+              } as Partial<ProviderNode> & { id: string; providerId: string; model: string }),
+            )
+          }
+          patch.providers = migratedProviders
+          patch.providerNodes = migratedNodes
+        } else {
+          patch.providers = (d.providers as Provider[]).map((p) => normalizeProvider(p))
+          patch.providerNodes = []
+        }
+      }
+
       // 合并 seed 默认键，防旧 settings.json 缺新增 ModuleKey 导致 Record 不全
       if (d.moduleMapping) patch.moduleMapping = { ...seedModuleMapping, ...d.moduleMapping }
       if (typeof d.m1SystemPrompt === 'string') patch.m1SystemPrompt = d.m1SystemPrompt

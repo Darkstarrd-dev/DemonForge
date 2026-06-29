@@ -33,6 +33,7 @@ import { useAppStore, pushImportSessionNow, type CleanRunNodeSession } from '../
 import { startCleanQueue, getDefaultPrompt, type CleanNode, type CleanQueueHandle, type CleanQueueDebugEvent } from '../../services/api'
 import { PromptEditorButton } from '../../components/PromptEditorButton'
 import { useNavigate } from 'react-router-dom'
+import { resolveProviderNodes } from '../../utils/providerResolver'
 
 interface DebugEntry {
   chapterId: string
@@ -70,10 +71,12 @@ export default function Step3Clean() {
   const navigate = useNavigate()
   const session = useAppStore((s) => s.importSession)
   const providers = useAppStore((s) => s.providers)
+  const providerNodes = useAppStore((s) => s.providerNodes)
   const m1SystemPrompt = useAppStore((s) => s.m1SystemPrompt)
   const m1AutoRetry = useAppStore((s) => s.m1AutoRetry)
   const cleanRun = useAppStore((s) => s.cleanRun)
   const setState = useAppStore((s) => s.setState)
+  const resolvedNodes = useMemo(() => resolveProviderNodes({ providers, providerNodes }), [providers, providerNodes])
   /** 节点运行时覆盖——持久化到 store（settings.json），避免 Step3 重挂载/步骤切换丢失 */
   const overrides = useAppStore((s) => s.cleanNodeOverrides)
   const setOverrides = (
@@ -84,7 +87,7 @@ export default function Step3Clean() {
         typeof next === 'function' ? next(useAppStore.getState().cleanNodeOverrides) : next,
     })
 
-  const enabledNodes = useMemo(() => providers.filter((p) => p.enabled), [providers])
+  const enabledNodes = useMemo(() => resolvedNodes.filter((p) => p.enabled), [resolvedNodes])
 
   /** 统一设置所有节点三参数（应用后仍可逐节点单独覆盖） */
   const [bulkConcurrency, setBulkConcurrency] = useState<number | null>(null)
@@ -279,16 +282,14 @@ export default function Step3Clean() {
   const buildCleanNodes = (): CleanNode[] => {
     const s = useAppStore.getState()
     const nowOverrides = s.cleanNodeOverrides
-    const nowProviders = s.providers
-    return nowProviders
+    const nowResolved = resolveProviderNodes({ providers: s.providers, providerNodes: s.providerNodes })
+    return nowResolved
       .filter((p) => p.enabled)
       .filter((p) => (nowOverrides[p.id] ?? {}).participating !== false)
       .map((p) => {
         const o = nowOverrides[p.id] ?? {}
-        // 提取组名称：去掉模型后缀
-        const groupName = p.name.replace(/\s*\([^)]*\)\s*$/, '').trim() || 'Node'
-        // 节点显示名称：组名称 + 模型
-        const displayName = `${groupName} ${p.model}`
+        // 节点显示名称：供应商名 + 模型
+        const displayName = `${p.providerName} · ${p.model}`
         return {
           id: p.id,
           name: displayName,
@@ -630,7 +631,7 @@ export default function Step3Clean() {
 
                   <Row gutter={[12, 12]}>
                     {nodeRunStates.map((rs) => {
-                      const p = providers.find((x) => x.id === rs.nodeId)
+                      const p = resolvedNodes.find((x) => x.id === rs.nodeId)
                       const label = p ? `${p.name} · ${p.model || '（未设模型）'}` : rs.nodeId
                       return (
                         <Col key={rs.nodeId} xs={24} sm={12} lg={8} xl={6}>
@@ -741,7 +742,7 @@ export default function Step3Clean() {
       <Tag icon={<ThunderboltOutlined />} color={participatingNodes.length ? 'blue' : 'red'}>
         {participatingNodes.length ? `${participatingNodes.length} 个节点 · ` : '无参选节点'}
         {participatingNodes.map((s) => {
-          const p = providers.find((x) => x.id === s.nodeId)
+          const p = resolvedNodes.find((x) => x.id === s.nodeId)
           return `${p?.name ?? s.nodeId}(${s.concurrency}进程/${Math.round(s.batchChars/1000)}K字)`
         }).join(', ')}
       </Tag>
@@ -847,7 +848,6 @@ export default function Step3Clean() {
                 children: (
                   <NodeListPane
                     sessions={nodeSessions}
-                    providers={providers}
                     selectedNode={selectedNode}
                     onPick={(nid) => {
                       setSelectedNode(nid)
@@ -1191,7 +1191,6 @@ const ChapterListPane = React.memo(function ChapterListPane({ chapters, emptyTex
 
 interface NodeListPaneProps {
   sessions: CleanRunNodeSession[]
-  providers: { id: string; name: string; model?: string }[]
   selectedNode: string | null
   onPick: (sessionKey: string) => void
 }

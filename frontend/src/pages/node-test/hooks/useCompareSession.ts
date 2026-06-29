@@ -14,7 +14,7 @@ import type { Dispatch, SetStateAction } from 'react'
 import { App } from 'antd'
 import { genId } from '../../../store/appStore'
 import { streamChat } from '../../../services/api'
-import type { ProviderNode } from '../../../services/types'
+import type { ResolvedProviderNode } from '../../../services/types'
 import type { NodeTestForm } from '../../../store/appStore'
 import type { DebugInfoData } from '../DebugInfoPanel'
 import type { ChatMessage, Phase } from '../types'
@@ -32,7 +32,7 @@ interface CompareSlot {
 }
 
 export interface CompareSessionArgs {
-  availableNodes: ProviderNode[]
+  availableNodes: ResolvedProviderNode[]
   activeSystemPrompt: string
   nodeTestForm: NodeTestForm
   // 共享编辑态（父 useInferenceSession 持有，对比编辑函数复用）
@@ -122,7 +122,7 @@ export function useCompareSession(args: CompareSessionArgs) {
   }
 
   // 共享流式段：handleGenerateSide 与 retryCompareMessage 的 streamChat 回调逐字相同，合并一处。
-  const runStream = async (slot: CompareSlot, node: ProviderNode, apiMessages: ApiMsg[], assistantMsgId: string, ac: AbortController) => {
+  const runStream = async (slot: CompareSlot, node: ResolvedProviderNode, apiMessages: ApiMsg[], assistantMsgId: string, ac: AbortController) => {
     let fullText = ''
     let fullReasoning = ''
     try {

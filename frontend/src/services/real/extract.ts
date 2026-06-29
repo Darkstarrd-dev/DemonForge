@@ -2,6 +2,8 @@
 
 import type { Chapter, EntityCard, MergeCandidate } from '../types'
 import { parseSSE } from '../sse'
+import { resolveProviderNode } from '../../utils/providerResolver'
+import { normalizeProvider, normalizeProviderNode } from '../../utils/provider'
 
 export interface ExtractProgress {
   stage: 'extracting' | 'embedding' | 'merging'
@@ -39,9 +41,10 @@ export async function extractEntities(
     throw new Error(`无法读取设置：HTTP ${settingsRes.status}`)
   }
   const settings = await settingsRes.json()
-  const { moduleMapping, providers } = settings as {
+  const { moduleMapping, providers, providerNodes } = settings as {
     moduleMapping?: Record<string, { nodeId: string | null }>
-    providers?: Array<{ id: string; baseURL: string; apiKey?: string; model: string }>
+    providers?: Array<{ id: string; baseURL: string; apiKeys?: Array<{ key: string }>; rotationPolicy?: string; name: string }>
+    providerNodes?: Array<{ id: string; providerId: string; model: string; enabled: boolean }>
   }
 
   const nodeId = moduleMapping?.m2Extract?.nodeId
@@ -49,7 +52,16 @@ export async function extractEntities(
     throw new Error('M2 提取模块未配置节点，请前往设置页指定')
   }
 
-  const node = providers?.find((p) => p.id === nodeId)
+  const normalizedProviders = (providers ?? []).map((p) =>
+    normalizeProvider(p as unknown as Parameters<typeof normalizeProvider>[0]),
+  )
+  const normalizedNodes = (providerNodes ?? []).map((n) =>
+    normalizeProviderNode(n as unknown as Parameters<typeof normalizeProviderNode>[0]),
+  )
+  const node = resolveProviderNode(
+    { providers: normalizedProviders, providerNodes: normalizedNodes },
+    nodeId,
+  )
   if (!node) {
     throw new Error(`M2 提取节点 ${nodeId} 不存在于节点池`)
   }

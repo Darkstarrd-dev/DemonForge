@@ -1,4 +1,4 @@
-import type { GameState, CompanyState, Player } from '../types'
+import type { GameState, CompanyState } from '../types'
 import { CompanyType } from '../types'
 import companiesData from '../data/companies/richman4-companies.json'
 import type { CompanyDefinition } from '../types'
@@ -102,8 +102,8 @@ export function applyChairmanPrivileges(state: GameState): GameState {
       }
     }
 
-    if (def.type === CompanyType.BANK && chairman.bankDeposit > 0) {
-      const extra = Math.floor(chairman.bankDeposit * (economy.depositInterestRate ?? 0.05))
+    if (def.type === CompanyType.BANK && (chairman.bankDeposit ?? 0) > 0) {
+      const extra = Math.floor((chairman.bankDeposit ?? 0) * (economy.depositInterestRate ?? 0.05))
       if (extra > 0) {
         chairman.cash += extra
         log.push({ seq: log.length, kind: 'company', text: `${chairman.name} 作为「${def.name}」董事长获得存款利率翻倍奖励 ¥${extra}` })
@@ -111,7 +111,7 @@ export function applyChairmanPrivileges(state: GameState): GameState {
       }
     }
 
-    if (def.type === CompanyType.INSURANCE_COMPANY && chairman.hospitalTurns > 0) {
+    if (def.type === CompanyType.INSURANCE_COMPANY && (chairman.hospitalTurns ?? 0) > 0) {
       if (chairman.isCollectingRent === false) {
         chairman.isCollectingRent = true
         log.push({ seq: log.length, kind: 'company', text: `${chairman.name} 作为「${def.name}」董事长，住院期间仍可收租` })

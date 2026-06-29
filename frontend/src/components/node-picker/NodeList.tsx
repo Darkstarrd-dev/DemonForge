@@ -16,10 +16,10 @@ import {
   isMultimodalNode,
   supportsImageEditNode,
 } from '../../utils/nodePicker'
-import type { ProviderNode } from '../../services/types'
+import type { ResolvedProviderNode } from '../../services/types'
 
 export interface NodeListProps {
-  nodes: ProviderNode[]
+  nodes: ResolvedProviderNode[]
   selectedId?: string
   onSelect: (nodeId: string) => void
   /** 折叠态（key=分组键→是否展开）。不传=非受控全展开（浮动窗用法）。 */
