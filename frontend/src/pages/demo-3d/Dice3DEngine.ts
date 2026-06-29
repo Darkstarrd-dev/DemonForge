@@ -3,7 +3,6 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import RAPIER from '@dimforge/rapier3d-compat'
 import { ensureRapierReady } from '../../game/physics/rapierInit'
 import {
-  DiceRoller,
   createDiceGeometry,
   createDiceFaceTextures,
   applyFaceTextures,
@@ -38,12 +37,12 @@ export async function createDice3DEngine(
 
   let stopped = false
   let animId = 0
-  const roller = new DiceRoller()
   const meshes: THREE.Mesh[] = []
   const bodies: RAPIER.RigidBody[] = []
   const colliders: RAPIER.Collider[] = []
   let pendingRoll: {
-    targetValues: number[]
+    isPreset: boolean
+    targetValues: number[] | null
     resolve: (values: number[]) => void
   } | null = null
   let settlingFrames = 0
@@ -139,30 +138,34 @@ export async function createDice3DEngine(
 
   const finishRoll = () => {
     if (!pendingRoll) return
-    const { targetValues, resolve } = pendingRoll
+    const { isPreset, targetValues, resolve } = pendingRoll
+    pendingRoll = null
+    settlingFrames = 0
 
     const actualValues = meshes.map((mesh) => getUpFace(mesh.quaternion, params.sides))
-    const needsCorrection = targetValues.some((tv, i) => tv !== actualValues[i])
 
-    if (needsCorrection) {
-      let correctionsRemaining = 0
-      for (let i = 0; i < meshes.length; i++) {
-        if (targetValues[i] !== actualValues[i]) {
-          correctionsRemaining++
-          const targetQ = getTargetQuaternion(params.sides, targetValues[i])
-          correctDiceOrientation(meshes[i], targetQ, 300, () => {
-            correctionsRemaining--
-            if (correctionsRemaining === 0) {
-              resolve(targetValues)
-            }
-          })
+    if (isPreset && targetValues) {
+      const needsCorrection = targetValues.some((tv, i) => tv !== actualValues[i])
+      if (needsCorrection) {
+        let correctionsRemaining = 0
+        for (let i = 0; i < meshes.length; i++) {
+          if (targetValues[i] !== actualValues[i]) {
+            correctionsRemaining++
+            const targetQ = getTargetQuaternion(params.sides, targetValues[i])
+            correctDiceOrientation(meshes[i], targetQ, 300, () => {
+              correctionsRemaining--
+              if (correctionsRemaining === 0) {
+                resolve(targetValues)
+              }
+            })
+          }
         }
+      } else {
+        resolve(targetValues)
       }
     } else {
       resolve(actualValues)
     }
-    pendingRoll = null
-    settlingFrames = 0
   }
 
   const clearDice = () => {
@@ -185,9 +188,8 @@ export async function createDice3DEngine(
   const roll = async (presetValues?: number[]): Promise<number[]> => {
     clearDice()
 
-    const targetValues = presetValues
-      ? presetValues.slice()
-      : roller.roll({ count: params.count, sides: params.sides }).values
+    const isPreset = !!presetValues
+    const targetValues = isPreset ? presetValues!.slice() : null
 
     const spacing = Math.min(2, 8 / Math.max(params.count, 1))
     const startX = -(params.count - 1) * spacing / 2
@@ -229,7 +231,7 @@ export async function createDice3DEngine(
       const throwF = physics.throwForce
       const spinF = physics.spinForce
       body.applyImpulse(
-        { x: (Math.random() - 0.5) * throwF * 0.2, y: -throwF * 0.13, z: (Math.random() - 0.5) * throwF * 0.2 },
+        { x: (Math.random() - 0.5) * throwF * 0.3, y: throwF * 0.1, z: (Math.random() - 0.5) * throwF * 0.3 },
         true,
       )
       body.applyTorqueImpulse(
@@ -240,7 +242,7 @@ export async function createDice3DEngine(
     }
 
     return new Promise<number[]>((resolve) => {
-      pendingRoll = { targetValues, resolve }
+      pendingRoll = { isPreset, targetValues, resolve }
       settlingFrames = 0
     })
   }

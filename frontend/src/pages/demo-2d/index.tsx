@@ -387,7 +387,10 @@ export default function Demo2DPage() {
                 setDiceCount(v)
                 gameRef.current?.registry.set('diceCount', v)
               }}
-              onSidesChange={setDiceSides}
+              onSidesChange={(v) => {
+                setDiceSides(v)
+                gameRef.current?.registry.set('diceSides', v)
+              }}
               onRoll={handleDiceRoll}
               rolling={diceRolling}
               lastResult={diceResult ?? undefined}

@@ -284,7 +284,6 @@ const D6_GROUP_TO_FACE: Record<number, number> = {
 }
 
 // d8/d10/d12/d20 的 group→faceValue 通过几何法向量匹配确定
-// d12 每个五边形面拆为 3 个三角形（3 个 group），需合并匹配
 
 export function applyFaceTextures(
   geometry: THREE.BufferGeometry,
@@ -309,7 +308,7 @@ export function applyFaceTextures(
 
 
 
-  // d8/d10/d20: 每个 group 对应一个面，直接匹配
+  // d8/d10/d12/d20: 每个 group 对应一个面，直接匹配
   const materials: THREE.Material[] = []
   for (let gi = 0; gi < groups.length; gi++) {
     const g = groups[gi]

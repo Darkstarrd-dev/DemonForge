@@ -1,8 +1,8 @@
 # HANDOFF.md — novelhelper 交接备忘
 
 **最后更新**：2026-06-29
-**当前位置**：办公场所 A（已提交）
-**本轮主题**：**骰子模块 audit-03 整改独立复核（audit-04）**——D-1~D-9 代码审核完成，发现 2 个 P1 + 4 个 P3 新问题。
+**当前位置**：办公场所 A（已提交 `2fee9a5`）
+**本轮主题**：**骰子模块 audit-04 修复实施**——N-1/N-3/N-4/N-5 已修复并提交；N-2（d10 贴图映射）因需完整重写几何体构造，搁置待后续处理。
 
 > 📦 **历史明细已归档** → `docs/handoff_history.md`
 > 本文件只保留「恢复工作所需的活内容」：进行中任务、模块清单、下一步、交接参考。
@@ -10,43 +10,31 @@
 
 ---
 
-## 🆕 骰子模块 audit-03 整改复核完成（2026-06-29，已提交 `b06e2fc`）
+## 🆕 骰子模块 audit-04 修复实施完成（2026-06-29，已提交 `2fee9a5`）
 
-按 `docs/quality/logs/2026-06-29-audit-03.md` 整改追踪表逐项实施后，进行独立代码审核。**结论**：D-1~D-9 中 8 项完全落地，D-2（静止检测+slerp）存在逻辑偏差。另发现 2 个 P1 + 4 个 P3 新问题。
+按 `docs/quality/logs/2026-06-29-audit-04.md` §8 实施指引修复，**已处理 4 项、搁置 2 项（N-2 + N-6）**。
 
-审核报告：`docs/quality/logs/2026-06-29-audit-04.md`
+### 已完成
 
-### D-1~D-9 符合性矩阵
+| 编号 | 优先级 | 说明 | 文件 | 改动 |
+|---|:---:|---|---|---|
+| **N-1** | **P1** | 随机模式 slerp 逻辑偏差 → `finishRoll` 区分 preset/random，随机模式返回物理 actualValues；移除未使用的 DiceRoller 导入 | `Dice3DEngine.ts` | ~25 行 |
+| N-3 | P3 | `geometry.ts` 两处过时注释（d12 合并引用→更新为 d8/d10/d12/d20） | `geometry.ts` | 2 行 |
+| N-4 | P3 | 2D `onSidesChange` 补 `registry.set('diceSides', v)` | `demo-2d/index.tsx` | 1 行 |
+| N-5 | P3 | 3D 投掷力 y `-throwF*0.13` → `throwF*0.1`（向上抛掷） | `Dice3DEngine.ts` | 1 行 |
 
-| 编号 | 状态 | 说明 |
-|---|:---:|---|
-| D-1 删除 d12 特殊分支 | ✅ | 已删除，+3 单测；`geometry.ts` 两处过时注释未改（P3） |
-| D-2 静止检测+slerp | **◐** | 静止检测机制正确；但随机模式下 `finishRoll` 不区分 preset/random，**slerp 到 DiceRoller 随机值**（设计规定随机模式返回物理 actualValues）→ **N-1（P1）** |
-| D-3 convexHull 碰撞体 | ✅ | `ColliderDesc.convexHull(positions)`，失败抛错 |
-| D-4 共享 Rapier 单例 | ✅ | `game/physics/rapierInit.ts` 8 行单例 |
-| D-5 自动创建引擎 | ✅ | `useEffect` 统一 init，dice 场景不再空白 |
-| D-6 参数透传 | ✅ | 页面级 state → 受控 Panel → engine/registry；2D 非 d6 disabled |
-| D-7 预设 Input | ✅ | `InputNumber`→`Input`，逗号分隔解析正确 |
-| D-8 Dice3DParams 类型 | ✅ | `DiceSideValue`，无 `as never` |
-| D-9 Scene 事件清理 | ✅ | `shutdown()` 注销 handler |
+### 搁置 / 待后续
 
-### 新发现缺陷
-
-| 编号 | 优先级 | 问题 | 改动量 |
+| 编号 | 优先级 | 问题 | 原因 |
 |---|:---:|---|---|
-| **N-1** | **P1** | 随机模式 slerp 到 DiceRoller 值而非物理朝上面，骰子落地后跳转 | ~15 行 |
-| **N-2** | **P1** | d10 是唯一 indexed 几何体，`matchFaceNormal` 假设 non-indexed，groups 2-9 读越界 | ~10 行 |
-| N-3 | P3 | `geometry.ts` 两处过时注释 | 2 行 |
-| N-4 | P3 | 2D `onSidesChange` 未写 registry（非 d6 全 disabled，不可达） | 1 行 |
-| N-5 | P3 | 3D 投掷力 y 负值（向下砸地而非抛起） | 1 行 |
-| N-6 | P3 | `pendingRoll` 在 slerp 完成前置空（理论问题） | 可选 |
+| **N-2** | **P1** | d10 贴图映射错误 | 根因：`createD10Geometry` 只创建 5 个无极 kite 面（10 三角形），但 DICE_FACE_DEFS 有 10 个面法向量。需完整重写为 10 面五角双锥（含两极）。改动量 ~40 行，需调试验证法向量匹配。 |
+| N-6 | P3 | `pendingRoll` 在 slerp 完成前置空 | 理论问题，UI 已防护 |
 
 ### 验证状态
 
-- **dice 单测**：38/38 绿
+- **dice 单测**：38/38 绿（n-2 修复未完成，无退化）
 - **dice eslint**：0 error
-- **dice tsc**：无错误（`npm run build` 6 个 TS 错误全在未提交的 monopoly 文件，与 dice 无关）
-- **`npm test`**：374/375 绿（1 失败在未提交的 monopoly `turn.test.ts`，与 dice 无关）
+- **整体 build**：monopoly 预存错误不影响 dice
 
 ---
 
@@ -439,7 +427,9 @@
 - [x] **前端主题系统 + 响应式布局**（浅/深双主题，13 页覆盖）
 - [x] **4K 基准缩放**（捕获基准 + 主进程计算，根除闪烁）
 - [x] **2D 环境 Demo**（Phaser + Matter.js 物理沙盒 + 人物状态占位）
-- [x] **骰子模块**（`game/dice/` 核心 + 2D/3D demo 集成，**2026-06-29 D-1~D-9 整改已提交审核**，见 `docs/quality/logs/2026-06-29-audit-04.md`，含 2 个 P1 待修）
+### ✅ 已完成模块
+
+- [x] **骰子模块**（`game/dice/` 核心 + 2D/3D demo 集成，**2026-06-29 D-1~D-9 + N-1/N-3/N-4/N-5 已修复提交**，N-2 待后续）
 - [x] **data-slot 体系**（11 页，150+ 属性，规范文档齐全）
 - [x] **编译打包**（NSIS 安装包 + 便携版；file:// 协议修复）
 - [x] **M1 文本导入合并到书库概览**（新建/清理双模式）
@@ -476,6 +466,7 @@
 
 ### 🚧 待完善
 
+- [ ] **N-2（P1）**：d10 贴图映射——重写 `createD10Geometry` 为 10 面五角双锥（含两极）
 - [ ] **端到端实测**：新游戏→地图选择→掷骰→购买→升级→卡片→道具→神明→事件→破产→胜负
 - [ ] **M12 2D/3D 资产驱动**（Tiled Tilemap + glTF 模型替换 blockout，资产制作后置）
 - [ ] **打包后首次启动**：`~/.novelhelper/` 无 settings.json，需手动配置 Provider 节点。
@@ -486,12 +477,13 @@
 
 > 完整逐项验证清单见归档 §「下一步任务」。以下为优先级摘要：
 
-1. **🎲 骰子模块 P1 修复**（按 audit-04 §8 实施指引）：N-1 随机模式 slerp 逻辑修复（~15 行）+ N-2 d10 转 non-indexed（~10 行）
+1. **🎲 N-2（P1）**：d10 贴图映射——重写 `createD10Geometry` 为 10 面五角双锥（含两极，~40 行）
 2. **🎮 端到端实测大富翁模块**：启动→地图选择→双地图渲染→掷骰/购买/升级/租金正常→卡片/道具/神明/事件生效→破产判定→胜负
-3. **🎲 端到端实测骰子模块**：N-1/N-2 修复后验证随机模式物理结果、d10 贴图正确性
+3. **🎲 端到端实测骰子模块**：N-1/N-3/N-4/N-5 修复后验证随机模式物理不跳转、投掷力向上抛起
 4. **📦 验证完整打包**：`npm run dist`（NSIS + 便携版，注意 app-builder 可能被 Defender 锁）
 5. **🔍 验证提示词归一化端到端**（各模块 PromptEditorButton 生效）
 6. **🎨 验证文生图三协议 + 节点测试各模块 + 全屏阅读**
+7. **📋 P2 中优级修复**：数据文件语义修正 / Tile 兼容字段清理 / engine.ts 导出收敛 / 单测补充**
 7. **📋 P2 中优级修复**：数据文件语义修正 / Tile 兼容字段清理 / engine.ts 导出收敛 / 单测补充
 
 ---
