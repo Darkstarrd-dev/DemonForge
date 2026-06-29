@@ -2,7 +2,7 @@
 
 **最后更新**：2026-06-29
 **当前位置**：办公场所 A（已提交）
-**本轮主题**：**骰子模块 audit-03 整改完成**——D-1~D-9 全部落地，4 个 P0 级缺陷修复 + 参数透传 + 预设输入改造 + Scene 事件清理 + 共享 Rapier 单例 + convexHull 碰撞体 + 静止检测 slerp 校准。
+**本轮主题**：**骰子模块 audit-03 整改独立复核（audit-04）**——D-1~D-9 代码审核完成，发现 2 个 P1 + 4 个 P3 新问题。
 
 > 📦 **历史明细已归档** → `docs/handoff_history.md`
 > 本文件只保留「恢复工作所需的活内容」：进行中任务、模块清单、下一步、交接参考。
@@ -10,46 +10,43 @@
 
 ---
 
-## 🆕 骰子模块 audit-03 整改完成（2026-06-29，D-1~D-9 全部落地）
+## 🆕 骰子模块 audit-03 整改复核完成（2026-06-29，已提交 `b06e2fc`）
 
-按 `docs/quality/logs/2026-06-29-audit-03.md` 整改追踪表逐项实施，9 项高/中优级缺陷全部修复。
+按 `docs/quality/logs/2026-06-29-audit-03.md` 整改追踪表逐项实施后，进行独立代码审核。**结论**：D-1~D-9 中 8 项完全落地，D-2（静止检测+slerp）存在逻辑偏差。另发现 2 个 P1 + 4 个 P3 新问题。
 
-| 编号 | 行动项 | 改动 |
-|---|---|---|
-| D-1 | 删除 d12 贴图特殊分支 | `geometry.ts` 移除 `if (sides===12)` 合并逻辑，d12 走 d8/d10/d20 公共 group 逐面匹配分支；+3 单测（d8/d12 group 数 + materialIndex 顺序） |
-| D-2 | 3D 引擎静止检测 + slerp 校准 | `Dice3DEngine.ts` 重写 `roll()` 为 async：创建刚体后 Promise 等待静止（30 帧 linvel/angvel < 0.1）；静止后 `getUpFace` 读实际朝上面；与 targetValues 不符则逐骰 `correctDiceOrientation` slerp 300ms 校准；校准全部完成后 resolve |
-| D-3 | 3D 引擎 convexHull 碰撞体 | `ColliderDesc.ball(0.5)` → `ColliderDesc.convexHull(positions)`（从 `geo.attributes.position.array` 取 Float32Array）；失败抛错停止上报 |
-| D-4 | 共享 ensureRapierReady 单例 | 新增 `frontend/src/game/physics/rapierInit.ts`；`demo-3d/index.tsx` 与 `Dice3DEngine.ts` 共用同一 init 单例；`createDice3DEngine` 改 async 并开头 `await ensureRapierReady()` |
-| D-5 | dice 场景自动创建引擎 | `demo-3d/index.tsx` useEffect 统一 init：`sceneType==='dice'` 时调 `startDiceEngine()`（从页面 state 读 count/sides/theme/physics 创建引擎）；不再空白 |
-| D-6 | 2D/3D 面板参数透传 | 状态提升到页面级：demo-3d 拥有 `diceCount/diceSides/diceTheme/dicePhysics` state → 传给 Dice3DPanel（受控）→ 传给 createDice3DEngine；demo-2d 拥有 `diceCount/diceSides` → 传给 Dice2DPanel + 写入 Phaser registry；2D Scene 读 `registry.get('diceSides')` 替代硬编码 `sides:6`；2D 面板 sides Select 对非 d6 显示「暂不支持 2D」并 disable |
-| D-7 | 预设输入框改为 Input | Dice2DPanel/Dice3DPanel `InputNumber` → `Input`；校验 `preset.split(',')` 解析逗号分隔值，count 与 sides 范围检查 |
-| D-8 | Dice3DParams 使用 DiceSideValue | `Dice3DEngine.ts` interface `sides: number` → `sides: DiceSideValue`；去掉 `as never` |
-| D-9 | 2D Scene shutdown 事件清理 | DiceSpriteScene/DiceMatterScene 新增 `rollHandler` 引用 + `shutdown()` 方法注销 `game.events.off('dice-roll', handler)` |
+审核报告：`docs/quality/logs/2026-06-29-audit-04.md`
+
+### D-1~D-9 符合性矩阵
+
+| 编号 | 状态 | 说明 |
+|---|:---:|---|
+| D-1 删除 d12 特殊分支 | ✅ | 已删除，+3 单测；`geometry.ts` 两处过时注释未改（P3） |
+| D-2 静止检测+slerp | **◐** | 静止检测机制正确；但随机模式下 `finishRoll` 不区分 preset/random，**slerp 到 DiceRoller 随机值**（设计规定随机模式返回物理 actualValues）→ **N-1（P1）** |
+| D-3 convexHull 碰撞体 | ✅ | `ColliderDesc.convexHull(positions)`，失败抛错 |
+| D-4 共享 Rapier 单例 | ✅ | `game/physics/rapierInit.ts` 8 行单例 |
+| D-5 自动创建引擎 | ✅ | `useEffect` 统一 init，dice 场景不再空白 |
+| D-6 参数透传 | ✅ | 页面级 state → 受控 Panel → engine/registry；2D 非 d6 disabled |
+| D-7 预设 Input | ✅ | `InputNumber`→`Input`，逗号分隔解析正确 |
+| D-8 Dice3DParams 类型 | ✅ | `DiceSideValue`，无 `as never` |
+| D-9 Scene 事件清理 | ✅ | `shutdown()` 注销 handler |
+
+### 新发现缺陷
+
+| 编号 | 优先级 | 问题 | 改动量 |
+|---|:---:|---|---|
+| **N-1** | **P1** | 随机模式 slerp 到 DiceRoller 值而非物理朝上面，骰子落地后跳转 | ~15 行 |
+| **N-2** | **P1** | d10 是唯一 indexed 几何体，`matchFaceNormal` 假设 non-indexed，groups 2-9 读越界 | ~10 行 |
+| N-3 | P3 | `geometry.ts` 两处过时注释 | 2 行 |
+| N-4 | P3 | 2D `onSidesChange` 未写 registry（非 d6 全 disabled，不可达） | 1 行 |
+| N-5 | P3 | 3D 投掷力 y 负值（向下砸地而非抛起） | 1 行 |
+| N-6 | P3 | `pendingRoll` 在 slerp 完成前置空（理论问题） | 可选 |
 
 ### 验证状态
 
-- **tsc**：0 error
-- **vite build**：成功，dice chunk 5.76 kB
-- **vitest**：**375/375 绿**（+3 新增 d8/d12/materialIndex 测试）
-- **eslint**：1 预存错误（PromptEditorButton set-state-in-effect，非本轮引入，非 dice 相关）
-
-### Dice3DPanel 新增 UI 控件
-
-- 骰子数量 Slider（1-6）
-- 面数 Select（d6/d8/d10/d12/d20）
-- 预设结果 Input（逗号分隔）
-- 外观 Collapse 面板（底色/点色/边色 Input）
-- 物理参数 Collapse 面板（摩擦力/弹性/投掷力/旋转力 Slider）
-
-### 待端到端实测
-
-1. demo-3d 选「骰子演示」→ 自动渲染 3D 场景（不再空白）
-2. 切换面数（d6→d20）→ 点复位 → 3D 骰子几何体变化
-3. 预设输入「3,5」→ 投掷 → 骰子滚动→静止→slerp 校准后朝上面为 3 和 5
-4. demo-2d 骰子数量 Slider 改变 → registry 写入 → Scene 读 diceCount 生效
-5. convexHull 碰撞体物理行为真实性（非球体滚动）
-
-计划文档：`docs/dice_implementation_plan.md`；审计报告：`docs/quality/logs/2026-06-29-audit-03.md`
+- **dice 单测**：38/38 绿
+- **dice eslint**：0 error
+- **dice tsc**：无错误（`npm run build` 6 个 TS 错误全在未提交的 monopoly 文件，与 dice 无关）
+- **`npm test`**：374/375 绿（1 失败在未提交的 monopoly `turn.test.ts`，与 dice 无关）
 
 ---
 
@@ -414,6 +411,7 @@
 - **2026-06-28 第四次走查·实施（已提交 `6b1ce9d`）**：第三梯队两项结构重构**已完成**——**B-5**（`useInferenceSession` 抽 `useCompareSession`：slot 字典消 30+ 三元 + `runStream` 合并两处 streamChat 回调 + 卸载 useEffect abort 左右 acRef；780→471 行委托并 spread，`index.tsx`/`index.test.tsx` 零改动）/ **B-8**（`creation.ts` 731 行按领域拆 `creation.shared`+`origin`+`generate`(含 M3 simulate)+`m2`，creation.ts→12 行 barrel，`server/index.ts` 零改动）。回归：后端 tsc 0 + 前端 build + vitest **55 绿** + 改动文件 eslint 0。详见 audit-02 **第 8 节**。
 - **仍遗留**：新模块单测缺口（monopoly `engine.ts` / roleChatEngine `buildParticipantMessages` 纯函数，复审 6.5）——audit-02 全部 B-/C- 行动项除此外已全部收口。
 - **monopoly 实施审计**：`docs/quality/logs/2026-06-28-monopoly-implementation-audit.md`，对照 `docs/monopoly_full_plan.md` 逐项审核 M0–M11 落地情况，发现 36 项整改（P0×1/ P1×12/ P2×18/ P3×5）。
+- **dice audit-03 整改复核（本轮）**：`docs/quality/logs/2026-06-29-audit-04.md`。D-1~D-9 逐项符合性验证 + 新发现 2 个 P1 缺陷（N-1 随机模式 slerp 逻辑偏差 / N-2 d10 贴图映射错误）+ 4 个 P3 项。含给低阶模型的完整实施指引。
 - 第一梯队 A-1~A-4 已完成（删死文件 / 修 UTC 日期 bug / vitest 地基 / 首批单测）。详见归档。
 
 ---
@@ -441,7 +439,7 @@
 - [x] **前端主题系统 + 响应式布局**（浅/深双主题，13 页覆盖）
 - [x] **4K 基准缩放**（捕获基准 + 主进程计算，根除闪烁）
 - [x] **2D 环境 Demo**（Phaser + Matter.js 物理沙盒 + 人物状态占位）
-- [x] **骰子模块**（`game/dice/` 核心 + 2D/3D demo 集成，**2026-06-29 全部完成**，详见上方 §骰子模块实施完成）
+- [x] **骰子模块**（`game/dice/` 核心 + 2D/3D demo 集成，**2026-06-29 D-1~D-9 整改已提交审核**，见 `docs/quality/logs/2026-06-29-audit-04.md`，含 2 个 P1 待修）
 - [x] **data-slot 体系**（11 页，150+ 属性，规范文档齐全）
 - [x] **编译打包**（NSIS 安装包 + 便携版；file:// 协议修复）
 - [x] **M1 文本导入合并到书库概览**（新建/清理双模式）
@@ -488,12 +486,13 @@
 
 > 完整逐项验证清单见归档 §「下一步任务」。以下为优先级摘要：
 
-1. **🎮 端到端实测大富翁模块**：启动→选择地图→双地图渲染→掷骰/购买/升级/租金正常→卡片/道具/神明/事件生效→破产判定→胜负
-2. **🎲 端到端实测骰子模块**：demo-2d 选「骰子·帧动画」/「骰子·物理刚体」确认投掷动画正常；demo-3d 选「骰子演示」确认 3D 物理滚动
-3. **📦 验证完整打包**：`npm run dist`（NSIS + 便携版，注意 app-builder 可能被 Defender 锁）
-4. **🔍 验证提示词归一化端到端**（各模块 PromptEditorButton 生效）
-5. **🎨 验证文生图三协议 + 节点测试各模块 + 全屏阅读**
-6. **📋 P2 中优级修复**：数据文件语义修正 / Tile 兼容字段清理 / engine.ts 导出收敛 / 单测补充
+1. **🎲 骰子模块 P1 修复**（按 audit-04 §8 实施指引）：N-1 随机模式 slerp 逻辑修复（~15 行）+ N-2 d10 转 non-indexed（~10 行）
+2. **🎮 端到端实测大富翁模块**：启动→地图选择→双地图渲染→掷骰/购买/升级/租金正常→卡片/道具/神明/事件生效→破产判定→胜负
+3. **🎲 端到端实测骰子模块**：N-1/N-2 修复后验证随机模式物理结果、d10 贴图正确性
+4. **📦 验证完整打包**：`npm run dist`（NSIS + 便携版，注意 app-builder 可能被 Defender 锁）
+5. **🔍 验证提示词归一化端到端**（各模块 PromptEditorButton 生效）
+6. **🎨 验证文生图三协议 + 节点测试各模块 + 全屏阅读**
+7. **📋 P2 中优级修复**：数据文件语义修正 / Tile 兼容字段清理 / engine.ts 导出收敛 / 单测补充
 
 ---
 
