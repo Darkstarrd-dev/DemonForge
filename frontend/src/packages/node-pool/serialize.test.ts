@@ -77,7 +77,7 @@ describe('serializeNodePool', () => {
         providerId: 'prov-2',
         model: 'demo',
       } as unknown as ProviderNode],
-      moduleMapping: {},
+      moduleMapping: {} as Record<ModuleKey, ModuleModelMapping>,
     })
     expect(bundle.providers[0].rotationPolicy).toBe('round-robin')
     expect(bundle.providers[0].apiKeys[0].enabled).toBe(true)

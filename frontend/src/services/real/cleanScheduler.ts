@@ -9,6 +9,8 @@
 // 模型：节点 = CPU，maxConcurrency = 核心数，章节 = 任务；调度器从共享队列取章分配给有空闲核心的节点。
 // intervalSec 是节点级全局计时——同一节点任意两次请求至少间隔该秒数。支持运行中 updateNodes() 热更新节点池。
 
+import type { NodeRuntimeMap } from '../../packages/node-pool/runtime'
+import { isNodeAvailableNow } from '../../packages/node-pool/policy'
 import {
   streamSingleChapter,
   streamBatch,
@@ -19,11 +21,6 @@ import {
 } from './llm'
 import { dequeueBatch } from './dequeue'
 import { NodeCircuitBreaker } from './circuitBreaker'
-
-interface NodeRuntime {
-  activeCount: number
-  lastRequestTime: number
-}
 
 interface ChapterTask {
   id: string
@@ -59,7 +56,7 @@ export class CleanScheduler {
 
   // 可变状态——被 worker 循环读取/修改
   private nodeConfigs: CleanNode[]
-  private readonly nodeStates = new Map<string, NodeRuntime>()
+  private readonly nodeStates: NodeRuntimeMap = new Map()
 
   private readonly retryQueue: ChapterTask[] = []
   private readonly pendingQueue: ChapterTask[]
@@ -264,17 +261,10 @@ export class CleanScheduler {
       const state = this.nodeStates.get(node.id)
       if (!state) break
 
-      // 节点级间隔（同节点所有 slot 共享 lastRequestTime）
+      // 节点级间隔（同节点所有 slot 共享 lastRequestTime）+ 次数限制
       const now = Date.now()
-      const intervalMs = node.intervalSec * 1000
-      if (intervalMs > 0 && now - state.lastRequestTime < intervalMs) {
+      if (!isNodeAvailableNow(node, state, { now, isExternalAvailable: this.isNodeAvailable })) {
         await sleep(50)
-        continue
-      }
-
-      // 次数限制
-      if (this.isNodeAvailable && !this.isNodeAvailable(node.id)) {
-        await sleep(100)
         continue
       }
 

@@ -1,6 +1,9 @@
 // 批量章节生成调度器（阶段 D）——复用 M1 startCleanQueue 架构，改造为 draft→finalize 串行子流程。
 // 核心差异：任务单位从"清理章节"变为"生成章节（draft→finalize 串行）"；失败策略从重试变为立即停止。
 
+import type { SchedulableNode } from '../../packages/node-pool/types'
+import type { NodeRuntime, NodeRuntimeMap } from '../../packages/node-pool/runtime'
+import { pickLeastLoadedNode } from '../../packages/node-pool/policy'
 import type { DraftContext } from './generation'
 import { generateDraft, finalizeChapter } from './generation'
 
@@ -16,18 +19,8 @@ export interface BatchGenTask {
   existingStates?: string
 }
 
-/** 批量生成节点配置（复用 M1 CleanNode 结构，语义对齐） */
-export interface BatchGenNode {
-  id: string
-  name: string
-  baseURL: string
-  apiKey?: string
-  model: string
-  /** 最大并发章节数 */
-  maxConcurrency: number
-  /** 请求间隔秒数 */
-  intervalSec: number
-}
+/** 批量生成节点配置 = 节点池 SchedulableNode（无 batchChars） */
+export type BatchGenNode = SchedulableNode
 
 /** 任务状态 */
 type TaskStatus = 'drafting' | 'finalizing' | 'completed' | 'failed'
@@ -56,11 +49,6 @@ export interface BatchGenHandle {
   updateNodes: (nodes: BatchGenNode[]) => void
 }
 
-interface NodeRuntime {
-  activeCount: number
-  lastRequestTime: number
-}
-
 interface InternalTask extends BatchGenTask {
   status: TaskStatus
   draftText?: string
@@ -86,7 +74,7 @@ export function startBatchGenerate(
 
   // 可变状态
   let nodeConfigs: BatchGenNode[] = [...nodes]
-  const nodeStates = new Map<string, NodeRuntime>()
+  const nodeStates: NodeRuntimeMap = new Map()
   for (const n of nodeConfigs) {
     nodeStates.set(n.id, { activeCount: 0, lastRequestTime: 0 })
   }
@@ -99,30 +87,6 @@ export function startBatchGenerate(
       finished = true
       cb.onFinish()
     }
-  }
-
-  /** 选择候选节点 */
-  const pickCandidate = (): { cfg: BatchGenNode; state: NodeRuntime } | null => {
-    const now = Date.now()
-    const candidates: { cfg: BatchGenNode; state: NodeRuntime }[] = []
-    for (const cfg of nodeConfigs) {
-      const state = nodeStates.get(cfg.id)
-      if (!state) continue
-      if (state.activeCount >= cfg.maxConcurrency) continue
-      const intervalMs = cfg.intervalSec * 1000
-      if (intervalMs > 0 && now - state.lastRequestTime < intervalMs) continue
-      // 次数限制：扣减当日额度，额度用尽的节点跳过
-      if (isNodeAvailable && !isNodeAvailable(cfg.id)) continue
-      candidates.push({ cfg, state })
-    }
-    if (!candidates.length) return null
-    // 排序：最久未用 → 最少连接
-    candidates.sort((a, b) => {
-      const timeDiff = a.state.lastRequestTime - b.state.lastRequestTime
-      if (timeDiff !== 0) return timeDiff
-      return a.state.activeCount - b.state.activeCount
-    })
-    return candidates[0]
   }
 
   /** 执行单个任务（draft → finalize 串行） */
@@ -205,7 +169,10 @@ export function startBatchGenerate(
         continue
       }
 
-      const candidate = pickCandidate()
+      const candidate = pickLeastLoadedNode(nodeConfigs, nodeStates, {
+        now: Date.now(),
+        isExternalAvailable: isNodeAvailable,
+      })
       if (!candidate) {
         if (pendingQueue.length === 0) {
           if (active === 0) break

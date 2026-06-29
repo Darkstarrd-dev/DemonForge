@@ -347,10 +347,14 @@ export type {
   Provider,
   ProviderNode,
   ResolvedProviderNode,
+  SchedulableNode,
   ModuleKey,
   ModuleModelMapping,
 } from '../packages/node-pool/types'
 export { getModuleNodeType } from '../packages/node-pool/types'
+
+/** 节点池调度运行时态（从 packages/node-pool 重新导出） */
+export type { NodeRuntime, NodeRuntimeMap } from '../packages/node-pool/runtime'
 
 /** M2 实体合并裁决候选对 */
 export interface MergeCandidate {

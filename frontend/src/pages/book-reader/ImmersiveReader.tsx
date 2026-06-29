@@ -33,6 +33,20 @@ import type { CleanNode, CleanQueueCallbacks } from '../../services/api'
 import { resolveProviderNode, resolveProviderNodes } from '../../utils/providerResolver'
 import './ImmersiveReader.css'
 
+/** 单章清理适配：ResolvedProviderNode 的字段已满足 SchedulableNode，只需覆写单章特化参数 */
+function toSingleNodeClean(node: ResolvedProviderNode): CleanNode {
+  return {
+    id: node.id,
+    name: node.name,
+    baseURL: node.baseURL,
+    apiKey: node.apiKey || undefined,
+    model: node.model,
+    maxConcurrency: 1,
+    batchChars: 999999,
+    intervalSec: 0,
+  }
+}
+
 // ── Find/Replace types ──
 interface FindResult {
   chapterId: string
@@ -424,10 +438,7 @@ export default function ImmersiveReader({
     if (!node) { message.error('节点不存在'); return }
     if (!consumeProviderUsage(node.id)) { message.error('该节点今日额度已用完'); return }
 
-    const cleanNode: CleanNode = {
-      id: node.id, name: node.name, baseURL: node.baseURL, apiKey: node.apiKey || undefined,
-      model: node.model, maxConcurrency: 1, batchChars: 999999, intervalSec: 0,
-    }
+    const cleanNode = toSingleNodeClean(node)
 
     const ac = new AbortController()
     cleanAbortRef.current = ac

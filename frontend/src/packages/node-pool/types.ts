@@ -122,6 +122,24 @@ export interface ModuleModelMapping {
   model?: string
 }
 
+/**
+ * 调度器消费的运行时节点视图——ResolvedProviderNode 的调度子集。
+ *
+ * 调度器只关心「怎么连 + 并发/间隔约束」，不关心 providerId/usageLimit/enabled/lastTestResult 等管理字段。
+ * `batchChars` 可选：仅文本清理节点使用；批量生成/图片节点不感知该字段。
+ */
+export interface SchedulableNode {
+  id: string
+  name: string
+  baseURL: string
+  apiKey?: string
+  model: string
+  maxConcurrency: number
+  intervalSec: number
+  /** 批次字数上限（仅文本清理节点用；图片节点/批量生成无此字段） */
+  batchChars?: number
+}
+
 /** 节点池运行时状态（供序列化 / store 独立化使用）。 */
 export interface NodePoolStateCore {
   providers: Provider[]

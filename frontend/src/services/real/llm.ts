@@ -53,16 +53,10 @@ export class CleanError extends Error {
   }
 }
 
-export interface CleanNode {
-  id: string
-  name: string
-  baseURL: string
-  apiKey?: string
-  model: string
-  maxConcurrency: number
-  batchChars: number  // 批次字数上限（非章节数）
-  intervalSec: number
-}
+import type { SchedulableNode } from '../../packages/node-pool/types'
+
+/** 文本清理节点 = SchedulableNode + 必填 batchChars */
+export type CleanNode = SchedulableNode & { batchChars: number }
 
 export interface CleanQueueDebugEvent {
   type: 'request' | 'response' | 'error'

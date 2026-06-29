@@ -931,13 +931,15 @@ function redactProvider(p: Provider): Provider {
 - 【已核实】`llm.ts:56-65` CleanNode **含 batchChars(必填)**
 - 【已核实】`batch.ts:20-30` BatchGenNode **无 batchChars**
 - 【已核实】`ImmersiveReader.tsx:418-430` 手工 resolveProviderNode + 构造 CleanNode(maxConcurrency:1, batchChars:999999, intervalSec:0)
-- 【待实施】新建 `runtime.ts`(NodeRuntime+NodeRuntimeMap)、`policy.ts`(isNodeAvailableNow+pickLeastLoadedNode)
-- 【待实施】SchedulableNode 接口加 `batchChars?: number`(可选,覆盖 CleanNode 独有字段)
-- 【待实施】CleanNode 改为 `SchedulableNode & { batchChars: number }` 别名;BatchGenNode = SchedulableNode 别名
-- 【待实施】cleanScheduler 删本地 NodeRuntime,改 import;workerLoopForNode 可用性检查调 isNodeAvailableNow
-- 【待实施】batch.ts 删本地 NodeRuntime + pickCandidate,改调 pickLeastLoadedNode
-- 【待实施】ImmersiveReader 不再手工构造 CleanNode,ResolvedProviderNode 直接满足(注意 maxConcurrency/batchChars/intervalSec 的单章清理特化值 1/999999/0 如何注入——可能仍需一个薄适配层,不能完全消除手工映射)
-- 【待实施】回归:M1 自动重试、模型切换、节点热更新、熔断;批量 draft→finalize 串行失败即停
+- 【已实施】新建 `runtime.ts`(NodeRuntime+NodeRuntimeMap)、`policy.ts`(isNodeAvailableNow+pickLeastLoadedNode)
+- 【已实施】SchedulableNode 接口加 `batchChars?: number`(可选,覆盖 CleanNode 独有字段);`apiKey` 保持可选以兼容旧 CleanNode
+- 【已实施】CleanNode 改为 `SchedulableNode & { batchChars: number }` 别名;BatchGenNode = SchedulableNode 别名
+- 【已实施】cleanScheduler 删本地 NodeRuntime,改 import;workerLoopForNode 可用性检查调 isNodeAvailableNow
+- 【已实施】batch.ts 删本地 NodeRuntime + pickCandidate,改调 pickLeastLoadedNode
+- 【已实施】ImmersiveReader 保留薄适配层 `toSingleNodeClean(node)`,覆写单章特化参数(maxConcurrency:1/batchChars:999999/intervalSec:0),其余字段从 ResolvedProviderNode 直接透传
+- 【已实施】回归:test:core 76/76 绿;npm test 451/451 绿;前端 tsc 无新增错误
+- 【已实施】新增单测 `packages/node-pool/policy.test.ts`(13 用例)
+- 【已实施】顺手修复 `serialize.test.ts` `moduleMapping: {}` 类型断言
 
 ### 批次 3:5.4 状态 slice 解耦
 
