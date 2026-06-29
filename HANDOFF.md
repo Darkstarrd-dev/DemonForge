@@ -1,8 +1,8 @@
 # HANDOFF.md — novelhelper 交接备忘
 
 **最后更新**：2026-06-30
-**当前位置**：办公场所 A（已推送）
-**本轮主题**：**节点池 UI 优化：合并「新增供应商」与「新增节点到现有供应商」**
+**当前位置**：办公场所 A（待推送）
+**本轮主题**：**节点池编辑对话框四项修复**
 
 > 📦 **历史明细已归档** → `docs/handoff_history.md`
 > 本文件只保留「恢复工作所需的活内容」：进行中任务、模块清单、下一步、交接参考。
@@ -10,25 +10,24 @@
 
 ---
 
-## 🆕 节点池 UI 优化：合并新增供应商与新增节点（2026-06-30，待推送）
+## 🆕 节点池编辑对话框四项修复（2026-06-30，待推送）
 
-按用户需求将「新增节点到现有供应商」移除，其选择器下拉菜单并入「新增供应商」Modal。
+按用户需求修复节点编辑 Modal 的 4 个问题。
 
 ### 改动
 
-- **`NodesTabContent.tsx`**：移除"新增节点到现有供应商"按钮及关联 `useState`/Modal；按钮文案改为"新增供应商 / 节点"
-- **`settings/index.tsx`**：新增供应商 Modal 的 name 字段从 `<Input>` 改为 `<AutoComplete>`：
-  - 点击空白区直接输入新名称（新增供应商）
-  - 点击箭头下拉选择已有供应商名（选中后自动填充 baseURL/apiKeys/rotationPolicy 并禁用这些字段，title 变为"新增节点到 XXX"，okText 变为"下一步：配置节点"，确认后打开节点编辑 Modal）
-  - 编辑已有供应商时 AutoComplete 不显示下拉选项
+- **`settings/index.tsx`**：
+  1. **模型名空值修复**：Modal 添加 `afterOpenChange` 回调，在 Modal 打开动画结束后才调用 `nodeForm.setFieldsValue`，确保 `destroyOnHidden` 重建的表单正确接收值
+  2. **供应商名入标题**：移除顶部 `<Form.Item label="供应商">` 禁用输入框，编辑标题改为 `${provider.name} 编辑节点`
+  3. **多模态开关移位**：从独立 Form.Item 移入模型名 `Space.Compact` 内，紧跟 TextArea 右侧（`noStyle`），`checkedChildren="多模态" unCheckedChildren="纯文本"`
+  4. **获取模型按钮迁移**：从编辑 Modal 移除，移至供应商栏「新增节点」左侧；新增 `fetchModelsProvider` 状态解耦批量添加与编辑表单的依赖
+- **`NodesTabContent.tsx`**：新增 `fetchModels`/`fetchingModels` prop；供应商行按钮组首位添加「获取模型」按钮
 
 ### 验证
 
 | 命令 | 结果 |
 |---|---|
-| `npx tsc -p tsconfig.app.json --noEmit` | 0 error |
-| `npx eslint src/pages/settings/index.tsx src/pages/settings/panels/NodesTabContent.tsx` | 0 error |
-| `npx vite build` | 成功 |
+| `npx tsc --noEmit --project frontend/tsconfig.app.json` | 仅预存错误（ruleClean.ts），settings/NodesTabContent 无新增错误 |
 
 ---
 

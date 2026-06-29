@@ -22,6 +22,10 @@ interface NodesTabContentProps {
   editProvider: (p: Provider) => void
   /** 在供应商下新增节点 */
   addNodeForProvider: (providerId: string) => void
+  /** 获取模型列表 */
+  fetchModels: (overrideProvider?: Provider) => void
+  /** 获取模型加载状态 */
+  fetchingModels: boolean
   /** 编辑节点 */
   editNode: (node: ProviderNode, provider: Provider) => void
   /** 删除供应商 */
@@ -75,6 +79,8 @@ export default function NodesTabContent(props: NodesTabContentProps) {
     editProvider,
     addNodeForProvider,
     editNode,
+    fetchModels,
+    fetchingModels,
     removeProvider,
     removeNode,
     toggleNodeEnabled,
@@ -287,6 +293,9 @@ export default function NodesTabContent(props: NodesTabContentProps) {
                   </Tag>
                 </Space>
                 <Space onClick={(e) => e.stopPropagation()}>
+                  <Button size="small" loading={fetchingModels} disabled={!provider.baseURL} onClick={() => fetchModels(provider)}>
+                    获取模型
+                  </Button>
                   <Button size="small" onClick={() => addNodeForProvider(provider.id)}>
                     新增节点
                   </Button>

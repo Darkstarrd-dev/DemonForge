@@ -177,6 +177,8 @@ export default function SettingsPage() {
   const [availableModels, setAvailableModels] = useState<string[]>([])
   const [selectedModels, setSelectedModels] = useState<string[]>([])
   const [modelSelectOpen, setModelSelectOpen] = useState(false)
+  // 获取模型的目标供应商（从供应商栏直接触发时，editingNode 可能为 null）
+  const [fetchModelsProvider, setFetchModelsProvider] = useState<Provider | null>(null)
 
   // 节点真实调用测试
   const [testingNode, setTestingNode] = useState<ResolvedProviderNode | null>(null)
@@ -487,9 +489,9 @@ export default function SettingsPage() {
     }
   }
 
-  /** 获取模型列表。 */
-  const fetchModels = async () => {
-    const provider = editingNode?.provider
+  /** 获取模型列表。可直接传入供应商（从供应商栏触发），或默认取 editingNode.provider。 */
+  const fetchModels = async (overrideProvider?: Provider) => {
+    const provider = overrideProvider ?? editingNode?.provider
     if (!provider) {
       message.warning('请先选择供应商')
       return
@@ -500,6 +502,7 @@ export default function SettingsPage() {
       message.warning('请先填写供应商 Base URL')
       return
     }
+    setFetchModelsProvider(provider)
     setFetchingModels(true)
     try {
       const result = await testProvider({ baseURL, apiKey: apiKey || '', model: '' })
@@ -517,13 +520,13 @@ export default function SettingsPage() {
     }
   }
 
-  /** 批量添加节点。 */
+  /** 批量添加节点。优先取 fetchModelsProvider（从供应商栏触发），否则取 editingNode.provider。 */
   const batchAddNodes = () => {
     if (selectedModels.length === 0) {
       message.warning('请至少选择一个模型')
       return
     }
-    const provider = editingNode?.provider
+    const provider = fetchModelsProvider ?? editingNode?.provider
     if (!provider) return
     const values = nodeForm.getFieldsValue()
     const newNodes: ProviderNode[] = selectedModels.map((model) => ({
@@ -546,6 +549,7 @@ export default function SettingsPage() {
     newNodes.forEach((n) => addProviderNode(n))
     message.success(`已添加 ${newNodes.length} 个节点`)
     setModelSelectOpen(false)
+    setFetchModelsProvider(null)
     setEditingNode(null)
     nodeForm.resetFields()
   }
@@ -858,6 +862,8 @@ export default function SettingsPage() {
                 editProvider={editProvider}
                 addNodeForProvider={addNodeForProvider}
                 editNode={editNode}
+                fetchModels={fetchModels}
+                fetchingModels={fetchingModels}
                 removeProvider={removeProvider}
                 removeNode={removeNode}
                 toggleNodeEnabled={toggleNodeEnabled}
@@ -1057,17 +1063,23 @@ export default function SettingsPage() {
 
       {/* 节点编辑 Modal */}
       <Modal
-        title={storeProviderNodes.some((n) => n.id === editingNode?.node.id) ? '编辑节点' : '新增节点'}
+        title={
+          storeProviderNodes.some((n) => n.id === editingNode?.node.id)
+            ? `${editingNode?.provider.name} 编辑节点`
+            : '新增节点'
+        }
         open={!!editingNode}
         onOk={saveNode}
         onCancel={() => setEditingNode(null)}
         destroyOnHidden
+        afterOpenChange={(open) => {
+          if (open && editingNode) {
+            nodeForm.setFieldsValue(editingNode.node)
+          }
+        }}
         width={Math.min(800, window.innerWidth - 48)}
       >
         <Form form={nodeForm} layout="vertical" style={{ marginTop: 8 }}>
-          <Form.Item label="供应商">
-            <Input value={editingNode?.provider.name} disabled />
-          </Form.Item>
           {nodeTypeFilter === 'image' && (
             <Form.Item name="protocol" label="生图协议" rules={[{ required: true }]}>
               <Select
@@ -1079,11 +1091,6 @@ export default function SettingsPage() {
               />
             </Form.Item>
           )}
-          {nodeTypeFilter === 'text' && (
-            <Form.Item name="isMultimodal" label="多模态" valuePropName="checked" extra="开启后该节点支持视觉多模态理解（图片+文本输入）">
-              <Switch />
-            </Form.Item>
-          )}
           <Form.Item name="model" label="模型名" rules={[{ required: true }]} extra="支持多个模型，用逗号分隔（如 gpt-4, gpt-3.5-turbo）">
             <Space.Compact style={{ width: '100%' }}>
               <Input.TextArea
@@ -1091,13 +1098,15 @@ export default function SettingsPage() {
                 autoSize={{ minRows: 1, maxRows: 4 }}
                 style={{ flex: 1 }}
               />
-              <Button
-                loading={fetchingModels}
-                disabled={!editingNode?.provider.baseURL}
-                onClick={fetchModels}
-              >
-                获取模型
-              </Button>
+              {nodeTypeFilter === 'text' && (
+                <Form.Item name="isMultimodal" valuePropName="checked" noStyle>
+                  <Switch
+                    checkedChildren="多模态"
+                    unCheckedChildren="纯文本"
+                    style={{ minWidth: 80 }}
+                  />
+                </Form.Item>
+              )}
             </Space.Compact>
           </Form.Item>
           <Row gutter={16}>
@@ -1160,7 +1169,7 @@ export default function SettingsPage() {
         <Alert
           type="info"
           showIcon
-          message={`从 ${editingNode?.provider.baseURL} 获取到 ${availableModels.length} 个模型`}
+          message={`从 ${(fetchModelsProvider ?? editingNode?.provider)?.baseURL} 获取到 ${availableModels.length} 个模型`}
           style={{ marginBottom: 16 }}
         />
         <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
