@@ -1,8 +1,8 @@
 # HANDOFF.md — novelhelper 交接备忘
 
 **最后更新**：2026-06-30
-**当前位置**：办公场所 A（已推送）
-**本轮主题**：**章节检测模式池迁移 → 导入文件·章节分割「检测模式」按钮**
+**当前位置**：办公场所 A（本轮待推送）
+**本轮主题**：**M1 清理提示词/测试文本迁移 → 节点池布局与高度修复**
 
 > 📦 **历史明细已归档** → `docs/handoff_history.md`
 > 本文件只保留「恢复工作所需的活内容」：进行中任务、模块清单、下一步、交接参考。
@@ -10,25 +10,33 @@
 
 ---
 
-## 🆕 章节检测模式池迁移 → 导入文件·章节分割（本轮，待推送）
+## 🆕 M1 清理提示词/测试文本迁移 → 节点池布局修复（本轮，待推送）
 
-将「系统设置 → 高级设置」中的"章节检测模式池"管理界面迁移至「书库概览 → 导入文件 → 章节分割」页面的"重新检测"按钮区域。
+将系统设置·节点池中的「M1 清理提示词（默认）」和「测试文本」卡片迁移至书库概览→文本清理→清理节点池标题栏，新增三个按钮+弹窗；同时修复节点池与章节列表布局。
 
 ### 改动
 
-- **`m1-import/components/PatternPoolDrawer.tsx`**（新建）：
-  - 自包含组件：`<Button size="small">检测模式</Button>` → Drawer（模式池 Table + 恢复默认/新增模式按钮）+ 编辑 Modal
-  - 从 store 直接读取 `splitPatterns`/`setSplitPatterns`/`resetSplitPatterns`，零外部 props
-- **`m1-import/Step2Split.tsx`**：在 Alert `action` 区域新增 `<PatternPoolDrawer />`，与"重新检测"按钮纵向排列
-- **`settings/panels/AdvancedTabContent.tsx`**：移除"章节检测模式池" Card 及 4 个关联 props（`splitPatterns`/`openPatternEdit`/`deletePattern`/`resetSplitPatterns`）
-- **`settings/index.tsx`**：移除模式池相关 state（`editingPattern`/`patternForm`）、3 个 handler（`openPatternEdit`/`savePatternEdit`/`deletePattern`）、编辑 Modal、传给 AdvancedTabContent 的 4 个 props
+- **`Step3Clean.tsx`**：
+  1. **3 按钮入标题栏**：清理节点池折叠标题右侧新增「清理提示词」「测试文本」「批量测试」
+  2. **清理提示词弹窗**：Modal 编辑 `promptOverrides['m1-clean']`，按钮 取消|清空|恢复默认|保存
+  3. **测试文本弹窗**：Modal 编辑 `m1TestText`，按钮 取消|清空|恢复默认（还原内置样本）|保存
+  4. **批量测试**：参选文本节点并发 `/api/llm/clean`（并发 4），更新 `lastTestResult`
+  5. **过滤图片节点**：`enabledNodes`/`buildCleanNodes` 加 `nodeType === 'text'`
+  6. **移除「已关闭」文本**
+  7. **卡片标题文本撑满**：`maxWidth:160` → `flex:1`
+  8. **Tag 节点列表换行**：`<Space wrap>` → `<div style="display:flex;flexWrap:wrap">`
+  9. **章节列表高度约束**：Row `flex:1 1 460px` + `overflow:hidden`
+  10. **外层弹性化**：`<Space>` → flex column + `overflowY:auto`
+- **`index.tsx`（m1-import）**：Steps 固定在顶部（Card `flex column` + 内容区 `flex:1,overflowY:auto`）
+- **`ImmersiveReader.tsx`**：清理节点列表加 `nodeType === 'text'` 过滤图片节点
+- **`NodesTabContent.tsx`**：移除 M1 清理提示词+测试文本两张 Card 及 11 个关联 props
+- **`settings/index.tsx`**：移除已迁移 props/state/导入
 
 ### 验证
 
 | 命令 | 结果 |
 |---|---|
 | `npx tsc --noEmit`（frontend） | 0 error |
-| `npx vite build`（frontend） | 成功 |
 
 ---
 
