@@ -265,8 +265,8 @@ export default function NodesTabContent(props: NodesTabContentProps) {
       <div style={{ flex: 1, overflow: 'auto', padding: '12px 24px 24px 24px' }}>
         <div style={{ maxWidth: 1600, margin: '0 auto' }}>
         {/* 供应商分组渲染 */}
-        {providers.map((provider) => {
-          const nodes = nodesByProvider.get(provider.id) ?? []
+        {providers.filter((provider) => nodesByProvider.has(provider.id)).map((provider) => {
+          const nodes = nodesByProvider.get(provider.id)!
           const key = provider.id
           const isExpanded = nodeGroupExpanded[key] ?? true
           return (
@@ -449,9 +449,40 @@ export default function NodesTabContent(props: NodesTabContentProps) {
             placeholder="用于「测试」按钮与并发测试的文本"
             style={{ fontFamily: 'monospace', fontSize: 12 }}
           />
-        </div>
-        </div>
-      </div>
+         </div>
+         </div>
+       </div>
+
+      {/* 新增节点到现有供应商选择器 */}
+      <Modal
+        title={`新增${nodeTypeFilter === 'text' ? '文本' : '图片'}节点到现有供应商`}
+        open={pickProviderOpen}
+        onOk={() => {
+          if (selectedProviderId) {
+            addNodeForProvider(selectedProviderId)
+            setPickProviderOpen(false)
+            setSelectedProviderId(null)
+          }
+        }}
+        onCancel={() => { setPickProviderOpen(false); setSelectedProviderId(null) }}
+        okText="下一步：配置节点"
+        okButtonProps={{ disabled: !selectedProviderId }}
+        width={Math.min(480, window.innerWidth - 48)}
+      >
+        <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 12 }}>
+          选择供应商后将打开节点配置表单，节点类型跟随当前 Tab（{nodeTypeFilter === 'text' ? '文本' : '图片'}）。
+          当前 Tab 下不包含该类型节点的供应商也会出现在此列表中。
+        </Typography.Text>
+        <Select
+          style={{ width: '100%' }}
+          placeholder="选择供应商"
+          value={selectedProviderId ?? undefined}
+          onChange={(v) => setSelectedProviderId(v)}
+          options={providers.map((p) => ({ value: p.id, label: `${p.name}（${p.baseURL}）` }))}
+          showSearch
+          filterOption={(input, option) => (option?.label as string)?.toLowerCase().includes(input.toLowerCase())}
+        />
+      </Modal>
     </div>
   )
 }
