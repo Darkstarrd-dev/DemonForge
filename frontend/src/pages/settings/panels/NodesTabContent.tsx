@@ -1,4 +1,5 @@
-import { Button, Input, Segmented, Select, Space, Switch, Table, Tag, Typography } from 'antd'
+import { useState } from 'react'
+import { Button, Input, Modal, Segmented, Select, Space, Switch, Table, Tag, Typography } from 'antd'
 import type { TableColumnsType } from 'antd'
 import { DownOutlined, UpOutlined } from '@ant-design/icons'
 import type {
@@ -98,6 +99,10 @@ export default function NodesTabContent(props: NodesTabContentProps) {
   setDraftTestText,
   m1TestText,
 } = props
+
+  // 「新增节点到现有供应商」选择器
+  const [pickProviderOpen, setPickProviderOpen] = useState(false)
+  const [selectedProviderId, setSelectedProviderId] = useState<string | null>(null)
 
   // 按当前 Tab 过滤节点（文本/图片），再按 providerId 分组
   const visibleNodes = resolvedNodes.filter((n) => n.nodeType === nodeTypeFilter)
@@ -226,31 +231,39 @@ export default function NodesTabContent(props: NodesTabContentProps) {
   ]
 
   return (
-    <div style={{ padding: '24px', height: 'calc(100vh - 46px)', overflow: 'auto' }}>
-      <div style={{ maxWidth: 1600, margin: '0 auto' }}>
-        {/* 标题栏 */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-          <Typography.Title level={5} style={{ margin: 0 }}>
-            Provider 节点池
-          </Typography.Title>
-          <Space>
-            <Segmented
-              value={nodeTypeFilter}
-              onChange={(v) => setNodeTypeFilter(v as ProviderNodeType)}
-              options={[
-                { value: 'text', label: '文本' },
-                { value: 'image', label: '图片' },
-              ]}
-            />
-            <Button loading={batchTesting} onClick={runBatchTest}>
-              批量测试
+    <div style={{ height: 'calc(100vh - 46px)', display: 'flex', flexDirection: 'column' }}>
+      {/* 标题栏：独立容器，不受滚动影响 */}
+      <div style={{ padding: '24px 24px 12px 24px', maxWidth: 1600, margin: '0 auto', width: '100%', background: 'var(--ant-color-bg-layout)', borderBottom: '1px solid var(--ant-color-border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <Typography.Title level={5} style={{ margin: 0 }}>
+          Provider 节点池
+        </Typography.Title>
+        <Space>
+          <Segmented
+            value={nodeTypeFilter}
+            onChange={(v) => setNodeTypeFilter(v as ProviderNodeType)}
+            options={[
+              { value: 'text', label: '文本' },
+              { value: 'image', label: '图片' },
+            ]}
+          />
+          <Button loading={batchTesting} onClick={runBatchTest}>
+            批量测试
+          </Button>
+            <Button
+              onClick={() => { setSelectedProviderId(null); setPickProviderOpen(true) }}
+              disabled={providers.length === 0}
+            >
+              新增节点到现有供应商
             </Button>
             <Button type="primary" onClick={openProviderEdit}>
               新增供应商
             </Button>
-          </Space>
-        </div>
+        </Space>
+      </div>
 
+      {/* 滚动内容区 */}
+      <div style={{ flex: 1, overflow: 'auto', padding: '12px 24px 24px 24px' }}>
+        <div style={{ maxWidth: 1600, margin: '0 auto' }}>
         {/* 供应商分组渲染 */}
         {providers.map((provider) => {
           const nodes = nodesByProvider.get(provider.id) ?? []
@@ -436,6 +449,7 @@ export default function NodesTabContent(props: NodesTabContentProps) {
             placeholder="用于「测试」按钮与并发测试的文本"
             style={{ fontFamily: 'monospace', fontSize: 12 }}
           />
+        </div>
         </div>
       </div>
     </div>
