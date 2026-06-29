@@ -640,7 +640,7 @@ export default function Step3Clean() {
       : 'default'
 
   return (
-    <Space direction="vertical" size={16} style={{ width: '100%' }}>
+    <div style={{ width: '100%', display: 'flex', flexDirection: 'column', height: '100%', overflowY: 'auto', gap: 16 }}>
       {/* 节点池（可手动折叠；开始清理后自动折叠） */}
       <Collapse
         activeKey={nodePoolOpen ? ['nodes'] : []}
@@ -891,7 +891,7 @@ export default function Step3Clean() {
       )}
 
       {/* 活跃任务 + 实时窗口 */}
-      <Row gutter={[16, 16]} style={{ minHeight: screens.lg ? 460 : 'auto', maxHeight: screens.lg ? 'calc(100vh - 320px)' : undefined, height: screens.lg ? 'calc(100vh - 320px)' : 'auto' }}>
+      <Row gutter={[16, 16]} style={{ minHeight: 460, flex: '1 1 460px', overflow: 'hidden' }}>
         <Col xs={24} lg={8} style={{ height: screens.lg ? '100%' : 'auto', display: 'flex', flexDirection: 'column', marginBottom: screens.lg ? 0 : 16 }}>
           <Tabs
             className="m1-tabs-panel"
@@ -1247,7 +1247,7 @@ export default function Step3Clean() {
           {draftTestText ? `当前 ${draftTestText.length} 字。用于「批量测试」按钮的真实清理调用。` : '测试文本为空时批量测试无法执行。'}
         </Typography.Paragraph>
       </Modal>
-    </Space>
+    </div>
   )
 }
 

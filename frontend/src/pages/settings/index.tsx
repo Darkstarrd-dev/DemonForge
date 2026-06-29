@@ -120,9 +120,6 @@ export default function SettingsPage() {
   const m1TestText = useAppStore((s) => s.m1TestText)
   const assetDir = useAppStore((s) => s.assetDir)
   const showMenuBar = useAppStore((s) => s.showMenuBar)
-  const splitPatterns = useAppStore((s) => s.splitPatterns)
-  const setSplitPatterns = useAppStore((s) => s.setSplitPatterns)
-  const resetSplitPatterns = useAppStore((s) => s.resetSplitPatterns)
   const setState = useAppStore((s) => s.setState)
   const addProvider = useAppStore((s) => s.addProvider)
   const updateProvider = useAppStore((s) => s.updateProvider)
@@ -164,10 +161,6 @@ export default function SettingsPage() {
   // 节点编辑
   const [editingNode, setEditingNode] = useState<{ node: ProviderNode; provider: Provider } | null>(null)
   const [nodeForm] = Form.useForm<ProviderNode>()
-
-  // 章节检测模式编辑
-  const [editingPattern, setEditingPattern] = useState<{ key: string; label: string; regex: string; builtin?: boolean } | null>(null)
-  const [patternForm] = Form.useForm<{ label: string; regex: string }>()
 
   // 获取模型多选批量添加
   const [fetchingModels, setFetchingModels] = useState(false)
@@ -823,41 +816,6 @@ export default function SettingsPage() {
     }
   }
 
-  // ===== 章节检测模式池管理 =====
-  const openPatternEdit = (p?: { key: string; label: string; regex: string; builtin?: boolean }) => {
-    const target = p ?? { key: genId('pat'), label: '', regex: '', builtin: false }
-    setEditingPattern(target)
-    patternForm.setFieldsValue({ label: target.label, regex: target.regex })
-  }
-
-  const savePatternEdit = async () => {
-    const values = await patternForm.validateFields()
-    const merged = { ...editingPattern!, ...values }
-    if (merged.key !== 'custom' && merged.regex) {
-      try {
-        new RegExp(merged.regex)
-      } catch {
-        message.error('正则表达式无效，请检查语法')
-        return
-      }
-    }
-    const exists = splitPatterns.some((p) => p.key === merged.key)
-    setSplitPatterns(
-      exists ? splitPatterns.map((p) => (p.key === merged.key ? merged : p)) : [...splitPatterns, merged],
-    )
-    setEditingPattern(null)
-    message.success('检测模式已保存')
-  }
-
-  const deletePattern = (p: { key: string; label: string; regex: string; builtin?: boolean }) => {
-    if (p.key === 'custom') {
-      message.warning('「自定义正则」模式不可删除')
-      return
-    }
-    setSplitPatterns(splitPatterns.filter((x) => x.key !== p.key))
-    message.success('已删除')
-  }
-
   // 切换分组展开/折叠（持久化到 store）
   const toggleGroup = (groupKey: string) => {
     setState({
@@ -912,10 +870,6 @@ export default function SettingsPage() {
               key: 'advanced',
               label: '高级配置',
               children: <AdvancedTabContent
-                splitPatterns={splitPatterns}
-                openPatternEdit={openPatternEdit}
-                deletePattern={deletePattern}
-                resetSplitPatterns={resetSplitPatterns}
                 draftDir={draftDir}
                 setDraftDir={setDraftDir}
                 assetDir={assetDir}
@@ -1198,30 +1152,6 @@ export default function SettingsPage() {
             ))}
           </Space>
         </Checkbox.Group>
-      </Modal>
-
-      {/* 章节检测模式编辑 Modal */}
-      <Modal
-        title={splitPatterns.some((p) => p.key === editingPattern?.key) ? '编辑检测模式' : '新增检测模式'}
-        open={!!editingPattern}
-        onOk={savePatternEdit}
-        onCancel={() => setEditingPattern(null)}
-        destroyOnHidden
-        width={Math.min(600, window.innerWidth - 48)}
-      >
-        <Form form={patternForm} layout="vertical" style={{ marginTop: 8 }}>
-          <Form.Item name="label" label="名称" rules={[{ required: true }]}>
-            <Input placeholder="如：第X章" />
-          </Form.Item>
-          <Form.Item
-            name="regex"
-            label="正则表达式"
-            rules={[{ required: true, message: '请输入正则（custom 模式除外）' }]}
-            extra="以 ^ 开头整行匹配，含一个捕获组作为标题。如：^(第[0-9一二三四五六七八九十]+章.*)"
-          >
-            <Input placeholder="^(第[0-9零一二三四五六七八九十百千万]+章.*)" style={{ fontFamily: 'monospace' }} />
-          </Form.Item>
-        </Form>
       </Modal>
 
       {/* 连通性测试 Modal */}

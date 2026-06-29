@@ -1,14 +1,9 @@
 import { useEffect, useState } from 'react'
-import { App, Button, Card, Input, Space, Table, Tag, Typography } from 'antd'
+import { App, Button, Card, Input, Space, Typography } from 'antd'
 import { FolderOpenOutlined } from '@ant-design/icons'
-import type { SplitPattern } from '../../../services/types'
 import { pushSettingsNow, useAppStore } from '../../../store/appStore'
 
 export default function AdvancedTabContent(props: {
-  splitPatterns: SplitPattern[]
-  openPatternEdit: (p?: SplitPattern) => void
-  deletePattern: (p: SplitPattern) => void
-  resetSplitPatterns: () => void
   draftDir: string
   setDraftDir: (v: string) => void
   assetDir: string
@@ -56,33 +51,6 @@ export default function AdvancedTabContent(props: {
     <div style={{ padding: '24px', height: 'calc(100vh - 46px)', overflow: 'auto' }}>
       <div style={{ maxWidth: 1600, margin: '0 auto' }}>
         <Space direction="vertical" size={16} style={{ width: '100%' }}>
-          <Card title="章节检测模式池" extra={
-            <Space>
-              <Button onClick={() => props.resetSplitPatterns()}>恢复默认</Button>
-              <Button type="primary" onClick={() => props.openPatternEdit()}>新增模式</Button>
-            </Space>
-          }>
-            <Table
-              rowKey="key"
-              pagination={false}
-              size="middle"
-              dataSource={props.splitPatterns}
-              columns={[
-                { title: '名称', dataIndex: 'label', width: 200 },
-                { title: '正则表达式', dataIndex: 'regex', ellipsis: true },
-                { title: '内置', dataIndex: 'builtin', width: 80, render: (v: boolean) => v ? <Tag>是</Tag> : <Tag>否</Tag> },
-                {
-                  title: '操作', key: 'actions', width: 150, render: (_: unknown, row: SplitPattern) => (
-                    <Space size="small">
-                      <Button size="small" onClick={() => props.openPatternEdit(row)}>编辑</Button>
-                      <Button size="small" danger onClick={() => props.deletePattern(row)} disabled={row.key === 'custom'}>删除</Button>
-                    </Space>
-                  )
-                }
-              ]}
-            />
-          </Card>
-
           <Card title="资产目录" extra={
             <Space>
               {window.electronAPI?.pickDirectory && <Button onClick={pickAssetDir}>选择目录</Button>}

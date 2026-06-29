@@ -15,6 +15,7 @@ import {
   Typography,
 } from 'antd'
 import { RobotOutlined, ReloadOutlined, ScissorOutlined } from '@ant-design/icons'
+import PatternPoolDrawer from './components/PatternPoolDrawer'
 import { useAppStore, genId } from '../../store/appStore'
 import {
   compilePatterns,
@@ -375,9 +376,12 @@ export default function Step2Split() {
             ) : undefined
           }
           action={
-            <Button data-slot="btn-redetect" size="small" icon={<ReloadOutlined />} onClick={() => runDetect(false)}>
-              重新检测
-            </Button>
+            <Space direction="vertical">
+              <Button data-slot="btn-redetect" size="small" icon={<ReloadOutlined />} onClick={() => runDetect(false)}>
+                重新检测
+              </Button>
+              <PatternPoolDrawer />
+            </Space>
           }
         />
       )}
