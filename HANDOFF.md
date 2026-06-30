@@ -2,7 +2,7 @@
 
 **最后更新**：2026-06-30
 **当前位置**：办公场所 A
-**本轮主题**：**5.5a 修复：pushNodePoolNow diff-based sync（per-item PUT/DELETE 替代整数组 POST）**
+**本轮主题**：**5.5b 详细方案定稿（方案 A：独立 DB `nodepool.db`）+ 5.5a 修复完成**
 
 > 📦 **历史明细已归档** → `docs/handoff_history.md`
 > 本文件只保留「恢复工作所需的活内容」：进行中任务、模块清单、下一步、交接参考。
@@ -124,7 +124,7 @@
 - [x] **提示词归一化全模块**（PromptEditorButton 覆盖 13 个 promptKey）
 - [x] **data-slot 体系**（11 页，150+ 属性）
 
-### 节点池模块化（共 6 批次，已完成 5 批次）
+### 节点池模块化（共 6 批次，已完成 5 批次，批次6 方案已定稿）
 | 批次 | 内容 | 状态 |
 |:---:|---|:---:|
 | 1 | 5.1 类型独立 + 5.2 纯函数层独立 + 5.7 导入/导出独立 | ✅ |
@@ -132,7 +132,7 @@
 | 3 | 5.4 状态 slice 解耦（独立 store + interop） | ✅ |
 | 4 | 5.5a 后端独立路由（NodePoolRepository + SettingsJsonRepo + 10 端点）+ **修复**（per-item CRUD diff sync） | ✅ |
 | 5 | **5.6 UI 组件拆分**（3 子组件 + 2 hooks；NodesTabContent 0 props；settings/index 1523→450 行） | ✅ |
-| 6 | 5.5b 迁 SQLite（可选） | ⏳ |
+| 6 | **5.5b 迁 SQLite（方案 A：独立 DB `nodepool.db`，不随资产目录切换）** | 📋 方案定稿 |
 
 ### 大富翁模块
 - [x] **M0–M11 全部审计通过**：类型统一 / 引擎迁移 / 数据修正 / UI 迁移 / 单测 **337/337 绿**
@@ -158,12 +158,13 @@
 
 ## 📋 立即任务（下次会话）
 
-1. **端到端实测节点池**：新增供应商（多 API KEY / Round-Robin / Failover）→ 文本/图片节点 → 模块映射 → 批量测试 → 导入导出 → 旧 settings.json 迁移
-2. **🎮 端到端实测大富翁**：启动→双地图→购买/升级/租金→卡片/道具/神明/事件→破产→胜负
-3. **🎲 端到端实测骰子**：d10 双锥渲染、随机模式物理不跳转、投掷力向上抛起
-4. **📦 验证完整打包**：`npm run dist`（NSIS + 便携版，注意 Defender 锁 app-builder）
-5. **🔍 验证提示词归一化端到端**（各模块 PromptEditorButton 生效）
-6. **🎨 验证文生图三协议 + 节点测试各模块 + 全屏阅读**
+1. **🔧 5.5b 实施**：按 `docs/node_pool_modularization_plan.md` §5.5b 详细方案执行——SqliteRepo + 迁移脚本 + index.ts 注入切换 + 单测；详见批次6核对清单
+2. **端到端实测节点池（含 5.5a+5.5b）**：新增供应商（多 API KEY / Round-Robin / Failover）→ 文本/图片节点 → 模块映射 → 批量测试 → 导入导出 → 迁移验证 → 重启持久化
+3. **🎮 端到端实测大富翁**：启动→双地图→购买/升级/租金→卡片/道具/神明/事件→破产→胜负
+4. **🎲 端到端实测骰子**：d10 双锥渲染、随机模式物理不跳转、投掷力向上抛起
+5. **📦 验证完整打包**：`npm run dist`（NSIS + 便携版，注意 Defender 锁 app-builder）
+6. **🔍 验证提示词归一化端到端**（各模块 PromptEditorButton 生效）
+7. **🎨 验证文生图三协议 + 节点测试各模块 + 全屏阅读**
 
 ---
 
@@ -188,7 +189,8 @@
 - **骰子**：`game/dice/`（核心 + 2D/3D demo）
 
 ### 数据兼容性
-- Provider/设置存 `server/src/data/settings.json`；业务数据持久化到后端 SQLite
+- Provider/设置存 `server/src/data/settings.json`；业务数据持久化到后端 SQLite（`<assetDir>/novelhelper.db`）
+- **5.5b 实施后**：节点池数据迁至 `<appDataDir>/nodepool.db`（独立 SQLite，全局不随资产目录切换）；settings.json 仅保留设置项；迁移有守卫 flag + `.pre-migrate.bak` 备份
 - image 节点无 `protocol` 字段自动默认 `modelscope`
 - 旧 `imageGallery`→`testHistory`；`imageDemoForm`→`nodeTestForm`（向后兼容）
 

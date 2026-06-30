@@ -3,7 +3,7 @@
 | 元信息 | 值 |
 |---|---|
 | 创建日期 | 2026-06-29 |
-| 状态 | 批次1-5已实施，批次5.5a 修复完成（2026-06-30：diff-based per-item sync） |
+| 状态 | 批次1-5已实施 + 5.5a 修复完成 + 5.5b 详细方案已定（2026-06-30：方案A 独立 DB） |
 | 范围 | 把节点池/节点功能抽成独立、与其他业务解耦、可复用的模块 |
 | 关联文件 | `frontend/src/services/types.ts`、`frontend/src/store/slices/providerSlice.ts`、`frontend/src/pages/settings/panels/NodesTabContent.tsx`、`frontend/src/services/real/{cleanScheduler,batch}.ts`、`frontend/src/utils/providerResolver.ts`、`server/src/routes/settings.ts`、`server/src/store/db.ts` |
 | 评分基线 | 17/40 (42.5%) |
@@ -545,65 +545,202 @@ await nodesRoutes(app, nodePoolRepo)
 
 ---
 
-#### 5.5b 终态设计草案(独立排期,本轮仅落地草案)
+#### 5.5b 详细实施方案（2026-06-30 定稿，方案 A：独立 DB）
 
-> **何时启动 5.5b 详细设计**:5.5a 实施完成 + 跑通端到端回归后。基于 SettingsJsonRepo 的真实实现暴露的痛点(并发瓶颈/字段演进痛点)再决定是否值得迁 SQLite。
+> **决策**：采用方案 A——独立 SQLite DB（`<appDataDir>/nodepool.db`），保持节点池全局行为（不随资产目录切换）。项目已用 better-sqlite3，不增加新依赖。路由层零改动，只换注入实例。
 
-**目标**:`SqliteRepo` 实现 `NodePoolRepository` 接口,数据从 settings.json 迁到 SQLite 两表,路由层零改动。
+**目标**：`SqliteRepo` 实现 `NodePoolRepository` 接口，数据从 settings.json 迁到独立 SQLite DB，路由层零改动。
 
-**表结构 DDL 草案**(符合 db.ts 文档式模式):
+**DB 位置决策**：
 
-> **设计决策**:沿用 db.ts 现有模式——`(id TEXT PRIMARY KEY, data TEXT)` 整实体存 JSON,字段演进无需迁移。**不**用关系型分列表(原方案的关系型 DDL 已废弃,因 db.ts 设计哲学是文档式,且节点池数据量小——几十个节点,无需关系型索引)。
+| 方案 | 路径 | 行为 | 选定 |
+|---|---|---|:---:|
+| **A. 独立 DB（选定）** | `<appDataDir>/nodepool.db` | 全局，不随资产目录切换 | ✅ |
+| B. 业务 DB | `<assetDir>/novelhelper.db` | 随资产目录切换（行为变更） | ❌ |
+
+理由：API 供应商/密钥是用户级配置，不应随"书库"切换。方案 A 保持现有全局行为，与业务 DB 隔离，迁移简单。
+
+**表结构 DDL**（文档式，与 db.ts 现有 11 张表一致）：
 
 ```sql
--- 沿用 db.ts ENTITIES 文档式模式,与 books/chapters/cards 等表结构一致
 CREATE TABLE IF NOT EXISTS providers (
   id TEXT PRIMARY KEY,
-  data TEXT NOT NULL  -- Provider 整体 JSON 序列化(含 apiKeys[])
+  data TEXT NOT NULL  -- Provider 整体 JSON 序列化（含 apiKeys[]）
 );
-
 CREATE TABLE IF NOT EXISTS provider_nodes (
   id TEXT PRIMARY KEY,
   data TEXT NOT NULL  -- ProviderNode 整体 JSON 序列化
 );
+CREATE TABLE IF NOT EXISTS module_mapping (
+  id TEXT PRIMARY KEY,
+  data TEXT NOT NULL  -- Record<ModuleKey, ModuleModelMapping> 整体 JSON，id='singleton'
+);
 ```
+
+> 不加入 db.ts 的 ENTITIES 数组——ENTITIES 是业务实体（随资产目录切换），节点池是全局配置（独立 DB）。SqliteRepo 内部管理自己的 DB 连接。
+
+**实施步骤**：
+
+**步骤 1：SqliteRepo 实现**（`server/src/store/nodePoolRepository.ts` 追加）
+
+在现有 `SettingsJsonRepo` 下方追加 `SqliteRepo` 类，实现同一 `NodePoolRepository` 接口：
 
 ```ts
-// server/src/store/db.ts(ENTITIES 数组追加两项,与现有模式一致)
-const ENTITIES = [
-  { key: 'books', table: 'books' },
-  // ... 现有 11 项 ...
-  { key: 'providers', table: 'providers' },         // 5.5b 新增
-  { key: 'providerNodes', table: 'provider_nodes' }, // 5.5b 新增
-] as const
+// 私有 DB 连接管理（仿 db.ts 的 getDb() 缓存模式）
+let cachedNodePoolDb: Database.Database | null = null
+
+function getNodePoolDb(): Database.Database {
+  if (cachedNodePoolDb) return cachedNodePoolDb
+  const dir = getAppDataDir()
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
+  const db = new Database(join(dir, 'nodepool.db'))
+  db.pragma('journal_mode = WAL')
+  db.pragma('busy_timeout = 5000')
+  db.exec('CREATE TABLE IF NOT EXISTS providers (id TEXT PRIMARY KEY, data TEXT NOT NULL)')
+  db.exec('CREATE TABLE IF NOT EXISTS provider_nodes (id TEXT PRIMARY KEY, data TEXT NOT NULL)')
+  db.exec('CREATE TABLE IF NOT EXISTS module_mapping (id TEXT PRIMARY KEY, data TEXT NOT NULL)')
+  cachedNodePoolDb = db
+  return db
+}
+
+export class SqliteRepo implements NodePoolRepository {
+  listProviders(): Provider[] {
+    const rows = getNodePoolDb().prepare('SELECT data FROM providers').all() as { data: string }[]
+    return rows.map((r) => JSON.parse(r.data))  // 逐行容错见下
+  }
+  getProvider(id): Provider | null { /* SELECT data WHERE id=? → JSON.parse */ }
+  saveProvider(p): void { /* INSERT ... ON CONFLICT DO UPDATE */ }
+  deleteProvider(id): void {
+    // 事务：DELETE providers + 遍历 provider_nodes 删级联（JS 过滤 providerId）
+    const db = getNodePoolDb()
+    db.transaction(() => {
+      db.prepare('DELETE FROM providers WHERE id = ?').run(id)
+      const nodes = db.prepare('SELECT id, data FROM provider_nodes').all() as { id: string; data: string }[]
+      for (const n of nodes) {
+        try { if ((JSON.parse(n.data) as ProviderNode).providerId === id) db.prepare('DELETE FROM provider_nodes WHERE id = ?').run(n.id) } catch {}
+      }
+    })()
+  }
+  // listNodes / getNode / saveNode / deleteNode 同理
+  getModuleMapping(): Record<ModuleKey, ModuleModelMapping> {
+    const row = getNodePoolDb().prepare("SELECT data FROM module_mapping WHERE id = 'singleton'").get() as { data: string } | undefined
+    return row ? JSON.parse(row.data) : {} as Record<ModuleKey, ModuleModelMapping>
+  }
+  saveModuleMapping(m): void {
+    getNodePoolDb().prepare("INSERT INTO module_mapping (id, data) VALUES ('singleton', ?) ON CONFLICT(id) DO UPDATE SET data = excluded.data").run(JSON.stringify(m))
+  }
+}
 ```
 
-> **备选方案(5.5b 设计时再决策)**:若需按 providerId 查询节点或外键级联,可改关系型分列表。但 db.ts 现有 11 张表全是文档式,破例引入关系型表会增加 repository 实现复杂度。建议保持文档式,级联删除在 SqliteRepo 内部用 `data JSON 解析 → 过滤 providerId` 实现(数据量小,性能可接受)。
+级联删除：`deleteProvider` 在事务内读 `provider_nodes` 全表 → JS 过滤 `providerId === id` → 逐行 DELETE。数据量小（几十条），无需 SQL 索引。逐行 JSON.parse 容错（单行损坏不拖垮整批，与 db.ts readAll 模式一致）。
 
-**迁移脚本要点**(5.5b 实施时细化):
-- 启动时检测 settings.json 是否含 `providers` 键;有则灌入新表,然后**从 settings.json 删除该键**(写回)
-- 迁移前自动备份 settings.json 为 `settings.json.pre-migrate.bak`
-- 迁移失败不删原键,下次启动重试
-- SqliteRepo 与 SettingsJsonRepo 可通过环境变量切换(过渡期保留 1-2 个版本,如 `NODE_POOL_REPO=sqlite|settings`)
+**步骤 2：迁移脚本**（`server/src/store/nodePoolRepository.ts` 内函数）
+
+仿 `migrateImageB64.ts` 模式——settings.json 守卫 flag + 事务：
+
+```ts
+export function migrateNodePoolToSqlite(): void {
+  const s = readSettings()
+  if (s.nodePoolMigrated === true) return  // 守卫：仅执行一次
+
+  const providers = s.providers
+  const providerNodes = s.providerNodes
+  const moduleMapping = s.moduleMapping
+
+  // 三者皆空 → 首次安装，标记已迁移即可
+  if (!Array.isArray(providers) || providers.length === 0) {
+    if (!Array.isArray(providerNodes) || providerNodes.length === 0) {
+      updateSettings({ nodePoolMigrated: true })
+      return
+    }
+  }
+
+  // 备份 settings.json（copyFileSync → settings.json.pre-migrate.bak）
+  // 事务：逐条 upsert 到 SQLite 三表
+  const db = getNodePoolDb()
+  db.transaction(() => {
+    const upsertProvider = db.prepare('INSERT INTO providers (id, data) VALUES (?, ?) ON CONFLICT(id) DO UPDATE SET data = excluded.data')
+    const upsertNode = db.prepare('INSERT INTO provider_nodes (id, data) VALUES (?, ?) ON CONFLICT(id) DO UPDATE SET data = excluded.data')
+    const upsertMapping = db.prepare("INSERT INTO module_mapping (id, data) VALUES ('singleton', ?) ON CONFLICT(id) DO UPDATE SET data = excluded.data")
+
+    for (const p of (providers as Provider[] ?? [])) upsertProvider.run(p.id, JSON.stringify(p))
+    for (const n of (providerNodes as ProviderNode[] ?? [])) upsertNode.run(n.id, JSON.stringify(n))
+    if (moduleMapping) upsertMapping.run(JSON.stringify(moduleMapping))
+  })()
+
+  // 从 settings.json 删除三键 + 标记已迁移（updateSettings 原子写）
+  const { providers: _p, providerNodes: _pn, moduleMapping: _mm, ...rest } = s
+  writeSettings({ ...rest, nodePoolMigrated: true })
+
+  console.log(`[migrate] 节点池迁移完成：${(providers as any[])?.length ?? 0} providers + ${(providerNodes as any[])?.length ?? 0} nodes`)
+}
+```
+
+失败处理：事务回滚不写 settings.json → 下次启动重试。`settings.json.pre-migrate.bak` 兜底。
+
+**步骤 3：index.ts 注入切换**
+
+```ts
+// 前：
+const nodePoolRepo = new SettingsJsonRepo()
+
+// 后：
+migrateNodePoolToSqlite()  // 启动时迁移（在 routes 注册前）
+const nodePoolRepo = new SqliteRepo()
+```
+
+路由层 `nodesRoutes(subApp, nodePoolRepo)` **零改动**——只依赖 `NodePoolRepository` 接口。
+
+**步骤 4：SettingsJsonRepo 保留**
+
+不删除 `SettingsJsonRepo` 类——作为代码级 fallback，需要时手动改 index.ts 一行即可回退。无需环境变量切换（本地单用户应用，一次性迁移足够）。
+
+**步骤 5：单元测试**
+
+新增 `server/src/store/nodePoolRepository.test.ts`：
+
+| 测试 | 内容 |
+|---|---|
+| SqliteRepo CRUD | 用内存 SQLite (`:memory:`) 验证 list/get/save/delete + 级联删除（删 provider 时其下 nodes 一并删） |
+| 迁移脚本 | 造含 providers 的假 settings.json → 迁移 → 验证 SQLite 有数据 + settings.json 无三键 + 守卫 flag |
+| 接口契约 | SqliteRepo 与 SettingsJsonRepo 行为一致（相同输入 → 相同输出） |
+
+**步骤 6：前端零改动**
+
+bootstrap.ts 的 `GET /api/providers` / `GET /api/nodes` / `GET /api/module-mapping` 不变——路由层不变，数据来源从 settings.json 切到 SQLite 对前端透明。persistence.ts 的 `pushNodePoolNow` diff sync（PUT/DELETE per-item）也不变——后端端点签名不变。
+
+**改动文件清单**：
+
+| 文件 | 动作 |
+|---|---|
+| `server/src/store/nodePoolRepository.ts` | 修改——追加 SqliteRepo 类 + migrateNodePoolToSqlite() 函数 + getNodePoolDb() |
+| `server/src/index.ts` | 修改——注入改 SqliteRepo + 调用迁移 |
+| `server/src/store/nodePoolRepository.test.ts` | 新增——SqliteRepo + 迁移单测 |
+
+前端、路由层、persistence.ts **零改动**。
 
 **验证点(5.5b)**:
 - 造一份含 providers 的旧 settings.json,启动后确认数据进入 SQLite,settings.json 不再含 providers 键
 - SqliteRepo 单元测试:CRUD + 级联删除(删 provider 时其下 nodes 一并删)
 - 路由层零改动(仍是 5.5a 的 nodesRoutes,只换注入的 repo 实例)
+- 迁移后重启,节点池 Tab 数据正常(来源 SQLite)
+- 新增/编辑/删除供应商+节点 → 重启验证持久化
 
 **回滚策略(5.5b)**:
 - `settings.json.pre-migrate.bak` 恢复
-- 环境变量 `NODE_POOL_REPO=settings` 退回 SettingsJsonRepo
-- 数据库新表可直接 drop(不影响旧表)
+- index.ts 改回 `new SettingsJsonRepo()`（代码级 fallback，无需环境变量）
+- `nodepool.db` 可直接删除（不影响业务 DB）
 
-**成本估计(5.5b)**:12 人时(SqliteRepo 实现 + 迁移脚本 + 回归)。
+**成本估计(5.5b)**:6 人时（SqliteRepo 实现 + 迁移脚本 + 单测；较原估 12 人时下降，因方案 A 独立 DB 不涉及 db.ts 改动 + 无环境变量切换 + 无 ENTITIES 数组改动）。
 
 **Trade-off(5.5b 关键决策点)**:
 - ✅ SQLite 事务性优于 settings.json 整体写,并发安全
-- ✅ 节点池与业务实体统一存储层(db.ts),不再混存 settings.json
-- ⚠️ **重大破坏性变更**:迁移失败可能丢节点池数据,需充分测试 + 多重备份
-- ⚠️ 文档式表无法用 SQL 索引单字段(如按 providerId 查 nodes),但数据量小可接受
+- ✅ 节点池存储独立（`nodepool.db`），不再混存 settings.json
 - ✅ **接口隔离保证**:5.5b 只新增 SqliteRepo,路由层零改动,风险被隔离在 repository 层内
+- ✅ 不增加新依赖（项目已用 better-sqlite3）
+- ✅ 保持全局行为（不随资产目录切换）
+- ⚠️ 迁移失败可能丢节点池数据,需充分测试 + 多重备份（settings.json.pre-migrate.bak + 事务回滚）
+- ⚠️ 独立 DB 文件多一个（nodepool.db），但与业务 DB 隔离更清晰
 
 **依赖**:5.5a 完成 + 5.4 完成(前端 store 已独立,只需改 hydrate 来源)。
 
@@ -739,10 +876,10 @@ function redactProvider(p: Provider): Provider {
 
 | 方案 | 优势 | 劣势 |
 |---|---|---|
-| 迁 SQLite(§5.5 主方案) | 事务性、并发安全、可独立查询 | 迁移风险大、破坏性变更 |
-| 仅加路由仍存 settings.json(过渡方案) | 零迁移风险、立即获得独立 API | 失去事务性、后端仍混存 |
+| 迁 SQLite(§5.5b 方案A) | 事务性、并发安全、存储独立、不增新依赖 | 迁移风险、多一个 DB 文件 |
+| 仅加路由仍存 settings.json(§5.5a 过渡) | 零迁移风险、立即获得独立 API | 失去事务性、后端仍混存 |
 
-**建议**:5.5 拆两步执行:5.5a 加 `/api/providers`、`/api/nodes` 路由但仍读写 settings.json 的 providers/providerNodes 键(过渡);5.5b 后续再迁 SQLite(可独立排期)。本次方案文档不强制 5.5b 时机。
+**决策(2026-06-30)**:5.5 已拆两步执行完毕——5.5a 加路由存 settings.json(已完成 + 修复 per-item sync)；5.5b 迁独立 SQLite DB（方案 A，`<appDataDir>/nodepool.db`，保持全局行为不随资产目录切换）。详见 §5.5b 详细实施方案。
 
 ### 6.3 interop 保留 vs 彻底废除 AppState 节点池字段(§5.4 决策)
 
@@ -889,6 +1026,8 @@ function redactProvider(p: Provider): Provider {
 | 2026-06-29 | explore 初版报告称 `cleanScheduler.ts:105-126` 与 `batch.ts:105-126` 重复 pickCandidate。实际 cleanScheduler 无 pickCandidate(采用 per-node-per-slot worker 模式),worker 在 `workerLoopForNode:253-324` 内自检可用性。两者真正重复的是 `NodeRuntime` 接口与可用性检查逻辑。§5.3 已据此修正。 |
 | 2026-06-30 | 核对方案保存后的变更:① NodesTabContent 的 M1 提示词/测试文本已迁至 m1-import 模块(Step3Clean),props 从 30+ 降至 26,行号 `:14-63` → `:42-70`;§2.1/§2.2/§3/§4 已修正,§5.6 子组件从 5 个收敛为 3 个(M1PromptPanel/TestTextPanel 不再需要),成本 16→12 人时。② services/types.ts 实际 504 行(非 550),节点池类型范围 `:340-433`(非 `:340-428`)。③ §5.3 SchedulableNode 原称"字段实际一致,风险低"——实际 CleanNode 含 `batchChars`(必填)而 BatchGenNode 无此字段;已把 SchedulableNode.batchChars 设为可选并补充字段对齐说明。④ 全文路径统一为 `frontend/src/packages/node-pool/`(子目录方案),re-export 相对路径相应修正。⑤ §5.5 标注 5.5a(过渡,本轮)/5.5b(迁 SQLite,独立排期)两步走决策。 |
 | 2026-06-30 | §5.5 重构:拆为 5.5a(过渡方案)+ 前瞻约束(Repository 接口隔离契约)+ 5.5b(终态设计草案)三部分。新增 `NodePoolRepository` 接口 + `SettingsJsonRepo`/`SqliteRepo` 双实现设计——路由层只依赖接口、接收 repo 注入,5.5b 时只换注入实例、路由层零改动。表结构 DDL 从关系型分列表改为文档式 `(id TEXT PRIMARY KEY, data TEXT)`(符合 db.ts 现有 11 张表统一模式);原关系型 DDL 已废弃。§13 批次 4/6 核对清单同步更新。 |
+| 2026-06-30 | 5.5a 修复：pushNodePoolNow 从整数组 POST 改为 diff-based per-item sync（方案 B）。新增 `nodePoolApi.ts`（providersApi/nodesApi/moduleMappingApi）+ 3 单测。§13 批次 4 全部标【已实施】。 |
+| 2026-06-30 | §5.5b 从"终态设计草案"升级为"详细实施方案"：方案 A（独立 DB `<appDataDir>/nodepool.db`）选定。关键决策：不加入 db.ts ENTITIES（节点池是全局配置，不随资产目录切换）；不引入环境变量切换（本地单用户，一次性迁移）；SettingsJsonRepo 保留为代码级 fallback。成本从 12 降至 6 人时（因不涉及 db.ts 改动 + 无 env var + 无 ENTITIES 改动）。§6.2 trade-off + §13 批次 6 同步更新。 |
 
 ---
 
@@ -980,16 +1119,17 @@ function redactProvider(p: Provider): Provider {
 - 【待实施】SettingsPage 调用 hooks,体积减半
 - 【待实施】回归:节点池 Tab 视觉与交互零变化(截图对比)
 
-### 批次 6(可选,独立排期):5.5b 迁 SQLite
+### 批次 6:5.5b 迁 SQLite（方案 A：独立 DB）
 
-> **启动前置**:5.5a 跑通端到端回归后,基于 SettingsJsonRepo 真实实现暴露的痛点再决定是否启动。
+> **决策(2026-06-30)**：采用方案 A——独立 DB（`<appDataDir>/nodepool.db`），保持全局行为。不加入 db.ts ENTITIES（业务实体随资产目录切换，节点池是全局配置）。详见 §5.5b 详细实施方案。
 
-- 【待实施】db.ts ENTITIES 追加 `{ key: 'providers', table: 'providers' }` + `{ key: 'providerNodes', table: 'provider_nodes' }`(文档式:`id TEXT PRIMARY KEY, data TEXT`)
-- 【待实施】新建 `SqliteRepo implements NodePoolRepository`(接口已由 5.5a 定义,本轮只新增实现类)
-- 【待实施】`index.ts` 注入点改为 `new SqliteRepo()`(路由层零改动)
-- 【待实施】迁移脚本:settings.json 两键 → SQLite 两表,迁移前自动备份 `settings.json.pre-migrate.bak`,失败不删原键
-- 【待实施】环境变量 `NODE_POOL_REPO=sqlite|settings` 过渡期切换
-- 【待实施】风险高:需充分测试 + 多重备份;级联删除在 SqliteRepo 内部用 JSON 解析+过滤实现(数据量小)
+- 【待实施】`nodePoolRepository.ts` 追加 `getNodePoolDb()`：缓存的 better-sqlite3 连接（WAL + busy_timeout），建 3 表（providers / provider_nodes / module_mapping，文档式 `id TEXT PK, data TEXT`）
+- 【待实施】`nodePoolRepository.ts` 追加 `SqliteRepo` 类：实现 `NodePoolRepository` 接口（list/get/save/delete + 级联删除 + module_mapping singleton 行）
+- 【待实施】`nodePoolRepository.ts` 追加 `migrateNodePoolToSqlite()`：settings.json 守卫 flag（`nodePoolMigrated`）+ 备份 `.pre-migrate.bak` + 事务 upsert 三表 + 删 settings.json 三键
+- 【待实施】`index.ts` 注入改 `new SqliteRepo()` + 调用 `migrateNodePoolToSqlite()`（在 routes 注册前）
+- 【待实施】新建 `nodePoolRepository.test.ts`：SqliteRepo CRUD（`:memory:`）+ 级联删除 + 迁移脚本测试
+- 【待实施】验证：迁移后 settings.json 无三键；节点池 Tab 数据正常（来源 SQLite）；增删改重启持久化
+- 【待实施】SettingsJsonRepo 保留为代码级 fallback（不删除，不引入环境变量切换）
 
 ---
 
