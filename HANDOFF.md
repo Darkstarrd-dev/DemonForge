@@ -2,7 +2,7 @@
 
 **最后更新**：2026-06-30
 **当前位置**：办公场所 A
-**本轮主题**：**audit-05 全部收口（A-20~A-23 + A-25/A-27）**
+**本轮主题**：**A-22 二次拆分收口（ImmersiveReader 853→658 行）**
 
 > 📦 **历史明细已归档** → `docs/handoff_history.md`
 > 本文件只保留「恢复工作所需的活内容」：进行中任务、模块清单、下一步、交接参考。
@@ -10,7 +10,40 @@
 
 ---
 
-## 🆕 audit-05 全部 13 项收口（2026-06-30）
+## 🆕 A-22 二次拆分收口（2026-06-30）
+
+上一轮 eb54bf2 拆 ImmersiveReader 后主文件仍 853 行 > 800 阈值（HANDOFF 声明 815 实际 853，有偏差）。本轮将「左侧滑出面板」JSX（clean mode 控制 + 章节列表 + 书签列表，~220 行）抽为独立组件。
+
+### 改动
+
+- **新增 `frontend/src/pages/book-reader/panels/LeftSlidePanel.tsx`**（292 行）：
+  - 完全受控组件，所有状态由父级管
+  - 三个逻辑域分组 props（容器 / clean mode / chapters / bookmarks）共 23 个
+  - 导出 `Bookmark` / `LeftPanel` 类型（从主文件迁出）
+- **修改 `frontend/src/pages/book-reader/ImmersiveReader.tsx`**：
+  - 853 → **658 行**（减少 195 行，< 800 阈值 ✅）
+  - 移除 `Bookmark` / `LeftPanel` 类型定义（改 import from LeftSlidePanel）
+  - 移除已迁出的图标 import（DeleteOutlined/PlusOutlined/StopOutlined/ReloadOutlined）
+  - 左侧面板 JSX 替换为 `<LeftSlidePanel ... />` 一行调用
+- **修改 `frontend/src/pages/book-reader/panels/index.ts`**：barrel 追加 LeftSlidePanel + 类型导出
+
+### 验证
+
+| 命令 | 结果 |
+|---|---|
+| `npx tsc -b`（frontend） | **0 errors** |
+| `npm run lint`（frontend） | **0 errors** |
+| `npx vitest run`（frontend） | **469/469 passed**（无新增测试，纯重构） |
+
+### 忽略的偏差
+
+| 编号 | 偏差 | 原因 |
+|---|---|---|
+| A-16 | 缺 toast 通知 | persistence.ts 是后台 fire-and-forget；关窗冲刷时 UI 可能已销毁，toast 不适用；console.error 已消除静默吞没核心问题 |
+| A-25 | barrel export 只补 8/16 + commit 计数错误（说 9 实际 8） | 纯便利性改进，不影响功能；不影响实际功能 |
+| 行数声明偏差 | HANDOFF 声称 815 实际 853 | 文档准确性问题，不影响功能 |
+
+---
 
 审计报告：`docs/quality/logs/2026-06-30-audit-05.md`
 

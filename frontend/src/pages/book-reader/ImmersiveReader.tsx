@@ -22,13 +22,9 @@ import {
   BulbOutlined,
   BulbFilled,
   CloseOutlined,
-  DeleteOutlined,
-  PlusOutlined,
   CheckOutlined,
   SearchOutlined,
   ThunderboltOutlined,
-  StopOutlined,
-  ReloadOutlined,
 } from '@ant-design/icons'
 import { useAppStore, pushStoreNow } from '../../store/appStore'
 import type { Chapter, LineDecision, ResolvedProviderNode } from '../../services/types'
@@ -39,6 +35,7 @@ import { useBookNavigation, type ReaderMode } from './hooks/useBookNavigation'
 import ReaderContent from './panels/ReaderContent'
 import AiCleanPanel, { type CleanPhase } from './panels/AiCleanPanel'
 import SearchReplacePanel, { type ReplaceMode } from './panels/SearchReplacePanel'
+import LeftSlidePanel, { type Bookmark, type LeftPanel } from './panels/LeftSlidePanel'
 import { buildFindRegex, buildFindResults, type FindResult } from './panels/searchUtils'
 import './ImmersiveReader.css'
 
@@ -56,14 +53,6 @@ function toSingleNodeClean(node: ResolvedProviderNode): CleanNode {
   }
 }
 
-interface Bookmark {
-  id: string
-  chapterId: string
-  chapterTitle: string
-  progress: number
-  createdAt: string
-}
-
 interface ImmersiveReaderProps {
   chapters: Chapter[]
   initialChapterId: string
@@ -72,7 +61,6 @@ interface ImmersiveReaderProps {
 }
 
 type ReaderTheme = 'light' | 'dark'
-type LeftPanel = 'chapters' | 'bookmarks' | null
 
 export default function ImmersiveReader({ chapters, initialChapterId, bookId, onExit }: ImmersiveReaderProps) {
   const { message } = App.useApp()
@@ -432,223 +420,40 @@ export default function ImmersiveReader({ chapters, initialChapterId, bookId, on
 
       {/* 左侧滑出面板 */}
       {leftPanel && (
-        <>
-          {readerMode !== 'clean' && <div className="imm-panel-backdrop" onClick={() => setLeftPanel(null)} />}
-          <div className="imm-panel">
-            <div className="imm-panel-head">
-              <span className="imm-panel-title">
-                {readerMode === 'clean'
-                  ? `AI 清理 · ${cleanChapter?.title ?? ''}`
-                  : leftPanel === 'chapters'
-                    ? `章节列表（${chapters.length}）`
-                    : `书签（${bookmarks.length}）`}
-              </span>
-              {readerMode !== 'clean' && leftPanel === 'bookmarks' && (
-                <Button size="small" type="primary" icon={<PlusOutlined />} onClick={addBookmark}>
-                  添加当前位置
-                </Button>
-              )}
-              {readerMode !== 'clean' && (
-                <Button
-                  size="small"
-                  type="text"
-                  icon={<CloseOutlined />}
-                  className="imm-panel-close"
-                  onClick={() => setLeftPanel(null)}
-                />
-              )}
-            </div>
-
-            <div className="imm-panel-body">
-              {/* Clean mode panel content */}
-              {readerMode === 'clean' && (
-                <div className="imm-clean-panel">
-                  {cleanPhase === 'review' && (
-                    <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--imm-border)' }}>
-                      <div style={{ marginBottom: 10, fontSize: 13, color: 'var(--imm-muted)' }}>
-                        审阅下方对比结果，逐行决定接受或拒绝。
-                      </div>
-                      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                        <Button type="primary" icon={<CheckOutlined />} onClick={acceptClean}>
-                          接受
-                        </Button>
-                        <Button danger icon={<CloseOutlined />} onClick={rejectClean}>
-                          拒绝
-                        </Button>
-                        <Button icon={<ReloadOutlined />} onClick={retryClean}>
-                          重新清理
-                        </Button>
-                      </div>
-                    </div>
-                  )}
-
-                  {cleanPhase === 'streaming' && (
-                    <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--imm-border)' }}>
-                      <div style={{ fontSize: 13, color: 'var(--imm-accent)', marginBottom: 8 }}>
-                        正在清理…{liveAcc ? `（已收到 ${liveAcc.length} 字符）` : ''}
-                      </div>
-                      <Button size="small" danger icon={<StopOutlined />} onClick={cancelClean}>
-                        取消
-                      </Button>
-                    </div>
-                  )}
-
-                  {cleanPhase === 'error' && (
-                    <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--imm-border)' }}>
-                      <div style={{ fontSize: 13, color: '#ff4d4f', marginBottom: 8 }}>
-                        {cleanError || '清理失败，请重试'}
-                      </div>
-                      <Button size="small" icon={<ReloadOutlined />} onClick={retryClean}>
-                        重选节点
-                      </Button>
-                    </div>
-                  )}
-
-                  {/* 节点列表 */}
-                  {(cleanPhase === 'selecting' || cleanPhase === 'streaming' || cleanPhase === 'error') && (
-                    <div style={{ padding: '8px 0' }}>
-                      <div style={{ padding: '8px 16px', fontSize: 13, color: 'var(--imm-muted)', marginBottom: 4 }}>
-                        选择清理节点：
-                      </div>
-                      {resolvedNodes
-                        .filter((p: ResolvedProviderNode) => p.enabled && p.nodeType === 'text')
-                        .map((node) => {
-                          const disabled = cleanPhase !== 'selecting'
-                          const active = selectedNodeId === node.id
-                          return (
-                            <div
-                              key={node.id}
-                              className={`imm-node-item${active ? ' active' : ''}${disabled ? ' disabled' : ''}`}
-                              onClick={() => {
-                                if (disabled) return
-                                setSelectedNodeId(node.id)
-                                startClean()
-                              }}
-                            >
-                              <span className="imm-node-name">{node.name}</span>
-                              <span className="imm-node-model">{node.model}</span>
-                            </div>
-                          )
-                        })}
-                      {resolvedNodes.filter((p: ResolvedProviderNode) => p.enabled && p.nodeType === 'text').length ===
-                        0 && (
-                        <div
-                          style={{
-                            padding: 16,
-                            color: 'var(--imm-muted)',
-                            fontSize: 13,
-                            textAlign: 'center',
-                          }}
-                        >
-                          暂无已启用的 Provider 节点。
-                          <br />
-                          请先在设置中配置并测试。
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  <div style={{ padding: '12px 16px', borderTop: '1px solid var(--imm-border)' }}>
-                    <Button size="small" type="text" icon={<CloseOutlined />} onClick={exitCleanMode} block>
-                      退出清理模式
-                    </Button>
-                  </div>
-                </div>
-              )}
-
-              {/* Normal chapters list */}
-              {readerMode !== 'clean' && leftPanel === 'chapters' &&
-                chapters.map((c, i) => {
-                  const editing = titleDraft?.id === c.id
-                  const active = c.id === currentId
-                  return (
-                    <div
-                      key={c.id}
-                      className={`imm-chapter-item${active ? ' active' : ''}`}
-                      onClick={() => {
-                        if (editing) return
-                        goToChapter(c.id)
-                        setLeftPanel(null)
-                      }}
-                    >
-                      {editing ? (
-                        <div className="imm-title-edit" onClick={(e) => e.stopPropagation()}>
-                          <Input
-                            size="small"
-                            value={titleDraft!.title}
-                            autoFocus
-                            onChange={(e) => setTitleDraft({ id: c.id, title: e.target.value })}
-                            onPressEnter={saveTitle}
-                          />
-                          <Button size="small" type="primary" onClick={saveTitle}>
-                            存
-                          </Button>
-                          <Button size="small" onClick={() => setTitleDraft(null)}>
-                            消
-                          </Button>
-                        </div>
-                      ) : (
-                        <>
-                          <span className="imm-chapter-idx">{i + 1}</span>
-                          <span className="imm-chapter-name">{c.title}</span>
-                          <span className="imm-chapter-len">{c.content.length} 字</span>
-                          <Button
-                            size="small"
-                            type="text"
-                            className="imm-chapter-edit"
-                            icon={<EditOutlined />}
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              setTitleDraft({ id: c.id, title: c.title })
-                            }}
-                          />
-                          <Tooltip title="AI 清理本章">
-                            <Button
-                              size="small"
-                              type="text"
-                              className="imm-chapter-clean"
-                              icon={<ThunderboltOutlined />}
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                enterCleanMode(c.id)
-                              }}
-                            />
-                          </Tooltip>
-                        </>
-                      )}
-                    </div>
-                  )
-                })}
-
-              {/* Normal bookmarks list */}
-              {readerMode !== 'clean' && leftPanel === 'bookmarks' &&
-                (bookmarks.length === 0 ? (
-                  <div className="imm-empty">暂无书签，点上方「添加当前位置」</div>
-                ) : (
-                  bookmarks.map((bm) => (
-                    <div key={bm.id} className="imm-bm-item" onClick={() => jumpToBookmark(bm)}>
-                      <div className="imm-bm-main">
-                        <div className="imm-bm-name">{bm.chapterTitle}</div>
-                        <div className="imm-bm-meta">
-                          {bm.progress}% · {bm.createdAt.slice(5, 16).replace('T', ' ')}
-                        </div>
-                      </div>
-                      <Button
-                        size="small"
-                        type="text"
-                        danger
-                        icon={<DeleteOutlined />}
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          deleteBookmark(bm.id)
-                        }}
-                      />
-                    </div>
-                  ))
-                ))}
-            </div>
-          </div>
-        </>
+        <LeftSlidePanel
+          mode={readerMode}
+          panel={leftPanel}
+          onClose={() => setLeftPanel(null)}
+          cleanChapter={cleanChapter}
+          cleanPhase={cleanPhase}
+          liveAcc={liveAcc}
+          cleanError={cleanError}
+          resolvedNodes={resolvedNodes}
+          selectedNodeId={selectedNodeId}
+          onSelectNode={(id) => {
+            setSelectedNodeId(id)
+            startClean()
+          }}
+          onAccept={acceptClean}
+          onReject={rejectClean}
+          onRetry={retryClean}
+          onCancel={cancelClean}
+          onExitClean={exitCleanMode}
+          chapters={chapters}
+          currentId={currentId}
+          titleDraft={titleDraft}
+          onTitleDraftChange={setTitleDraft}
+          onSaveTitle={saveTitle}
+          onGoToChapter={(id) => {
+            goToChapter(id)
+            setLeftPanel(null)
+          }}
+          onEnterClean={enterCleanMode}
+          bookmarks={bookmarks}
+          onAddBookmark={addBookmark}
+          onDeleteBookmark={deleteBookmark}
+          onJumpBookmark={jumpToBookmark}
+        />
       )}
 
       {/* 查找替换面板 */}
