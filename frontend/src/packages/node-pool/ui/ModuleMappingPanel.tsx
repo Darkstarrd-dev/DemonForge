@@ -8,7 +8,7 @@ import type {
 } from '../../../services/types'
 import { getModuleNodeType } from '../../../services/types'
 
-interface ModelMappingModalProps {
+interface ModuleMappingPanelProps {
   open: boolean
   onClose: () => void
   moduleMapping: Record<ModuleKey, { nodeId: string | null; model?: string }>
@@ -19,7 +19,7 @@ interface ModelMappingModalProps {
   resolvedNodes: ResolvedProviderNode[]
 }
 
-export default function ModelMappingModal(props: ModelMappingModalProps) {
+export default function ModuleMappingPanel(props: ModuleMappingPanelProps) {
   const {
     open,
     onClose,
@@ -31,7 +31,6 @@ export default function ModelMappingModal(props: ModelMappingModalProps) {
     resolvedNodes,
   } = props
 
-  // 行级本地状态：nodeId 未绑定时的"候选供应商"
   const [pendingProviderId, setPendingProviderId] =
     useState<Record<ModuleKey, string | null>>(() => {
       const init = {} as Record<ModuleKey, string | null>
@@ -47,7 +46,6 @@ export default function ModelMappingModal(props: ModelMappingModalProps) {
       return init
     })
 
-  // 每行的"有效供应商 ID"：有 nodeId 时从节点派生，否则用 pending 值
   const rowProviderId = useMemo(() => {
     const map = {} as Record<ModuleKey, string | null>
     for (const key of Object.keys(MODULE_LABELS) as ModuleKey[]) {
@@ -62,7 +60,6 @@ export default function ModelMappingModal(props: ModelMappingModalProps) {
     return map
   }, [moduleMapping, pendingProviderId, providerNodes, MODULE_LABELS])
 
-  // 每个模块可选的供应商列表（仅含拥有对应 nodeType 节点的供应商）
   const validProvidersByModule = useMemo(() => {
     const map = {} as Record<ModuleKey, Provider[]>
     for (const key of Object.keys(MODULE_LABELS) as ModuleKey[]) {
@@ -77,7 +74,6 @@ export default function ModelMappingModal(props: ModelMappingModalProps) {
     return map
   }, [MODULE_LABELS, resolvedNodes, providers])
 
-  // 每个模块可选的节点列表（供应商 + nodeType + enabled 过滤）
   const validNodesByRow = useMemo(() => {
     const map = {} as Record<ModuleKey, ResolvedProviderNode[]>
     for (const key of Object.keys(MODULE_LABELS) as ModuleKey[]) {
@@ -120,7 +116,7 @@ export default function ModelMappingModal(props: ModelMappingModalProps) {
             title: '供应商',
             key: 'provider',
             width: 200,
-            render: (_: unknown, row: { key: ModuleKey; nodeId: string | null; label: string }) => {
+            render: (_: unknown, row: { key: ModuleKey; nodeId: string | null }) => {
               const provId = rowProviderId[row.key]
               const validProviders = validProvidersByModule[row.key]
               return (

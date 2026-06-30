@@ -2,7 +2,7 @@
 
 **最后更新**：2026-06-30
 **当前位置**：办公场所 A
-**本轮主题**：**节点池模块化批次4实施完成：5.5a 后端独立路由（NodePoolRepository 接口 + SettingsJsonRepo + /api/providers + /api/nodes + /api/module-mapping）**
+**本轮主题**：**节点池模块化批次5实施完成：5.6 UI 组件拆分（NodePoolManager + NodeTestPanel + ModuleMappingPanel + useNodePoolCrud + useNodeTesting）**
 
 > 📦 **历史明细已归档** → `docs/handoff_history.md`
 > 本文件只保留「恢复工作所需的活内容」：进行中任务、模块清单、下一步、交接参考。
@@ -10,51 +10,53 @@
 
 ---
 
-## 🆕 节点池模块化方案 · 批次4实施完成（2026-06-30）
+## 🆕 节点池模块化方案 · 批次5实施完成（2026-06-30）
 
-按 `docs/node_pool_modularization_plan.md` §11 批次4实施 5.5a 后端独立路由。
+按 `docs/node_pool_modularization_plan.md` §11 批次5实施 5.6 UI 组件拆分。
 
 ### 改动
 
-- **新增 `server/src/store/nodePoolRepository.ts`**：
-  - `NodePoolRepository` 接口（9 方法：listProviders/getProvider/saveProvider/deleteProvider/listNodes/getNode/saveNode/deleteNode + getModuleMapping/saveModuleMapping）
-  - `SettingsJsonRepo` 实现：读写 `settings.json` 的 providers/providerNodes/moduleMapping 三键；级联删除（deleteProvider 同时删其下节点）
-  - 后端侧类型定义（Provider/ProviderNode/ProviderApiKey/ModuleKey/ModuleModelMapping 等，与前端 `packages/node-pool/types.ts` 对齐）
-  - 前瞻约束：路由层只依赖接口，5.5b 时只换 SqliteRepo 注入实例、路由层零改动
-- **新增 `server/src/routes/nodes.ts`**：
-  - 8 个 CRUD 端点：GET/POST/PUT/DELETE `/api/providers` + `/api/nodes`
-  - 2 个映射端点：GET/POST `/api/module-mapping`
-  - 路由层只依赖 `NodePoolRepository` 接口，`repo` 由 `index.ts` 注入
-- **修改 `server/src/index.ts`**：新增 `nodePoolRepo = new SettingsJsonRepo()` + `app.register(nodesRoutes)`
-- **修改 `server/src/routes/settings.ts`**：POST `/api/settings` 剔除 providers/providerNodes/moduleMapping 三键（静默剔除，不报错，向后兼容旧前端整体写入）
-- **修改 `frontend/src/store/bootstrap.ts`**：启动时先从 `/api/settings` 回载节点池兜底，再从 `/api/providers` + `/api/nodes` + `/api/module-mapping` 优先拉取覆盖
-- **修改 `frontend/src/store/persistence.ts`**：
-  - `settingsPayload` 不再含 providers/providerNodes/moduleMapping（21 键，原 24 键）
-  - 新增 `pushNodePoolNow()`：三端点整体 POST
-  - 新增 `nodePoolPayload()`：构造节点池载荷供备份/flush 使用
-  - `flushStoreWrites` 新增三端点 keepalive 推送
-  - `registerPersisters` 新增 `nodePoolStore.subscribe` 独立订阅 + 1s debounce 推送
-  - 删除 `toNodePoolSettingsPayload` 导入（不再需要）
+- **新增 `frontend/src/hooks/useNodePoolCrud.ts`**：
+  - 封装全部节点池 CRUD 逻辑：Provider/Node 编辑态 + 表单 + 保存/删除/复制/重排序
+  - 导出/导入节点池（`handleExportNodePool` / `handleImportNodePool`）
+  - 获取模型 + 批量添加（`fetchModels` / `batchAddNodes`）
+  - 模块映射 + 分组折叠 + 类型筛选
+  - 导出 `MODULE_LABELS` 常量
+- **新增 `frontend/src/hooks/useNodeTesting.ts`**：
+  - 封装全部测试逻辑：单点测试/并发测试/批量测试/真实调用测试
+  - `probeOnce` 辅助函数、`applyConcurrencyParams` / `applyTestModel` 写回函数
+  - 独立计算 `resolvedNodes`，不依赖 `useNodePoolCrud`
+- **新增 `frontend/src/packages/node-pool/ui/NodePoolManager.tsx`**：
+  - 纯 CRUD 显示组件：供应商分组卡片 + 节点表格 + 拖拽排序（@dnd-kit）
+  - 供应商编辑 Modal + 节点编辑 Modal + 模型多选批量添加 Modal
+  - 接收所有回调 props（由 hooks 提供），自身无业务逻辑
+- **新增 `frontend/src/packages/node-pool/ui/NodeTestPanel.tsx`**：
+  - 测试相关 Modal 组合：连通性测试 + 并发测试 + 真实调用测试
+  - 接收测试状态 + 回调 props
+- **新增 `frontend/src/packages/node-pool/ui/ModuleMappingPanel.tsx`**：
+  - 模块→节点映射 Modal（从 `ModelMappingModal.tsx` 重构迁入 node-pool 包）
+  - 供应商→节点两级选择，与原组件逻辑完全一致
+- **新增 `frontend/src/hooks/index.ts`**：barrel export
+- **新增 `@dnd-kit/core` + `@dnd-kit/sortable` + `@dnd-kit/utilities`** npm devDependencies
+- **修改 `frontend/src/pages/settings/panels/NodesTabContent.tsx`**：
+  - 从 517 行巨组件 → 92 行薄组合层：`useNodePoolCrud()` + `useNodeTesting()` → 3 子组件
+  - props 从 26 降到 0（所有逻辑内聚于 hooks）
 - **修改 `frontend/src/pages/settings/index.tsx`**：
-  - 导入新增 `pushNodePoolNow` / `nodePoolPayload`
-  - 节点池导入改调 `pushNodePoolNow()`
-  - 设置整体导入改调 `pushSettingsNow()` + `pushNodePoolNow()`
-  - 备份导出 `settingsPayload(st)` 改为 `{ ...settingsPayload(st), ...nodePoolPayload() }`
-- **修改 `frontend/src/store/appStore.ts`**：re-export 新增 `pushNodePoolNow` / `nodePoolPayload`
-- **修改 `frontend/src/store/persistence.test.ts`**：settingsPayload 键数 24→21（剔除节点池三键）
+  - 从 1523 行 → ~450 行：节点池 Tab 只渲染 `<NodesTabContent />`（无 props）
+  - 保留：Tabs 容器 + 备份/恢复 + 资产目录 + 通用设置 + 导入预览 Modal
+- **修改 `frontend/src/pages/settings/panels/ModelMappingModal.tsx`**：
+  - 修复 `row` 类型声明（`{ key: ModuleKey }` → `{ key: ModuleKey; nodeId: string | null; label: string }`）
+  - 文件仍保留（未被删除），但不再被 NodesTabContent 导入
 
 ### 验证
 
 | 命令 | 结果 |
 |---|---|
-| `npx tsc -b`（frontend） | 9 个预存错误，本轮无新增 |
-| `bun run lint`（frontend） | 2 个预存错误，本轮无新增 |
+| `npx tsc -b`（frontend） | 3 个预存错误（Step3Clean），本轮无新增 |
+| `npm run lint`（frontend） | 2 个预存错误（Step3Clean），本轮无新增 |
 | `npm test`（frontend 全量） | **466/466 passed** |
 | `npx tsc --noEmit`（server） | 通过 |
 | `npx tsc --noEmit`（electron） | 通过 |
-
-### 下一步
-- 批次5：5.6 UI 组件拆分（NodePoolManager + NodeTestPanel + ModuleMappingPanel + 2 hooks）
 
 ---
 
@@ -84,14 +86,14 @@
 - [x] **提示词归一化全模块**（PromptEditorButton 覆盖 13 个 promptKey）
 - [x] **data-slot 体系**（11 页，150+ 属性）
 
-### 节点池模块化（共 6 批次，已完成 4 批次）
+### 节点池模块化（共 6 批次，已完成 5 批次）
 | 批次 | 内容 | 状态 |
 |:---:|---|:---:|
 | 1 | 5.1 类型独立 + 5.2 纯函数层独立 + 5.7 导入/导出独立 | ✅ |
 | 2 | 5.3 调度策略抽出（runtime/policy/SchedulableNode） | ✅ |
 | 3 | 5.4 状态 slice 解耦（独立 store + interop） | ✅ |
-| 4 | **5.5a 后端独立路由**（NodePoolRepository + SettingsJsonRepo + 10 端点） | ✅ |
-| 5 | **5.6 UI 组件拆分**（待实施） | 🚧 |
+| 4 | 5.5a 后端独立路由（NodePoolRepository + SettingsJsonRepo + 10 端点） | ✅ |
+| 5 | **5.6 UI 组件拆分**（3 子组件 + 2 hooks；NodesTabContent 0 props；settings/index 1523→450 行） | ✅ |
 | 6 | 5.5b 迁 SQLite（可选） | ⏳ |
 
 ### 大富翁模块
@@ -108,7 +110,6 @@
 - [x] Vitest 4 测试项目拆分（core/monopoly/dice 三 project，**466/466 绿**）
 
 ### 🚧 待完善
-- [ ] **批次5：5.6 UI 组件拆分**（当前首要任务）
 - [ ] 端到端实测节点池：新增供应商 → 文本/图片节点 → 模块映射 → 批量测试 → 导入导出
 - [ ] 端到端实测大富翁（新游戏→地图→掷骰→购买→…→胜负）
 - [ ] 端到端实测骰子模块（d10 双锥渲染与贴图正确）
@@ -119,13 +120,12 @@
 
 ## 📋 立即任务（下次会话）
 
-1. **批次5：5.6 UI 组件拆分**（NodePoolManager + NodeTestPanel + ModuleMappingPanel + useNodePoolCrud + useNodeTesting）
-2. **端到端实测节点池**：新增供应商（多 API KEY / Round-Robin / Failover）→ 文本/图片节点 → 模块映射 → 批量测试 → 导入导出 → 旧 settings.json 迁移
-3. **🎮 端到端实测大富翁**：启动→双地图→购买/升级/租金→卡片/道具/神明/事件→破产→胜负
-4. **🎲 端到端实测骰子**：d10 双锥渲染、随机模式物理不跳转、投掷力向上抛起
-5. **📦 验证完整打包**：`npm run dist`（NSIS + 便携版，注意 Defender 锁 app-builder）
-6. **🔍 验证提示词归一化端到端**（各模块 PromptEditorButton 生效）
-7. **🎨 验证文生图三协议 + 节点测试各模块 + 全屏阅读**
+1. **端到端实测节点池**：新增供应商（多 API KEY / Round-Robin / Failover）→ 文本/图片节点 → 模块映射 → 批量测试 → 导入导出 → 旧 settings.json 迁移
+2. **🎮 端到端实测大富翁**：启动→双地图→购买/升级/租金→卡片/道具/神明/事件→破产→胜负
+3. **🎲 端到端实测骰子**：d10 双锥渲染、随机模式物理不跳转、投掷力向上抛起
+4. **📦 验证完整打包**：`npm run dist`（NSIS + 便携版，注意 Defender 锁 app-builder）
+5. **🔍 验证提示词归一化端到端**（各模块 PromptEditorButton 生效）
+6. **🎨 验证文生图三协议 + 节点测试各模块 + 全屏阅读**
 
 ---
 
@@ -140,9 +140,10 @@
 ### 关键文件路径
 - **前端服务层**：`services/api.ts` → `mock/` / `real/`；SSE 解析 `services/sse.ts`；清理调度器 `services/cleanScheduler.ts`；Session 引擎 `services/sessionEngine.ts`
 - **状态**：`store/appStore.ts`（90 行组合根 + `slices/` 6 切片 + `persistence.ts` + `bootstrap.ts` + `types.ts`）
-- **节点池包**：`packages/node-pool/{types,normalize,resolver,picker,circuitBreaker,runtime,policy,store,persistence,serialize}.ts`
+- **节点池包**：`packages/node-pool/{types,normalize,resolver,picker,circuitBreaker,runtime,policy,store,persistence,serialize}.ts` + **`ui/{NodePoolManager,NodeTestPanel,ModuleMappingPanel}.tsx`**
+- **节点池 hooks**：`hooks/{useNodePoolCrud,useNodeTesting}.ts` + `index.ts`
 - **节点测试**：`pages/node-test/`（index 444 行 + 7 组件 + 3 hooks）
-- **设置页**：`pages/settings/`（index + `panels/` 4 Tab）
+- **设置页**：`pages/settings/`（index ~450 行 + `panels/` 4 Tab + NodesTabContent 92 行组合层）
 - **阅读器**：`pages/book-reader/ImmersiveReader.tsx`
 - **后端**：`server/src/` — `llmClient.ts` / `imageClient.ts`(ModelScope) / `gptImageClient.ts` / `xaiImageClient.ts` / `prompts.ts` / `contextAssembler.ts` / `store/{db,vector,nodePoolRepository}.ts`；路由 `routes/{image,gptImage,xaiImage,llm,creation.{shared,origin,generate,m2},settings,nodes}.ts`
 - **大富翁**：`game/monopoly/`（engine + data + AI）+ `pages/monopoly/`（UI）

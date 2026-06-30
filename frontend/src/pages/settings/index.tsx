@@ -1,43 +1,28 @@
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import {
-  Alert,
   App,
-  AutoComplete,
   Button,
-  Card,
-  Checkbox,
-  Col,
-  Form,
-  Input,
-  InputNumber,
   Modal,
   Popconfirm,
-  Row,
-  Segmented,
-  Select,
   Space,
-  Switch,
   Tabs,
-  Tag,
+  Alert,
   theme,
   Typography,
 } from 'antd'
 import {
-  genId,
   pushSettingsNow,
-  pushNodePoolNow,
   pushStoreNowChecked,
+  pushNodePoolNow,
   reloadStoreFromBackend,
   settingsPayload,
   nodePoolPayload,
   useAppStore,
 } from '../../store/appStore'
-import { testProvider } from '../../services/api'
-import { parseSSE } from '../../services/sse'
-import type { ModuleKey, Provider, ProviderNode, ProviderNodeType, ResolvedProviderNode } from '../../services/types'
 import { nodePoolStore } from '../../packages/node-pool/store'
 import type { NodePoolStateCore } from '../../packages/node-pool/types'
-import { resolveProviderNodes } from '../../utils/providerResolver'
+import type { ModuleKey } from '../../services/types'
+import type { BackupBundle, BundleKind } from '../../utils/backup'
 import {
   buildBundle,
   downloadBundle,
@@ -45,145 +30,21 @@ import {
   readFileAsText,
   summarizeBusiness,
   backupFilename,
-  buildNodePoolBundle,
-  parseNodePoolBundle,
-  nodePoolBackupFilename,
-  type BackupBundle,
-  type BundleKind,
 } from '../../utils/backup'
-// Tab 内容已抽到 panels/（A-8）；index 仅保留 SettingsPage 编排 + Tabs 容器。
 import NodesTabContent from './panels/NodesTabContent'
 import AdvancedTabContent from './panels/AdvancedTabContent'
 import GeneralTabContent from './panels/GeneralTabContent'
 import BackupTabContent from './panels/BackupTabContent'
 
-const MODULE_LABELS: Record<ModuleKey, string> = {
-  m0Arch: 'M0 架构设计',
-  m0Blueprint: 'M0 章节蓝图',
-  m1Clean: 'M1 文本清理',
-  m2Extract: 'M2 设定提取',
-  m2CardImage: 'M2 卡片生图',
-  m3Simulate: 'M3 角色推演',
-  m4Generate: 'M4 章节生成',
-  m5Check: 'M5 一致性检查',
-  m5Finalize: 'M5 定稿归档',
-  batchGenerate: '批量生产',
-  roleChat: '角色交流',
-  embedding: 'Embedding 向量',
-}
-
-/**
- * 并发测试用单次探测：向后端 /api/llm/clean 发真实负载请求（15s 超时），
- * 用于判定该节点能否成功响应一次（吞吐量探测），返回 {ok, error}。
- */
-async function probeOnce(
-  node: Pick<ResolvedProviderNode, 'baseURL' | 'apiKey' | 'model'>,
-  content: string,
-  systemPrompt: string,
-): Promise<{ ok: boolean; error?: string }> {
-  const ac = new AbortController()
-  const timer = setTimeout(() => ac.abort(), 15000)
-  try {
-    const res = await fetch('/api/llm/clean', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        baseURL: node.baseURL,
-        apiKey: node.apiKey,
-        model: node.model,
-        content,
-        systemPrompt,
-      }),
-      signal: ac.signal,
-    })
-    if (!res.ok) {
-      const text = await res.text().catch(() => '')
-      return { ok: false, error: `HTTP ${res.status}${text ? `：${text.slice(0, 120)}` : ''}` }
-    }
-    if (!res.body) return { ok: false, error: '响应无 body' }
-    // 读流至结束即视为成功（不关心内容）
-    const reader = res.body.getReader()
-    for (;;) {
-      const { done } = await reader.read()
-      if (done) break
-    }
-    return { ok: true }
-  } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : String(e) }
-  } finally {
-    clearTimeout(timer)
-  }
-}
-
-// ======== SettingsPage ========
-
 export default function SettingsPage() {
   const { message } = App.useApp()
   const { token } = theme.useToken()
-  const storeProviders = useAppStore((s) => s.providers)
-  const storeProviderNodes = useAppStore((s) => s.providerNodes)
-  const moduleMapping = useAppStore((s) => s.moduleMapping)
-  const m1SystemPrompt = useAppStore((s) => s.m1SystemPrompt)
-  const m1TestText = useAppStore((s) => s.m1TestText)
   const assetDir = useAppStore((s) => s.assetDir)
-  const showMenuBar = useAppStore((s) => s.showMenuBar)
   const setState = useAppStore((s) => s.setState)
-  const addProvider = useAppStore((s) => s.addProvider)
-  const updateProvider = useAppStore((s) => s.updateProvider)
-  const removeProvider = useAppStore((s) => s.removeProvider)
-  const addProviderNode = useAppStore((s) => s.addProviderNode)
-  const updateProviderNode = useAppStore((s) => s.updateProviderNode)
-  const removeProviderNode = useAppStore((s) => s.removeProviderNode)
 
-  // 运行时解析视图（ResolvedProviderNode 已含连接信息）
-  const resolvedNodes = useMemo(
-    () => resolveProviderNodes({ providers: storeProviders, providerNodes: storeProviderNodes }),
-    [storeProviders, storeProviderNodes],
-  )
-
-  const [nodeTypeFilter, setNodeTypeFilter] = useState<ProviderNodeType>('text')
-  const [batchTesting, setBatchTesting] = useState(false)
-  const [concurrencyResult, setConcurrencyResult] = useState<{
-    node: ResolvedProviderNode
-    log: string[]
-    maxConcurrency?: number
-    intervalSec?: number
-    error?: string
-  } | null>(null)
   const [draftDir, setDraftDir] = useState<string>(assetDir)
   const [applyingDir, setApplyingDir] = useState(false)
-  const [testResult, setTestResult] = useState<{
-    node: ResolvedProviderNode
-    ok: boolean
-    models: string[]
-    error?: string
-  } | null>(null)
 
-  // 供应商编辑
-  const [editingProvider, setEditingProvider] = useState<Provider | null>(null)
-  const [providerForm] = Form.useForm<Provider>()
-  // 选中已有供应商时，Modal 切为「新增节点」模式
-  const [selectedExistingProvider, setSelectedExistingProvider] = useState<Provider | null>(null)
-
-  // 节点编辑
-  const [editingNode, setEditingNode] = useState<{ node: ProviderNode; provider: Provider } | null>(null)
-  const [nodeForm] = Form.useForm<ProviderNode>()
-
-  // 获取模型多选批量添加
-  const [fetchingModels, setFetchingModels] = useState(false)
-  const [availableModels, setAvailableModels] = useState<string[]>([])
-  const [selectedModels, setSelectedModels] = useState<string[]>([])
-  const [modelSelectOpen, setModelSelectOpen] = useState(false)
-  // 获取模型的目标供应商（从供应商栏直接触发时，editingNode 可能为 null）
-  const [fetchModelsProvider, setFetchModelsProvider] = useState<Provider | null>(null)
-
-  // 节点真实调用测试
-  const [testingNode, setTestingNode] = useState<ResolvedProviderNode | null>(null)
-  const [testStreaming, setTestStreaming] = useState(false)
-  const [testStreamLeft, setTestStreamLeft] = useState('')
-  const [testStreamRight, setTestStreamRight] = useState('')
-
-  // 设置导入导出 + 完整备份恢复
   const [exportRedact, setExportRedact] = useState(false)
   const [importPreview, setImportPreview] = useState<{
     bundle: BackupBundle
@@ -192,405 +53,6 @@ export default function SettingsPage() {
   } | null>(null)
   const [importBusy, setImportBusy] = useState(false)
 
-  // 节点池分组折叠状态：从 store 读取（持久化）
-  const nodeGroupExpanded = useAppStore((s) => s.nodeGroupExpanded)
-
-  // ===== 供应商操作 =====
-  const openProviderEdit = () => {
-    setSelectedExistingProvider(null)
-    const target: Provider = {
-      id: genId('prov'),
-      name: '',
-      baseURL: '',
-      apiKeys: [{ id: genId('key'), key: '', enabled: true, state: 'ok' }],
-      rotationPolicy: 'round-robin',
-      createdAt: Date.now(),
-    }
-    setEditingProvider(target)
-    providerForm.setFieldsValue(target)
-  }
-
-  const editProvider = (p: Provider) => {
-    setSelectedExistingProvider(null)
-    setEditingProvider(p)
-    providerForm.setFieldsValue(p)
-  }
-
-  const saveProvider = async () => {
-    // 选中已有供应商 → 切为「新增节点」模式
-    if (selectedExistingProvider) {
-      setEditingProvider(null)
-      providerForm.resetFields()
-      addNodeForProvider(selectedExistingProvider.id)
-      setSelectedExistingProvider(null)
-      return
-    }
-    const values = await providerForm.validateFields()
-    const apiKeys = (values.apiKeys ?? []).map((k: { id?: string; key: string; label?: string; enabled?: boolean; state?: string }) => ({
-      id: k.id || genId('key'),
-      key: k.key,
-      label: k.label || '',
-      enabled: k.enabled !== false,
-      state: (k.state === 'exhausted' || k.state === 'disabled' ? k.state : 'ok') as import('../../services/types').ProviderApiKeyState,
-    }))
-    if (apiKeys.length === 0) {
-      message.error('至少保留一个 API KEY')
-      return
-    }
-    const provider: Provider = { ...editingProvider!, ...values, apiKeys }
-    const exists = storeProviders.some((p) => p.id === provider.id)
-    if (exists) updateProvider(provider)
-    else addProvider(provider)
-    setEditingProvider(null)
-    providerForm.resetFields()
-  }
-
-  // ===== 节点操作 =====
-  const addNodeForProvider = (providerId: string) => {
-    const provider = storeProviders.find((p) => p.id === providerId)
-    if (!provider) return
-    const target: ProviderNode = {
-      id: genId('node'),
-      providerId,
-      nodeType: nodeTypeFilter,
-      protocol: nodeTypeFilter === 'image' ? 'modelscope' : undefined,
-      model: '',
-      enabled: true,
-      lastTestResult: null,
-      maxConcurrency: 2,
-      batchChars: nodeTypeFilter === 'text' ? 10000 : 1,
-      intervalSec: 0,
-      usageLimitEnabled: false,
-      usageLimit: 0,
-      usageLeft: 0,
-      usageResetDate: '',
-    }
-    setEditingNode({ node: target, provider })
-    nodeForm.setFieldsValue(target)
-  }
-
-  const editNode = (node: ProviderNode, provider: Provider) => {
-    setEditingNode({ node, provider })
-    nodeForm.setFieldsValue(node)
-  }
-
-  const removeNode = (id: string) => {
-    removeProviderNode(id)
-  }
-
-  const toggleNodeEnabled = (node: ProviderNode, enabled: boolean) => {
-    updateProviderNode({ ...node, enabled })
-  }
-
-  const saveNode = async () => {
-    if (!editingNode) return
-    const values = await nodeForm.validateFields()
-    const merged: ProviderNode = { ...editingNode.node, ...values }
-    const sameNameNode = storeProviderNodes.find(
-      (n) => n.providerId === merged.providerId && n.nodeType === merged.nodeType && n.model === merged.model && n.id !== merged.id,
-    )
-    if (sameNameNode) {
-      message.warning(`同名节点「${merged.model}」已存在`)
-      return
-    }
-    if (merged.usageLimitEnabled) {
-      const old = storeProviderNodes.find((n) => n.id === merged.id)
-      const limitChanged = old?.usageLimit !== merged.usageLimit
-      if (limitChanged || !merged.usageResetDate) {
-        merged.usageLeft = merged.usageLimit ?? 0
-        merged.usageResetDate = ''
-      }
-    }
-    const exists = storeProviderNodes.some((n) => n.id === merged.id)
-    if (exists) updateProviderNode(merged)
-    else addProviderNode(merged)
-    setEditingNode(null)
-    nodeForm.resetFields()
-  }
-
-  /** 复制节点：基于 ProviderNode 复制，新 id，providerId 相同，模型名自动加编号。 */
-  const duplicateNode = (src: ProviderNode) => {
-    const siblings = storeProviderNodes.filter((n) => n.providerId === src.providerId && n.nodeType === src.nodeType)
-    const baseModel = src.model.replace(/\s*\(\d+\)$/, '')
-    const maxNum = siblings.reduce((m, n) => {
-      const mt = n.model.match(/\((\d+)\)$/)
-      return Math.max(m, mt ? Number(mt[1]) : 1)
-    }, 1)
-    const next: ProviderNode = {
-      ...src,
-      id: genId('node'),
-      model: `${baseModel} (${maxNum + 1})`,
-      enabled: src.enabled,
-      lastTestResult: null,
-      usageLeft: src.usageLimitEnabled ? src.usageLimit ?? 0 : 0,
-      usageResetDate: '',
-    }
-    addProviderNode(next)
-    message.success(`已复制为「${next.model}」`)
-  }
-
-  /** 重排供应商顺序（传入所有 provider id 的新顺序）。 */
-  const reorderProviders = (ids: string[]) => {
-    const map = new Map(storeProviders.map((p) => [p.id, p]))
-    const reordered = ids.map((id) => map.get(id)).filter((p) => p) as Provider[]
-    nodePoolStore.setState({ providers: reordered })
-  }
-
-  /** 重排节点顺序（传入节点 id 列表，仅影响这些节点在 providerNodes 数组中的相对顺序）。
-   *  不在该列表中的节点保持原位，列表中的节点按给定顺序排列。 */
-  const reorderNodes = (ids: string[]) => {
-    const idSet = new Set(ids)
-    const next = [...storeProviderNodes]
-    const toReorder = next.filter((n) => idSet.has(n.id))
-    const reordered = ids.map((id) => toReorder.find((n) => n.id === id)!).filter(Boolean)
-    let reorderIdx = 0
-    const result = next.map((n) => {
-      if (idSet.has(n.id)) {
-        return reordered[reorderIdx++]
-      }
-      return n
-    })
-    nodePoolStore.setState({ providerNodes: result })
-  }
-
-  /** 测试节点连通性。 */
-  const testNode = async (node: ResolvedProviderNode) => {
-    setTestResult(null)
-    const result = await testProvider({ baseURL: node.baseURL, apiKey: node.apiKey, model: node.model })
-    const nodeInStore = storeProviderNodes.find((n) => n.id === node.id)
-    if (nodeInStore) {
-      updateProviderNode({ ...nodeInStore, lastTestResult: result.ok ? 'ok' : 'fail' })
-    }
-    setTestResult({ node, ok: result.ok, models: result.models, error: result.error })
-  }
-
-  /** 并发测试：纯前端二分探测该节点可同时接受几个任务，并估算请求间隔。 */
-  const concurrencyTestNode = async (node: ResolvedProviderNode) => {
-    const log: string[] = []
-    const push = (s: string) => {
-      log.push(s)
-      setConcurrencyResult({ node, log: [...log] })
-    }
-    const testText = useAppStore.getState().m1TestText || ''
-    const systemPrompt = useAppStore.getState().m1SystemPrompt || ''
-    try {
-      push('① 单发探测连通性...')
-      const t0 = Date.now()
-      const probe = await probeOnce(node, testText, systemPrompt)
-      const singleLatency = Date.now() - t0
-      if (!probe.ok) {
-        push(`✗ 探测失败：${probe.error}`)
-        setConcurrencyResult({ node, log, error: probe.error })
-        return
-      }
-      push(`✓ 连通正常，单请求耗时 ${singleLatency}ms`)
-
-      let bestN = 1
-      const levels = [2, 4, 8, 16]
-      for (const n of levels) {
-        push(`② 尝试并发 ${n} 个请求...`)
-        const t = Date.now()
-        const results = await Promise.all(
-          Array.from({ length: n }, () =>
-            probeOnce(node, testText, systemPrompt).catch((e) => ({ ok: false, error: e instanceof Error ? e.message : String(e) })),
-          ),
-        )
-        const ok = results.filter((r) => r.ok).length
-        const latency = Date.now() - t
-        if (ok === n) {
-          bestN = n
-          push(`✓ 全部成功（${ok}/${n}），耗时 ${latency}ms`)
-        } else {
-          push(`△ 仅成功 ${ok}/${n}，达到瓶颈，回退到 ${bestN}`)
-          break
-        }
-      }
-
-      const intervalSec = bestN > 0 ? Math.max(0, Math.round(singleLatency / 1000 / bestN)) : 0
-      push(`③ 推荐参数：最大并发 ${bestN}，请求间隔 ${intervalSec}s`)
-      setConcurrencyResult({ node, log, maxConcurrency: bestN, intervalSec })
-    } catch (e) {
-      push(`✗ 异常：${e instanceof Error ? e.message : String(e)}`)
-      setConcurrencyResult({ node, log, error: e instanceof Error ? e.message : String(e) })
-    }
-  }
-
-  /** 批量测试当前 Tab 且 enabled 的节点连通性（并发上限 4）。 */
-  const runBatchTest = async () => {
-    const targets = resolvedNodes.filter((n) => n.nodeType === nodeTypeFilter && n.enabled)
-    if (!targets.length) {
-      message.warning('当前类型没有已启用的节点')
-      return
-    }
-    setBatchTesting(true)
-    let done = 0
-    let okCount = 0
-    const CONCURRENCY = 4
-    const idx = { i: 0 }
-    const runOne = async (node: ResolvedProviderNode) => {
-      const result = await testProvider({ baseURL: node.baseURL, apiKey: node.apiKey, model: node.model })
-      const raw = storeProviderNodes.find((n) => n.id === node.id)
-      if (raw) updateProviderNode({ ...raw, lastTestResult: result.ok ? 'ok' : 'fail' })
-      done += 1
-      if (result.ok) okCount += 1
-      message.info({ content: `批量测试进度：${done}/${targets.length}`, key: 'batch-test-progress' })
-    }
-    const workers: Promise<void>[] = []
-    for (let w = 0; w < CONCURRENCY; w++) {
-      workers.push(
-        (async () => {
-          while (idx.i < targets.length) {
-            const node = targets[idx.i++]
-            await runOne(node)
-          }
-        })(),
-      )
-    }
-    await Promise.all(workers)
-    setBatchTesting(false)
-    message.success(`批量测试完成：${okCount}/${targets.length} 正常`)
-  }
-
-  /** 开始节点真实调用测试。 */
-  const startRealTest = async () => {
-    if (!testingNode) return
-    setTestStreaming(true)
-    setTestStreamLeft(m1TestText)
-    setTestStreamRight('')
-
-    try {
-      const res = await fetch('/api/llm/clean', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          baseURL: testingNode.baseURL,
-          apiKey: testingNode.apiKey,
-          model: testingNode.model,
-          content: m1TestText,
-          systemPrompt: m1SystemPrompt,
-        }),
-      })
-
-      if (!res.ok) {
-        message.error(`测试失败：HTTP ${res.status}`)
-        setTestStreaming(false)
-        return
-      }
-      if (!res.body) {
-        message.error('响应无 body')
-        setTestStreaming(false)
-        return
-      }
-
-      let acc = ''
-      for await (const { event, data } of parseSSE(res.body)) {
-        const d = data as { delta?: string; text?: string }
-        if (event === 'delta' && typeof d.delta === 'string') {
-          acc += d.delta
-          setTestStreamRight(acc)
-        } else if (event === 'done' && typeof d.text === 'string') {
-          acc = d.text
-          setTestStreamRight(acc)
-        }
-      }
-
-      message.success('测试完成')
-    } catch (e) {
-      message.error(`测试异常：${e instanceof Error ? e.message : String(e)}`)
-    } finally {
-      setTestStreaming(false)
-    }
-  }
-
-  /** 获取模型列表。可直接传入供应商（从供应商栏触发），或默认取 editingNode.provider。 */
-  const fetchModels = async (overrideProvider?: Provider) => {
-    const provider = overrideProvider ?? editingNode?.provider
-    if (!provider) {
-      message.warning('请先选择供应商')
-      return
-    }
-    const baseURL = provider.baseURL
-    const apiKey = provider.apiKeys.find((k) => k.enabled)?.key
-    if (!baseURL) {
-      message.warning('请先填写供应商 Base URL')
-      return
-    }
-    setFetchModelsProvider(provider)
-    setFetchingModels(true)
-    try {
-      const result = await testProvider({ baseURL, apiKey: apiKey || '', model: '' })
-      if (result.ok && result.models.length > 0) {
-        setAvailableModels(result.models)
-        setSelectedModels([])
-        setModelSelectOpen(true)
-      } else {
-        message.error(result.error || '获取模型列表失败')
-      }
-    } catch (e) {
-      message.error(e instanceof Error ? e.message : '请求失败')
-    } finally {
-      setFetchingModels(false)
-    }
-  }
-
-  /** 批量添加节点。优先取 fetchModelsProvider（从供应商栏触发），否则取 editingNode.provider。同名模型静默跳过。 */
-  const batchAddNodes = () => {
-    if (selectedModels.length === 0) {
-      message.warning('请至少选择一个模型')
-      return
-    }
-    const provider = fetchModelsProvider ?? editingNode?.provider
-    if (!provider) return
-    const existingModels = new Set(
-      storeProviderNodes
-        .filter((n) => n.providerId === provider.id && n.nodeType === nodeTypeFilter)
-        .map((n) => n.model),
-    )
-    const toAdd = selectedModels.filter((m) => !existingModels.has(m))
-    if (toAdd.length === 0) {
-      message.info('所有模型均已存在，无需添加')
-      setModelSelectOpen(false)
-      setFetchModelsProvider(null)
-      return
-    }
-    const values = nodeForm.getFieldsValue()
-    const newNodes: ProviderNode[] = toAdd.map((model) => ({
-      id: genId('node'),
-      providerId: provider.id,
-      nodeType: nodeTypeFilter,
-      protocol: nodeTypeFilter === 'image' ? (values.protocol || 'modelscope') : undefined,
-      model,
-      enabled: true,
-      lastTestResult: null,
-      maxConcurrency: values.maxConcurrency ?? 2,
-      batchChars: nodeTypeFilter === 'text' ? (values.batchChars ?? 10000) : (values.batchChars ?? 1),
-      intervalSec: values.intervalSec ?? 0,
-      usageLimitEnabled: values.usageLimitEnabled ?? false,
-      usageLimit: values.usageLimit ?? 0,
-      usageLeft: values.usageLimitEnabled ? (values.usageLimit ?? 0) : 0,
-      usageResetDate: '',
-      isMultimodal: nodeTypeFilter === 'text' ? (values.isMultimodal ?? false) : undefined,
-    }))
-    newNodes.forEach((n) => addProviderNode(n))
-    const skipped = selectedModels.length - toAdd.length
-    message.success(`已添加 ${toAdd.length} 个节点${skipped > 0 ? `（${skipped} 个同名跳过）` : ''}`)
-    setModelSelectOpen(false)
-    setFetchModelsProvider(null)
-    setEditingNode(null)
-    nodeForm.resetFields()
-  }
-
-  /** 设置模块映射。 */
-  const setModuleNode = (key: ModuleKey, nodeId: string | null) => {
-    setState({
-      moduleMapping: {
-        ...moduleMapping,
-        [key]: { nodeId },
-      },
-    })
-  }
-
-  // 切换资产目录
   const applyAssetDir = async () => {
     const dir = draftDir.trim()
     setApplyingDir(true)
@@ -613,7 +75,6 @@ export default function SettingsPage() {
     }
   }
 
-  // ===== 设置导入导出 / 完整备份恢复 =====
   const handleExport = async (kind: BundleKind) => {
     try {
       let business = null
@@ -626,7 +87,6 @@ export default function SettingsPage() {
         business = (await res.json()) as Record<string, unknown>
       }
       const st = useAppStore.getState()
-      // 5.5a：settingsPayload 不再含节点池数据，备份时需手动合并 nodePoolPayload
       const np = nodePoolPayload()
       const fullSettings = { ...settingsPayload(st), providers: np.providers, providerNodes: np.providerNodes, moduleMapping: np.moduleMapping }
       const bundle = buildBundle(kind, fullSettings, business, exportRedact)
@@ -652,99 +112,6 @@ export default function SettingsPage() {
     return false
   }
 
-  // ===== 节点池单独导入导出 =====
-  const handleExportNodePool = () => {
-    try {
-      const st = useAppStore.getState()
-      const bundle = buildNodePoolBundle(
-        {
-          providers: st.providers,
-          providerNodes: st.providerNodes,
-          moduleMapping: st.moduleMapping,
-        },
-        exportRedact,
-      )
-      downloadBundle(bundle, nodePoolBackupFilename(exportRedact))
-      message.success(`已导出节点池（${exportRedact ? '已脱敏 API Key' : '含 API Key'}）`)
-    } catch (e) {
-      message.error(`导出节点池失败：${e instanceof Error ? e.message : String(e)}`)
-    }
-  }
-
-  const handleImportNodePool = () => {
-    const input = document.createElement('input')
-    input.type = 'file'
-    input.accept = '.json'
-    input.style.display = 'none'
-    input.onchange = async () => {
-      const file = input.files?.[0]
-      document.body.removeChild(input)
-      if (!file) return
-      try {
-        const text = await readFileAsText(file)
-        const result = parseNodePoolBundle(text)
-        if (result.fatal || !result.bundle) {
-          message.error(`无法导入节点池：${result.fatal}`)
-          return
-        }
-        const bundle = result.bundle
-        const currentPool = nodePoolStore.getState()
-        const nodePoolPatch: Partial<NodePoolStateCore> = {}
-
-        // providers：按 id 判重，增量导入
-        if (Array.isArray(bundle.providers)) {
-          const existingProviderIds = new Set(currentPool.providers.map((p) => p.id))
-          const providersToAdd = bundle.providers.filter((p) => !existingProviderIds.has(p.id))
-          if (providersToAdd.length > 0) {
-            nodePoolPatch.providers = [...currentPool.providers, ...providersToAdd]
-          }
-        }
-
-        // providerNodes：按 providerId+model 判重，增量导入
-        if (Array.isArray(bundle.providerNodes)) {
-          const existingNodeKeys = new Set(
-            currentPool.providerNodes.map((n) => `${n.providerId}|||${n.model}`),
-          )
-          const nodesToAdd = bundle.providerNodes.filter(
-            (n) => !existingNodeKeys.has(`${n.providerId}|||${n.model}`),
-          )
-          if (nodesToAdd.length > 0) {
-            nodePoolPatch.providerNodes = [...currentPool.providerNodes, ...nodesToAdd]
-          }
-        }
-
-        // moduleMapping：仅填充当前缺失的模块映射
-        if (bundle.moduleMapping) {
-          const merged = { ...currentPool.moduleMapping }
-          let hasNew = false
-          for (const key of Object.keys(bundle.moduleMapping) as ModuleKey[]) {
-            if (!merged[key] || !merged[key].nodeId) {
-              merged[key] = bundle.moduleMapping[key]
-              hasNew = true
-            }
-          }
-          if (hasNew) nodePoolPatch.moduleMapping = merged
-        }
-
-        if (Object.keys(nodePoolPatch).length === 0) {
-          message.info('节点池无新增内容（供应商/节点均已存在）')
-          return
-        }
-
-        nodePoolStore.setState(nodePoolPatch)
-        pushNodePoolNow()
-        message.success(`节点池导入成功${result.warnings.length > 0 ? `（${result.warnings.length} 条警告）` : ''}`)
-        if (result.warnings.length > 0) {
-          Modal.warning({ title: '导入节点池警告', content: result.warnings.join('\n') })
-        }
-      } catch (e) {
-        message.error(`导入节点池失败：${e instanceof Error ? e.message : String(e)}`)
-      }
-    }
-    document.body.appendChild(input)
-    input.click()
-  }
-
   const confirmImportSettings = async (bundle: BackupBundle, replaceBusiness: boolean) => {
     setImportBusy(true)
     try {
@@ -762,7 +129,6 @@ export default function SettingsPage() {
         theme?: typeof currentState.theme
       }
 
-      // providers / providerNodes / moduleMapping：增量导入到独立 nodePoolStore
       if (Array.isArray(s.providers)) {
         const existingProviderIds = new Set(currentPool.providers.map((p) => p.id))
         const providersToAdd = s.providers.filter((p) => !existingProviderIds.has(p.id))
@@ -782,7 +148,6 @@ export default function SettingsPage() {
         }
       }
 
-      // moduleMapping：仅填充当前缺失的模块映射
       if (s.moduleMapping) {
         const merged = { ...currentPool.moduleMapping }
         let hasNew = false
@@ -795,7 +160,6 @@ export default function SettingsPage() {
         if (hasNew) nodePoolPatch.moduleMapping = merged
       }
 
-      // splitPatterns：仅添加当前不存在的模式（按 key 判重）
       if (Array.isArray(s.splitPatterns)) {
         const existingKeys = new Set(currentState.splitPatterns.map((p) => p.key))
         const toAdd = s.splitPatterns.filter((p) => !existingKeys.has(p.key))
@@ -804,7 +168,6 @@ export default function SettingsPage() {
         }
       }
 
-      // 其他标量配置：仅当当前为默认值/空时才导入
       if (typeof s.m1SystemPrompt === 'string' && !currentState.m1SystemPrompt) {
         patch.m1SystemPrompt = s.m1SystemPrompt
       }
@@ -815,13 +178,11 @@ export default function SettingsPage() {
         patch.m1TitleTemplate = s.m1TitleTemplate
       }
 
-      // nodeTestGlobalForm
       const importGlobal = legacy.nodeTestGlobalForm || legacy.imageDemoGlobalForm
       if (importGlobal && !currentState.nodeTestGlobalForm.nodeId) {
         patch.nodeTestGlobalForm = importGlobal
       }
 
-      // nodeTestFormPerNode
       const importPerNode = legacy.nodeTestFormPerNode || legacy.imageDemoFormPerNode
       if (importPerNode && typeof importPerNode === 'object') {
         const merged = { ...currentState.nodeTestFormPerNode }
@@ -835,7 +196,6 @@ export default function SettingsPage() {
         if (hasNew) patch.nodeTestFormPerNode = merged
       }
 
-      // 旧格式迁移
       if (legacy.imageDemoForm && !legacy.nodeTestFormPerNode && !legacy.imageDemoFormPerNode) {
         if (!currentState.nodeTestGlobalForm.nodeId) {
           const rawForm = legacy.imageDemoForm as Record<string, unknown>
@@ -847,7 +207,6 @@ export default function SettingsPage() {
         }
       }
 
-      // cleanNodeOverrides
       if (s.cleanNodeOverrides && typeof s.cleanNodeOverrides === 'object') {
         const merged = { ...currentState.cleanNodeOverrides }
         let hasNew = false
@@ -860,7 +219,6 @@ export default function SettingsPage() {
         if (hasNew) patch.cleanNodeOverrides = merged
       }
 
-      // 布尔/枚举值：当前已有配置则不覆盖
       if (typeof s.showMenuBar === 'boolean' && currentState.showMenuBar === true) {
         patch.showMenuBar = s.showMenuBar
       }
@@ -925,16 +283,6 @@ export default function SettingsPage() {
     }
   }
 
-  // 切换分组展开/折叠（持久化到 store）
-  const toggleGroup = (groupKey: string) => {
-    setState({
-      nodeGroupExpanded: {
-        ...nodeGroupExpanded,
-        [groupKey]: !(nodeGroupExpanded[groupKey] ?? true),
-      },
-    })
-  }
-
   return (
     <>
       <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden' }}>
@@ -946,36 +294,7 @@ export default function SettingsPage() {
             {
               key: 'nodes',
               label: '节点池与测试',
-              children: <NodesTabContent
-                nodeTypeFilter={nodeTypeFilter}
-                setNodeTypeFilter={setNodeTypeFilter}
-                batchTesting={batchTesting}
-                runBatchTest={runBatchTest}
-                openProviderEdit={openProviderEdit}
-                editProvider={editProvider}
-                addNodeForProvider={addNodeForProvider}
-                editNode={editNode}
-                fetchModels={fetchModels}
-                fetchingModels={fetchingModels}
-                removeProvider={removeProvider}
-                removeNode={removeNode}
-                toggleNodeEnabled={toggleNodeEnabled}
-                testNode={testNode}
-                concurrencyTestNode={concurrencyTestNode}
-                duplicateNode={duplicateNode}
-                reorderProviders={reorderProviders}
-                reorderNodes={reorderNodes}
-                providers={storeProviders}
-                providerNodes={storeProviderNodes}
-                resolvedNodes={resolvedNodes}
-                nodeGroupExpanded={nodeGroupExpanded}
-                toggleGroup={toggleGroup}
-                moduleMapping={moduleMapping}
-                MODULE_LABELS={MODULE_LABELS}
-                setModuleNode={setModuleNode}
-                onExportNodePool={handleExportNodePool}
-                onImportNodePool={handleImportNodePool}
-              />,
+              children: <NodesTabContent />,
             },
             {
               key: 'advanced',
@@ -994,7 +313,7 @@ export default function SettingsPage() {
               children: <GeneralTabContent
                 theme={useAppStore((s) => s.theme)}
                 setState={setState}
-                showMenuBar={showMenuBar}
+                showMenuBar={useAppStore((s) => s.showMenuBar)}
                 pushSettingsNow={pushSettingsNow}
                 enable4KScale={useAppStore((s) => s.enable4KScale)}
                 scaleBaseWidth={useAppStore((s) => s.scaleBaseWidth)}
@@ -1019,398 +338,6 @@ export default function SettingsPage() {
         />
       </div>
 
-      {/* 供应商编辑 Modal */}
-      <Modal
-        title={
-          selectedExistingProvider
-            ? `新增节点到「${selectedExistingProvider.name}」`
-            : storeProviders.some((p) => p.id === editingProvider?.id)
-              ? '编辑供应商'
-              : '新增供应商 / 节点'
-        }
-        open={!!editingProvider}
-        onOk={saveProvider}
-        onCancel={() => { setEditingProvider(null); setSelectedExistingProvider(null) }}
-        okText={selectedExistingProvider ? '下一步：配置节点' : '保存'}
-        destroyOnHidden
-        width={Math.min(800, window.innerWidth - 48)}
-      >
-        {selectedExistingProvider && (
-          <Alert
-            type="info"
-            showIcon
-            style={{ marginBottom: 16 }}
-            message={`已选择现有供应商「${selectedExistingProvider.name}」，确认后将打开节点配置表单。`}
-          />
-        )}
-        <Form form={providerForm} layout="vertical" style={{ marginTop: 8 }}>
-          <Form.Item name="name" label="名称" rules={[{ required: true }]}>
-            <AutoComplete
-              placeholder={
-                storeProviders.some((p) => p.id === editingProvider?.id)
-                  ? '供应商名称'
-                  : '输入新名称，或点击箭头选择已有供应商'
-              }
-              options={
-                // 编辑已有供应商时不显示下拉选项
-                storeProviders.some((p) => p.id === editingProvider?.id)
-                  ? []
-                  : storeProviders.map((p) => ({ value: p.name, label: `${p.name}（${p.baseURL}）` }))
-              }
-              filterOption={(input, option) => (option?.label as string)?.toLowerCase().includes(input.toLowerCase())}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') e.preventDefault()
-              }}
-              onChange={(value) => {
-                if (storeProviders.some((p) => p.id === editingProvider?.id)) return
-                const matched = storeProviders.find((p) => p.name === value)
-                if (matched) {
-                  setSelectedExistingProvider(matched)
-                  providerForm.setFieldsValue({
-                    baseURL: matched.baseURL,
-                    rotationPolicy: matched.rotationPolicy,
-                    apiKeys: matched.apiKeys,
-                  })
-                } else {
-                  if (selectedExistingProvider) {
-                    setSelectedExistingProvider(null)
-                    providerForm.setFieldsValue({
-                      baseURL: '',
-                      rotationPolicy: 'round-robin',
-                      apiKeys: [{ id: genId('key'), key: '', enabled: true, state: 'ok' }],
-                    })
-                  }
-                }
-              }}
-            />
-          </Form.Item>
-          <Form.Item name="baseURL" label="Base URL" rules={[{ required: true }]}>
-            <Input placeholder="http://127.0.0.1:8080/v1" disabled={!!selectedExistingProvider} />
-          </Form.Item>
-          <Form.Item name="rotationPolicy" label="轮询策略">
-            <Segmented
-              options={[
-                { value: 'round-robin', label: 'Round-Robin' },
-                { value: 'failover', label: 'Failover' },
-              ]}
-              disabled={!!selectedExistingProvider}
-            />
-          </Form.Item>
-          <Form.Item label="API KEY">
-            <Form.List name="apiKeys" rules={[{ validator: (_, value) => (value && value.length > 0 ? Promise.resolve() : Promise.reject(new Error('至少保留一个 API KEY'))) }]}>
-              {(fields, { add, remove }, { errors }) => (
-                <>
-                  {fields.map(({ key, name, ...restField }) => (
-                    <Space key={key} style={{ display: 'flex', marginBottom: 8 }} align="baseline">
-                      <Form.Item
-                        {...restField}
-                        name={[name, 'key']}
-                        rules={[{ required: true, message: '请输入 KEY' }]}
-                        style={{ marginBottom: 0 }}
-                      >
-                        <Input.Password placeholder="sk-..." style={{ width: 240 }} disabled={!!selectedExistingProvider} />
-                      </Form.Item>
-                      <Form.Item
-                        {...restField}
-                        name={[name, 'label']}
-                        style={{ marginBottom: 0 }}
-                      >
-                        <Input placeholder="备注" style={{ width: 120 }} disabled={!!selectedExistingProvider} />
-                      </Form.Item>
-                      <Form.Item
-                        {...restField}
-                        name={[name, 'enabled']}
-                        valuePropName="checked"
-                        style={{ marginBottom: 0 }}
-                      >
-                        <Switch checkedChildren="启用" unCheckedChildren="禁用" disabled={!!selectedExistingProvider} />
-                      </Form.Item>
-                      <Button type="text" danger onClick={() => remove(name)} disabled={fields.length <= 1 || !!selectedExistingProvider}>
-                        删除
-                      </Button>
-                    </Space>
-                  ))}
-                  {!selectedExistingProvider && (
-                    <Button type="dashed" onClick={() => add({ id: genId('key'), key: '', enabled: true, state: 'ok' })} block>
-                      添加 API KEY
-                    </Button>
-                  )}
-                  <Form.ErrorList errors={errors} />
-                </>
-              )}
-            </Form.List>
-          </Form.Item>
-        </Form>
-      </Modal>
-
-      {/* 节点编辑 Modal */}
-      <Modal
-        title={
-          storeProviderNodes.some((n) => n.id === editingNode?.node.id)
-            ? `${editingNode?.provider.name} 编辑节点`
-            : '新增节点'
-        }
-        open={!!editingNode}
-        onOk={saveNode}
-        onCancel={() => { setEditingNode(null); nodeForm.resetFields() }}
-        width={Math.min(800, window.innerWidth - 48)}
-      >
-        <Form form={nodeForm} layout="vertical" style={{ marginTop: 8 }}>
-          {nodeTypeFilter === 'image' && (
-            <Form.Item name="protocol" label="生图协议" rules={[{ required: true }]}>
-              <Select
-                options={[
-                  { value: 'modelscope', label: 'ModelScope（异步）' },
-                  { value: 'gpt', label: 'GPT Image（同步）' },
-                  { value: 'xai', label: 'xAI Imagine（同步）' },
-                ]}
-              />
-            </Form.Item>
-          )}
-          <Form.Item name="model" rules={[{ required: true }]}>
-            <Input.TextArea
-              placeholder="模型名，支持多个模型，用逗号分隔（如 gpt-4, gpt-3.5-turbo）"
-              autoSize={{ minRows: 1, maxRows: 4 }}
-            />
-          </Form.Item>
-          <Row gutter={16}>
-            <Col span={8}>
-              <Form.Item name="maxConcurrency" label="最大并发" rules={[{ required: true }]}>
-                <InputNumber min={1} max={32} style={{ width: '100%' }} />
-              </Form.Item>
-            </Col>
-            <Col span={8}>
-              <Form.Item
-                name="batchChars"
-                label={nodeTypeFilter === 'text' ? '批次字数上限' : '批次张数上限'}
-                rules={[{ required: true }]}
-              >
-                <InputNumber min={1} max={nodeTypeFilter === 'text' ? 100000 : 100} step={nodeTypeFilter === 'text' ? 1000 : 1} style={{ width: '100%' }} />
-              </Form.Item>
-            </Col>
-            <Col span={8}>
-              <Form.Item name="intervalSec" label="请求间隔(秒)" rules={[{ required: true }]}>
-                <InputNumber min={0} max={60} style={{ width: '100%' }} />
-              </Form.Item>
-            </Col>
-          </Row>
-          <Row gutter={16}>
-            <Col span={8}>
-              <Form.Item name="usageLimitEnabled" label="次数限制" valuePropName="checked">
-                <Switch
-                  onChange={(checked) => {
-                    if (checked) {
-                      const cur = nodeForm.getFieldValue('usageLimit')
-                      if (typeof cur !== 'number' || cur <= 0) nodeForm.setFieldsValue({ usageLimit: 100, usageLeft: 100 })
-                    }
-                  }}
-                />
-              </Form.Item>
-            </Col>
-            {nodeTypeFilter === 'text' && (
-              <Col span={8}>
-                <Form.Item name="isMultimodal" label="多模态" valuePropName="checked">
-                  <Switch />
-                </Form.Item>
-              </Col>
-            )}
-          </Row>
-          <Form.Item shouldUpdate={(prev, cur) => prev.usageLimitEnabled !== cur.usageLimitEnabled} noStyle>
-            {({ getFieldValue }) =>
-              getFieldValue('usageLimitEnabled') ? (
-                <Form.Item
-                  name="usageLimit"
-                  label="每日额度（次）"
-                  rules={[{ required: true, message: '请输入每日额度' }]}
-                  extra="每天本地自然日 0 点重置为该额度；每次调用后剩余次数递减，耗尽则该节点被跳过。"
-                >
-                  <InputNumber min={1} max={100000} style={{ width: '100%' }} />
-                </Form.Item>
-              ) : null
-            }
-          </Form.Item>
-        </Form>
-      </Modal>
-
-      {/* 模型多选批量添加 */}
-      <Modal
-        title="选择模型批量添加"
-        open={modelSelectOpen}
-        onOk={batchAddNodes}
-        onCancel={() => setModelSelectOpen(false)}
-        okText="批量添加"
-        width={Math.min(600, window.innerWidth - 48)}
-      >
-        <Alert
-          type="info"
-          showIcon
-          message={`从 ${(fetchModelsProvider ?? editingNode?.provider)?.baseURL} 获取到 ${availableModels.length} 个模型`}
-          style={{ marginBottom: 16 }}
-        />
-        <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
-          选择要添加的模型（将为每个模型创建一个节点，共享 Base URL 和 API KEY）：
-        </Typography.Text>
-        <Checkbox.Group
-          style={{ width: '100%' }}
-          value={selectedModels}
-          onChange={setSelectedModels}
-        >
-          <Space direction="vertical" style={{ width: '100%' }}>
-            {availableModels.map((model) => (
-              <Checkbox key={model} value={model}>
-                {model}
-              </Checkbox>
-            ))}
-          </Space>
-        </Checkbox.Group>
-      </Modal>
-
-      {/* 连通性测试 Modal */}
-      <Modal
-        title={`连通性测试 — ${testResult?.node.name ?? ''}`}
-        open={!!testResult}
-        onCancel={() => setTestResult(null)}
-        footer={<Button onClick={() => setTestResult(null)}>关闭</Button>}
-        width={Math.min(600, window.innerWidth - 48)}
-      >
-        {testResult?.ok ? (
-          <Space direction="vertical" style={{ width: '100%' }}>
-            <Alert type="success" showIcon message={`连通正常，发现 ${testResult.models.length} 个模型`} />
-            {testResult.models.length > 0 ? (
-              <>
-                <Typography.Text type="secondary">点击模型名即可填入该节点的「默认模型」：</Typography.Text>
-                <Space wrap>
-                  {testResult.models.map((m) => (
-                    <Tag.CheckableTag
-                      key={m}
-                      checked={testResult.node.model === m}
-                      onChange={() => {
-                        const raw = storeProviderNodes.find((n) => n.id === testResult.node.id)
-                        if (raw) updateProviderNode({ ...raw, model: m })
-                        setTestResult((r) => (r ? { ...r, node: { ...r.node, model: m } } : r))
-                        message.success(`已将「${testResult.node.name}」默认模型设为 ${m}`)
-                      }}
-                    >
-                      {m}
-                    </Tag.CheckableTag>
-                  ))}
-                </Space>
-              </>
-            ) : (
-              <Typography.Text type="secondary">该端点未返回模型列表（连接本身正常）。</Typography.Text>
-            )}
-          </Space>
-        ) : (
-          <Alert type="error" showIcon message="连接失败" description={testResult?.error} />
-        )}
-      </Modal>
-
-      {/* 节点真实调用测试 Modal */}
-      <Modal
-        title={`测试节点：${testingNode?.name ?? ''}`}
-        open={!!testingNode}
-        onCancel={() => setTestingNode(null)}
-        width={Math.min(1200, window.innerWidth - 48)}
-        footer={[
-          <Button key="close" onClick={() => setTestingNode(null)}>关闭</Button>,
-          <Button
-            key="test"
-            type="primary"
-            loading={testStreaming}
-            onClick={startRealTest}
-          >
-            开始测试
-          </Button>,
-        ]}
-      >
-        <Space direction="vertical" style={{ width: '100%' }} size="large">
-          <div>
-            <Typography.Text strong>清理提示词：</Typography.Text>
-            <Input.TextArea
-              value={m1SystemPrompt || '（当前为空，将使用后端内置默认提示词）'}
-              readOnly
-              autoSize={{ minRows: 3, maxRows: 6 }}
-              style={{ marginTop: 8, fontFamily: 'monospace', fontSize: 12, color: m1SystemPrompt ? 'inherit' : 'var(--ant-color-text-tertiary)' }}
-            />
-          </div>
-          <div>
-            <Typography.Text strong>测试文本：</Typography.Text>
-            <Input.TextArea
-              value={m1TestText}
-              readOnly
-              autoSize={{ minRows: 4, maxRows: 8 }}
-              style={{ marginTop: 8, fontFamily: 'monospace', fontSize: 12 }}
-            />
-          </div>
-          {testStreamLeft && (
-            <Row gutter={16}>
-              <Col xs={24} lg={12}>
-                <Card size="small" title="原文" style={{ height: 400 }}>
-                  <div style={{ height: 350, overflow: 'auto', whiteSpace: 'pre-wrap', fontFamily: 'monospace', fontSize: 12 }}>
-                    {testStreamLeft}
-                  </div>
-                </Card>
-              </Col>
-              <Col xs={24} lg={12}>
-                <Card size="small" title="清理结果" style={{ height: 400 }}>
-                  <div style={{ height: 350, overflow: 'auto', whiteSpace: 'pre-wrap', fontFamily: 'monospace', fontSize: 12 }}>
-                    {testStreamRight || (testStreaming ? '等待响应...' : '')}
-                  </div>
-                </Card>
-              </Col>
-            </Row>
-          )}
-        </Space>
-      </Modal>
-
-      {/* 并发测试 Modal */}
-      <Modal
-        title={`并发测试 — ${concurrencyResult?.node.name ?? ''}`}
-        open={!!concurrencyResult}
-        onCancel={() => setConcurrencyResult(null)}
-        width={Math.min(700, window.innerWidth - 48)}
-        footer={
-          <Space>
-            <Button onClick={() => setConcurrencyResult(null)}>关闭</Button>
-            <Button
-              type="primary"
-              disabled={concurrencyResult?.maxConcurrency === undefined}
-              onClick={() => {
-                if (!concurrencyResult || concurrencyResult.maxConcurrency === undefined) return
-                const { node, maxConcurrency, intervalSec } = concurrencyResult
-                const raw = storeProviderNodes.find((n) => n.id === node.id)
-                if (raw) updateProviderNode({ ...raw, maxConcurrency, intervalSec: intervalSec ?? 0 })
-                message.success(`已写回：最大并发 ${maxConcurrency}，请求间隔 ${intervalSec}s`)
-                setConcurrencyResult(null)
-              }}
-            >
-              应用推荐参数
-            </Button>
-          </Space>
-        }
-      >
-        <Space direction="vertical" style={{ width: '100%' }}>
-          {concurrencyResult?.error && (
-            <Alert type="error" showIcon message="测试失败" description={concurrencyResult.error} />
-          )}
-          {concurrencyResult?.maxConcurrency !== undefined && (
-            <Alert
-              type="success"
-              showIcon
-              message={`推荐参数：最大并发 ${concurrencyResult.maxConcurrency}，请求间隔 ${concurrencyResult.intervalSec}s`}
-            />
-          )}
-          <Typography.Text type="secondary">探测过程：</Typography.Text>
-          <pre style={{ background: 'var(--ant-color-fill-tertiary)', padding: 8, fontSize: 12, margin: 0, whiteSpace: 'pre-wrap', maxHeight: 240, overflow: 'auto' }}>
-            {concurrencyResult?.log.join('\n')}
-          </pre>
-          <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
-            通过逐级提高并发请求数（1→2→4→8→16）探测该节点可同时接受的任务数，遇到首个失败级别即回退。请求间隔由单请求耗时估算，仅供参考，可按「应用推荐参数」写回节点配置。
-          </Typography.Paragraph>
-        </Space>
-      </Modal>
-
-      {/* 导入预览 Modal */}
       <Modal
         title={
           importPreview

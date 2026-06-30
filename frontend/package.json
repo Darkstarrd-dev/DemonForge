@@ -17,9 +17,6 @@
   "dependencies": {
     "@ant-design/icons": "^6.2.5",
     "@dimforge/rapier3d-compat": "^0.19.3",
-    "@dnd-kit/core": "^6.3.1",
-    "@dnd-kit/sortable": "^10.0.0",
-    "@dnd-kit/utilities": "^3.2.2",
     "antd": "^6.4.3",
     "diff": "^9.0.0",
     "gif.js": "^0.2.0",
@@ -33,6 +30,9 @@
     "zustand": "^5.0.14"
   },
   "devDependencies": {
+    "@dnd-kit/core": "^6.3.1",
+    "@dnd-kit/sortable": "^10.0.0",
+    "@dnd-kit/utilities": "^3.2.2",
     "@eslint/js": "^10.0.1",
     "@testing-library/dom": "^10.4.1",
     "@testing-library/jest-dom": "^6.9.1",
