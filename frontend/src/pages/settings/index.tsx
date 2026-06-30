@@ -33,6 +33,8 @@ import {
 import { testProvider } from '../../services/api'
 import { parseSSE } from '../../services/sse'
 import type { ModuleKey, Provider, ProviderNode, ProviderNodeType, ResolvedProviderNode } from '../../services/types'
+import { nodePoolStore } from '../../packages/node-pool/store'
+import type { NodePoolStateCore } from '../../packages/node-pool/types'
 import { resolveProviderNodes } from '../../utils/providerResolver'
 import {
   buildBundle,
@@ -329,7 +331,7 @@ export default function SettingsPage() {
   const reorderProviders = (ids: string[]) => {
     const map = new Map(storeProviders.map((p) => [p.id, p]))
     const reordered = ids.map((id) => map.get(id)).filter((p) => p) as Provider[]
-    setState({ providers: reordered })
+    nodePoolStore.setState({ providers: reordered })
   }
 
   /** 重排节点顺序（传入节点 id 列表，仅影响这些节点在 providerNodes 数组中的相对顺序）。
@@ -346,7 +348,7 @@ export default function SettingsPage() {
       }
       return n
     })
-    setState({ providerNodes: result })
+    nodePoolStore.setState({ providerNodes: result })
   }
 
   /** 测试节点连通性。 */
@@ -681,34 +683,34 @@ export default function SettingsPage() {
           return
         }
         const bundle = result.bundle
-        const currentState = useAppStore.getState()
-        const patch: Partial<typeof currentState> = {}
+        const currentPool = nodePoolStore.getState()
+        const nodePoolPatch: Partial<NodePoolStateCore> = {}
 
         // providers：按 id 判重，增量导入
         if (Array.isArray(bundle.providers)) {
-          const existingProviderIds = new Set(currentState.providers.map((p) => p.id))
+          const existingProviderIds = new Set(currentPool.providers.map((p) => p.id))
           const providersToAdd = bundle.providers.filter((p) => !existingProviderIds.has(p.id))
           if (providersToAdd.length > 0) {
-            patch.providers = [...currentState.providers, ...providersToAdd]
+            nodePoolPatch.providers = [...currentPool.providers, ...providersToAdd]
           }
         }
 
         // providerNodes：按 providerId+model 判重，增量导入
         if (Array.isArray(bundle.providerNodes)) {
           const existingNodeKeys = new Set(
-            currentState.providerNodes.map((n) => `${n.providerId}|||${n.model}`),
+            currentPool.providerNodes.map((n) => `${n.providerId}|||${n.model}`),
           )
           const nodesToAdd = bundle.providerNodes.filter(
             (n) => !existingNodeKeys.has(`${n.providerId}|||${n.model}`),
           )
           if (nodesToAdd.length > 0) {
-            patch.providerNodes = [...currentState.providerNodes, ...nodesToAdd]
+            nodePoolPatch.providerNodes = [...currentPool.providerNodes, ...nodesToAdd]
           }
         }
 
         // moduleMapping：仅填充当前缺失的模块映射
         if (bundle.moduleMapping) {
-          const merged = { ...currentState.moduleMapping }
+          const merged = { ...currentPool.moduleMapping }
           let hasNew = false
           for (const key of Object.keys(bundle.moduleMapping) as ModuleKey[]) {
             if (!merged[key] || !merged[key].nodeId) {
@@ -716,15 +718,15 @@ export default function SettingsPage() {
               hasNew = true
             }
           }
-          if (hasNew) patch.moduleMapping = merged
+          if (hasNew) nodePoolPatch.moduleMapping = merged
         }
 
-        if (Object.keys(patch).length === 0) {
+        if (Object.keys(nodePoolPatch).length === 0) {
           message.info('节点池无新增内容（供应商/节点均已存在）')
           return
         }
 
-        setState(patch)
+        nodePoolStore.setState(nodePoolPatch)
         pushSettingsNow()
         message.success(`节点池导入成功${result.warnings.length > 0 ? `（${result.warnings.length} 条警告）` : ''}`)
         if (result.warnings.length > 0) {
@@ -742,8 +744,10 @@ export default function SettingsPage() {
     setImportBusy(true)
     try {
       const patch: Record<string, unknown> = {}
+      const nodePoolPatch: Partial<NodePoolStateCore> = {}
       const s = bundle.settings
       const currentState = useAppStore.getState()
+      const currentPool = nodePoolStore.getState()
       const legacy = (s as unknown) as {
         nodeTestGlobalForm?: unknown
         imageDemoGlobalForm?: unknown
@@ -753,29 +757,29 @@ export default function SettingsPage() {
         theme?: typeof currentState.theme
       }
 
-      // providers / providerNodes：增量导入（供应商按 id 判重，节点按 providerId+model 判重）
+      // providers / providerNodes / moduleMapping：增量导入到独立 nodePoolStore
       if (Array.isArray(s.providers)) {
-        const existingProviderIds = new Set(currentState.providers.map((p) => p.id))
+        const existingProviderIds = new Set(currentPool.providers.map((p) => p.id))
         const providersToAdd = s.providers.filter((p) => !existingProviderIds.has(p.id))
         if (providersToAdd.length > 0) {
-          patch.providers = [...currentState.providers, ...providersToAdd]
+          nodePoolPatch.providers = [...currentPool.providers, ...providersToAdd]
         }
       }
       if (Array.isArray(s.providerNodes)) {
         const existingNodeKeys = new Set(
-          currentState.providerNodes.map((n) => `${n.providerId}|||${n.model}`),
+          currentPool.providerNodes.map((n) => `${n.providerId}|||${n.model}`),
         )
         const nodesToAdd = s.providerNodes.filter(
           (n) => !existingNodeKeys.has(`${n.providerId}|||${n.model}`),
         )
         if (nodesToAdd.length > 0) {
-          patch.providerNodes = [...currentState.providerNodes, ...nodesToAdd]
+          nodePoolPatch.providerNodes = [...currentPool.providerNodes, ...nodesToAdd]
         }
       }
 
       // moduleMapping：仅填充当前缺失的模块映射
       if (s.moduleMapping) {
-        const merged = { ...currentState.moduleMapping }
+        const merged = { ...currentPool.moduleMapping }
         let hasNew = false
         for (const key of Object.keys(s.moduleMapping) as ModuleKey[]) {
           if (!merged[key] || !merged[key].nodeId) {
@@ -783,7 +787,7 @@ export default function SettingsPage() {
             hasNew = true
           }
         }
-        if (hasNew) patch.moduleMapping = merged
+        if (hasNew) nodePoolPatch.moduleMapping = merged
       }
 
       // splitPatterns：仅添加当前不存在的模式（按 key 判重）
@@ -862,6 +866,9 @@ export default function SettingsPage() {
         patch.theme = legacy.theme
       }
 
+      if (Object.keys(nodePoolPatch).length) {
+        nodePoolStore.setState(nodePoolPatch)
+      }
       useAppStore.setState(patch)
       pushSettingsNow()
 

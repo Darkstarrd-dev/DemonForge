@@ -946,12 +946,14 @@ function redactProvider(p: Provider): Provider {
 - 【已核实】`providerSlice.ts:7-19` 通过 `Pick<AppState, ...>` 从 god state 派生
 - 【已核实】`persistence.ts:157-182` settingsPayload 把 providers/providerNodes/moduleMapping 与 20+ 设置项混存
 - 【已核实】`bootstrap.ts` 启动时从 settings.json 读 providers/providerNodes,含旧 ProviderNode→新两层模型迁移(方案称 :45-135)
-- 【待实施】新建 `store.ts`(createNodePoolStore 工厂)、`persistence.ts`(serializeNodePool/hydrateNodePool 独立序列化,与 5.7 serialize.ts 共用)
-- 【待实施】providerSlice 改为 interop 薄封装,委托 nodePoolStore
-- 【待实施】settingsPayload 节点池部分改调 serializeNodePool
-- 【待实施】bootstrap hydrate 改调 hydrateNodePool
-- 【待实施】**备份 settings.json** 再动手(hydrate bug 可能丢节点池数据)
-- 【待实施】回归:persistence.test.ts、appStore.test.ts;节点池 Tab CRUD;跨页面状态一致
+- 【已实施】新建 `store.ts`(`createNodePoolStore` 工厂 + `NodePoolState` + 默认单例 `nodePoolStore`)
+- 【已实施】新建 `persistence.ts`(`toNodePoolSettingsPayload`/`hydrateNodePoolState`,与 5.7 `serialize.ts` 解耦)
+- 【已实施】`providerSlice` 改为 interop 薄封装:注入种子 + 订阅同步 AppState + action 全委托 `nodePoolStore`
+- 【已实施】`settingsPayload` 节点池部分改调 `toNodePoolSettingsPayload(nodePoolStore.getState())`
+- 【已实施】`bootstrap` hydrate 改调 `hydrateNodePoolState` → `nodePoolStore.setState`
+- 【已实施】`pages/settings/index.tsx` 导入/排序逻辑改走 `nodePoolStore.setState`(防止 AppState 漂移)
+- 【已实施】**备份 settings.json** → `server/src/data/settings.json.pre-batch3.bak`
+- 【已实施】回归:`test:core` 91/91 绿 / `npm test` 466/466 绿;`persistence.test.ts`/`appStore.test.ts` 通过
 
 ### 批次 4:5.5a 后端独立路由(过渡)
 

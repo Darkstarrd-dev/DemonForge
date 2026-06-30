@@ -8,6 +8,8 @@
 
 import { useAppStore } from './appStore'
 import type { AppState } from './types'
+import { toNodePoolSettingsPayload } from '../packages/node-pool/persistence'
+import { nodePoolStore } from '../packages/node-pool/store'
 
 // storeReady 门控：bootstrapStore 引导完成前，订阅与 pushXxxNow 都不写后端。
 // 私有变量 + get/set 导出，供 bootstrap.ts 跨模块控制时序（删光不复活分支需临时置 false）。
@@ -155,9 +157,7 @@ export async function pushStoreNowChecked(): Promise<void> {
 // 设置回写：settingsPayload 任一键引用变化时 debounce POST（registerPersisters 从该键集自动比较）
 /** 设置载荷构造（单一真相：脏检查键集与 backup.ts 备份均从此派生，加字段只改这里）。 */
 export const settingsPayload = (s: AppState) => ({
-  providers: s.providers,
-  providerNodes: s.providerNodes,
-  moduleMapping: s.moduleMapping,
+  ...toNodePoolSettingsPayload(nodePoolStore.getState()),
   m1SystemPrompt: s.m1SystemPrompt,
   assetDir: s.assetDir,
   currentBookId: s.currentBookId,
