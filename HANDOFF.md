@@ -2,11 +2,53 @@
 
 **最后更新**：2026-06-30
 **当前位置**：办公场所 A
-**本轮主题**：**5.5b 实施完成（SqliteRepo + 迁移脚本 + 16 单测全绿）——节点池模块化 6 批次全部完成**
+**本轮主题**：**audit-05 审计 + 高优项整改完成（A-15~A-19/A-24/A-26）**
 
 > 📦 **历史明细已归档** → `docs/handoff_history.md`
 > 本文件只保留「恢复工作所需的活内容」：进行中任务、模块清单、下一步、交接参考。
 > 各轮工作的逐项实现细节、技术决策记录、详尽验证清单全部移入归档文件，按需查阅。
+
+---
+
+## 🆕 audit-05 整改完成（2026-06-30）
+
+审计报告：`docs/quality/logs/2026-06-30-audit-05.md`
+
+### 已完成（7/13 项）
+
+| 编号 | 内容 | 结果 |
+|:---:|---|:---:|
+| A-15 | Step3Clean 3 TS + 2 lint 错误清零 | tsc 0 / lint 0 |
+| A-16 | persistence.ts 20 处 .catch(()→{}) 改 logFailure | tsc 0 / 469 绿 |
+| A-17 | importSession.ts 3 空 catch 改 console.warn | tsc 0 |
+| A-18 | llmClient.ts 16 单测（buildRequestBody/listModels/embed/chatStream） | 16/16 绿 |
+| A-19 | db.test.ts 7 单测（syncAll/readAll/deleteEntities/clearAll）+ vector.test.ts 7 单测（splitText） | 14/14 绿 |
+| A-24 | gifUtils CDN Worker → public/gif.worker.js 本地化 | — |
+| A-26 | saveStorage `(window as any).electronAPI` → `window.electronAPI` | tsc 0 |
+
+### 验证快照
+
+| 命令 | 结果 |
+|---|---|
+| `npx tsc -b`（frontend） | **0 errors**（首次清零！Step3Clean 预存错误已修复） |
+| `npm run lint`（frontend） | 0 errors |
+| `npm test`（frontend） | **469/469 passed** |
+| `npx tsc --noEmit`（server） | 通过 |
+| `npx vitest run`（server） | **46/46 passed**（原 16 + 新增 30） |
+| `npx tsc --noEmit`（electron） | 通过 |
+
+### 待完成（6/13 项）
+
+| 编号 | 内容 | 优先级 |
+|:---:|---|:---:|
+| A-21 | 拆分 Step3Clean（1276→4 文件） | 中 |
+| A-22 | 拆分 ImmersiveReader（1023→4 文件） | 中 |
+| A-23 | 拆分 m2-cards（880→3 文件） | 中 |
+| A-25 | 补 16 个目录 barrel export | 低 |
+| A-27 | 依赖升级（15 个过期） | 低 |
+| A-20 | creation 路由单测 | 中 |
+
+---
 
 ---
 
@@ -183,6 +225,7 @@
 
 ### 质量体系
 - [x] **质量审计体系**（`docs/quality/TEMPLATE.md` + logs/ 体系）
+- [x] **audit-05 全量审计 + 7 项整改**（A-15~A-19/A-24/A-26 完成；Step3Clean tsc/lint 首次清零；server 测试 16→46；persistence 20 处错误吞没消除）
 - [x] **A-1~A-14 全部收口**（重构线：SSE 统一 / CleanScheduler 类化 / appStore 切片化 / 组件拆分 / 主题色收敛 / M1 懒加载 / processKiller 等）
 - [x] 品牌重命名 **DemonForge**（productName / 图标 / favicon）
 - [x] 编译打包（NSIS 安装包 + 便携版；file:// 协议修复）

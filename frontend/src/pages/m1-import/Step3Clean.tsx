@@ -34,12 +34,11 @@ import {
   EditOutlined,
 } from '@ant-design/icons'
 import { useAppStore, pushImportSessionNow, type CleanRunNodeSession } from '../../store/appStore'
-import { createM1ImportSlice } from '../../store/slices/m1ImportSlice'
+import { DEFAULT_M1_TEST_TEXT } from '../../store/slices/m1ImportSlice'
 import { startCleanQueue, getDefaultPrompt, type CleanNode, type CleanQueueHandle, type CleanQueueDebugEvent } from '../../services/api'
 import { useNavigate } from 'react-router-dom'
 import { resolveProviderNodes } from '../../utils/providerResolver'
-import { parseSSE } from '../../services/sse'
-import type { ResolvedProviderNode, ProviderNode } from '../../services/types'
+import type { ResolvedProviderNode } from '../../services/types'
 
 interface DebugEntry {
   chapterId: string
@@ -1184,9 +1183,8 @@ export default function Step3Clean() {
           <Button key="cancel" onClick={() => setTestTextModalOpen(false)}>取消</Button>,
           <Button key="clear" onClick={() => { setDraftTestText(''); setState({ m1TestText: '' }); message.success('已清空') }}>清空</Button>,
           <Button key="reset" onClick={() => {
-            const { m1TestText: defaultText } = createM1ImportSlice(undefined as never)
-            setDraftTestText(defaultText)
-            setState({ m1TestText: defaultText })
+            setDraftTestText(DEFAULT_M1_TEST_TEXT)
+            setState({ m1TestText: DEFAULT_M1_TEST_TEXT })
           }}>恢复默认</Button>,
           <Button key="save" type="primary" disabled={draftTestText === m1TestText} onClick={() => {
             setState({ m1TestText: draftTestText })

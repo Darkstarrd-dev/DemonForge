@@ -81,9 +81,9 @@ export async function exportGif(
   onProgress?: (progress: number) => void
 ): Promise<Blob> {
   return new Promise((resolve) => {
-    // Create worker blob inline to avoid path issues
+    // Create worker blob inline with local worker script (bundled in public/)
     const workerBlob = new Blob(
-      [`importScripts('https://cdnjs.cloudflare.com/ajax/libs/gif.js/0.2.0/gif.worker.js');`],
+      [`importScripts('${location.origin}/gif.worker.js');`],
       { type: 'application/javascript' }
     )
     const workerUrl = URL.createObjectURL(workerBlob)

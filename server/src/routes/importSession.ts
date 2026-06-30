@@ -40,9 +40,9 @@ function writeSession(data: Record<string, unknown>): void {
 }
 
 function deleteSession(): void {
-  try { if (existsSync(SESSION_PATH)) unlinkSync(SESSION_PATH) } catch {}
-  try { if (existsSync(SESSION_BAK)) unlinkSync(SESSION_BAK) } catch {}
-  try { if (existsSync(SESSION_TMP)) unlinkSync(SESSION_TMP) } catch {}
+  try { if (existsSync(SESSION_PATH)) unlinkSync(SESSION_PATH) } catch (e) { console.warn('failed to delete session file:', SESSION_PATH, e) }
+  try { if (existsSync(SESSION_BAK)) unlinkSync(SESSION_BAK) } catch (e) { console.warn('failed to delete session backup:', SESSION_BAK, e) }
+  try { if (existsSync(SESSION_TMP)) unlinkSync(SESSION_TMP) } catch (e) { console.warn('failed to delete session temp:', SESSION_TMP, e) }
 }
 
 export async function importSessionRoutes(app: FastifyInstance) {

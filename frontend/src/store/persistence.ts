@@ -12,6 +12,12 @@ import type { AppState } from './types'
 import { nodePoolStore } from '../packages/node-pool/store'
 import { providersApi, nodesApi, moduleMappingApi } from '../services/real/nodePoolApi'
 
+/** 统一错误日志：替代静默 .catch(() => {})，至少落 console 可追溯。
+ *  语义仍为 fire-and-forget（不阻塞调用方），但不再静默丢错误。 */
+function logFailure(context: string): (err: unknown) => void {
+  return (err) => { console.error(`[persistence] ${context}`, err) }
+}
+
 // storeReady 门控：bootstrapStore 引导完成前，订阅与 pushXxxNow 都不写后端。
 // 私有变量 + get/set 导出，供 bootstrap.ts 跨模块控制时序（删光不复活分支需临时置 false）。
 let storeReady = false
@@ -100,7 +106,7 @@ export function pushStoreNow(): Promise<void> {
     clearTimeout(storeTimer)
     storeTimer = null
   }
-  return pushStore(businessPayload(useAppStore.getState())).then(() => undefined).catch(() => {})
+  return pushStore(businessPayload(useAppStore.getState())).then(() => undefined).catch(logFailure('pushStoreNow'))
 }
 
 /**
@@ -218,22 +224,22 @@ export async function pushNodePoolNow(): Promise<void> {
 
     // Providers: upsert 本地全部 + delete 后端多余
     const providerOps = [
-      ...localProviders.map((p) => providersApi.save(p).catch(() => {})),
+      ...localProviders.map((p) => providersApi.save(p).catch(logFailure('pushNodePool provider save'))),
       ...backendProviders
         .filter((bp) => !localProviderIds.has(bp.id))
-        .map((bp) => providersApi.remove(bp.id).catch(() => {})),
+        .map((bp) => providersApi.remove(bp.id).catch(logFailure('pushNodePool provider remove'))),
     ]
 
     // Nodes: upsert 本地全部 + delete 后端多余
     const nodeOps = [
-      ...localNodes.map((n) => nodesApi.save(n).catch(() => {})),
+      ...localNodes.map((n) => nodesApi.save(n).catch(logFailure('pushNodePool node save'))),
       ...backendNodes
         .filter((bn) => !localNodeIds.has(bn.id))
-        .map((bn) => nodesApi.remove(bn.id).catch(() => {})),
+        .map((bn) => nodesApi.remove(bn.id).catch(logFailure('pushNodePool node remove'))),
     ]
 
     // Module-mapping: 整体替换
-    const mappingOp = moduleMappingApi.save(localMapping).catch(() => {})
+    const mappingOp = moduleMappingApi.save(localMapping).catch(logFailure('pushNodePool moduleMapping save'))
 
     await Promise.all([...providerOps, ...nodeOps, mappingOp])
   } catch {
@@ -259,7 +265,7 @@ export function pushSettingsNow(): void {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(settingsPayload(useAppStore.getState())),
-  }).catch(() => {})
+  }).catch(logFailure('pushSettingsNow'))
 }
 
 // M1 导入会话持久化：importSession 变化时 debounce POST，退出/刷新不丢清理进度
@@ -274,7 +280,7 @@ export function pushImportSessionNow(): void {
   }
   const ses = useAppStore.getState().importSession
   if (!ses) {
-    fetch('/api/import-session', { method: 'DELETE', keepalive: true }).catch(() => {})
+    fetch('/api/import-session', { method: 'DELETE', keepalive: true }).catch(logFailure('pushImportSessionNow delete'))
     return
   }
   fetch('/api/import-session', {
@@ -282,7 +288,7 @@ export function pushImportSessionNow(): void {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(ses),
     keepalive: true,
-  }).catch(() => {})
+  }).catch(logFailure('pushImportSessionNow save'))
 }
 
 // 关窗/退出时立即冲刷未提交的 debounce 写入。
@@ -313,25 +319,25 @@ export async function flushStoreWrites(): Promise<void> {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(businessPayload(st)),
       keepalive: true,
-    }).catch(() => {}),
+    }).catch(logFailure('flushStore store')),
     fetch('/api/settings', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(settingsPayload(st)),
       keepalive: true,
-    }).catch(() => {}),
+    }).catch(logFailure('flushStore settings')),
     // 5.5a 修复：节点池 per-item upsert（PUT /api/{providers,nodes}/:id），不再整数组 POST。
     // 关窗冲刷只做 upsert，不做 delete（无法先 GET 再 diff）；删除由下次 pushNodePoolNow 补偿。
     ...np.providers.map((p) =>
-      providersApi.save(p, { keepalive: true }).catch(() => {}),
+      providersApi.save(p, { keepalive: true }).catch(logFailure('flushStore provider save')),
     ),
     ...np.providerNodes.map((n) =>
-      nodesApi.save(n, { keepalive: true }).catch(() => {}),
+      nodesApi.save(n, { keepalive: true }).catch(logFailure('flushStore node save')),
     ),
-    moduleMappingApi.save(np.moduleMapping, { keepalive: true }).catch(() => {}),
+    moduleMappingApi.save(np.moduleMapping, { keepalive: true }).catch(logFailure('flushStore moduleMapping save')),
     (async () => {
       if (!st.importSession) {
-        await fetch('/api/import-session', { method: 'DELETE', keepalive: true }).catch(() => {})
+        await fetch('/api/import-session', { method: 'DELETE', keepalive: true }).catch(logFailure('flushStore importSession delete'))
         return
       }
       await fetch('/api/import-session', {
@@ -339,7 +345,7 @@ export async function flushStoreWrites(): Promise<void> {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(st.importSession),
         keepalive: true,
-      }).catch(() => {})
+      }).catch(logFailure('flushStore importSession save'))
     })(),
   ])
 }
@@ -367,7 +373,7 @@ export function registerPersisters(): void {
     if (BUSINESS_KEYS.every((k) => s[k] === prev[k])) return
     if (storeTimer) clearTimeout(storeTimer)
     storeTimer = setTimeout(() => {
-      pushStore(businessPayload(useAppStore.getState())).catch(() => {})
+      pushStore(businessPayload(useAppStore.getState())).catch(logFailure('debounce store'))
     }, 1000)
   })
 
@@ -381,7 +387,7 @@ export function registerPersisters(): void {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(settingsPayload(useAppStore.getState())),
-      }).catch(() => {})
+      }).catch(logFailure('debounce settings'))
     }, 1000)
   })
 
@@ -391,7 +397,7 @@ export function registerPersisters(): void {
     if (s.importSession === prev.importSession) return
     if (importSessionTimer) clearTimeout(importSessionTimer)
     if (!s.importSession) {
-      fetch('/api/import-session', { method: 'DELETE', keepalive: true }).catch(() => {})
+      fetch('/api/import-session', { method: 'DELETE', keepalive: true }).catch(logFailure('debounce importSession delete'))
       return
     }
     importSessionTimer = setTimeout(() => {
@@ -399,7 +405,7 @@ export function registerPersisters(): void {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(useAppStore.getState().importSession),
-      }).catch(() => {})
+      }).catch(logFailure('debounce importSession save'))
     }, useAppStore.getState().cleanRun?.running ? 8000 : 1500)
   })
 

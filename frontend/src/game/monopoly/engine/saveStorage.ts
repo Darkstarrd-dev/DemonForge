@@ -19,8 +19,7 @@ type MonopolyElectronAPI = {
 }
 
 function getElectronAPI(): MonopolyElectronAPI | undefined {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- dynamic Electron bridge
-  return (window as any).electronAPI as MonopolyElectronAPI | undefined
+  return window.electronAPI as MonopolyElectronAPI | undefined
 }
 
 class ElectronSaveStorage implements SaveStorage {
