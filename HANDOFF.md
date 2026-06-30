@@ -2,7 +2,7 @@
 
 **最后更新**：2026-06-30
 **当前位置**：办公场所 A
-**本轮主题**：**audit-05 审计 + 高优项整改完成（A-15~A-19/A-24/A-26）**
+**本轮主题**：**audit-05 全部收口（A-20~A-23 + A-25/A-27）**
 
 > 📦 **历史明细已归档** → `docs/handoff_history.md`
 > 本文件只保留「恢复工作所需的活内容」：进行中任务、模块清单、下一步、交接参考。
@@ -10,43 +10,73 @@
 
 ---
 
-## 🆕 audit-05 整改完成（2026-06-30）
+## 🆕 audit-05 全部 13 项收口（2026-06-30）
 
 审计报告：`docs/quality/logs/2026-06-30-audit-05.md`
 
-### 已完成（7/13 项）
+### 本轮完成（6/6 项）
 
 | 编号 | 内容 | 结果 |
 |:---:|---|:---:|
-| A-15 | Step3Clean 3 TS + 2 lint 错误清零 | tsc 0 / lint 0 |
-| A-16 | persistence.ts 20 处 .catch(()→{}) 改 logFailure | tsc 0 / 469 绿 |
-| A-17 | importSession.ts 3 空 catch 改 console.warn | tsc 0 |
-| A-18 | llmClient.ts 16 单测（buildRequestBody/listModels/embed/chatStream） | 16/16 绿 |
-| A-19 | db.test.ts 7 单测（syncAll/readAll/deleteEntities/clearAll）+ vector.test.ts 7 单测（splitText） | 14/14 绿 |
-| A-24 | gifUtils CDN Worker → public/gif.worker.js 本地化 | — |
-| A-26 | saveStorage `(window as any).electronAPI` → `window.electronAPI` | tsc 0 |
+| A-21 | 拆分 Step3Clean（1352→8 文件） | tsc 0 / lint 0 / 469 绿 |
+| A-22 | 拆分 ImmersiveReader（1098→6 文件） | tsc 0 / lint 0 / 469 绿 |
+| A-23 | 拆分 m2-cards（888→6 文件） | tsc 0 / lint 0 / 469 绿 |
+| A-20 | creation 路由单测（+17 测试） | 17/17 绿 |
+| A-25 | 补 9 个目录 barrel export | 0 破坏 |
+| A-27 | 依赖 minor/patch 升级 | 跳 4 个 major（需设计稿） |
+
+### 文件结构（拆分后）
+
+| 巨组件 | 原行数 | 主文件 | 子文件 |
+|---|---:|---|---|
+| `pages/m1-import/Step3Clean.tsx` | 1352 | 481 | NodePoolPanel/ChapterListPane/NodeListPane/ChapterTabsPanel/LiveWindowPanel/DebugLogPanel/PromptModals/DebouncedInputNumber + hooks/useCleanRun |
+| `pages/book-reader/ImmersiveReader.tsx` | 1098 | 815 | panels/ReaderContent + SearchReplacePanel + AiCleanPanel + searchUtils + hooks/useBookNavigation |
+| `pages/m2-cards/index.tsx` | 888 | 324 | panels/CardList + MergeTab + CardDetailDrawer + ExtractModal + cardMeta |
+
+### Barrel exports 新增
+
+- `frontend/src/pages/m1-import/clean/index.ts` + `clean/hooks/index.ts`
+- `frontend/src/pages/book-reader/panels/index.ts` + `hooks/index.ts`
+- `frontend/src/pages/m2-cards/panels/index.ts`
+- `server/src/{utils,store,routes}/index.ts`
+
+### 依赖升级
+
+- **frontend**: `three` 0.184.0 → 0.185.0, `@types/three` 0.184.1 → 0.185.0, 其它 10 个 minor/patch
+- **server**: 7 个 minor/patch（fastify 等）
+- **electron**: 13 个 minor/patch（含 electron-builder 自动依赖）
+- **跳过** (major，需设计稿): electron 33→42, typescript 5→6, electron-builder 25→26, @types/node 22→26
 
 ### 验证快照
 
 | 命令 | 结果 |
 |---|---|
-| `npx tsc -b`（frontend） | **0 errors**（首次清零！Step3Clean 预存错误已修复） |
-| `npm run lint`（frontend） | 0 errors |
+| `npx tsc -b`（frontend） | **0 errors** |
+| `npm run lint`（frontend） | **0 errors** |
 | `npm test`（frontend） | **469/469 passed** |
-| `npx tsc --noEmit`（server） | 通过 |
-| `npx vitest run`（server） | **46/46 passed**（原 16 + 新增 30） |
-| `npx tsc --noEmit`（electron） | 通过 |
+| `npx tsc --noEmit`（server） | **0 errors**（vitest 装包后首次清零） |
+| `npx vitest run`（server） | **63/63 passed**（原 46 + 新增 17：creation.shared 10 + creation.origin 7） |
+| `npx tsc --noEmit`（electron） | **0 errors** |
 
-### 待完成（6/13 项）
+---
 
-| 编号 | 内容 | 优先级 |
+## ✅ audit-05 全部 13 项（汇总）
+
+| 编号 | 内容 | 状态 |
 |:---:|---|:---:|
-| A-21 | 拆分 Step3Clean（1276→4 文件） | 中 |
-| A-22 | 拆分 ImmersiveReader（1023→4 文件） | 中 |
-| A-23 | 拆分 m2-cards（880→3 文件） | 中 |
-| A-25 | 补 16 个目录 barrel export | 低 |
-| A-27 | 依赖升级（15 个过期） | 低 |
-| A-20 | creation 路由单测 | 中 |
+| A-15 | Step3Clean 3 TS + 2 lint 错误清零 | ✅ |
+| A-16 | persistence.ts 20 处 .catch 改 logFailure | ✅ |
+| A-17 | importSession.ts 3 空 catch 改 console.warn | ✅ |
+| A-18 | llmClient.ts 16 单测 | ✅ |
+| A-19 | db.test.ts 7 + vector.test.ts 7 单测 | ✅ |
+| A-20 | creation 路由单测 +17 | ✅ |
+| A-21 | 拆分 Step3Clean | ✅ |
+| A-22 | 拆分 ImmersiveReader | ✅ |
+| A-23 | 拆分 m2-cards | ✅ |
+| A-24 | gifUtils CDN Worker 本地化 | ✅ |
+| A-25 | 补 barrel export | ✅ |
+| A-26 | saveStorage electronAPI 类型化 | ✅ |
+| A-27 | 依赖升级（minor/patch） | ✅ |
 
 ---
 
