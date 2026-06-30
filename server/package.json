@@ -9,7 +9,8 @@
     "start": "node dist/index.js",
     "build": "tsc",
     "build:bundle": "esbuild src/index.ts --bundle --platform=node --outfile=dist/server.bundle.js --external:better-sqlite3 --external:sqlite-vec --external:sharp --external:napi-* --format=esm",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
   },
   "dependencies": {
     "@fastify/cors": "^11.2.0",
@@ -22,6 +23,7 @@
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^22.10.5",
     "tsx": "^4.22.4",
-    "typescript": "^5.7.2"
+    "typescript": "^5.7.2",
+    "vitest": "^4.1.9"
   }
 }

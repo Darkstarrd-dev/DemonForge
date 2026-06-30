@@ -2,7 +2,7 @@
 
 **最后更新**：2026-06-30
 **当前位置**：办公场所 A
-**本轮主题**：**5.5b 详细方案定稿（方案 A：独立 DB `nodepool.db`）+ 5.5a 修复完成**
+**本轮主题**：**5.5b 实施完成（SqliteRepo + 迁移脚本 + 16 单测全绿）——节点池模块化 6 批次全部完成**
 
 > 📦 **历史明细已归档** → `docs/handoff_history.md`
 > 本文件只保留「恢复工作所需的活内容」：进行中任务、模块清单、下一步、交接参考。
@@ -57,6 +57,47 @@
 | `npm test`（frontend 全量） | **466/466 passed** |
 | `npx tsc --noEmit`（server） | 通过 |
 | `npx tsc --noEmit`（electron） | 通过 |
+
+---
+
+## 🆕 节点池模块化方案 · 批次6实施完成（2026-06-30）
+
+按 `docs/node_pool_modularization_plan.md` §5.5b 详细方案执行——SqliteRepo + 迁移脚本 + index.ts 注入切换 + 单测。**节点池 6 批次全部完成。**
+
+### 改动
+
+- **修改 `server/src/store/nodePoolRepository.ts`**：
+  - 追加 `ensureNodePoolTables(db)`：建 3 表（providers / provider_nodes / module_mapping，文档式 `id TEXT PK, data TEXT`）
+  - 追加 `getNodePoolDb()`：缓存的 better-sqlite3 连接（WAL + busy_timeout=5000），路径 `<appDataDir>/nodepool.db`（全局，不随资产目录切换）
+  - 追加 `closeNodePoolDb()`：测试清理用（关文件 DB，释放 Windows 文件锁）
+  - 追加 `SqliteRepo` 类：实现 `NodePoolRepository` 接口；构造可注入 DB（测试 `:memory:`），默认走 `getNodePoolDb()`；逐行 JSON.parse 容错（单行损坏跳过，与 db.ts readAll 一致）；`deleteProvider` 事务级联删其下 nodes
+  - 追加 `migrateNodePoolToSqlite()`：settings.json 守卫 flag（`nodePoolMigrated`）+ 备份 `.pre-migrate.bak` + 事务 upsert 三表 + `writeSettings` 删三键；三者皆空（首次安装）直接标记；失败事务回滚不写 settings.json → 下次重试
+- **修改 `server/src/routes/settings.ts`**：`writeSettings` 改 `export`（迁移需删键，`updateSettings` 只能 merge 无法删键）
+- **修改 `server/src/index.ts`**：import 改 `SqliteRepo` + `migrateNodePoolToSqlite`；`new SettingsJsonRepo()` → `new SqliteRepo()`；listen 块内加 `migrateNodePoolToSqlite()` 调用（与 `migrateImageB64Purge` 同 try/catch 模式，routes 注册后、首个请求前）
+- **修改 `server/package.json`**：加 `vitest` ^4.1.9 devDep + `test` script（`vitest run`）
+- **新增 `server/src/store/nodePoolRepository.test.ts`**：16 个单测
+  - SqliteRepo CRUD（`:memory:`）：save/get/list/upsert 覆盖/delete + 级联删（删 provider 其下 nodes 一并删，他 provider nodes 保留）+ module_mapping singleton 行（覆盖非追加）+ 单行坏 JSON 跳过
+  - 迁移脚本（临时目录 + `NOVELHELPER_DATA_DIR` env + `vi.resetModules`）：含 providers/nodes/mapping 的 settings.json → 验证 nodepool.db 有数据 + settings.json 删三键 + 置守卫 + 其它设置保留 + 备份存在；守卫已置不重复迁移；首次安装不建 DB
+  - 接口契约：同一操作序列跑 SettingsJsonRepo（临时 settings.json）与 SqliteRepo（`:memory:`），断言 get/list/级联/删除/moduleMapping 覆盖输出一致
+- **SettingsJsonRepo 保留**：不删除，代码级 fallback（需回退时改 index.ts 一行 `new SettingsJsonRepo()` 即可，无需环境变量）
+
+### 验证
+
+| 命令 | 结果 |
+|---|---|
+| `npx tsc --noEmit`（server） | 通过 |
+| `npx vitest run`（server，**新增**） | **16/16 passed** |
+| `npx tsc -b`（frontend） | 3 个预存错误（Step3Clean），本轮无新增 |
+| `npm run lint`（frontend） | 2 个预存错误（Step3Clean），本轮无新增 |
+| `npm test`（frontend 全量） | **469/469 passed** |
+| `npx tsc --noEmit`（electron） | 通过 |
+
+### 关键设计点
+
+- **路由层零改动**：`nodesRoutes(subApp, nodePoolRepo)` 只依赖 `NodePoolRepository` 接口，5.5a→5.5b 仅换注入实例（`SettingsJsonRepo` → `SqliteRepo`），路由层一行未动
+- **独立 DB 不入 ENTITIES**：`nodepool.db` 是全局配置（不随资产目录切换），与业务 DB `novelhelper.db` 隔离；SqliteRepo 内部管理自己的连接
+- **迁移幂等可重试**：事务回滚不写守卫 → 下次启动重试；upsert `ON CONFLICT DO UPDATE` 幂等；`.pre-migrate.bak` 兜底
+- **测试可测性**：SqliteRepo 构造注入 `:memory:` DB（不走 getAppDataDir）；迁移测试用临时目录 + env var + `vi.resetModules` 取新模块实例（settings.ts 的 DATA_DIR 在 import 时计算）
 
 ---
 
@@ -124,15 +165,15 @@
 - [x] **提示词归一化全模块**（PromptEditorButton 覆盖 13 个 promptKey）
 - [x] **data-slot 体系**（11 页，150+ 属性）
 
-### 节点池模块化（共 6 批次，已完成 5 批次，批次6 方案已定稿）
+### 节点池模块化（共 6 批次，全部完成 ✅）
 | 批次 | 内容 | 状态 |
 |:---:|---|:---:|
 | 1 | 5.1 类型独立 + 5.2 纯函数层独立 + 5.7 导入/导出独立 | ✅ |
 | 2 | 5.3 调度策略抽出（runtime/policy/SchedulableNode） | ✅ |
 | 3 | 5.4 状态 slice 解耦（独立 store + interop） | ✅ |
 | 4 | 5.5a 后端独立路由（NodePoolRepository + SettingsJsonRepo + 10 端点）+ **修复**（per-item CRUD diff sync） | ✅ |
-| 5 | **5.6 UI 组件拆分**（3 子组件 + 2 hooks；NodesTabContent 0 props；settings/index 1523→450 行） | ✅ |
-| 6 | **5.5b 迁 SQLite（方案 A：独立 DB `nodepool.db`，不随资产目录切换）** | 📋 方案定稿 |
+| 5 | 5.6 UI 组件拆分（3 子组件 + 2 hooks；NodesTabContent 0 props；settings/index 1523→450 行） | ✅ |
+| 6 | 5.5b 迁 SQLite（方案 A：独立 DB `nodepool.db`，SqliteRepo + 迁移脚本 + 16 单测） | ✅ |
 
 ### 大富翁模块
 - [x] **M0–M11 全部审计通过**：类型统一 / 引擎迁移 / 数据修正 / UI 迁移 / 单测 **337/337 绿**
@@ -158,13 +199,12 @@
 
 ## 📋 立即任务（下次会话）
 
-1. **🔧 5.5b 实施**：按 `docs/node_pool_modularization_plan.md` §5.5b 详细方案执行——SqliteRepo + 迁移脚本 + index.ts 注入切换 + 单测；详见批次6核对清单
-2. **端到端实测节点池（含 5.5a+5.5b）**：新增供应商（多 API KEY / Round-Robin / Failover）→ 文本/图片节点 → 模块映射 → 批量测试 → 导入导出 → 迁移验证 → 重启持久化
-3. **🎮 端到端实测大富翁**：启动→双地图→购买/升级/租金→卡片/道具/神明/事件→破产→胜负
-4. **🎲 端到端实测骰子**：d10 双锥渲染、随机模式物理不跳转、投掷力向上抛起
-5. **📦 验证完整打包**：`npm run dist`（NSIS + 便携版，注意 Defender 锁 app-builder）
-6. **🔍 验证提示词归一化端到端**（各模块 PromptEditorButton 生效）
-7. **🎨 验证文生图三协议 + 节点测试各模块 + 全屏阅读**
+1. **端到端实测节点池（含 5.5a+5.5b）**：新增供应商（多 API KEY / Round-Robin / Failover）→ 文本/图片节点 → 模块映射 → 批量测试 → 导入导出 → 迁移验证（旧 settings.json 含 providers 启动后迁入 nodepool.db、settings.json 删三键置守卫）→ 重启持久化
+2. **🎮 端到端实测大富翁**：启动→双地图→购买/升级/租金→卡片/道具/神明/事件→破产→胜负
+3. **🎲 端到端实测骰子**：d10 双锥渲染、随机模式物理不跳转、投掷力向上抛起
+4. **📦 验证完整打包**：`npm run dist`（NSIS + 便携版，注意 Defender 锁 app-builder）
+5. **🔍 验证提示词归一化端到端**（各模块 PromptEditorButton 生效）
+6. **🎨 验证文生图三协议 + 节点测试各模块 + 全屏阅读**
 
 ---
 
@@ -184,13 +224,13 @@
 - **节点测试**：`pages/node-test/`（index 444 行 + 7 组件 + 3 hooks）
 - **设置页**：`pages/settings/`（index ~450 行 + `panels/` 4 Tab + NodesTabContent 92 行组合层）
 - **阅读器**：`pages/book-reader/ImmersiveReader.tsx`
-- **后端**：`server/src/` — `llmClient.ts` / `imageClient.ts`(ModelScope) / `gptImageClient.ts` / `xaiImageClient.ts` / `prompts.ts` / `contextAssembler.ts` / `store/{db,vector,nodePoolRepository}.ts`；路由 `routes/{image,gptImage,xaiImage,llm,creation.{shared,origin,generate,m2},settings,nodes}.ts`
+- **后端**：`server/src/` — `llmClient.ts` / `imageClient.ts`(ModelScope) / `gptImageClient.ts` / `xaiImageClient.ts` / `prompts.ts` / `contextAssembler.ts` / `store/{db,vector,nodePoolRepository}.ts`（**SqliteRepo + getNodePoolDb + migrateNodePoolToSqlite**）；路由 `routes/{image,gptImage,xaiImage,llm,creation.{shared,origin,generate,m2},settings,nodes}.ts`
 - **大富翁**：`game/monopoly/`（engine + data + AI）+ `pages/monopoly/`（UI）
 - **骰子**：`game/dice/`（核心 + 2D/3D demo）
 
 ### 数据兼容性
 - Provider/设置存 `server/src/data/settings.json`；业务数据持久化到后端 SQLite（`<assetDir>/novelhelper.db`）
-- **5.5b 实施后**：节点池数据迁至 `<appDataDir>/nodepool.db`（独立 SQLite，全局不随资产目录切换）；settings.json 仅保留设置项；迁移有守卫 flag + `.pre-migrate.bak` 备份
+- **5.5b 已实施**：节点池数据迁至 `<appDataDir>/nodepool.db`（独立 SQLite，全局不随资产目录切换）；settings.json 仅保留设置项（providers/providerNodes/moduleMapping 三键迁移后删除 + 置 `nodePoolMigrated` 守卫）；迁移有守卫 flag + `.pre-migrate.bak` 备份；SettingsJsonRepo 保留为代码级 fallback
 - image 节点无 `protocol` 字段自动默认 `modelscope`
 - 旧 `imageGallery`→`testHistory`；`imageDemoForm`→`nodeTestForm`（向后兼容）
 

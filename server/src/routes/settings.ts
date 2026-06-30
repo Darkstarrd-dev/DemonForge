@@ -54,7 +54,7 @@ export function readSettings(): Record<string, unknown> {
  * 现三步写入：备份 → 写临时文件 → rename。rename 在同文件系统内是原子操作，崩溃只会留下
  * 完整的旧文件（.bak 或原文件）或完整的新文件，不会出现截断的半成品。
  */
-function writeSettings(data: Record<string, unknown>): void {
+export function writeSettings(data: Record<string, unknown>): void {
   if (!existsSync(DATA_DIR)) mkdirSync(DATA_DIR, { recursive: true })
   // 备份当前 settings.json（若存在）——每次写入都刷新 .bak，保证它总是"上一次完整状态"
   if (existsSync(SETTINGS_PATH)) {

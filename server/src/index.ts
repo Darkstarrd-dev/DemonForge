@@ -11,7 +11,7 @@ import { gptImageRoutes } from './routes/gptImage'
 import { xaiImageRoutes } from './routes/xaiImage'
 import { importSessionRoutes } from './routes/importSession'
 import { nodesRoutes } from './routes/nodes'
-import { SettingsJsonRepo } from './store/nodePoolRepository'
+import { SqliteRepo, migrateNodePoolToSqlite } from './store/nodePoolRepository'
 import { getAppDataDir } from './utils/paths'
 import { getAssetDir, readAll } from './store/db'
 import { migrateImageB64Purge } from './store/migrateImageB64'
@@ -43,7 +43,7 @@ await app.register(cors, {
   credentials: true,
 })
 
-const nodePoolRepo = new SettingsJsonRepo()
+const nodePoolRepo = new SqliteRepo()
 
 await app.register(llmRoutes)
 await app.register(creationRoutes)
@@ -71,6 +71,12 @@ try {
   app.log.info(`[data-dir] settings/json at: ${getAppDataDir()}`)
   app.log.info(`[data-dir] asset db dir:   ${assetDir}`)
   app.log.info(`[data-dir] settings from .bak: ${wasLastReadRecovered() ? 'YES (主文件可能损坏)' : 'no'}`)
+  // 一次性迁移：节点池数据从 settings.json 迁到独立 SQLite（nodepool.db）。守卫确保仅执行一次。
+  try {
+    migrateNodePoolToSqlite()
+  } catch (err) {
+    app.log.warn(`[migrate] 节点池迁移异常：${String(err)}`)
+  }
   // 一次性迁移：清除 DB 内既有 b64 图片（图片已改落盘归档）。守卫确保仅执行一次。
   try {
     migrateImageB64Purge()

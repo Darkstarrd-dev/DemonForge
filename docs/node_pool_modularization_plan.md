@@ -3,7 +3,7 @@
 | 元信息 | 值 |
 |---|---|
 | 创建日期 | 2026-06-29 |
-| 状态 | 批次1-5已实施 + 5.5a 修复完成 + 5.5b 详细方案已定（2026-06-30：方案A 独立 DB） |
+| 状态 | 批次1-6全实施完成 + 5.5a 修复完成（2026-06-30：5.5b 方案A 独立 DB 落地，16 单测绿） |
 | 范围 | 把节点池/节点功能抽成独立、与其他业务解耦、可复用的模块 |
 | 关联文件 | `frontend/src/services/types.ts`、`frontend/src/store/slices/providerSlice.ts`、`frontend/src/pages/settings/panels/NodesTabContent.tsx`、`frontend/src/services/real/{cleanScheduler,batch}.ts`、`frontend/src/utils/providerResolver.ts`、`server/src/routes/settings.ts`、`server/src/store/db.ts` |
 | 评分基线 | 17/40 (42.5%) |
@@ -1119,17 +1119,18 @@ function redactProvider(p: Provider): Provider {
 - 【待实施】SettingsPage 调用 hooks,体积减半
 - 【待实施】回归:节点池 Tab 视觉与交互零变化(截图对比)
 
-### 批次 6:5.5b 迁 SQLite（方案 A：独立 DB）
+### 批次 6:5.5b 迁 SQLite（方案 A：独立 DB）✅ 已完成（2026-06-30）
 
 > **决策(2026-06-30)**：采用方案 A——独立 DB（`<appDataDir>/nodepool.db`），保持全局行为。不加入 db.ts ENTITIES（业务实体随资产目录切换，节点池是全局配置）。详见 §5.5b 详细实施方案。
+> **实施完成(2026-06-30)**：SqliteRepo + getNodePoolDb + migrateNodePoolToSqlite 落地；index.ts 注入切换 + 迁移调用；server 引入 vitest，新增 16 个单测全绿（CRUD + 级联 + 迁移 + 契约）；路由层零改动。
 
-- 【待实施】`nodePoolRepository.ts` 追加 `getNodePoolDb()`：缓存的 better-sqlite3 连接（WAL + busy_timeout），建 3 表（providers / provider_nodes / module_mapping，文档式 `id TEXT PK, data TEXT`）
-- 【待实施】`nodePoolRepository.ts` 追加 `SqliteRepo` 类：实现 `NodePoolRepository` 接口（list/get/save/delete + 级联删除 + module_mapping singleton 行）
-- 【待实施】`nodePoolRepository.ts` 追加 `migrateNodePoolToSqlite()`：settings.json 守卫 flag（`nodePoolMigrated`）+ 备份 `.pre-migrate.bak` + 事务 upsert 三表 + 删 settings.json 三键
-- 【待实施】`index.ts` 注入改 `new SqliteRepo()` + 调用 `migrateNodePoolToSqlite()`（在 routes 注册前）
-- 【待实施】新建 `nodePoolRepository.test.ts`：SqliteRepo CRUD（`:memory:`）+ 级联删除 + 迁移脚本测试
-- 【待实施】验证：迁移后 settings.json 无三键；节点池 Tab 数据正常（来源 SQLite）；增删改重启持久化
-- 【待实施】SettingsJsonRepo 保留为代码级 fallback（不删除，不引入环境变量切换）
+- [x] `nodePoolRepository.ts` 追加 `getNodePoolDb()`：缓存的 better-sqlite3 连接（WAL + busy_timeout），建 3 表（providers / provider_nodes / module_mapping，文档式 `id TEXT PK, data TEXT`）
+- [x] `nodePoolRepository.ts` 追加 `SqliteRepo` 类：实现 `NodePoolRepository` 接口（list/get/save/delete + 级联删除 + module_mapping singleton 行）；构造可注入 DB（测试用 `:memory:`）
+- [x] `nodePoolRepository.ts` 追加 `migrateNodePoolToSqlite()`：settings.json 守卫 flag（`nodePoolMigrated`）+ 备份 `.pre-migrate.bak` + 事务 upsert 三表 + 删 settings.json 三键
+- [x] `index.ts` 注入改 `new SqliteRepo()` + 调用 `migrateNodePoolToSqlite()`（listen 块内，routes 注册后、首个请求前；与 migrateImageB64Purge 同模式）
+- [x] 新建 `nodePoolRepository.test.ts`：SqliteRepo CRUD（`:memory:`）+ 级联删除 + 迁移脚本测试（临时目录 + env var + resetModules）+ 接口契约（SettingsJsonRepo vs SqliteRepo 行为一致）；**16/16 passed**
+- [x] SettingsJsonRepo 保留为代码级 fallback（不删除，不引入环境变量切换）
+- 【待实测】验证：迁移后 settings.json 无三键；节点池 Tab 数据正常（来源 SQLite）；增删改重启持久化
 
 ---
 
