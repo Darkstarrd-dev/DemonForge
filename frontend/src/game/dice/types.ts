@@ -74,6 +74,7 @@ export interface DiceAnimParams {
 // ════════════════════════════════════════════
 
 export type Dice2DMode = 'sprite' | 'matter'
+export type Dice2DLayout = 'horizontal' | 'grid' | 'scatter'
 
 export type DiceSpriteSource = 'yahtzee' | 'custom'
 

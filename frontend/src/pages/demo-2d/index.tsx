@@ -6,7 +6,7 @@ import CharacterDemo from './CharacterDemo'
 import DiceSpriteScene from './DiceSpriteScene'
 import DiceMatterScene from './DiceMatterScene'
 import Dice2DPanel from './Dice2DPanel'
-import type { DiceSideValue } from '../../game/dice'
+import type { Dice2DLayout, DiceSideValue } from '../../game/dice'
 
 type DemoType = 'rigid' | 'character' | 'dice-sprite' | 'dice-matter'
 
@@ -184,6 +184,22 @@ export default function Demo2DPage() {
   const [diceRolling, setDiceRolling] = useState(false)
   const [diceCount, setDiceCount] = useState(2)
   const [diceSides, setDiceSides] = useState<DiceSideValue>(6)
+  const [diceSize, setDiceSize] = useState(2)
+  const diceSizeRef = useRef(2)
+  const [diceSpacing, setDiceSpacing] = useState(100)
+  const diceSpacingRef = useRef(100)
+  const [diceLayout, setDiceLayout] = useState<Dice2DLayout>('horizontal')
+  const diceLayoutRef = useRef<Dice2DLayout>('horizontal')
+  const [diceThrowStrength, setDiceThrowStrength] = useState(10)
+  const diceThrowStrengthRef = useRef(10)
+  const [diceSpinStrength, setDiceSpinStrength] = useState(10)
+  const diceSpinStrengthRef = useRef(10)
+  const [diceSimSpeed, setDiceSimSpeed] = useState(1.0)
+  const diceSimSpeedRef = useRef(1.0)
+
+  const emitConfigUpdate = () => {
+    gameRef.current?.events.emit('dice-config-update')
+  }
 
   const createGame = (parent: HTMLElement) => {
     const width = parent.clientWidth
@@ -272,6 +288,12 @@ export default function Demo2DPage() {
 
     game.registry.set('diceCount', diceCount)
     game.registry.set('diceSides', diceSides)
+    game.registry.set('diceSize', diceSizeRef.current)
+    game.registry.set('diceSpacing', diceSpacingRef.current)
+    game.registry.set('diceLayout', diceLayoutRef.current)
+    game.registry.set('diceThrowStrength', diceThrowStrengthRef.current)
+    game.registry.set('diceSpinStrength', diceSpinStrengthRef.current)
+    game.registry.set('diceSimSpeed', diceSimSpeedRef.current)
 
     const onComplete = (result: { values: number[]; total: number }) => {
       setDiceResult(result)
@@ -386,6 +408,7 @@ export default function Demo2DPage() {
               onCountChange={(v) => {
                 setDiceCount(v)
                 gameRef.current?.registry.set('diceCount', v)
+                emitConfigUpdate()
               }}
               onSidesChange={(v) => {
                 setDiceSides(v)
@@ -394,6 +417,42 @@ export default function Demo2DPage() {
               onRoll={handleDiceRoll}
               rolling={diceRolling}
               lastResult={diceResult ?? undefined}
+              size={diceSize}
+              spacing={diceSpacing}
+              layout={diceLayout}
+              onSizeChange={(v) => {
+                setDiceSize(v); diceSizeRef.current = v
+                gameRef.current?.registry.set('diceSize', v)
+                emitConfigUpdate()
+              }}
+              onSpacingChange={(v) => {
+                setDiceSpacing(v); diceSpacingRef.current = v
+                gameRef.current?.registry.set('diceSpacing', v)
+                emitConfigUpdate()
+              }}
+              onLayoutChange={(v) => {
+                setDiceLayout(v); diceLayoutRef.current = v
+                gameRef.current?.registry.set('diceLayout', v)
+                emitConfigUpdate()
+              }}
+              throwStrength={diceThrowStrength}
+              spinStrength={diceSpinStrength}
+              onThrowStrengthChange={(v) => {
+                setDiceThrowStrength(v); diceThrowStrengthRef.current = v
+                gameRef.current?.registry.set('diceThrowStrength', v)
+                emitConfigUpdate()
+              }}
+              onSpinStrengthChange={(v) => {
+                setDiceSpinStrength(v); diceSpinStrengthRef.current = v
+                gameRef.current?.registry.set('diceSpinStrength', v)
+                emitConfigUpdate()
+              }}
+              simSpeed={diceSimSpeed}
+              onSimSpeedChange={(v) => {
+                setDiceSimSpeed(v); diceSimSpeedRef.current = v
+                gameRef.current?.registry.set('diceSimSpeed', v)
+                emitConfigUpdate()
+              }}
             />
           )}
         </Space>

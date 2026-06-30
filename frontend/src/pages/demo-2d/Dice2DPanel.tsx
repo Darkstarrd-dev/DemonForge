@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Button, Space, Slider, Input, Select, Typography } from 'antd'
-import type { Dice2DMode, DiceSideValue } from '../../game/dice'
+import type { Dice2DMode, Dice2DLayout, DiceSideValue } from '../../game/dice'
 
 const { Text } = Typography
 
@@ -12,6 +12,12 @@ const SIDES_OPTIONS_2D: { value: DiceSideValue; label: string; disabled?: boolea
   { value: 20, label: 'd20（暂不支持 2D）', disabled: true },
 ]
 
+const LAYOUT_OPTIONS: { value: Dice2DLayout; label: string }[] = [
+  { value: 'horizontal', label: '横排' },
+  { value: 'grid', label: '网格' },
+  { value: 'scatter', label: '散布' },
+]
+
 interface Props {
   mode: Dice2DMode
   count: number
@@ -21,9 +27,26 @@ interface Props {
   onRoll: (presetValues?: number[]) => void
   rolling: boolean
   lastResult?: { values: number[]; total: number }
+  size: number
+  spacing: number
+  layout: Dice2DLayout
+  onSizeChange: (v: number) => void
+  onSpacingChange: (v: number) => void
+  onLayoutChange: (v: Dice2DLayout) => void
+  throwStrength: number
+  spinStrength: number
+  onThrowStrengthChange: (v: number) => void
+  onSpinStrengthChange: (v: number) => void
+  simSpeed: number
+  onSimSpeedChange: (v: number) => void
 }
 
-export default function Dice2DPanel({ mode, count, sides, onCountChange, onSidesChange, onRoll, rolling, lastResult }: Props) {
+export default function Dice2DPanel({
+  mode, count, sides, onCountChange, onSidesChange, onRoll, rolling, lastResult,
+  size, spacing, layout, onSizeChange, onSpacingChange, onLayoutChange,
+  throwStrength, spinStrength, onThrowStrengthChange, onSpinStrengthChange,
+  simSpeed, onSimSpeedChange,
+}: Props) {
   const [presetInput, setPresetInput] = useState('')
 
   const handleRoll = () => {
@@ -46,7 +69,7 @@ export default function Dice2DPanel({ mode, count, sides, onCountChange, onSides
         </Text>
         <div>
           <Text style={{ fontSize: 11, color: '#666' }}>骰子数量</Text>
-          <Slider min={1} max={6} value={count} onChange={onCountChange} style={{ margin: '4px 0' }} />
+          <Slider min={1} max={6} value={count} onChange={onCountChange} disabled={rolling} style={{ margin: '4px 0' }} />
         </div>
         <div>
           <Text style={{ fontSize: 11, color: '#666' }}>面数</Text>
@@ -58,6 +81,47 @@ export default function Dice2DPanel({ mode, count, sides, onCountChange, onSides
             size="small"
           />
         </div>
+
+        {mode === 'sprite' && (
+          <>
+            <div>
+              <Text style={{ fontSize: 11, color: '#666' }}>大小 {size.toFixed(1)}</Text>
+              <Slider min={0.5} max={4} step={0.1} value={size} onChange={onSizeChange} style={{ margin: '4px 0' }} />
+            </div>
+            <div>
+              <Text style={{ fontSize: 11, color: '#666' }}>间隔 {spacing}px</Text>
+              <Slider min={40} max={200} step={5} value={spacing} onChange={onSpacingChange} style={{ margin: '4px 0' }} />
+            </div>
+            <div>
+              <Text style={{ fontSize: 11, color: '#666' }}>排列</Text>
+              <Select
+                value={layout}
+                onChange={(v) => onLayoutChange(v as Dice2DLayout)}
+                style={{ width: '100%' }}
+                options={LAYOUT_OPTIONS}
+                size="small"
+              />
+            </div>
+          </>
+        )}
+
+        {mode === 'matter' && (
+          <>
+            <div>
+              <Text style={{ fontSize: 11, color: '#666' }}>投掷强度 {throwStrength.toFixed(1)}</Text>
+              <Slider min={0} max={40} step={0.5} value={throwStrength} onChange={onThrowStrengthChange} style={{ margin: '4px 0' }} />
+            </div>
+            <div>
+              <Text style={{ fontSize: 11, color: '#666' }}>旋转强度 {spinStrength.toFixed(1)}</Text>
+              <Slider min={0} max={40} step={0.5} value={spinStrength} onChange={onSpinStrengthChange} style={{ margin: '4px 0' }} />
+            </div>
+            <div>
+              <Text style={{ fontSize: 11, color: '#666' }}>模拟速度 {simSpeed.toFixed(1)}x</Text>
+              <Slider min={0.1} max={3.0} step={0.1} value={simSpeed} onChange={onSimSpeedChange} style={{ margin: '4px 0' }} />
+            </div>
+          </>
+        )}
+
         <div>
           <Text style={{ fontSize: 11, color: '#666' }}>预设结果（逗号分隔，留空=随机）</Text>
           <Input
