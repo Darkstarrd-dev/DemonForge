@@ -82,12 +82,36 @@ export async function bootstrapStore(): Promise<void> {
       storeInitialized = d.storeInitialized === true
       const patch: Partial<AppState> = {}
 
-      // 供应商/节点两层模型迁移：下沉到节点池包独立处理。
+      // 5.5a：节点池数据从专用路由拉取，不再从 settings.json 直读。
+      // 同时仍从 settings.json 回载以兼容旧版（settings.json 可能仍含 providers/providerNodes 键，
+      // 但后端 POST 已拒收此三键，仅 GET 仍返回——作为旧数据迁移兜底）。
       const nodePoolPatch = hydrateNodePoolState(d, {
         defaultMapping: seedModuleMapping,
       })
       if (Object.keys(nodePoolPatch).length) {
         nodePoolStore.setState(nodePoolPatch)
+      }
+      // 优先从专用路由拉取节点池数据（5.5a 新路径），覆盖 settings.json 回载结果。
+      try {
+        const [providersRes, nodesRes, mappingRes] = await Promise.all([
+          fetch('/api/providers'),
+          fetch('/api/nodes'),
+          fetch('/api/module-mapping'),
+        ])
+        if (providersRes.ok && nodesRes.ok) {
+          const providers = (await providersRes.json()) as unknown[]
+          const providerNodes = (await nodesRes.json()) as unknown[]
+          const moduleMapping = mappingRes.ok ? (await mappingRes.json()) as Record<ModuleKey, ModuleModelMapping> : undefined
+          const nodePoolPatch2 = hydrateNodePoolState(
+            { providers, providerNodes, moduleMapping },
+            { defaultMapping: seedModuleMapping },
+          )
+          if (Object.keys(nodePoolPatch2).length) {
+            nodePoolStore.setState(nodePoolPatch2)
+          }
+        }
+      } catch {
+        // 专用路由不可用（旧后端版本），已从 settings.json 回载兜底
       }
       if (typeof d.m1SystemPrompt === 'string') patch.m1SystemPrompt = d.m1SystemPrompt
       if (typeof d.assetDir === 'string') patch.assetDir = d.assetDir

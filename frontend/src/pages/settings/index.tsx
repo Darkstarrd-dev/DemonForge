@@ -25,9 +25,11 @@ import {
 import {
   genId,
   pushSettingsNow,
+  pushNodePoolNow,
   pushStoreNowChecked,
   reloadStoreFromBackend,
   settingsPayload,
+  nodePoolPayload,
   useAppStore,
 } from '../../store/appStore'
 import { testProvider } from '../../services/api'
@@ -624,7 +626,10 @@ export default function SettingsPage() {
         business = (await res.json()) as Record<string, unknown>
       }
       const st = useAppStore.getState()
-      const bundle = buildBundle(kind, settingsPayload(st), business, exportRedact)
+      // 5.5a：settingsPayload 不再含节点池数据，备份时需手动合并 nodePoolPayload
+      const np = nodePoolPayload()
+      const fullSettings = { ...settingsPayload(st), providers: np.providers, providerNodes: np.providerNodes, moduleMapping: np.moduleMapping }
+      const bundle = buildBundle(kind, fullSettings, business, exportRedact)
       downloadBundle(bundle, backupFilename(kind, exportRedact))
       message.success(`已导出${kind === 'full' ? '完整备份' : '设置'}（${exportRedact ? '已脱敏 API Key' : '含 API Key'}）`)
     } catch (e) {
@@ -727,7 +732,7 @@ export default function SettingsPage() {
         }
 
         nodePoolStore.setState(nodePoolPatch)
-        pushSettingsNow()
+        pushNodePoolNow()
         message.success(`节点池导入成功${result.warnings.length > 0 ? `（${result.warnings.length} 条警告）` : ''}`)
         if (result.warnings.length > 0) {
           Modal.warning({ title: '导入节点池警告', content: result.warnings.join('\n') })
@@ -871,6 +876,7 @@ export default function SettingsPage() {
       }
       useAppStore.setState(patch)
       pushSettingsNow()
+      pushNodePoolNow()
 
       if (replaceBusiness && bundle.business) {
         const b = bundle.business

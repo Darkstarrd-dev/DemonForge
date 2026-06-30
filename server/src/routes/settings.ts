@@ -87,18 +87,23 @@ export async function settingsRoutes(app: FastifyInstance) {
     if (!body || typeof body !== 'object') {
       return reply.status(400).send({ error: 'Invalid body' })
     }
+    // 5.5a：providers/providerNodes/moduleMapping 已由 /api/providers、/api/nodes、
+    // /api/module-mapping 独立管理，POST /api/settings 不再接受此三键。
+    // 过渡期：静默剔除（不报错），向后兼容旧前端一次性整体写入。
+    const { providers: _p, providerNodes: _pn, moduleMapping: _mm, ...rest } = body
+    const cleanBody = rest
     // 资产目录变更时尝试创建，路径无效则报错让设置页提示
-    if (typeof body.assetDir === 'string' && body.assetDir.trim()) {
+    if (typeof cleanBody.assetDir === 'string' && cleanBody.assetDir.trim()) {
       try {
-        mkdirSync(body.assetDir.trim(), { recursive: true })
+        mkdirSync(cleanBody.assetDir.trim(), { recursive: true })
       } catch (err) {
         return reply.status(400).send({ error: `资产目录无法创建：${String(err)}` })
       }
     }
     const existing = readSettings()
-    writeSettings({ ...existing, ...body })
+    writeSettings({ ...existing, ...cleanBody })
     // 资产目录变更 → 让 db 层重算 assetDir 缓存（下次 getDb 关旧库开新库）
-    if (typeof body.assetDir === 'string' && body.assetDir !== (typeof existing.assetDir === 'string' ? existing.assetDir : '')) {
+    if (typeof cleanBody.assetDir === 'string' && cleanBody.assetDir !== (typeof existing.assetDir === 'string' ? existing.assetDir : '')) {
       invalidateAssetDir()
     }
     return reply.send({ ok: true })

@@ -10,6 +10,8 @@ import { imageRoutes } from './routes/image'
 import { gptImageRoutes } from './routes/gptImage'
 import { xaiImageRoutes } from './routes/xaiImage'
 import { importSessionRoutes } from './routes/importSession'
+import { nodesRoutes } from './routes/nodes'
+import { SettingsJsonRepo } from './store/nodePoolRepository'
 import { getAppDataDir } from './utils/paths'
 import { getAssetDir, readAll } from './store/db'
 import { migrateImageB64Purge } from './store/migrateImageB64'
@@ -41,6 +43,8 @@ await app.register(cors, {
   credentials: true,
 })
 
+const nodePoolRepo = new SettingsJsonRepo()
+
 await app.register(llmRoutes)
 await app.register(creationRoutes)
 await app.register(settingsRoutes)
@@ -49,6 +53,7 @@ await app.register(imageRoutes)
 await app.register(gptImageRoutes)
 await app.register(xaiImageRoutes)
 await app.register(importSessionRoutes)
+await app.register((subApp) => nodesRoutes(subApp, nodePoolRepo))
 app.get('/api/health', async () => ({ ok: true }))
 
 app.post('/api/shutdown', async (_req, reply) => {

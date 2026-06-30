@@ -1,8 +1,8 @@
 # HANDOFF.md — novelhelper 交接备忘
 
 **最后更新**：2026-06-30
-**当前位置**：办公场所 A（已推送）
-**本轮主题**：**节点池模块化批次3实施完成：5.4 状态 slice 解耦（NodePoolState 独立 store + interop 薄封装）（已推送）**
+**当前位置**：办公场所 A
+**本轮主题**：**节点池模块化批次4实施完成：5.5a 后端独立路由（NodePoolRepository 接口 + SettingsJsonRepo + /api/providers + /api/nodes + /api/module-mapping）**
 
 > 📦 **历史明细已归档** → `docs/handoff_history.md`
 > 本文件只保留「恢复工作所需的活内容」：进行中任务、模块清单、下一步、交接参考。
@@ -10,41 +10,51 @@
 
 ---
 
-## 🆕 节点池模块化方案 · 批次3实施完成（2026-06-30，已推送）
+## 🆕 节点池模块化方案 · 批次4实施完成（2026-06-30）
 
-按 `docs/node_pool_modularization_plan.md` §11 批次3实施 5.4 状态 slice 解耦。
+按 `docs/node_pool_modularization_plan.md` §11 批次4实施 5.5a 后端独立路由。
 
 ### 改动
 
-- **新增 `frontend/src/packages/node-pool/store.ts`**：
-  - `NodePoolState` 接口（扩展 `NodePoolStateCore`）+ `createNodePoolStore()` 工厂
-  - 完整 CRUD action + `consumeProviderUsage`（含跨日重置逻辑）
-  - 默认单例 `nodePoolStore`，不依赖 novelhelper 业务代码
-- **新增 `frontend/src/packages/node-pool/persistence.ts`**：
-  - `toNodePoolSettingsPayload(state)`：构造 settings.json 载荷（透传引用，配合脏检查）
-  - `hydrateNodePoolState(raw, opts)`：启动时解析 settings.json，含旧扁平 ProviderNode → 新两层模型迁移
-- **`store/slices/providerSlice.ts` 改为 interop 薄封装**：
-  - 空 store 时注入种子数据（`seedProviders`/`seedProviderNodes`/`seedModuleMapping`）
-  - 订阅 `nodePoolStore` 并同步回 `AppState`（驱动持久化 + 现有 selector）
-  - 所有 action 委托给 `nodePoolStore`
-- **`store/persistence.ts`**：`settingsPayload` 节点池部分改调 `toNodePoolSettingsPayload(nodePoolStore.getState())`
-- **`store/bootstrap.ts`**：删除本地 `OldProviderNode` 接口与迁移逻辑；启动 hydrate 改调 `hydrateNodePoolState` → `nodePoolStore.setState`
-- **`pages/settings/index.tsx`**：增量导入/reorder 改走 `nodePoolStore.setState`，防止状态漂移
-- **新增单测 `frontend/src/packages/node-pool/store.test.ts`**：15 个用例覆盖初始态、CRUD、级联清理、`consumeProviderUsage`（含跨日重置）
+- **新增 `server/src/store/nodePoolRepository.ts`**：
+  - `NodePoolRepository` 接口（9 方法：listProviders/getProvider/saveProvider/deleteProvider/listNodes/getNode/saveNode/deleteNode + getModuleMapping/saveModuleMapping）
+  - `SettingsJsonRepo` 实现：读写 `settings.json` 的 providers/providerNodes/moduleMapping 三键；级联删除（deleteProvider 同时删其下节点）
+  - 后端侧类型定义（Provider/ProviderNode/ProviderApiKey/ModuleKey/ModuleModelMapping 等，与前端 `packages/node-pool/types.ts` 对齐）
+  - 前瞻约束：路由层只依赖接口，5.5b 时只换 SqliteRepo 注入实例、路由层零改动
+- **新增 `server/src/routes/nodes.ts`**：
+  - 8 个 CRUD 端点：GET/POST/PUT/DELETE `/api/providers` + `/api/nodes`
+  - 2 个映射端点：GET/POST `/api/module-mapping`
+  - 路由层只依赖 `NodePoolRepository` 接口，`repo` 由 `index.ts` 注入
+- **修改 `server/src/index.ts`**：新增 `nodePoolRepo = new SettingsJsonRepo()` + `app.register(nodesRoutes)`
+- **修改 `server/src/routes/settings.ts`**：POST `/api/settings` 剔除 providers/providerNodes/moduleMapping 三键（静默剔除，不报错，向后兼容旧前端整体写入）
+- **修改 `frontend/src/store/bootstrap.ts`**：启动时先从 `/api/settings` 回载节点池兜底，再从 `/api/providers` + `/api/nodes` + `/api/module-mapping` 优先拉取覆盖
+- **修改 `frontend/src/store/persistence.ts`**：
+  - `settingsPayload` 不再含 providers/providerNodes/moduleMapping（21 键，原 24 键）
+  - 新增 `pushNodePoolNow()`：三端点整体 POST
+  - 新增 `nodePoolPayload()`：构造节点池载荷供备份/flush 使用
+  - `flushStoreWrites` 新增三端点 keepalive 推送
+  - `registerPersisters` 新增 `nodePoolStore.subscribe` 独立订阅 + 1s debounce 推送
+  - 删除 `toNodePoolSettingsPayload` 导入（不再需要）
+- **修改 `frontend/src/pages/settings/index.tsx`**：
+  - 导入新增 `pushNodePoolNow` / `nodePoolPayload`
+  - 节点池导入改调 `pushNodePoolNow()`
+  - 设置整体导入改调 `pushSettingsNow()` + `pushNodePoolNow()`
+  - 备份导出 `settingsPayload(st)` 改为 `{ ...settingsPayload(st), ...nodePoolPayload() }`
+- **修改 `frontend/src/store/appStore.ts`**：re-export 新增 `pushNodePoolNow` / `nodePoolPayload`
+- **修改 `frontend/src/store/persistence.test.ts`**：settingsPayload 键数 24→21（剔除节点池三键）
 
 ### 验证
 
 | 命令 | 结果 |
 |---|---|
-| `npx tsc -b`（frontend） | 4 个预存错误，本轮无新增 |
+| `npx tsc -b`（frontend） | 9 个预存错误，本轮无新增 |
 | `bun run lint`（frontend） | 2 个预存错误，本轮无新增 |
-| `bun run test:core`（frontend） | **91/91 passed**（新增 15 个 store 用例） |
 | `npm test`（frontend 全量） | **466/466 passed** |
 | `npx tsc --noEmit`（server） | 通过 |
 | `npx tsc --noEmit`（electron） | 通过 |
 
 ### 下一步
-- 批次4：5.5a 后端独立路由（`NodePoolRepository` 接口 + `SettingsJsonRepo` + `/api/providers`/`/api/nodes`）
+- 批次5：5.6 UI 组件拆分（NodePoolManager + NodeTestPanel + ModuleMappingPanel + 2 hooks）
 
 ---
 
@@ -74,14 +84,14 @@
 - [x] **提示词归一化全模块**（PromptEditorButton 覆盖 13 个 promptKey）
 - [x] **data-slot 体系**（11 页，150+ 属性）
 
-### 节点池模块化（共 6 批次，已完成 3 批次）
+### 节点池模块化（共 6 批次，已完成 4 批次）
 | 批次 | 内容 | 状态 |
 |:---:|---|:---:|
 | 1 | 5.1 类型独立 + 5.2 纯函数层独立 + 5.7 导入/导出独立 | ✅ |
 | 2 | 5.3 调度策略抽出（runtime/policy/SchedulableNode） | ✅ |
 | 3 | 5.4 状态 slice 解耦（独立 store + interop） | ✅ |
-| 4 | **5.5a 后端独立路由（待实施）** | 🚧 |
-| 5 | 5.6 UI 组件拆分 | ⏳ |
+| 4 | **5.5a 后端独立路由**（NodePoolRepository + SettingsJsonRepo + 10 端点） | ✅ |
+| 5 | **5.6 UI 组件拆分**（待实施） | 🚧 |
 | 6 | 5.5b 迁 SQLite（可选） | ⏳ |
 
 ### 大富翁模块
@@ -98,7 +108,8 @@
 - [x] Vitest 4 测试项目拆分（core/monopoly/dice 三 project，**466/466 绿**）
 
 ### 🚧 待完善
-- [ ] **批次4：5.5a 后端独立路由**（当前首要任务）
+- [ ] **批次5：5.6 UI 组件拆分**（当前首要任务）
+- [ ] 端到端实测节点池：新增供应商 → 文本/图片节点 → 模块映射 → 批量测试 → 导入导出
 - [ ] 端到端实测大富翁（新游戏→地图→掷骰→购买→…→胜负）
 - [ ] 端到端实测骰子模块（d10 双锥渲染与贴图正确）
 - [ ] M12 2D/3D 资产驱动（Tiled Tilemap + glTF 模型替换 blockout）
@@ -108,7 +119,7 @@
 
 ## 📋 立即任务（下次会话）
 
-1. **批次4：5.5a 后端独立路由**（`NodePoolRepository` 接口 + `SettingsJsonRepo` + `/api/providers`/`/api/nodes`）
+1. **批次5：5.6 UI 组件拆分**（NodePoolManager + NodeTestPanel + ModuleMappingPanel + useNodePoolCrud + useNodeTesting）
 2. **端到端实测节点池**：新增供应商（多 API KEY / Round-Robin / Failover）→ 文本/图片节点 → 模块映射 → 批量测试 → 导入导出 → 旧 settings.json 迁移
 3. **🎮 端到端实测大富翁**：启动→双地图→购买/升级/租金→卡片/道具/神明/事件→破产→胜负
 4. **🎲 端到端实测骰子**：d10 双锥渲染、随机模式物理不跳转、投掷力向上抛起
@@ -133,7 +144,7 @@
 - **节点测试**：`pages/node-test/`（index 444 行 + 7 组件 + 3 hooks）
 - **设置页**：`pages/settings/`（index + `panels/` 4 Tab）
 - **阅读器**：`pages/book-reader/ImmersiveReader.tsx`
-- **后端**：`server/src/` — `llmClient.ts` / `imageClient.ts`(ModelScope) / `gptImageClient.ts` / `xaiImageClient.ts` / `prompts.ts` / `contextAssembler.ts` / `store/{db,vector}.ts`；路由 `routes/{image,gptImage,xaiImage,llm,creation.{shared,origin,generate,m2}}.ts`
+- **后端**：`server/src/` — `llmClient.ts` / `imageClient.ts`(ModelScope) / `gptImageClient.ts` / `xaiImageClient.ts` / `prompts.ts` / `contextAssembler.ts` / `store/{db,vector,nodePoolRepository}.ts`；路由 `routes/{image,gptImage,xaiImage,llm,creation.{shared,origin,generate,m2},settings,nodes}.ts`
 - **大富翁**：`game/monopoly/`（engine + data + AI）+ `pages/monopoly/`（UI）
 - **骰子**：`game/dice/`（核心 + 2D/3D demo）
 

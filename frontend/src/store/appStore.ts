@@ -46,9 +46,11 @@ export {
   pushStoreNowChecked,
   pushDeleteNow,
   pushSettingsNow,
+  pushNodePoolNow,
   pushImportSessionNow,
   flushStoreWrites,
   businessPayload,
   settingsPayload,
+  nodePoolPayload,
 } from './persistence'
 export { bootstrapStore, reloadStoreFromBackend } from './bootstrap'

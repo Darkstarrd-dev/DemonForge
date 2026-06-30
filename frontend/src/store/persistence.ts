@@ -1,5 +1,6 @@
 // ===== 后端持久化引擎（从 appStore.ts 抽出，A-7 阶段1）=====
 // 业务数据 → /api/store（SQLite 资产库）；设置类 → /api/settings（server 本地 JSON）。
+// 5.5a：节点池 → /api/providers + /api/nodes + /api/module-mapping（独立路由，不再混存 settings）。
 // 逐字搬迁、行为不变；appStore 仍 re-export 这些导出，保调用方零改动。
 //
 // 循环依赖说明：本模块 `import { useAppStore } from './appStore'`，但仅在函数体内（运行时）使用，
@@ -8,7 +9,6 @@
 
 import { useAppStore } from './appStore'
 import type { AppState } from './types'
-import { toNodePoolSettingsPayload } from '../packages/node-pool/persistence'
 import { nodePoolStore } from '../packages/node-pool/store'
 
 // storeReady 门控：bootstrapStore 引导完成前，订阅与 pushXxxNow 都不写后端。
@@ -155,9 +155,9 @@ export async function pushStoreNowChecked(): Promise<void> {
 }
 
 // 设置回写：settingsPayload 任一键引用变化时 debounce POST（registerPersisters 从该键集自动比较）
+// 5.5a：providers/providerNodes/moduleMapping 不再混入 settings 载荷，改由 /api/providers + /api/nodes + /api/module-mapping 独立推送。
 /** 设置载荷构造（单一真相：脏检查键集与 backup.ts 备份均从此派生，加字段只改这里）。 */
 export const settingsPayload = (s: AppState) => ({
-  ...toNodePoolSettingsPayload(nodePoolStore.getState()),
   m1SystemPrompt: s.m1SystemPrompt,
   assetDir: s.assetDir,
   currentBookId: s.currentBookId,
@@ -182,6 +182,43 @@ export const settingsPayload = (s: AppState) => ({
 })
 
 let settingsTimer: ReturnType<typeof setTimeout> | null = null
+
+// 5.5a：节点池独立推送通道。providers/providerNodes/moduleMapping 不再混入 settings POST，
+// 改通过 /api/providers + /api/nodes + /api/module-mapping 独立推送。
+let nodePoolTimer: ReturnType<typeof setTimeout> | null = null
+
+/** 立即推送当前节点池数据到后端（绕过 1s 防抖）。用于备份导入/节点增删改等关键操作。 */
+export function pushNodePoolNow(): void {
+  if (!storeReady) return
+  if (nodePoolTimer) {
+    clearTimeout(nodePoolTimer)
+    nodePoolTimer = null
+  }
+  const { providers, providerNodes, moduleMapping } = nodePoolStore.getState()
+  Promise.all([
+    fetch('/api/providers', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(providers),
+    }).catch(() => {}),
+    fetch('/api/nodes', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(providerNodes),
+    }).catch(() => {}),
+    fetch('/api/module-mapping', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(moduleMapping),
+    }).catch(() => {}),
+  ]).catch(() => {})
+}
+
+/** 构造节点池整体载荷（供 backup.ts 备份与 flushStoreWrites 使用，单次 settings 兼容写入）。 */
+export const nodePoolPayload = () => {
+  const { providers, providerNodes, moduleMapping } = nodePoolStore.getState()
+  return { providers, providerNodes, moduleMapping }
+}
 
 // 立即把当前设置推送到后端（绕过 1s 防抖）。用于 splitPatterns 编辑/恢复/备份导入等关键操作。
 // 导出供 backup.ts 复用。
@@ -237,7 +274,12 @@ export async function flushStoreWrites(): Promise<void> {
     clearTimeout(importSessionTimer)
     importSessionTimer = null
   }
+  if (nodePoolTimer) {
+    clearTimeout(nodePoolTimer)
+    nodePoolTimer = null
+  }
   const st = useAppStore.getState()
+  const np = nodePoolPayload()
   await Promise.all([
     fetch('/api/store', {
       method: 'POST',
@@ -249,6 +291,25 @@ export async function flushStoreWrites(): Promise<void> {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(settingsPayload(st)),
+      keepalive: true,
+    }).catch(() => {}),
+    // 5.5a：节点池独立推送（三键整体 POST，替代旧 settings 混存）
+    fetch('/api/providers', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(np.providers),
+      keepalive: true,
+    }).catch(() => {}),
+    fetch('/api/nodes', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(np.providerNodes),
+      keepalive: true,
+    }).catch(() => {}),
+    fetch('/api/module-mapping', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(np.moduleMapping),
       keepalive: true,
     }).catch(() => {}),
     (async () => {
@@ -323,6 +384,19 @@ export function registerPersisters(): void {
         body: JSON.stringify(useAppStore.getState().importSession),
       }).catch(() => {})
     }, useAppStore.getState().cleanRun?.running ? 8000 : 1500)
+  })
+
+  // 5.5a：节点池独立推送——nodePoolStore 变化时 debounce 整体 POST 三端点。
+  // nodePoolStore 已从 AppState 独立化（批次 3），订阅它而非 AppState 上的 providers/providerNodes。
+  nodePoolStore.subscribe((_s, prev) => {
+    if (!storeReady) return
+    // 三键引用全不变则跳过（配合整数组替换模式：每次 setState 都出新引用）
+    const s = nodePoolStore.getState()
+    if (s.providers === prev.providers && s.providerNodes === prev.providerNodes && s.moduleMapping === prev.moduleMapping) return
+    if (nodePoolTimer) clearTimeout(nodePoolTimer)
+    nodePoolTimer = setTimeout(() => {
+      pushNodePoolNow()
+    }, 1000)
   })
 
   if (typeof window !== 'undefined') {
