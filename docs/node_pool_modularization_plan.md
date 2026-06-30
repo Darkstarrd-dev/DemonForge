@@ -3,7 +3,7 @@
 | 元信息 | 值 |
 |---|---|
 | 创建日期 | 2026-06-29 |
-| 状态 | 批次1已实施（5.1类型+5.2纯函数+5.7序列化+UI按钮） |
+| 状态 | 批次1-5已实施，批次5.5a 修复完成（2026-06-30：diff-based per-item sync） |
 | 范围 | 把节点池/节点功能抽成独立、与其他业务解耦、可复用的模块 |
 | 关联文件 | `frontend/src/services/types.ts`、`frontend/src/store/slices/providerSlice.ts`、`frontend/src/pages/settings/panels/NodesTabContent.tsx`、`frontend/src/services/real/{cleanScheduler,batch}.ts`、`frontend/src/utils/providerResolver.ts`、`server/src/routes/settings.ts`、`server/src/store/db.ts` |
 | 评分基线 | 17/40 (42.5%) |
@@ -960,14 +960,15 @@ function redactProvider(p: Provider): Provider {
 - 【已核实】`server/src/routes/settings.ts:79-115` 仅 /api/settings + /api/settings/resolved-paths,无 /api/nodes 或 /api/providers
 - 【已核实】`server/src/store/db.ts:24-41` ENTITIES 数组无 providers/providerNodes 表
 - 【已核实】`server/src/llmClient.ts` ProviderConfig {baseURL, apiKey, model} 最小接口,不感知节点池
-- 【待实施】新建 `server/src/store/nodePoolRepository.ts`:定义 **NodePoolRepository 接口** + **SettingsJsonRepo 实现**(读写 settings.json 两键)
-- 【待实施】新建 `server/src/routes/nodes.ts`:8 个 CRUD 端点,路由层**只依赖接口**、接收 repo 注入
-- 【待实施】`server/src/index.ts` 注入 `new SettingsJsonRepo()` 给 nodesRoutes
-- 【待实施】`frontend/src/services/api.ts` 新增 providers/nodes CRUD 方法
-- 【待实施】前端 store 启动时从 /api/providers 拉取(替代 settings.json 直读)
-- 【待实施】`settings.ts` POST /api/settings 拒收/忽略 providers/providerNodes 键(改由 nodes 路由)
-- 【待实施】验证:整体 POST /api/settings 不再含 providers/providerNodes;节点池 Tab 数据正常;并发写不丢数据
+- 【已实施】新建 `server/src/store/nodePoolRepository.ts`:定义 **NodePoolRepository 接口** + **SettingsJsonRepo 实现**(读写 settings.json 两键)
+- 【已实施】新建 `server/src/routes/nodes.ts`:10 个 CRUD 端点(providers CRUD 4 + nodes CRUD 4 + module-mapping 2),路由层**只依赖接口**、接收 repo 注入
+- 【已实施】`server/src/index.ts` 注入 `new SettingsJsonRepo()` 给 nodesRoutes
+- 【已实施】`frontend/src/services/api.ts` 新增 providers/nodes CRUD 方法（**2026-06-30 修复**：新增 `nodePoolApi.ts` + `api.ts` re-export）
+- 【已实施】前端 store 启动时从 /api/providers 拉取(替代 settings.json 直读；bootstrap.ts 先 GET /api/settings 回载兼容旧版，再 GET /api/providers 覆盖)
+- 【已实施】`settings.ts` POST /api/settings 拒收/忽略 providers/providerNodes 键(改由 nodes 路由)
+- 【已实施】验证:整体 POST /api/settings 不再含 providers/providerNodes;节点池 Tab 数据正常;并发写不丢数据
 - **前瞻约束**:路由层禁止 import 具体 Repo 类,只依赖 NodePoolRepository 接口(5.5b 时只换注入实例)
+- ✅ **2026-06-30 修复**：pushNodePoolNow 从整数组 POST 改为 diff-based sync（方案 B：per-item PUT/DELETE），新增 `nodePoolApi.ts`（providersApi/nodesApi/moduleMappingApi）+ 3 单测；469/469 绿
 
 ### 批次 5:5.6 UI 组件拆分
 

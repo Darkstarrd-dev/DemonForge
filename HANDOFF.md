@@ -2,7 +2,7 @@
 
 **最后更新**：2026-06-30
 **当前位置**：办公场所 A
-**本轮主题**：**节点池模块化批次5实施完成：5.6 UI 组件拆分（NodePoolManager + NodeTestPanel + ModuleMappingPanel + useNodePoolCrud + useNodeTesting）**
+**本轮主题**：**5.5a 修复：pushNodePoolNow diff-based sync（per-item PUT/DELETE 替代整数组 POST）**
 
 > 📦 **历史明细已归档** → `docs/handoff_history.md`
 > 本文件只保留「恢复工作所需的活内容」：进行中任务、模块清单、下一步、交接参考。
@@ -60,6 +60,44 @@
 
 ---
 
+## 🆕 5.5a 修复：pushNodePoolNow diff-based sync（2026-06-30）
+
+### 背景
+
+批次 4 实施 5.5a 时 `pushNodePoolNow` 将整数组 `POST /api/providers` 和 `POST /api/nodes`，但后端端点期望**单个对象含 `.id`**（`if (!body.id) return 400`），导致推送静默失败（400 被 `.catch(() => {})` 吞没）。同时 `POST /api/settings` 已剔除三键，节点池变更无写入通道 → 仅存内存，重启丢失。
+
+### 修复（方案 B：对齐原计划 per-item CRUD）
+
+- **新增 `frontend/src/services/real/nodePoolApi.ts`**：
+  - `providersApi` / `nodesApi` / `moduleMappingApi` 三个客户端对象
+  - 每对象含 `list()`(GET) / `save()`(PUT upsert) / `remove()`(DELETE) 方法
+  - 支持 `keepalive` 选项（关窗冲刷时 `keepalive: true`）
+- **修改 `api.ts`**：re-export `providersApi` / `nodesApi` / `moduleMappingApi`
+- **修改 `persistence.ts`**：
+  - `pushNodePoolNow` `void` → `async`，改为 **diff-based sync**：
+    1. GET 后端当前 providers/nodes
+    2. 本地有 → PUT /api/{providers,nodes}/:id（upsert）
+    3. 后端多余 → DELETE /api/{providers,nodes}/:id
+    4. module-mapping → POST 整体替换
+  - `flushStoreWrites`：关窗冲刷改为 per-item PUT upsert（不做 DELETE，由下次 `pushNodePoolNow` 补偿）
+- **新增单测** `persistence.test.ts` ⑧⑨⑩：验证 PUT 单项、删除后端多余、更新已有项
+
+### 验证
+
+| 命令 | 结果 |
+|---|---|
+| `npx tsc -b`（frontend） | 3 个预存错误（Step3Clean），本轮无新增 |
+| `npm run lint`（frontend） | 2 个预存错误（Step3Clean），本轮无新增 |
+| `npm test`（frontend 全量） | **469/469 passed**（原 466 + 新增 3） |
+| `npx tsc --noEmit`（server） | 通过 |
+| `npx tsc --noEmit`（electron） | 通过 |
+
+### 调用方兼容性
+
+`pushNodePoolNow` 返回 `void` → `Promise<void>`，3 个调用方（`useNodePoolCrud.ts:389`、`settings/index.tsx:237`、`persistence.ts:398`）均为 fire-and-forget（无 await），安全。
+
+---
+
 ## ✅ 已完成模块总览
 
 ### 核心创作
@@ -92,7 +130,7 @@
 | 1 | 5.1 类型独立 + 5.2 纯函数层独立 + 5.7 导入/导出独立 | ✅ |
 | 2 | 5.3 调度策略抽出（runtime/policy/SchedulableNode） | ✅ |
 | 3 | 5.4 状态 slice 解耦（独立 store + interop） | ✅ |
-| 4 | 5.5a 后端独立路由（NodePoolRepository + SettingsJsonRepo + 10 端点） | ✅ |
+| 4 | 5.5a 后端独立路由（NodePoolRepository + SettingsJsonRepo + 10 端点）+ **修复**（per-item CRUD diff sync） | ✅ |
 | 5 | **5.6 UI 组件拆分**（3 子组件 + 2 hooks；NodesTabContent 0 props；settings/index 1523→450 行） | ✅ |
 | 6 | 5.5b 迁 SQLite（可选） | ⏳ |
 
@@ -107,7 +145,7 @@
 - [x] **A-1~A-14 全部收口**（重构线：SSE 统一 / CleanScheduler 类化 / appStore 切片化 / 组件拆分 / 主题色收敛 / M1 懒加载 / processKiller 等）
 - [x] 品牌重命名 **DemonForge**（productName / 图标 / favicon）
 - [x] 编译打包（NSIS 安装包 + 便携版；file:// 协议修复）
-- [x] Vitest 4 测试项目拆分（core/monopoly/dice 三 project，**466/466 绿**）
+- [x] Vitest 4 测试项目拆分（core/monopoly/dice 三 project，**469/469 绿**）
 
 ### 🚧 待完善
 - [ ] 端到端实测节点池：新增供应商 → 文本/图片节点 → 模块映射 → 批量测试 → 导入导出
@@ -138,7 +176,7 @@
 - **数据目录**：开发 `server/src/data/`；生产 `~/.novelhelper/`
 
 ### 关键文件路径
-- **前端服务层**：`services/api.ts` → `mock/` / `real/`；SSE 解析 `services/sse.ts`；清理调度器 `services/cleanScheduler.ts`；Session 引擎 `services/sessionEngine.ts`
+- **前端服务层**：`services/api.ts` → `mock/` / `real/`；节点池 CRUD 客户端 `services/real/nodePoolApi.ts`（providersApi/nodesApi/moduleMappingApi）；SSE 解析 `services/sse.ts`；清理调度器 `services/cleanScheduler.ts`；Session 引擎 `services/sessionEngine.ts`
 - **状态**：`store/appStore.ts`（90 行组合根 + `slices/` 6 切片 + `persistence.ts` + `bootstrap.ts` + `types.ts`）
 - **节点池包**：`packages/node-pool/{types,normalize,resolver,picker,circuitBreaker,runtime,policy,store,persistence,serialize}.ts` + **`ui/{NodePoolManager,NodeTestPanel,ModuleMappingPanel}.tsx`**
 - **节点池 hooks**：`hooks/{useNodePoolCrud,useNodeTesting}.ts` + `index.ts`

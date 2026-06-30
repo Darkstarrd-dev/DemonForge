@@ -170,3 +170,107 @@ describe('持久化 · 写入串行与防抖', () => {
     expect(storePosts(calls).length).toBe(before + 1)
   })
 })
+
+// ===== 5.5a 修复：pushNodePoolNow diff-based sync 测试 =====
+
+describe('持久化 · pushNodePoolNow per-item diff sync', () => {
+  it('⑧ PUT 单项而非整数组 POST', async () => {
+    const calls: Call[] = []
+    stubFetch(calls, (url) => {
+      if (url.includes('/api/providers') && !url.includes('/api/providers/')) return jsonRes([])
+      if (url.includes('/api/nodes') && !url.includes('/api/nodes/')) return jsonRes([])
+      return undefined
+    })
+    const { bootstrapStore } = await import('./appStore')
+    await bootstrapStore()
+
+    const { nodePoolStore } = await import('../packages/node-pool/store')
+    const { pushNodePoolNow } = await import('./appStore')
+    nodePoolStore.setState({
+      providers: [{ id: 'p1', name: 'P1', baseURL: 'http://x', apiKeys: [], rotationPolicy: 'round-robin', createdAt: 0 }],
+      providerNodes: [{ id: 'n1', providerId: 'p1', nodeType: 'text', model: 'm1', enabled: true, maxConcurrency: 2, batchChars: 4000, intervalSec: 0 }],
+      moduleMapping: {} as Record<string, { nodeId: string | null }>,
+    })
+    await pushNodePoolNow()
+
+    // 不应有 POST /api/providers（整数组），只应有 PUT /api/providers/p1
+    const providerPosts = calls.filter((c) => c.url === '/api/providers' && c.method === 'POST')
+    const providerPuts = calls.filter((c) => c.url === '/api/providers/p1' && c.method === 'PUT')
+    expect(providerPosts).toHaveLength(0)
+    expect(providerPuts).toHaveLength(1)
+
+    // 不应有 POST /api/nodes（整数组），只应有 PUT /api/nodes/n1
+    const nodePosts = calls.filter((c) => c.url === '/api/nodes' && c.method === 'POST')
+    const nodePuts = calls.filter((c) => c.url === '/api/nodes/n1' && c.method === 'PUT')
+    expect(nodePosts).toHaveLength(0)
+    expect(nodePuts).toHaveLength(1)
+
+    // module-mapping 仍为 POST 整体替换
+    const mappingPosts = calls.filter((c) => c.url === '/api/module-mapping' && c.method === 'POST')
+    expect(mappingPosts).toHaveLength(1)
+  })
+
+  it('⑨ 删除本地不存在的后端 provider/node', async () => {
+    const calls: Call[] = []
+    stubFetch(calls, (url) => {
+      if (url.includes('/api/providers') && !url.includes('/api/providers/')) return jsonRes([
+        { id: 'p-old', name: 'Old', baseURL: 'http://x', apiKeys: [], rotationPolicy: 'round-robin', createdAt: 0 },
+      ])
+      if (url.includes('/api/nodes') && !url.includes('/api/nodes/')) return jsonRes([
+        { id: 'n-old', providerId: 'p-old', nodeType: 'text', model: 'm', enabled: true, maxConcurrency: 1, batchChars: 1000, intervalSec: 0 },
+      ])
+      return undefined
+    })
+    const { bootstrapStore } = await import('./appStore')
+    await bootstrapStore()
+
+    const { nodePoolStore } = await import('../packages/node-pool/store')
+    const { pushNodePoolNow } = await import('./appStore')
+    // 本地为空 → 后端 p-old/n-old 应被 DELETE
+    nodePoolStore.setState({
+      providers: [],
+      providerNodes: [],
+      moduleMapping: {} as Record<string, { nodeId: string | null }>,
+    })
+    await pushNodePoolNow()
+
+    const providerDeletes = calls.filter((c) => c.url === '/api/providers/p-old' && c.method === 'DELETE')
+    const nodeDeletes = calls.filter((c) => c.url === '/api/nodes/n-old' && c.method === 'DELETE')
+    expect(providerDeletes).toHaveLength(1)
+    expect(nodeDeletes).toHaveLength(1)
+  })
+
+  it('⑩ 更新已有 provider/node（PUT 而非 POST）', async () => {
+    const calls: Call[] = []
+    stubFetch(calls, (url) => {
+      if (url.includes('/api/providers') && !url.includes('/api/providers/')) return jsonRes([
+        { id: 'p1', name: 'OldName', baseURL: 'http://x', apiKeys: [], rotationPolicy: 'round-robin', createdAt: 0 },
+      ])
+      if (url.includes('/api/nodes') && !url.includes('/api/nodes/')) return jsonRes([
+        { id: 'n1', providerId: 'p1', nodeType: 'text', model: 'old-m', enabled: true, maxConcurrency: 1, batchChars: 1000, intervalSec: 0 },
+      ])
+      return undefined
+    })
+    const { bootstrapStore } = await import('./appStore')
+    await bootstrapStore()
+
+    const { nodePoolStore } = await import('../packages/node-pool/store')
+    const { pushNodePoolNow } = await import('./appStore')
+    nodePoolStore.setState({
+      providers: [{ id: 'p1', name: 'NewName', baseURL: 'http://x', apiKeys: [], rotationPolicy: 'round-robin', createdAt: 0 }],
+      providerNodes: [{ id: 'n1', providerId: 'p1', nodeType: 'text', model: 'new-m', enabled: true, maxConcurrency: 2, batchChars: 4000, intervalSec: 1 }],
+      moduleMapping: {} as Record<string, { nodeId: string | null }>,
+    })
+    await pushNodePoolNow()
+
+    // p1 存在于后端 → PUT（upsert），不应 DELETE
+    const providerPuts = calls.filter((c) => c.url === '/api/providers/p1' && c.method === 'PUT')
+    const providerDeletes = calls.filter((c) => c.url === '/api/providers/p1' && c.method === 'DELETE')
+    expect(providerPuts).toHaveLength(1)
+    expect(providerDeletes).toHaveLength(0)
+
+    // 验证 PUT body 含新数据
+    const putBody = parseBody(providerPuts[0].body)
+    expect(putBody.name).toBe('NewName')
+  })
+})

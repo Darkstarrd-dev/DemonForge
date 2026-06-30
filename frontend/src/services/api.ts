@@ -59,3 +59,6 @@ export type { GenerateCardArgs, GeneratedCard, ImagePromptItem, CardImagePrompts
 // M2 设定卡片 · 批量生图（三协议派发 + 并发池）。
 export { generateOneCardImage, runImageBatch } from './real/cardImage'
 export type { CardImageParams, BatchItemStatus, BatchItemUpdate } from './real/cardImage'
+
+// 节点池 CRUD API 客户端（5.5a：对齐后端 per-item CRUD 端点）。
+export { providersApi, nodesApi, moduleMappingApi } from './real/nodePoolApi'

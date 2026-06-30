@@ -10,6 +10,7 @@
 import { useAppStore } from './appStore'
 import type { AppState } from './types'
 import { nodePoolStore } from '../packages/node-pool/store'
+import { providersApi, nodesApi, moduleMappingApi } from '../services/real/nodePoolApi'
 
 // storeReady 门控：bootstrapStore 引导完成前，订阅与 pushXxxNow 都不写后端。
 // 私有变量 + get/set 导出，供 bootstrap.ts 跨模块控制时序（删光不复活分支需临时置 false）。
@@ -187,31 +188,57 @@ let settingsTimer: ReturnType<typeof setTimeout> | null = null
 // 改通过 /api/providers + /api/nodes + /api/module-mapping 独立推送。
 let nodePoolTimer: ReturnType<typeof setTimeout> | null = null
 
-/** 立即推送当前节点池数据到后端（绕过 1s 防抖）。用于备份导入/节点增删改等关键操作。 */
-export function pushNodePoolNow(): void {
+/**
+ * 立即推送当前节点池数据到后端（绕过 1s 防抖）。
+ *
+ * 5.5a 修复：改用 diff-based sync——先 GET 后端当前状态，再逐项 PUT(upsert) / DELETE，
+ * 不再将整数组 POST 到单项端点（后端 POST /api/providers 期望单个对象含 .id）。
+ *
+ * diff 策略：
+ * - 本地有、后端有 → PUT /api/{providers,nodes}/:id（upsert）
+ * - 本地有、后端无 → PUT /api/{providers,nodes}/:id（upsert，PUT 兼容创建）
+ * - 本地无、后端有 → DELETE /api/{providers,nodes}/:id
+ * - module-mapping → POST 整体替换
+ */
+export async function pushNodePoolNow(): Promise<void> {
   if (!storeReady) return
   if (nodePoolTimer) {
     clearTimeout(nodePoolTimer)
     nodePoolTimer = null
   }
-  const { providers, providerNodes, moduleMapping } = nodePoolStore.getState()
-  Promise.all([
-    fetch('/api/providers', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(providers),
-    }).catch(() => {}),
-    fetch('/api/nodes', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(providerNodes),
-    }).catch(() => {}),
-    fetch('/api/module-mapping', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(moduleMapping),
-    }).catch(() => {}),
-  ]).catch(() => {})
+  const { providers: localProviders, providerNodes: localNodes, moduleMapping: localMapping } = nodePoolStore.getState()
+  const localProviderIds = new Set(localProviders.map((p) => p.id))
+  const localNodeIds = new Set(localNodes.map((n) => n.id))
+
+  try {
+    const [backendProviders, backendNodes] = await Promise.all([
+      providersApi.list().catch(() => [] as typeof localProviders),
+      nodesApi.list().catch(() => [] as typeof localNodes),
+    ])
+
+    // Providers: upsert 本地全部 + delete 后端多余
+    const providerOps = [
+      ...localProviders.map((p) => providersApi.save(p).catch(() => {})),
+      ...backendProviders
+        .filter((bp) => !localProviderIds.has(bp.id))
+        .map((bp) => providersApi.remove(bp.id).catch(() => {})),
+    ]
+
+    // Nodes: upsert 本地全部 + delete 后端多余
+    const nodeOps = [
+      ...localNodes.map((n) => nodesApi.save(n).catch(() => {})),
+      ...backendNodes
+        .filter((bn) => !localNodeIds.has(bn.id))
+        .map((bn) => nodesApi.remove(bn.id).catch(() => {})),
+    ]
+
+    // Module-mapping: 整体替换
+    const mappingOp = moduleMappingApi.save(localMapping).catch(() => {})
+
+    await Promise.all([...providerOps, ...nodeOps, mappingOp])
+  } catch {
+    // 后端不可用或 GET 失败：吞错（fire-and-forget，下次 debounce 重试）
+  }
 }
 
 /** 构造节点池整体载荷（供 backup.ts 备份与 flushStoreWrites 使用，单次 settings 兼容写入）。 */
@@ -293,25 +320,15 @@ export async function flushStoreWrites(): Promise<void> {
       body: JSON.stringify(settingsPayload(st)),
       keepalive: true,
     }).catch(() => {}),
-    // 5.5a：节点池独立推送（三键整体 POST，替代旧 settings 混存）
-    fetch('/api/providers', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(np.providers),
-      keepalive: true,
-    }).catch(() => {}),
-    fetch('/api/nodes', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(np.providerNodes),
-      keepalive: true,
-    }).catch(() => {}),
-    fetch('/api/module-mapping', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(np.moduleMapping),
-      keepalive: true,
-    }).catch(() => {}),
+    // 5.5a 修复：节点池 per-item upsert（PUT /api/{providers,nodes}/:id），不再整数组 POST。
+    // 关窗冲刷只做 upsert，不做 delete（无法先 GET 再 diff）；删除由下次 pushNodePoolNow 补偿。
+    ...np.providers.map((p) =>
+      providersApi.save(p, { keepalive: true }).catch(() => {}),
+    ),
+    ...np.providerNodes.map((n) =>
+      nodesApi.save(n, { keepalive: true }).catch(() => {}),
+    ),
+    moduleMappingApi.save(np.moduleMapping, { keepalive: true }).catch(() => {}),
     (async () => {
       if (!st.importSession) {
         await fetch('/api/import-session', { method: 'DELETE', keepalive: true }).catch(() => {})
