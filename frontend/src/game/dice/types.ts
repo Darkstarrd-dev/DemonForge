@@ -55,6 +55,7 @@ export interface DicePhysicsParams {
   gravity: number
   throwForce: number
   spinForce: number
+  dropHeight: number
 }
 
 export const DEFAULT_PHYSICS: DicePhysicsParams = {
@@ -63,6 +64,7 @@ export const DEFAULT_PHYSICS: DicePhysicsParams = {
   gravity: 9.81,
   throwForce: 15,
   spinForce: 8,
+  dropHeight: 8,
 }
 
 export interface DiceAnimParams {

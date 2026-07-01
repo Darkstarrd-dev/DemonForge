@@ -96,10 +96,11 @@ export default function Dice3DPanel({
               label: '物理参数',
               children: (
                 <Space direction="vertical" size={4} style={{ width: '100%' }}>
-                  <div><Text style={{ fontSize: 11 }}>摩擦力 {physics.friction.toFixed(2)}</Text><Slider min={0} max={1} step={0.05} value={physics.friction} onChange={(v) => updatePhysics('friction', v)} /></div>
-                  <div><Text style={{ fontSize: 11 }}>弹性 {physics.restitution.toFixed(2)}</Text><Slider min={0} max={1} step={0.05} value={physics.restitution} onChange={(v) => updatePhysics('restitution', v)} /></div>
-                  <div><Text style={{ fontSize: 11 }}>投掷力 {physics.throwForce}</Text><Slider min={5} max={30} step={1} value={physics.throwForce} onChange={(v) => updatePhysics('throwForce', v)} /></div>
-                  <div><Text style={{ fontSize: 11 }}>旋转力 {physics.spinForce}</Text><Slider min={2} max={20} step={1} value={physics.spinForce} onChange={(v) => updatePhysics('spinForce', v)} /></div>
+                  <div><Text style={{ fontSize: 11 }}>摩擦力 {physics.friction.toFixed(2)}</Text><Slider min={0} max={4} step={0.05} value={physics.friction} onChange={(v) => updatePhysics('friction', v)} /></div>
+                  <div><Text style={{ fontSize: 11 }}>弹性 {physics.restitution.toFixed(2)}</Text><Slider min={-2} max={2} step={0.05} value={physics.restitution} onChange={(v) => updatePhysics('restitution', v)} /></div>
+                  <div><Text style={{ fontSize: 11 }}>投掷力 {physics.throwForce}</Text><Slider min={-15} max={15} step={1} value={physics.throwForce} onChange={(v) => updatePhysics('throwForce', v)} /></div>
+                  <div><Text style={{ fontSize: 11 }}>旋转力 {physics.spinForce}</Text><Slider min={-15} max={10} step={1} value={physics.spinForce} onChange={(v) => updatePhysics('spinForce', v)} /></div>
+                  <div><Text style={{ fontSize: 11 }}>投放高度 {physics.dropHeight}</Text><Slider min={3} max={15} step={1} value={physics.dropHeight} onChange={(v) => updatePhysics('dropHeight', v)} /></div>
                 </Space>
               ),
             },

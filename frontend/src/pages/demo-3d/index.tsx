@@ -35,10 +35,11 @@ export default function Demo3DPage() {
   const [diceTheme, setDiceTheme] = useState<DiceThemeColors>({ face: '#FFFFFF', pip: '#000000', edge: '#333333' })
   const [dicePhysics, setDicePhysics] = useState<DicePhysicsParams>({
     friction: 0.6,
-    restitution: 0.5,
+    restitution: 0.15,
     gravity: 9.81,
     throwForce: 15,
-    spinForce: 10,
+    spinForce: 8,
+    dropHeight: 8,
   })
 
   const startEngine = () => {

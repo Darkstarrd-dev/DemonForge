@@ -16,10 +16,11 @@ import type { DiceSideValue, DiceThemeColors, DicePhysicsParams } from '../../ga
 const DEFAULT_THEME: DiceThemeColors = { face: '#FFFFFF', pip: '#000000', edge: '#333333' }
 const DEFAULT_PHYSICS: DicePhysicsParams = {
   friction: 0.6,
-  restitution: 0.5,
+  restitution: 0.15,
   gravity: 9.81,
   throwForce: 15,
-  spinForce: 10,
+  spinForce: 8,
+  dropHeight: 8,
 }
 
 interface Dice3DParams {
@@ -97,6 +98,23 @@ export async function createDice3DEngine(
     floorBody,
   )
 
+  const wallBody = world.createRigidBody(RAPIER.RigidBodyDesc.fixed())
+  const wallDefs = [
+    { x: -10, y: 5, z: 0, hx: 0.5, hy: 5, hz: 10 },
+    { x: 10, y: 5, z: 0, hx: 0.5, hy: 5, hz: 10 },
+    { x: 0, y: 5, z: -10, hx: 10, hy: 5, hz: 0.5 },
+    { x: 0, y: 5, z: 10, hx: 10, hy: 5, hz: 0.5 },
+  ]
+  for (const w of wallDefs) {
+    world.createCollider(
+      RAPIER.ColliderDesc.cuboid(w.hx, w.hy, w.hz)
+        .setTranslation(w.x, w.y, w.z)
+        .setRestitution(0.1)
+        .setFriction(physics.friction),
+      wallBody,
+    )
+  }
+
   const textures = createDiceFaceTextures(params.sides, theme)
 
   const animate = () => {
@@ -113,6 +131,16 @@ export async function createDice3DEngine(
       renderer.render(scene, camera)
 
       if (pendingRoll) {
+        for (let i = 0; i < bodies.length; i++) {
+          const t = bodies[i].translation()
+          if (t.y < -10) {
+            const angle = (i / bodies.length) * Math.PI * 2
+            bodies[i].setTranslation({ x: Math.cos(angle) * 2, y: physics.dropHeight + Math.random() * 0.5, z: Math.sin(angle) * 2 }, true)
+            bodies[i].setLinvel({ x: 0, y: 0, z: 0 }, true)
+            bodies[i].setAngvel({ x: 0, y: 0, z: 0 }, true)
+          }
+        }
+
         const allSettled = bodies.every((b) => {
           const lv = b.linvel()
           const av = b.angvel()
@@ -201,7 +229,7 @@ export async function createDice3DEngine(
       const mesh = new THREE.Mesh(geo, materials)
       mesh.castShadow = true
       mesh.receiveShadow = true
-      mesh.position.set(startX + i * spacing, 6 + Math.random() * 2, (Math.random() - 0.5) * 2)
+      mesh.position.set(startX + i * spacing, physics.dropHeight, (Math.random() - 0.5) * 2)
       mesh.quaternion.set(
         Math.random() * 2 - 1,
         Math.random() * 2 - 1,
@@ -214,6 +242,7 @@ export async function createDice3DEngine(
 
       const bodyDesc = RAPIER.RigidBodyDesc.dynamic()
         .setTranslation(mesh.position.x, mesh.position.y, mesh.position.z)
+        .setCcdEnabled(true)
       const body = world.createRigidBody(bodyDesc)
 
       const positions = geo.attributes.position.array as Float32Array
@@ -231,7 +260,7 @@ export async function createDice3DEngine(
       const throwF = physics.throwForce
       const spinF = physics.spinForce
       body.applyImpulse(
-        { x: (Math.random() - 0.5) * throwF * 0.3, y: throwF * 0.1, z: (Math.random() - 0.5) * throwF * 0.3 },
+        { x: (Math.random() - 0.5) * throwF * 0.3, y: 0, z: (Math.random() - 0.5) * throwF * 0.3 },
         true,
       )
       body.applyTorqueImpulse(
